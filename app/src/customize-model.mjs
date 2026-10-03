@@ -179,6 +179,8 @@ export function customizeCore(core) {
     deepseek,
     skillToggle: capabilities.skillToggle !== false,
     mcpConfigWrite: capabilities.mcpConfigWrite !== false,
+    // The DeepSeek core's dsh-plugin-manager (harness plugins.js): install, remove and turn bundles on/off.
+    pluginManage: capabilities.pluginManage === true,
     configPath,
     configFile,
     // DeepSeek: dsh-skill-filesystem project and home roots, in precedence order.
@@ -416,6 +418,11 @@ export function pluginRows(response, skills = []) {
         marketplacePath: typeof marketplace?.path === "string" ? marketplace.path : null,
         skillCount: skills.filter((skill) => skill.pluginId === plugin.id).length,
         updatedAt: null,
+        version: typeof plugin.version === "string" ? plugin.version : null,
+        // DeepSeek bridge field (catalog.js pluginSummary): what management may do with this bundle.
+        removable: plugin.codeDesktop?.removable === true,
+        manageable: !!plugin.codeDesktop && !plugin.codeDesktop.readOnlyReason,
+        loadError: text(plugin.codeDesktop?.loadError).trim(),
       });
     }
   }
@@ -470,3 +477,56 @@ export function shortDate(seconds, locale = undefined) {
 // Debounce plan for skills/changed: coalesce bursts, never wait longer than
 // the window (the acceptance bound is 500 ms from the notification).
 export const SKILLS_CHANGED_DEBOUNCE_MS = 250;
+
+// ---------------------------------------------------------------------------
+// Plugin installs (DeepSeek core, harness plugins.js over dsh-plugin-manager).
+
+const INSTALL_FAILURES = {
+  "pnpm-missing": "The package manager (pnpm) could not be started.",
+  timeout: "The installation timed out.",
+  "not-found": "No package was found for this spec.",
+  "no-matching-version": "No version of this package matches.",
+  network: "The package registry could not be reached. Check your connection and try again.",
+  "disk-full": "There is not enough disk space.",
+  permission: "The plugin folder is not writable.",
+  "build-blocked": "The package needs to run build scripts.",
+  integrity: "The downloaded package failed its integrity check.",
+};
+const MANAGEMENT_ERRORS = {
+  "not-bundle": "This package is not a DeepSeek Harness plugin.",
+  "not-removable": "This plugin is part of Code Desktop and cannot be removed.",
+  "management-required": "Code Desktop needs this plugin.",
+  "invalid-spec": "Enter a package name, absolute path, git URL or tarball URL.",
+  "incompatible-version": "This plugin does not support this DeepSeek Harness version.",
+  "bundle-in-use": "This plugin is in use and cannot be removed now.",
+};
+
+// A finished install/remove/toggle (dsh-plugin-manager ChangeResult) → what the page says.
+export function pluginChangeOutcome(result) {
+  if (!result || typeof result !== "object") return { ok: false, message: "The plugin change did not finish." };
+  if (result.application === "cancelled") return { ok: false, cancelled: true, message: "Installation cancelled." };
+  const pending = Array.isArray(result.pendingBuilds) ? result.pendingBuilds.filter((name) => typeof name === "string") : [];
+  if (result.error || result.application === "failed" || (result.stage === "install" && result.changed !== true)) {
+    const kind = result.packageResult?.kind;
+    const incompatible = Array.isArray(result.error?.incompatible) && result.error.incompatible.length
+      ? ` (${result.error.incompatible.map((item) => `${item.name}@${item.version}`).join(", ")})` : "";
+    const message = (result.error?.code && MANAGEMENT_ERRORS[result.error.code] ? MANAGEMENT_ERRORS[result.error.code] + incompatible : "")
+      || (kind && INSTALL_FAILURES[kind]) || text(result.error?.diagnostic).trim() || "The plugin change failed.";
+    return { ok: false, message, pendingBuilds: pending, output: text(result.packageResult?.output) };
+  }
+  return { ok: true, restartRequired: result.application === "restart-required" && result.changed !== false, bundle: text(result.bundle) || text(result.target) };
+}
+
+// install-state progress → one status line.
+export function pluginInstallStatus(install) {
+  if (!install) return "";
+  if (install.phase === "cancelling") return "Cancelling…";
+  if (install.phase === "applying") return "Applying…";
+  const attempt = install.attempt;
+  const registry = attempt?.registry ? ` from ${attempt.registry}` : "";
+  const count = attempt && attempt.total > 1 ? ` (${attempt.index + 1}/${attempt.total})` : "";
+  return `Installing${registry}${count}…`;
+}
+
+export const PLUGIN_LOG_LIMIT = 20000;
+export const appendPluginLog = (log, chunk) => { const next = (log || "") + (chunk || ""); return next.length > PLUGIN_LOG_LIMIT ? next.slice(-PLUGIN_LOG_LIMIT) : next; };

@@ -1,5 +1,19 @@
 # Code Desktop
 
+## 2026-10-03 插件管理：安装、启用/停用、移除 DeepSeek Harness 插件（未构建、未安装）
+
+背景：原生 DeepSeek Harness 用 dsh-plugin-manager 管理插件（npm bundle：Plugins 页、`dsh plugin`）。本内核已加载该服务，但 Customize › Plugins 只读列出 profile 的 bundle，而且 profile 就在本仓库 `harness/profile/`，装插件会改仓库文件。
+
+改动：
+- 内核 profile 移到 `~/.dsh/code-desktop/profile`（`CODE_DESKTOP_PROFILE_DIR` 可改；bin/profile.mjs 首次从仓库 `harness/profile/` 模板复制，以后只补回缺失的内核 bundle），与 DeepSeek App 把 desktop profile 放在 DSH home 一致。插件是用户数据，不随仓库更新丢失，也不弄脏 git。
+- 内核依赖带上 pnpm 11（`harness/package.json`），作为 launcher 的 packageManager 交给 dsh-plugin-manager，用户不需要自己装 pnpm（`CODE_DESKTOP_PNPM` 可改）。
+- 桥接 `plugins.js`：`codeDesktop/plugin/inspect|install|cancelInstall|setEnabled|remove`，安装进度与 pnpm 输出通知，`plugin/installed` 行带 removable / loadError 等；`capabilities.pluginManage`。
+- app：Plugins 页"Add plugin"内联表单（npm 名 / 绝对路径 / git / tarball → 先 inspect 再安装，实时状态与可展开输出、Cancel install、构建脚本"Allow these scripts and retry"）；插件详情的开关与 Remove（确认框）；加载失败徽标与原因；变更需重启时的"Restart DeepSeek"提示（走 Reconnect）。主进程按能力放行并校验参数，安装超时 15 分钟。
+
+测试：harness `npm test` 145/145（新增 `tests/plugins.test.mjs` 5 项：参数校验、输出转发、profile 播种与修复、pnpm 选择、行字段）；`tests/fake-model-smoke.mjs` 33 项全过（新增 9 项：profile 在 DSH home、inspect 接受 bundle/拒绝普通包、经内置 pnpm 从本地路径真实安装并收到进度与输出、插件只写进用户 profile、仓库模板不变、停用、内核 bundle 不可移除、移除、`-` 开头 spec 被拒）。另手动经真实 npm registry 跑 inspect：普通包 → not-a-bundle，`@deepseek-ai/dsh-experimental-schedule-bundle` → accepted，不存在的包 3.4 秒 → not-found（npm 后回退 npmmirror）。app 新增 `tests/plugin-manage.test.mjs` 5 项（行字段与能力、结果文案、store 安装流程/进度/输出/重启标记/构建批准重试、主进程校验、表单/提示/详情 SSR）；全量失败集合与未改动的 HEAD 相同（另有已知抖动的 file-name-search 用例）。
+
+未运行：`npm run build`（缺参考资源，同前）、GUI 套件、从 registry 真实安装（只做了 inspect 与本地路径安装）。限制：变更在重启内核后生效（本 profile 关闭 HMR），重启会停止正在运行的会话；没有插件市场/搜索，只能按 spec 安装；版本豁免（`set_version_exemption`）未接 UI。
+
 ## 2026-10-03 Dynamic workflows 补全：模型自己发起工作流、agent schema 结构化输出、可写工作流（未构建、未安装）
 
 背景：/workflow 已用内置的 scasella/claude-dynamic-workflows-codex（MIT，`app/third-party/codex-workflows-runner`）在 DeepSeek 内核上跑，但 ① runner 的 `agent(prompt,{schema})`（outputSchema）与 agentType 系统提示（developerInstructions）在本内核被忽略；② 只能由用户 /workflow 启动，模型不能自己发起；③ agent 一律只读。DeepSeek Harness 自带模型可调用的 `workflow` 工具（dsh-tool-workflow + dsh-workflow-ptc，dsh-base 已加载），只是 UI 不认识它。

@@ -244,6 +244,14 @@ export function pluginSummary(bundle, dir) {
       screenshots: [], screenshotUrls: [],
     },
     keywords: [],
+    // Bridge field (Codex clients ignore it): what Customize › Plugins may do with
+    // the bundle (dsh-plugin-manager BundleInfo) and why it did not load, if so.
+    codeDesktop: {
+      removable: bundle.removable === true,
+      optional: bundle.optional === true,
+      readOnlyReason: typeof bundle.readOnlyReason === 'string' ? bundle.readOnlyReason : null,
+      loadError: bundle.error ? (bundle.error.diagnostic || bundle.error.code || 'This plugin could not load.') : null,
+    },
   }
 }
 

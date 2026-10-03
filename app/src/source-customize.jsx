@@ -14,7 +14,7 @@ import { SourceConfirmationDialog } from './source-dialog.jsx';
 import { useSourceToasts } from './source-toast.jsx';
 import {
   CONNECTOR_TOASTS, MCP_CLIENT_PACKAGE, MCP_STATUS_FILTERS, MCP_STATUS_LABELS, connectorDetailMessage, connectorDetailState, connectorsListView, customizeCore,
-  filterErrors, filterMcp, filterMcpByStatus, filterPlugins, filterSkills, mcpServerConfigValue, pluginDisplayNames,
+  filterErrors, filterMcp, filterMcpByStatus, filterPlugins, filterSkills, mcpServerConfigValue, pluginChangeOutcome, pluginDisplayNames, pluginInstallStatus,
   shortDate, skillAuthor, skillGroupOptions, skillInvocable, skillTrigger, splitArguments, validateServerName,
 } from "./customize-model.mjs";
 import "./source-customize.css";
@@ -1040,7 +1040,7 @@ const DEFAULT_COPY = customizeCore();
 // Exported for window-free rendering tests of the actual production surface.
 // `mcp` = {rows, loading} of the Customize connectors catalog (connector rows'
 // titles and status); `onConnector(name)` opens a connector's drill.
-export function PluginDetail({ plugin, detail, error, skills, view, onView, onBack, onSkill, onConnector, scrollMemory, copy = DEFAULT_COPY, mcp = null }) {
+export function PluginDetail({ plugin, detail, error, skills, view, onView, onBack, onSkill, onConnector, scrollMemory, copy = DEFAULT_COPY, mcp = null, manage = null }) {
   const id = useId();
   const scroll = useRef(null);
   const mcpRows = mcp?.rows;
@@ -1057,7 +1057,8 @@ export function PluginDetail({ plugin, detail, error, skills, view, onView, onBa
       {/* c36b3644c be: `s || !a ? q` — until plugin/read answers, the whole page is the c9d36aa51 skeleton. */}
       {!detail && !error ? <PluginPageSkeleton /> :
       <section className="cz-plugin-detail" aria-label={plugin.name}>
-        <header className="cz-plugin-head"><h2 className="text-heading-semibold">{plugin.name}</h2>{!plugin.enabled && <Badge>Disabled</Badge>}</header>
+        <header className="cz-plugin-head"><h2 className="text-heading-semibold">{plugin.name}</h2>{!plugin.enabled && <Badge>Disabled</Badge>}{manage}</header>
+        {plugin.loadError && <p className="cz-error cz-plugin-message" role="alert" data-plugin-load-error="">This plugin could not load: {plugin.loadError}</p>}
         <div className="cz-plugin-metadata">
           {plugin.marketplaceName && <div><span>Source</span><div>Marketplace (<button type="button" className="cz-text-button" onClick={onBack}>{plugin.marketplaceName}</button>)</div></div>}
           {plugin.author && <div><span>Author</span><div className="cz-truncate" title={plugin.author}>{plugin.author}</div></div>}
@@ -1095,13 +1096,98 @@ export function PluginDetail({ plugin, detail, error, skills, view, onView, onBa
   </div>;
 }
 
-function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPath, onNavigate, copy }) {
+// ---------------------------------------------------------------------------
+// Plugin management (DeepSeek core: customize-store plugin ops → harness
+// plugins.js over dsh-plugin-manager). The source page has no install flow
+// for local bundles; this follows the Connectors page's inline add form.
+
+// The core loads plugin changes when it starts (its profile runs without hot reload).
+export function PluginRestartBanner({ onRestartCore }) {
+  const [busy, setBusy] = useState(false);
+  return <div className="cz-plugin-restart" role="status" data-plugin-restart="">
+    <span>Plugin changes apply after DeepSeek restarts. Restarting stops sessions that are running.</span>
+    {onRestartCore && <Button size="sm" variant="secondary" busy={busy} disabled={busy} onClick={async () => { setBusy(true); try { await onRestartCore(); } finally { setBusy(false); } }}>Restart DeepSeek</Button>}
+  </div>;
+}
+
+export function AddPluginForm({ store, install, onClose }) {
+  const [spec, setSpec] = useState(install?.spec || ""), [inspection, setInspection] = useState(null), [checking, setChecking] = useState(false), [error, setError] = useState("");
+  const running = install?.status === "running";
+  const outcome = install?.outcome;
+  const pending = outcome?.pendingBuilds?.length ? outcome.pendingBuilds : null;
+  async function submit(event) {
+    event.preventDefault();
+    if (running || checking || !spec.trim()) return;
+    setError(""); setInspection(null); setChecking(true);
+    try {
+      const found = await store.inspectPlugin(spec.trim());
+      setInspection(found);
+      if (found?.status !== "accepted") { setError(found?.reason || "This package cannot be installed."); return; }
+      if (found.bundle === false) { setError("This package is not a DeepSeek Harness plugin."); return; }
+      setChecking(false);
+      await store.installPlugin(spec.trim());
+    } catch (reason) { setError(reason?.message || "The plugin could not be installed."); }
+    finally { setChecking(false); }
+  }
+  const close = () => { store.clearPluginInstall(); onClose(); };
+  return (
+    <form className="cz-form" aria-label="Add plugin" onSubmit={submit} data-plugin-install={install?.status || "idle"}>
+      <h3>Add plugin</h3>
+      <p className="cz-muted">Install a DeepSeek Harness plugin from npm, a local folder (absolute path), a git URL or a tarball. Plugins run inside DeepSeek with your user permissions; install only ones you trust.</p>
+      <label className="cz-field"><span>Package</span><input aria-label="Plugin package" value={spec} placeholder="@scope/dsh-plugin or /path/to/plugin" disabled={running}
+        onChange={(event) => { setSpec(event.target.value); setError(""); setInspection(null); }} autoFocus /></label>
+      {inspection?.status === "accepted" && inspection.name && <p className="cz-muted" data-plugin-inspection="">
+        <strong>{inspection.name}</strong>{inspection.version ? ` ${inspection.version}` : ""}{inspection.description ? ` — ${inspection.description}` : ""}</p>}
+      {running && <p className="cz-muted" role="status">{checking ? "Checking…" : pluginInstallStatus(install)}</p>}
+      {install?.log && <SourceDisclosure label="Output"><pre className="cz-plugin-log" tabIndex={0} aria-label="Install output">{install.log}</pre></SourceDisclosure>}
+      {outcome?.ok && <p className="cz-muted" role="status">Installed {outcome.bundle || install.spec}.{outcome.restartRequired ? " Restart DeepSeek to load it." : ""}</p>}
+      {outcome && !outcome.ok && !outcome.cancelled && <p className="cz-error" role="alert">{outcome.message}</p>}
+      {outcome?.cancelled && <p className="cz-muted" role="status">{outcome.message}</p>}
+      {pending && <div className="cz-plugin-builds" data-plugin-pending-builds="">
+        <p>These packages want to run build scripts: <strong>{pending.join(", ")}</strong>. Build scripts run with your user permissions.</p>
+        <Button size="sm" variant="secondary" onClick={() => store.installPlugin(install.spec, { approvedBuilds: pending })}>Allow these scripts and retry</Button>
+      </div>}
+      {error && <p className="cz-error" role="alert">{error}</p>}
+      <div className="cz-form-actions">
+        {running
+          ? <Button variant="secondary" disabled={install.phase === "cancelling" || install.phase === "applying"} onClick={() => store.cancelPluginInstall()}>Cancel install</Button>
+          : <Button variant="secondary" disabled={checking} onClick={close}>{outcome ? "Close" : "Cancel"}</Button>}
+        <Button type="submit" variant="primary" busy={checking || running} disabled={checking || running || !spec.trim()}>Install</Button>
+      </div>
+    </form>
+  );
+}
+
+// Detail-page controls: on/off and Remove for a bundle the manager may change.
+function PluginManageControls({ plugin, store, onRemoved }) {
+  const [busy, setBusy] = useState(""), [error, setError] = useState(""), [confirm, setConfirm] = useState(false);
+  async function run(kind, action) {
+    setBusy(kind); setError("");
+    try { const outcome = await action(); if (!outcome.ok) setError(outcome.message); return outcome; }
+    catch (reason) { setError(reason?.message || "The plugin change failed."); return null; }
+    finally { setBusy(""); }
+  }
+  return <div className="cz-plugin-manage" data-plugin-manage="">
+    {plugin.manageable && <Switch label={`Turn ${plugin.name} ${plugin.enabled ? "off" : "on"}`} size="sm" checked={plugin.enabled} disabled={!!busy}
+      onChange={(value) => run("toggle", () => store.setPluginEnabled(plugin.pluginName, value))} />}
+    {plugin.removable && <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => setConfirm(true)}>Remove</Button>}
+    {error && <p className="cz-error" role="alert">{error}</p>}
+    <SourceConfirmationDialog open={confirm} title={`Remove ${plugin.name}?`} confirmLabel="Remove" confirmVariant="danger" pending={busy === "remove"}
+      body="The plugin is uninstalled from the DeepSeek core’s profile. You can install it again later."
+      onCancel={() => setConfirm(false)} onConfirm={async () => { const outcome = await run("remove", () => store.removePlugin(plugin.pluginName)); setConfirm(false); if (outcome?.ok) onRemoved?.(); }} />
+  </div>;
+}
+
+function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPath, onNavigate, copy, onRestartCore }) {
   const scrollMemory = useRef(new Map());
   const [ownedView, setOwnedView] = useState(null);
   const snapshot = useStore(store);
   const { rows, status, error } = snapshot.plugins.cwd === cwd ? snapshot.plugins
     : { rows: [], status: "loading", error: "" };
   const {query,setQuery,selected,setSelected}=useCatalogNavigation(focus,"pluginId");
+  const [adding,setAdding]=useState(false);
+  const pluginOps=snapshot.pluginOps||{install:null,restartRequired:false};
+  const banner=copy.pluginManage&&pluginOps.restartRequired?<PluginRestartBanner onRestartCore={onRestartCore}/>:null;
   const [ownedDetail,setOwnedDetail]=useState(null),[ownedError,setOwnedError]=useState(null);
   const [skillPath,setSkillPath]=useState(focus?.skillPath||null),[toggling,setToggling]=useState(false),[toggleError,setToggleError]=useState('');
   const request = useRef(0);
@@ -1140,7 +1226,8 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
       onToggle={toggleSkill} onBack={()=>setSkillPath(null)} onUseSkill={onUseSkill} onRevealPath={onRevealPath} copy={copy}/>
   </div>;
   if(current)return <div className="cz-page" data-cz-page="plugins" data-detail="">
-    <PluginDetail plugin={current} detail={detail} error={detailError}
+    {banner}
+    <PluginDetail plugin={current} manage={copy.pluginManage&&(current.manageable||current.removable)?<PluginManageControls plugin={current} store={store} onRemoved={()=>{setSelected(null);setSkillPath(null);}}/>:null} detail={detail} error={detailError}
       skills={snapshot.skills.cwd===cwd&&snapshot.skills.status==='ready'?snapshot.skills.skills:[]}
       view={ownedView?.id===current.id?ownedView:null} onView={value=>setOwnedView({id:current.id,...value})}
       onBack={()=>{setSelected(null);setSkillPath(null);}} onSkill={setSkillPath} scrollMemory={scrollMemory.current} copy={copy} mcp={mcp}
@@ -1148,7 +1235,9 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
   </div>;
   const empty = status === "ready" && shown.length === 0;
   const names = pluginDisplayNames(rows);
-  const header = <PageHeader title="Plugins" searchLabel="Search plugins" searchValue={query} onSearch={setQuery} />;
+  const header = <PageHeader title="Plugins" searchLabel="Search plugins" searchValue={query} onSearch={setQuery}
+    actions={copy.pluginManage ? <Button variant="primary" onClick={() => setAdding(true)} disabled={adding || !!pluginOps.install}>Add plugin</Button> : null} />;
+  const addForm = copy.pluginManage && (adding || pluginOps.install) ? <AddPluginForm store={store} install={pluginOps.install} onClose={() => setAdding(false)} /> : null;
   if (status === "error")
     return <div className="cz-page" data-cz-page="plugins">{header}<CatalogLoadError section="plugins" onRetry={() => { store.loadPlugins({ cwd, force: true }); }} /></div>;
   if (status === "loading")
@@ -1157,6 +1246,8 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
     <div className="cz-page" data-cz-page="plugins">
       {header}
       <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, query])}>
+          {banner}
+          {addForm}
           {!empty && (
             <ListTable columns={PLUGIN_COLUMNS} label="Plugins">
               {shown.map((row) => {
@@ -1169,6 +1260,7 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
                       <span className="cz-truncate">{display.name}</span>
                       {display.suffix && <span className="cz-muted cz-truncate" data-plugin-suffix="">{display.suffix}</span>}
                       {!row.enabled && <Badge>Disabled</Badge>}
+                      {row.loadError && <Badge variant="danger">Failed to load</Badge>}
                     </div>
                   </td>
                   <td className="cz-cell-secondary"><span className="cz-truncate cz-block">{row.author || <Dash />}</span></td>
@@ -1190,10 +1282,10 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
 // pages keep the Codex copy and every control.
 // `mcpDefinitions` is desktop-settings-read's (command/url/args/env names) for
 // the connector drill's LocalConfig.
-export function SourceCustomize({ section, store, threadId, cwd, call, core, onUseSkill, onOpenExternal, onRevealPath, onEditConfig, onNavigate, focus, mcpDefinitions }) {
+export function SourceCustomize({ section, store, threadId, cwd, call, core, onUseSkill, onOpenExternal, onRevealPath, onEditConfig, onNavigate, focus, mcpDefinitions, onRestartCore }) {
   const copy = useMemo(() => customizeCore(core), [core]);
   if (section === "customize-skills") return <SkillsPage store={store} cwd={cwd} call={call} onUseSkill={onUseSkill} onRevealPath={onRevealPath} onNavigate={onNavigate} focus={focus} copy={copy} />;
   if (section === "customize-connectors") return <ConnectorsPage store={store} threadId={threadId} cwd={cwd} onOpenExternal={onOpenExternal} call={call} onNavigate={onNavigate} focus={focus} copy={copy} onEditConfig={onEditConfig} mcpDefinitions={mcpDefinitions} />;
-  if (section === "customize-plugins") return <PluginsPage store={store} threadId={threadId} cwd={cwd} call={call} focus={focus} onUseSkill={onUseSkill} onRevealPath={onRevealPath} onNavigate={onNavigate} copy={copy} />;
+  if (section === "customize-plugins") return <PluginsPage store={store} threadId={threadId} cwd={cwd} call={call} focus={focus} onUseSkill={onUseSkill} onRevealPath={onRevealPath} onNavigate={onNavigate} copy={copy} onRestartCore={onRestartCore} />;
   return null;
 }

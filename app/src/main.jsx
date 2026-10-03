@@ -2356,8 +2356,11 @@ function App() {
   useEffect(() => {
     if (slashDraft && boot?.connected) customizeStore.loadSkills({ cwd: workdir || cwd });
   }, [slashDraft, boot?.connected, workdir, cwd]);
+  // Customize › Plugins "Restart DeepSeek": the Reconnect path restarts the core, which loads the saved plugin changes.
+  const reconnectRef = useRef(null);
+  reconnectRef.current = reconnect;
   const customize = useMemo(() => ({ store: customizeStore, threadId: current, cwd: workdir || cwd, call: customizeCall,
-    onUseSkill: applySkill, onOpenExternal: customizeOpenExternal, onRevealPath: customizeReveal }),
+    onUseSkill: applySkill, onOpenExternal: customizeOpenExternal, onRevealPath: customizeReveal, onRestartCore: () => reconnectRef.current?.() }),
     [current, workdir, cwd, customizeCall, applySkill, customizeOpenExternal, customizeReveal]);
   // shared-21 IO (sidebar-rows.js:8597-8613): the tV header identity + org line and the pw footer
   // `identity · orgPrimary` (account-label-model.mjs); no invented user without a preferred name.

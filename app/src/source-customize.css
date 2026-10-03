@@ -177,3 +177,12 @@ button.cz-plugin-item:hover { background:var(--cds-surface-0); }
    and loses to the unlayered `* { box-sizing:border-box }` (style.css:17), as noted for the
    transcript skeleton (source-transcript-states.css); restate it for the catalog skeleton only. */
 [data-cz-skeleton] .box-content { box-sizing:content-box; }
+
+/* Plugin management (DeepSeek core): restart notice, install output, build approval, detail controls. */
+.cz-plugin-restart { display:flex; align-items:center; justify-content:space-between; gap:var(--cds-gap-sm,12px); margin-bottom:12px; padding:10px 12px; border:1px solid var(--cds-alpha-2); border-radius:8px; background:var(--cds-surface-3); color:var(--cds-text-secondary); font-size:13px; line-height:18px; }
+.cz-plugin-log { max-height:220px; overflow:auto; margin:4px 0 0; padding:8px; border-radius:6px; background:var(--cds-surface-1); color:var(--cds-text-secondary); font:12px/16px var(--cds-font-mono,ui-monospace,monospace); white-space:pre-wrap; overflow-wrap:anywhere; }
+.cz-plugin-builds { display:grid; gap:8px; justify-items:start; }
+.cz-plugin-builds p { margin:0; color:var(--cds-text-secondary); }
+.cz-plugin-manage { display:flex; align-items:center; gap:8px; margin-left:auto; }
+.cz-form + .cz-list, .cz-plugin-restart + .cz-form { margin-top:12px; }
+.cz-badge[data-variant="danger"] { color:var(--cds-text-danger, var(--cds-text-warning)); }

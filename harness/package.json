@@ -4,9 +4,10 @@
   "type": "module",
   "description": "DeepSeek Harness runtime + Codex app-server compatible bridge for Code Desktop",
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@code-desktop/dsh-code-desktop-app": "file:./packages/code-desktop-app",
     "@code-desktop/dsh-codex-app-server": "file:./packages/codex-app-server",
-    "@code-desktop/dsh-code-desktop-app": "file:./packages/code-desktop-app"
+    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "pnpm": "^11.28.3"
   },
   "version": "0.1.0",
   "scripts": {

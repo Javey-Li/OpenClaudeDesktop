@@ -3,7 +3,9 @@
 // exists in the installed Codex app-server schema (work/codex-schema-0.155.1
 // ClientRequest.json): skills/list, skills/config/write, mcpServerStatus/list,
 // config/mcpServer/reload, mcpServer/oauth/login, config/batchWrite,
-// plugin/installed, plugin/read, hooks/list.
+// plugin/installed, plugin/read, hooks/list. Plugin management (install,
+// remove, on/off) is the DeepSeek bridge's codeDesktop/plugin/* (harness
+// plugins.js), offered only by a core with capabilities.pluginManage.
 //
 // skills/config/write and config/batchWrite edit the shared ~/.codex/config.toml
 // (the only real mechanism); the renderer says so next to those controls. A
@@ -17,6 +19,11 @@ const MCP_LIST_TIMEOUT = 15000;
 const MCP_WRITE_TIMEOUT = 30000;
 
 const SKILL_FILE_MAX_BYTES = 512 * 1024;
+// A pnpm install can download, build and fall back to a second registry.
+const PLUGIN_INSTALL_TIMEOUT = 15 * 60 * 1000;
+const PLUGIN_CHANGE_TIMEOUT = 5 * 60 * 1000;
+const PLUGIN_INSPECT_TIMEOUT = 90 * 1000;
+const PLUGIN_REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function createCustomizeOperations({ getClient, getConfig, knownCwd, stat = fs.promises.stat, readFile = fs.promises.readFile }) {
   // Only paths returned by the last skills/list may be toggled or read; the
@@ -50,6 +57,18 @@ function createCustomizeOperations({ getClient, getConfig, knownCwd, stat = fs.p
     const info = owner.serverInfo;
     if (info?.capabilities?.mcpConfigWrite === false)
       throw new Error(`Connector changes are not supported by the DeepSeek core. Add a @deepseek-ai/dsh-mcp-client entry to ${info.configPath || "the core profile"}, then Reconnect.`);
+  }
+  function assertPluginManage(owner) {
+    if (owner.serverInfo?.capabilities?.pluginManage !== true) throw new Error("Plugin management is not supported by this core.");
+  }
+  function pluginSpec(value) {
+    const spec = typeof value === "string" ? value.trim() : "";
+    if (!spec || spec.length > 2048 || spec.includes("\0") || spec.startsWith("-")) throw new Error("Enter a package name, absolute path, git URL or tarball URL.");
+    return spec;
+  }
+  function pluginName(value) {
+    if (typeof value !== "string" || !value || value.length > 214 || value.includes("\0")) throw new Error("Unknown plugin.");
+    return value;
   }
   async function skillUpdatedAt(skillPath) {
     // SkillMetadata.path is the SKILL.md file; a directory path also works.
@@ -171,6 +190,40 @@ function createCustomizeOperations({ getClient, getConfig, knownCwd, stat = fs.p
         const marketplacePath = optionalString(p.marketplacePath, "marketplace path");
         if (marketplacePath) params.marketplacePath = marketplacePath;
         return owner.request("plugin/read", params);
+      }
+      case "plugin-inspect": {
+        const owner = await client();
+        assertPluginManage(owner);
+        return owner.request("codeDesktop/plugin/inspect", { spec: pluginSpec(p.spec) }, PLUGIN_INSPECT_TIMEOUT);
+      }
+      case "plugin-install": {
+        const owner = await client();
+        assertPluginManage(owner);
+        if (typeof p.requestId !== "string" || !PLUGIN_REQUEST_ID.test(p.requestId)) throw new Error("Invalid install request.");
+        const params = { spec: pluginSpec(p.spec), requestId: p.requestId };
+        // "Allow these scripts and retry": the package names the failed run reported, approved by the user.
+        if (p.approvedBuilds !== undefined) {
+          if (!Array.isArray(p.approvedBuilds) || p.approvedBuilds.length > 200 || p.approvedBuilds.some((name) => typeof name !== "string" || !name || name.length > 214)) throw new Error("Invalid build approval.");
+          params.approvedBuilds = p.approvedBuilds;
+        }
+        return owner.request("codeDesktop/plugin/install", params, PLUGIN_INSTALL_TIMEOUT);
+      }
+      case "plugin-cancel-install": {
+        const owner = await client();
+        assertPluginManage(owner);
+        if (typeof p.requestId !== "string" || !PLUGIN_REQUEST_ID.test(p.requestId)) throw new Error("Invalid install request.");
+        return owner.request("codeDesktop/plugin/cancelInstall", { requestId: p.requestId }, PLUGIN_CHANGE_TIMEOUT);
+      }
+      case "plugin-set-enabled": {
+        const owner = await client();
+        assertPluginManage(owner);
+        if (typeof p.enabled !== "boolean") throw new Error("Invalid plugin state.");
+        return owner.request("codeDesktop/plugin/setEnabled", { pluginName: pluginName(p.pluginName), enabled: p.enabled }, PLUGIN_CHANGE_TIMEOUT);
+      }
+      case "plugin-remove": {
+        const owner = await client();
+        assertPluginManage(owner);
+        return owner.request("codeDesktop/plugin/remove", { pluginName: pluginName(p.pluginName) }, PLUGIN_CHANGE_TIMEOUT);
       }
       case "hooks": {
         const owner = await client();

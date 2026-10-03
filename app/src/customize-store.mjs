@@ -4,16 +4,21 @@
 //   skills/changed                  → debounced skills/list (forceReload)
 //   mcpServer/startupStatus/updated → patch the row, re-list on ready/failed
 //   mcpServer/oauthLogin/completed  → re-list
+//   codeDesktop/plugin/*            → the running install's progress and output;
+//                                     a completed plugin change re-lists plugins
 // Every dependency (call, timers) is injected so the logic is unit-testable.
-import { SKILLS_CHANGED_DEBOUNCE_MS, applySkillEnabled, mcpRows, patchMcpRow, pluginRows, skillRows } from "./customize-model.mjs";
+import { SKILLS_CHANGED_DEBOUNCE_MS, appendPluginLog, applySkillEnabled, mcpRows, patchMcpRow, pluginChangeOutcome, pluginRows, skillRows } from "./customize-model.mjs";
 
 const IDLE = Object.freeze({ status: "idle", error: "", at: 0 });
 
-export function createCustomizeStore({ call, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout, now = Date.now } = {}) {
+export function createCustomizeStore({ call, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout, now = Date.now, newId = () => globalThis.crypto.randomUUID() } = {}) {
   let state = {
     skills: { ...IDLE, skills: [], errors: [], cwd: undefined },
     plugins: { ...IDLE, rows: [], raw: null, cwd: undefined },
     mcp: { ...IDLE, rows: [], threadId: null, cwd: "" },
+    // install: {requestId, spec, status 'running'|'done'|'failed', phase, attempt, log, outcome};
+    // restartRequired: a change the running core loads only after a restart (Restart DeepSeek clears it).
+    pluginOps: { install: null, restartRequired: false },
   };
   const listeners = new Set();
   const inflight = { skills: null, plugins: null, mcp: null };
@@ -115,6 +120,36 @@ export function createCustomizeStore({ call, setTimeout: schedule = globalThis.s
     }
   }
 
+  // ------------------------------------------------------- plugin management
+  const pluginCall = (operation, payload) => call("customize", { operation, ...payload });
+  function settleChange(result) {
+    const outcome = pluginChangeOutcome(result);
+    if (outcome.ok && outcome.restartRequired) patch("pluginOps", { restartRequired: true });
+    if (state.plugins.status !== "idle") loadPlugins({ force: true });
+    return outcome;
+  }
+  const inspectPlugin = (spec) => pluginCall("plugin-inspect", { spec });
+  async function installPlugin(spec, { approvedBuilds } = {}) {
+    if (state.pluginOps.install?.status === "running") throw new Error("Another plugin is being installed.");
+    const requestId = newId();
+    patch("pluginOps", { install: { requestId, spec, status: "running", phase: "installing", attempt: null, log: "", outcome: null } });
+    let outcome;
+    try { outcome = settleChange(await pluginCall("plugin-install", { spec, requestId, ...(approvedBuilds ? { approvedBuilds } : {}) })); }
+    catch (error) { outcome = { ok: false, message: error?.message || "The plugin could not be installed." }; }
+    if (state.pluginOps.install?.requestId === requestId)
+      patch("pluginOps", { install: { ...state.pluginOps.install, status: outcome.ok ? "done" : "failed", outcome } });
+    return outcome;
+  }
+  async function cancelPluginInstall() {
+    const install = state.pluginOps.install;
+    if (install?.status !== "running") return null;
+    patch("pluginOps", { install: { ...install, phase: "cancelling" } });
+    return pluginCall("plugin-cancel-install", { requestId: install.requestId });
+  }
+  const clearPluginInstall = () => { if (state.pluginOps.install?.status !== "running") patch("pluginOps", { install: null }); };
+  async function setPluginEnabled(pluginName, enabled) { return settleChange(await pluginCall("plugin-set-enabled", { pluginName, enabled })); }
+  async function removePlugin(pluginName) { return settleChange(await pluginCall("plugin-remove", { pluginName })); }
+
   function scheduleSkillsReload() {
     if (state.skills.status === "idle") return;
     cancel(skillsTimer);
@@ -127,7 +162,18 @@ export function createCustomizeStore({ call, setTimeout: schedule = globalThis.s
   }
 
   function observe(event) {
+    // A new core connection loaded every saved plugin change.
+    if (event?.kind === "connection" && event.connected === true && state.pluginOps.restartRequired) patch("pluginOps", { restartRequired: false });
     if (!event || typeof event.method !== "string") return;
+    const install = state.pluginOps.install;
+    if (event.method === "codeDesktop/plugin/installProgress" || event.method === "codeDesktop/plugin/installLog") {
+      if (install?.status !== "running" || event.params?.requestId !== install.requestId) return;
+      patch("pluginOps", { install: event.method === "codeDesktop/plugin/installLog"
+        ? { ...install, log: appendPluginLog(install.log, event.params.text) }
+        : { ...install, phase: event.params.phase, attempt: event.params.attempt ?? null } });
+      return;
+    }
+    if (event.method === "codeDesktop/plugin/changed") { if (state.plugins.status !== "idle") loadPlugins({ force: true }); return; }
     if (event.method === "skills/changed") scheduleSkillsReload();
     else if (event.method === "mcpServer/startupStatus/updated") {
       if (state.mcp.status === "idle") return;
@@ -141,5 +187,6 @@ export function createCustomizeStore({ call, setTimeout: schedule = globalThis.s
   function dispose() { cancel(skillsTimer); cancel(mcpTimer); listeners.clear(); }
 
   return { getSnapshot: () => state, subscribe, loadSkills, loadPlugins, loadMcp, setSkillEnabled, observe, dispose,
+    inspectPlugin, installPlugin, cancelPluginInstall, clearPluginInstall, setPluginEnabled, removePlugin,
     get params() { return params; } };
 }

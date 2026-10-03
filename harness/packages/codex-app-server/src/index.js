@@ -33,6 +33,7 @@
  *   developerInstructions / outputSchema
  *                       a scoped prompt section / a one-turn structured_output
  *                       capture tool on the agent's scope (structured.js)
+ *   plugin management   codeDesktop/plugin/* over dsh-plugin-manager (plugins.js)
  *   dynamic workflows   the Harness `workflow` tool's runs as workflowRun on its
  *                       item (workflows.js); codeDesktop/workflow/stop
  *
@@ -63,6 +64,7 @@ import { afterPlanPermission, approvedAfterPlan, codexQuestions, harnessAnswer, 
 import { DEEPSEEK_KEY_REF, accountReadResponse, providerAccountResponse } from './account.js'
 import { UsageCache, accountTokenUsage, codeStats, localDayKey, sessionUsageSummaries } from './usage.js'
 import { CacheRevisions, cachedValues, coldRow, descendantIds, matchesSearch, mustStayLoaded, ownsRunningJob, readColdThread, registerListProjection, seedable, titleOf } from './list.js'
+import { installLogParams, pluginRequest } from './plugins.js'
 import { attachDeveloperInstructions, attachStructuredOutput, developerInstructionsOf, hideWorkflowTool, outputSchemaOf, workflowsAllowedBy } from './structured.js'
 
 export const name = 'codex-app-server'
@@ -85,6 +87,8 @@ const DSH_VERSION = '0.2.0-rc.2'
 // codeStats: codeDesktop/stats/read serves the home stats card (the app falls back to its own ledger without it).
 // modelWorkflows: the model's `workflow` tool reports runs as item.workflowRun, stopped by codeDesktop/workflow/stop.
 // structuredOutput: thread/start developerInstructions and turn/start outputSchema are honored (structured.js).
+// pluginManage (set at initialize when the profile has dsh-plugin-manager): codeDesktop/plugin/* install,
+// remove and enable bundles (plugins.js).
 const CAPABILITIES = { unsupportedMethods: ['thread/fork', 'review/start', 'thread/revert'], skillToggle: false, mcpConfigWrite: false, livePermissions: true, codeStats: true, modelWorkflows: true, structuredOutput: true }
 
 // How long after start account/read waits for the credentials and account services.
@@ -551,6 +555,20 @@ export function apply(ctx, config) {
   }))
   // A skill root, provider or runtime contribution changed: the client re-lists.
   ctx.on('skills/change', () => notify('skills/changed', {}))
+  // Plugin management (plugins.js): progress and output of an install, and any completed change.
+  ctx.on('plugin-manager/install-state', (progress) => {
+    if (clientReady && typeof progress?.requestId === 'string') notify('codeDesktop/plugin/installProgress', { requestId: progress.requestId, phase: progress.phase, attempt: progress.attempt ?? null })
+  })
+  ctx.on('plugin-manager/install-log', (chunk) => {
+    const params = clientReady ? installLogParams(chunk) : null
+    if (params) notify('codeDesktop/plugin/installLog', params)
+  })
+  ctx.on('plugin-manager/changed', (change) => {
+    if (!clientReady) return
+    notify('codeDesktop/plugin/changed', { reason: change?.reason ?? null })
+    // A bundle can bring skills: the client re-lists them too.
+    notify('skills/changed', {})
+  })
 
   // Ask mode: every mutating tool call asks first; Accept edits lets a
   // workspace write/edit through (approval.js preExecuteDecision). A sub-agent's
@@ -1171,7 +1189,7 @@ export function apply(ctx, config) {
           platformOs: process.platform === 'darwin' ? 'macos' : process.platform,
           engine: 'deepseek-harness',
           engineVersion: DSH_VERSION,
-          capabilities: CAPABILITIES,
+          capabilities: { ...CAPABILITIES, pluginManage: Boolean(ctx.get('pluginManager')) },
           configPath: configPath(),
         }
       }
@@ -1433,6 +1451,12 @@ export function apply(ctx, config) {
       }
       case 'codeDesktop/workflow/stop':
         return stopWorkflow(threads.get(requireId(params.threadId)), params.runId)
+      case 'codeDesktop/plugin/inspect':
+      case 'codeDesktop/plugin/install':
+      case 'codeDesktop/plugin/cancelInstall':
+      case 'codeDesktop/plugin/setEnabled':
+      case 'codeDesktop/plugin/remove':
+        return pluginRequest(method, params, ctx.get('pluginManager'))
       case 'codeDesktop/diagnostics': {
         const tools = ctx.get('tools')
         let toolNames = []
