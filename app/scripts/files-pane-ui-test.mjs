@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
+import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
 import {_electron as electron} from '../../tools/node_modules/playwright/index.mjs';
 import {fileKindIcon} from '../src/file-kind-icon.mjs';
 // Files pane tree + filename-search rows (0.2.97). Source: panes-tile-current.js:5692-5775
@@ -10,8 +10,9 @@ import {fileKindIcon} from '../src/file-kind-icon.mjs';
 // with the relative dir as detail, and the he context menu (Keep open / Close file / Close other / Close all).
 // Isolated profile + protocol fixture; only run through the offscreen run-suite adapter.
 const root=path.resolve(import.meta.dirname,'..'),evidence=path.resolve(root,'../analysis/batch-20260920');await fs.mkdir(evidence,{recursive:true});
-const directory=await fs.mkdtemp(path.join(evidence,'files-pane-ui-')),profile=path.join(directory,'profile'),workspace=path.join(profile,'workspace');
-await fs.mkdir(path.join(workspace,'nested','inner'),{recursive:true});await fs.mkdir(path.join(workspace,'skills','demo'),{recursive:true});
+// The project root is a git repo now (analysis/ is gitignored inside it): keep the fixture workspace outside any repo.
+const directory=await fs.mkdtemp(path.join(evidence,'files-pane-ui-')),profile=path.join(directory,'profile'),workspace=path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'cd-files-pane-'))),'workspace');
+await fs.mkdir(profile,{recursive:true});await fs.mkdir(path.join(workspace,'nested','inner'),{recursive:true});await fs.mkdir(path.join(workspace,'skills','demo'),{recursive:true});
 const files={'README.md':'# readme\n','index.html':'<p>x</p>\n','app.tsx':'export {};\n','data.csv':'a,b\n','store.sqlite':'','deck.pptx':'','bundle.zip':'','notes.txt':'notes\n','Makefile':'all:\n','config.json':'{}\n',
  'nested/deep.txt':'NESTED_DEEP_FILE\n','quarterly-infrastructure-migration-checklist.txt':'LONG_NAME_FILE\n','nested/inner/leaf.txt':'NESTED_LEAF_FILE\n','skills/demo/SKILL.md':'# skill\n',
  // R09: languages of the original 345-key map (c41eb0199) beyond the old ten extensions.

@@ -1,6 +1,7 @@
 import { _electron as electron } from "../../tools/node_modules/playwright/index.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import net from "node:net";
 import http from "node:http";
 import { execFileSync, spawn } from "node:child_process";
@@ -10,14 +11,16 @@ const root = path.resolve(import.meta.dirname, "..");
 const evidence = path.join(root, "../analysis/batch-20260920");
 await fs.mkdir(evidence, { recursive: true });
 const profile = await fs.mkdtemp(path.join(evidence, "sidebar-ui-profile-"));
-const folderA = path.join(profile, "workspace", "first-project");
-const folderB = path.join(profile, "workspace", "second-project");
+// The project root is a git repo now (analysis/ is gitignored inside it): keep the fixture workspace outside any repo.
+const workspaceRoot = path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "cd-sidebar-"))), "workspace");
+const folderA = path.join(workspaceRoot, "first-project");
+const folderB = path.join(workspaceRoot, "second-project");
 await fs.mkdir(folderA, { recursive: true });
 await fs.mkdir(folderB, { recursive: true });
 // Fidelity F08 Folder grouping keys on repo identity (sidebar-session.js:20892-20903 IJ): first-project is a
 // repo with an origin (key fixture/first-project), second-project a repo without one (key = its cwd), and
 // notes a plain folder, whose sessions land in the final 'Other' bucket.
-const folderC = path.join(profile, "workspace", "notes");
+const folderC = path.join(workspaceRoot, "notes");
 await fs.mkdir(folderC, { recursive: true });
 const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { stdio: "ignore", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
 git(folderA, "init", "-q"); git(folderA, "remote", "add", "origin", "git@github.com:fixture/first-project.git");

@@ -1,5 +1,6 @@
 import { _electron as electron } from "../../tools/node_modules/playwright/index.mjs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 
@@ -9,7 +10,8 @@ const root = path.resolve(import.meta.dirname, "..");
 const evidence = path.join(root, "../analysis/batch-20260920");
 await fs.mkdir(evidence, { recursive: true });
 const profile = await fs.mkdtemp(path.join(evidence, "session-ui-profile-"));
-const workspace = path.join(profile, "workspace");
+// The project root is a git repo now (analysis/ is gitignored inside it): keep the fixture workspace outside any repo.
+const workspace = path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "cd-session-"))), "workspace");
 await fs.mkdir(path.join(workspace, "nested"), { recursive: true });
 await fs.writeFile(path.join(workspace, "alpha.txt"), "FIRST_FILE_PREVIEW\n");
 await fs.writeFile(path.join(workspace, "beta.md"), "# SECOND_FILE_PREVIEW\n");

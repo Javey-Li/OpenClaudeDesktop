@@ -55,7 +55,7 @@ export function SourceSlashMenu({commands,selected,onSelect,onHover,onDismiss,id
   <div ref={ref} id={id} role="menu" aria-label="Slash commands" className="source-slash-menu cds-root" data-positioning={editorRef?.current?.getCaretViewportRect?"editor-coordinates":"textarea-mirror"} style={{visibility:'hidden'}} onMouseDown={e=>e.preventDefault()}>
    <div ref={body} className="source-slash-body scroll-fade-y">
     {preSession&&<div className="slash-header">More commands available once the session is running</div>}
-    {commands.map((c,i)=><div key={c.id} id={`${id}-${i}`} role="menuitem" tabIndex={-1} data-highlighted={selected===i?'':undefined} onMouseMove={()=>{if(i!==selected){mouseSelection.current=i;onHover(i);}}} onClick={()=>onSelect(c.id)}><span className="slash-label"><Match text={c.id} query={query}/>{c.matchedAlias&&<span className="slash-alias"> (<Match text={c.matchedAlias} query={query}/>)</span>}</span></div>)}
+    {commands.map((c,i)=><React.Fragment key={c.id}>{c.kind==='custom'&&commands.findIndex(entry=>entry.kind==='custom')===i&&<div className="slash-header" role="presentation">Custom</div>}<div id={`${id}-${i}`} role="menuitem" tabIndex={-1} data-highlighted={selected===i?'':undefined} onMouseMove={()=>{if(i!==selected){mouseSelection.current=i;onHover(i);}}} onClick={()=>onSelect(c.id)}><span className="slash-label"><Match text={c.id} query={query}/>{c.matchedAlias&&<span className="slash-alias"> (<Match text={c.matchedAlias} query={query}/>)</span>}</span></div></React.Fragment>)}
    </div>
   </div>
   <div ref={tip} className="slash-description cds-root" role="tooltip" style={{visibility:'hidden'}}><div className="slash-description-text"><Match text={active?.description||''} query={query}/></div></div>

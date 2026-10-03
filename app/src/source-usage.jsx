@@ -3,7 +3,7 @@ import {SourceSettingsButton} from './source-settings-button.jsx';
 import {usageEmptyText,usagePresentation,usageResetLabel} from './usage-model.mjs';
 import {SourceTimestamp} from './source-timestamp.jsx';
 import {formatDayKey,localDayKey} from './home-model.mjs';
-import {COST_FOOTNOTE,compactTokens,deepseekCostPresentation,formatCny,formatTokenCount} from './usage-cost-model.mjs';
+import {COST_FOOTNOTE,CUSTOM_COST_FOOTNOTE,compactTokens,deepseekCostPresentation,formatCny,formatTokenCount} from './usage-cost-model.mjs';
 import './source-usage.css';
 
 // Keep the server reason, omitting only Electron's known transport wrapper.
@@ -68,7 +68,7 @@ function DeepSeekUsage({cost,onOpenLink}) {
      <td className="su-day-tokens" title={`${formatTokenCount(day.tokens)} tokens`}>{compactTokens(day.tokens)}</td><td className="su-day-cost">{formatCny(day.cost)}</td></tr>)}</tbody></table>
     :<p className="su-empty">No DeepSeek usage in the last 30 days.</p>}
   </section>
-  <p className="su-footnote">{COST_FOOTNOTE}。{cost.partial&&'Models without a published price count tokens but no cost. '}
+  <p className="su-footnote">{cost.customPrices?CUSTOM_COST_FOOTNOTE:COST_FOOTNOTE}。{cost.partial&&'Models without a published price count tokens but no cost. '}
    {onOpenLink&&<button type="button" className="su-link" onClick={()=>onOpenLink(cost.usageUrl)}>DeepSeek Platform usage</button>}</p>
  </>;
 }

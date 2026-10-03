@@ -1,0 +1,122 @@
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createManualTextSave } from './manual-text-save.mjs';
+import { SourceSettingsButton } from './source-settings-button.jsx';
+import { SourceSegments } from './source-segments.jsx';
+import { PersonaSparkGlyph } from './source-spark.jsx';
+import { assistantNameError, normalizePersona, personaGreetingError, PERSONA_DEFAULT, ASSISTANT_NAME_MAX, GREETING_MAX } from '../electron/prefs/persona.mjs';
+import './source-profile-setting.css';
+import './persona-settings.css';
+
+// C2 persona rows on the Preferences page, directly after Profile. Renderer copy
+// only: the assistant name, the home greeting template and the assistant icon.
+// Every save sends the whole persona object (read-modify-write over config).
+
+export const PERSONA_ICON_OPTIONS = Object.freeze([
+  { value: 'spark', label: 'Spark' },
+  { value: 'star', label: 'Star' },
+  { value: 'lightning', label: 'Lightning' },
+  { value: 'chat', label: 'Chat' },
+  { value: 'custom', label: 'Custom image' },
+]);
+const SAVE_ERROR = 'Couldn’t save the setting. Try again.';
+
+export function isDefaultPersona(persona) {
+  const value = normalizePersona(persona);
+  return Object.keys(PERSONA_DEFAULT).every(key => value[key] === PERSONA_DEFAULT[key]);
+}
+
+/** Manual-save text field (SourceProfileSetting pattern) for one persona string. */
+export function PersonaTextField({ label, value, placeholder, maxLength, validate, onSave, help }) {
+  const [draft, setDraft] = useState(value), [status, setStatus] = useState({ saving: false, error: '' });
+  const latest = useRef({ value, onSave }), edited = useRef(false), owner = useRef(null), input = useRef(null), composing = useRef(false);
+  const errorId = useId(), helpId = useId(); latest.current = { value, onSave };
+  useLayoutEffect(() => {
+    const controller = createManualTextSave({ save: text => latest.current.onSave(text), validate: text => { const error = validate(text); if (error) throw new Error(error); }, onState: setStatus });
+    owner.current = controller; return () => { controller.dispose(); owner.current = null; };
+  }, []);
+  useEffect(() => { setDraft(current => { if (!edited.current) return value; if (current === value) edited.current = false; return current; }); }, [value]);
+  const dirty = draft !== value;
+  return <form className="ss-profile-setting persona-field" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!composing.current && dirty) void owner.current?.submit(draft); }}>
+    <input ref={input} data-cds="TextInput" className="cds-input cds-reset" aria-label={label} value={draft} maxLength={maxLength} placeholder={placeholder}
+      aria-invalid={status.error ? true : undefined} data-invalid={status.error ? '' : undefined}
+      aria-describedby={[status.error ? errorId : '', help ? helpId : ''].filter(Boolean).join(' ') || undefined}
+      onChange={event => { edited.current = status.saving || event.currentTarget.value !== latest.current.value; setDraft(event.currentTarget.value); owner.current?.edit(); }}
+      onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
+      onKeyDown={event => { if ((composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) && (event.key === 'Enter' || event.key === 'Escape')) { event.preventDefault(); event.stopPropagation(); } }} />
+    {help && <span id={helpId} className="persona-help">{help}</span>}
+    {status.error && <span id={errorId} className="ss-error" role="alert">{status.error}</span>}
+    {dirty && <div className="ss-profile-actions" data-size="sm">
+      <SourceSettingsButton type="submit" variant="primary" size="sm" busy={status.saving}>Save</SourceSettingsButton>
+      <SourceSettingsButton variant="ghost" size="sm" disabled={status.saving} onClick={() => { owner.current?.edit(); edited.current = false; setDraft(latest.current.value); input.current?.focus(); }}>Discard</SourceSettingsButton>
+    </div>}
+  </form>;
+}
+
+function IconPreview({ persona }) {
+  return <span className="persona-preview" data-persona-preview="">
+    {persona.sparkIcon === 'spark' || (persona.sparkIcon === 'custom' && !persona.sparkImage)
+      ? <img src="./assets/v1/claude-spark.svg" alt="" width="24" height="24" />
+      : <PersonaSparkGlyph persona={persona} size={24} />}
+  </span>;
+}
+
+/** Spark / Star / Lightning / Chat / Custom image, with a 24px preview. */
+export function PersonaIconControl({ persona, onSave, desktopCall }) {
+  const [optimistic, setOptimistic] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const shown = optimistic ?? persona;
+  const write = async next => {
+    setOptimistic(next); setError('');
+    try { await onSave(next); } catch (e) { console.warn('Couldn’t save the persona icon:', e); setError(e?.message || String(e)); }
+    finally { setOptimistic(null); }
+  };
+  const pick = async () => {
+    if (busy) return null; setBusy(true); setError('');
+    try {
+      const result = await desktopCall('persona', { op: 'pick-image' });
+      if (!result?.dataUrl) return null;
+      await write({ ...persona, sparkIcon: 'custom', sparkImage: result.dataUrl });
+      return result.dataUrl;
+    } catch (e) { setError(e?.message || String(e)); return null; }
+    finally { setBusy(false); }
+  };
+  const choose = value => {
+    if (value === 'custom' && !persona.sparkImage) { void pick(); return; }
+    void write({ ...persona, sparkIcon: value });
+  };
+  return <div className="persona-icon-row">
+    <IconPreview persona={shown} />
+    <SourceSegments label="Assistant icon" value={shown.sparkIcon} options={PERSONA_ICON_OPTIONS} disabled={busy} onChange={choose} />
+    <SourceSettingsButton variant="secondary" size="sm" busy={busy} onClick={() => { void pick(); }}>Choose image…</SourceSettingsButton>
+    {error && <span className="ss-row-error" role="alert" title={error}>{/^(Choose|The image)/.test(error) ? error : SAVE_ERROR}</span>}
+  </div>;
+}
+
+function ResetPersonaButton({ persona, onSave }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  return <>
+    <SourceSettingsButton variant="secondary" size="sm" busy={busy} disabled={isDefaultPersona(persona)}
+      onClick={async () => { setBusy(true); setError(''); try { await onSave(null); } catch (e) { setError(e?.message || String(e)); } finally { setBusy(false); } }}>Reset</SourceSettingsButton>
+    {error && <span className="ss-row-error" title={error}>{SAVE_ERROR}</span>}
+  </>;
+}
+
+/** The Persona group for source-settings.jsx (tab 'preferences', after Profile). */
+export function personaGroup({ config = {}, onSave, desktopCall }) {
+  const persona = normalizePersona(config.persona);
+  const savePersona = next => onSave({ persona: next === null ? null : normalizePersona(next) });
+  const saveField = key => text => onSave({ persona: { ...normalizePersona(config.persona), [key]: text.trim() } });
+  const row = (id, label, description, control, below) => ({ id, label, description, control, below });
+  return { tab: 'preferences', title: 'Persona', rows: [
+    row('persona-name', 'Assistant name', 'Shown in approval titles, notifications and the transcript.', null,
+      <PersonaTextField label="Assistant name" value={persona.assistantName} placeholder="DeepSeek" maxLength={ASSISTANT_NAME_MAX}
+        validate={assistantNameError} onSave={saveField('assistantName')} />),
+    row('persona-greeting', 'Home greeting', 'The heading on the home page.', null,
+      <PersonaTextField label="Home greeting" value={persona.greeting} placeholder="What’s up next, {name}?" maxLength={GREETING_MAX}
+        validate={personaGreetingError} onSave={saveField('greeting')}
+        help={<>Use <code>{'{name}'}</code> for your first name. Leave empty for the default greeting.</>} />),
+    row('persona-icon', 'Assistant icon', 'Replaces the spark in the sidebar, the home page and while it works.',
+      <PersonaIconControl persona={persona} onSave={savePersona} desktopCall={desktopCall} />),
+    row('persona-reset', 'Reset persona', 'Restore the default name, greeting and icon.',
+      <ResetPersonaButton persona={persona} onSave={savePersona} />),
+  ] };
+}

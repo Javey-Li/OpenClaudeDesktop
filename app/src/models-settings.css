@@ -1,0 +1,58 @@
+/* Settings › Models (C5, source-settings-models.jsx). Fields follow the Code font field
+   (shared-frame plain TextInput); every color is a CDS token, so light and dark both follow the theme. */
+.msx-page { display:flex;flex-direction:column; }
+.msx-note { margin:0 0 var(--cds-gap-lg,16px);color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote); }
+.msx-notice { margin-bottom:var(--cds-gap-md,12px); }
+.msx-empty { margin:0;padding:var(--cds-pad-md,8px) 0;color:var(--cds-text-muted); }
+
+.msx-page input[data-cds=TextInput] { box-sizing:border-box;min-width:0;height:var(--cds-h-control);min-height:0;padding:0 var(--cds-pad-md);border:0;border-radius:var(--cds-radius);background:var(--cds-fill-field);box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring);color:var(--cds-text-primary);font:400 var(--cds-font-size-body)/var(--cds-leading-body) var(--cds-font-sans);outline:none;transition:box-shadow var(--cds-dur-fast); }
+.msx-page input[data-cds=TextInput]::placeholder { color:var(--cds-text-muted); }
+.msx-page input[data-cds=TextInput]:hover:not(:focus):not([data-invalid]):not(:disabled) { box-shadow:inset 0 0 0 1px var(--cds-border-strong); }
+.msx-page input[data-cds=TextInput][data-invalid] { box-shadow:inset 0 0 0 1px var(--cds-fill-danger); }
+.msx-page input[data-cds=TextInput]:focus-visible { outline:none;box-shadow:var(--cds-focus-shadow); }
+.msx-page input[data-cds=TextInput]:disabled { opacity:.5;cursor:not-allowed; }
+.msx-number { width:160px;max-width:100%;font-variant-numeric:tabular-nums; }
+.msx-number::-webkit-inner-spin-button,.msx-number::-webkit-outer-spin-button { -webkit-appearance:none;margin:0; }
+.msx-text { width:200px;max-width:100%; }
+
+.msx-actions { display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--cds-gap-sm,8px); }
+
+.msx-prices { display:flex;flex-direction:column; }
+.msx-price { padding:var(--cds-pad-md,8px) 0;border-top:1px solid var(--cds-alpha-1); }
+.msx-price-head { display:flex;flex-wrap:wrap;align-items:center;gap:var(--cds-gap-sm,8px);margin-bottom:var(--cds-gap-sm,8px);min-height:var(--cds-h-control); }
+.msx-price-id { color:var(--cds-text-muted);font:400 12px/1.4 var(--cds-font-mono);overflow-wrap:anywhere; }
+.msx-badge { padding:0 6px;border-radius:var(--cds-radius--sm,4px);background:var(--cds-fill-secondary);box-shadow:inset 0 0 0 1px var(--cds-fill-secondary-ring);color:var(--cds-text-secondary,var(--cds-text-muted));font-size:12px;line-height:18px; }
+.msx-price-remove { margin-inline-start:auto; }
+.msx-price-table { width:100%;border-collapse:separate;border-spacing:0 4px;table-layout:fixed; }
+.msx-price-table th { padding:0 var(--cds-pad-sm,6px) 0 0;color:var(--cds-text-muted);font-weight:400;font-size:var(--cds-font-size-footnote);text-align:start; }
+.msx-price-table thead th:first-child,.msx-price-table tbody th { width:84px; }
+.msx-price-table td { padding:0 var(--cds-pad-sm,6px) 0 0; }
+.msx-price-table .msx-price-input { width:100%; }
+.msx-price .ss-row-below { margin-top:4px; }
+
+.msx-add-row { padding:var(--cds-pad-md,8px) 0;border-top:1px solid var(--cds-alpha-1); }
+.msx-add { display:flex;flex-wrap:wrap;align-items:center;gap:var(--cds-gap-sm,8px); }
+.msx-add-error { flex-basis:100%; }
+
+@media (max-width: 560px) {
+  .msx-number { width:120px; }
+  .msx-price-table thead th:first-child,.msx-price-table tbody th { width:64px; }
+}
+
+/* Custom providers: the Add/Edit dialog renders in a portal, so its fields are styled on the form. */
+.msx-provider-actions { display:flex;flex-wrap:wrap;align-items:center;gap:var(--cds-gap-sm,8px); }
+.msx-pending { color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote); }
+.msx-provider-error { display:block;margin:var(--cds-gap-sm,8px) 0 0; }
+.msx-form { display:flex;flex-direction:column;gap:var(--cds-gap-md,12px);min-width:0; }
+.msx-field { display:flex;flex-direction:column;gap:4px;min-width:0; }
+.msx-label { color:var(--cds-text-secondary);font-size:var(--cds-font-size-footnote,12px);font-weight:var(--cds-font-weight-medium,500); }
+.msx-help { color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote,12px);overflow-wrap:anywhere; }
+.msx-error { margin:0;color:var(--cds-text-danger,var(--cds-fill-danger));font-size:var(--cds-font-size-footnote,12px);overflow-wrap:anywhere; }
+.msx-check { display:flex;align-items:center;gap:6px;color:var(--cds-text-secondary);font-size:var(--cds-font-size-footnote,12px); }
+.msx-form :is(input[data-cds=TextInput], textarea[data-cds=TextArea]) { box-sizing:border-box;width:100%;min-width:0;padding:0 var(--cds-pad-md);border:0;border-radius:var(--cds-radius);background:var(--cds-fill-field);box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring);color:var(--cds-text-primary);font:400 var(--cds-font-size-body)/var(--cds-leading-body) var(--cds-font-sans);outline:none;transition:box-shadow var(--cds-dur-fast); }
+.msx-form input[data-cds=TextInput] { height:var(--cds-h-control); }
+.msx-form textarea.msx-models { min-height:88px;max-height:40vh;padding:8px var(--cds-pad-md);resize:vertical;font-family:var(--cds-font-mono);font-size:var(--cds-font-size-footnote,12px);line-height:1.5; }
+.msx-form :is(input, textarea)::placeholder { color:var(--cds-text-muted); }
+.msx-form :is(input[data-cds], textarea):hover:not(:focus) { box-shadow:inset 0 0 0 1px var(--cds-border-strong); }
+.msx-form :is(input[data-cds], textarea):focus-visible { outline:none;box-shadow:var(--cds-focus-shadow); }
+.msx-form .sselect { align-self:flex-start;min-width:220px; }

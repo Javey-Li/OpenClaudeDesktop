@@ -3,6 +3,8 @@ import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "reac
 import { useApprovalDraft } from "./use-approval-draft.js";
 import { approvalActionIndex, approvalAnnouncement, approvalCardModel, approvalHasVisibleIntersection, approvalKeyIntent, createApprovalHotkeyArming, detailsOverflow, scrollRegionProps } from "./approval-card-model.mjs";
 import { SourceShortcut } from "./source-shortcut.jsx";
+import { usePersona } from "./use-persona.js";
+import { assistantName } from "./persona-store.mjs";
 import "./source-approval-card.css";
 
 function useOverflowFocus(ref, contentKey) {
@@ -181,6 +183,7 @@ export function useHotkeyArming(root, armKey, active) {
 export function SourceApprovalCardView({ request, item, busy = false, busyAction = null,
   error = "", onAction, enabled = true, isActive = true, menuOpen = false,
   armKey, renderDetails, className = "" }) {
+  usePersona(); // C2: re-render the title when the assistant name changes
   const model = approvalCardModel(request, item);
   const [expanded, setExpanded] = useState(true);
   const root = useRef(null), body = useRef(null), actions = useRef(null), reason = useRef(null);
@@ -230,7 +233,7 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
   // The ev header around B is already text-primary (cf6ae6197 ev), so only the spans are added.
   // The plain title stays the aria-label.
   const title = model.heading
-    ? <>Allow DeepSeek to <span className="sac-em">{model.heading.action}</span>{model.heading.meta
+    ? <>Allow {assistantName()} to <span className="sac-em">{model.heading.action}</span>{model.heading.meta
       ? <> <span className="sac-em">{model.heading.meta}</span></> : null}?</>
     : model.title;
   const clamp = model.clampTitle && model.detail ? "" : undefined;

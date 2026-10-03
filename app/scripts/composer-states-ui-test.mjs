@@ -2,6 +2,7 @@ import {fillComposer} from './composer-test-helpers.mjs';
 // 0.2.81: source skillChip requires a real contenteditable editor; read its serialized draft API, not textarea inputValue.
 import { _electron as electron } from "../../tools/node_modules/playwright/index.mjs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -21,7 +22,8 @@ const startedAt = new Date().toISOString();
 const directory = path.join(evidence, `composer-states-ui-${startedAt.replaceAll(":", "-")}`);
 await fs.mkdir(directory, { recursive: true });
 const profile = await fs.mkdtemp(path.join(directory, "profile-"));
-const workspace = path.join(profile, "workspace");
+// The project root is a git repo now (analysis/ is gitignored inside it): keep the fixture workspace outside any repo.
+const workspace = path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "cd-composer-states-"))), "workspace");
 await fs.mkdir(path.join(workspace, "src"), { recursive: true });
 await fs.mkdir(path.join(workspace, "docs"), { recursive: true });
 await fs.writeFile(path.join(workspace, "fixture-a.txt"), "root fixture a\n");

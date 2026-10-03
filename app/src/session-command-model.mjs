@@ -41,8 +41,8 @@ export function commandSuggestion(name) {
 // enabled skills whose name is one slash token (plugin-qualified names keep their ':' or '.') reach the list;
 // a built-in command keeps its own name.
 const SLASH_NAME=/^[a-z0-9][a-z0-9_:.-]*$/i;
-export function slashSkills(skills=[]) {
-  const seen=new Set(),out=[];
+export function slashSkills(skills=[],customCommands=[]) {
+  const seen=new Set(slashCustomCommands(customCommands).map(command=>command.name.toLowerCase())),out=[];
   for(const skill of Array.isArray(skills)?skills:[]){
     const name=typeof skill?.name==='string'?skill.name:'',key=name.toLowerCase();
     if(!SLASH_NAME.test(name)||findCommand(key)||seen.has(key)||typeof skill.path!=='string'||!skill.path)continue;
@@ -50,11 +50,26 @@ export function slashSkills(skills=[]) {
   }
   return out;
 }
-const findSkill=(name,context)=>slashSkills(context?.skills).find(skill=>skill.name.toLowerCase()===name);
+const findSkill=(name,context)=>slashSkills(context?.skills,context?.customCommands).find(skill=>skill.name.toLowerCase()===name);
+// Custom commands (C3; custom-commands-model.mjs mergeCommands rows): user prompt templates from
+// <userData>/commands and <project>/.code-desktop/commands. Built-in commands win; a shadowed row is not offered.
+const CUSTOM_NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/i;
+export function slashCustomCommands(customCommands=[]) {
+  const seen=new Set(),out=[];
+  for(const row of Array.isArray(customCommands)?customCommands:[]){
+    const name=typeof row?.name==='string'?row.name:'',key=name.toLowerCase();
+    if(!CUSTOM_NAME.test(name)||row.shadowedBy||findCommand(key)||seen.has(key))continue;
+    seen.add(key);out.push({name,description:row.description||'',argumentHint:row.argumentHint||'',body:typeof row.body==='string'?row.body:'',scope:row.scope==='project'?'project':'global',path:row.path||''});
+  }
+  return out;
+}
+const findCustom=(name,context)=>slashCustomCommands(context?.customCommands).find(command=>command.name.toLowerCase()===name);
 // A known skill parses as {skill, args} with no error: send() treats it as a message, whose leading
 // '/name' becomes the {type:'skill'} input item.
 export function parseSessionCommand(text, context={}) {
   const value=String(text).trim(),named=/^\/([a-z0-9][a-z0-9_:.-]*)(?=\s|$)/i.exec(value);
+  const custom=named&&!findCommand(named[1].toLowerCase())?findCustom(named[1].toLowerCase(),context):null;
+  if(custom)return {id:custom.name,args:value.slice(named[0].length).trim(),requested:named[1].toLowerCase(),command:null,skill:null,custom,suggestion:null,error:null};
   const skill=named&&!findCommand(named[1].toLowerCase())?findSkill(named[1].toLowerCase(),context):null;
   if(skill)return {id:skill.name,args:value.slice(named[0].length).trim(),requested:named[1].toLowerCase(),command:null,skill,suggestion:null,error:null};
   const match=/^\/([a-z0-9][a-z0-9_-]*)\b/i.exec(value);
@@ -96,19 +111,23 @@ export function matchCommands(query, context={}) {
   const value=String(query).replace(/^\//,'').toLowerCase();
   if(value.length>50)return [];
   const spaced=/^(\S+)\s+(\S)?/.exec(value);
-  if(spaced&&(spaced[2]||findCommand(spaced[1])||findSkill(spaced[1],context)))return [];
+  if(spaced&&(spaced[2]||findCommand(spaced[1])||findCustom(spaced[1],context)||findSkill(spaced[1],context)))return [];
   const q=value.trim();
   const rank=c=>c.id===q?0:c.aliases?.includes(q)?1:c.id.startsWith(q)?2:c.aliases?.some(a=>a.startsWith(q))?3:4;
   const commands=sessionCommands.filter(c=>!commandUnavailable(c,context)&&(!q||[c.id,...c.aliases||[]].some(n=>n.includes(q))))
     .sort((a,b)=>rank(a)-rank(b)).map(c=>({...c,matchedAlias:q&&!c.id.includes(q)?c.aliases?.find(n=>n.includes(q)):null}));
   // Skill rows follow the host commands: {id: name, description, argumentHint, kind:'skill', path}.
-  const skills=slashSkills(context.skills).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill',path:skill.path,matchedAlias:null}))
+  // Custom rows sit between them (the menu draws a 'Custom' header before the first): kind 'custom'.
+  const custom=slashCustomCommands(context.customCommands).map(command=>({id:command.name,description:command.description,argumentHint:command.argumentHint,kind:'custom',scope:command.scope,matchedAlias:null}))
+    .filter(command=>!q||command.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
+  const skills=slashSkills(context.skills,context.customCommands).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill',path:skill.path,matchedAlias:null}))
     .filter(skill=>!q||skill.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
-  return [...commands,...skills];
+  return [...commands,...custom,...skills];
 }
-export function commandArgumentHint(text) {
+export function commandArgumentHint(text, context={}) {
   if(text.length>128||!/^\/\S+[ \t]+$/.test(text))return '';
-  return findCommand(text.trim().slice(1).toLowerCase())?.argumentHint||'';
+  const name=text.trim().slice(1).toLowerCase();
+  return findCommand(name)?.argumentHint||findCustom(name,context)?.argumentHint||'';
 }
 // '/plan [open|share|<description>]' (cc43287c9-BMbiZYzF.js:28880-28916 vG). Not yet planning: switch to Plan, open the
 // pane when a plan exists (bare/open) or leave the description in the draft. Already planning: open the pane when it

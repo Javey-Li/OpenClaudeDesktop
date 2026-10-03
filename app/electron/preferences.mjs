@@ -1,6 +1,12 @@
 // Shared by the renderer and main process; contains no platform or account IO.
 import { DEFAULT_CODE_THEMES, isTheme } from './code-theme-catalog.mjs';
 import { DEFAULT_TRANSCRIPT_VIEW, TRANSCRIPT_VIEWS } from './transcript-view-model.mjs';
+import { validateTheme } from './prefs/theme.mjs';
+import { validateHarnessProfile } from './prefs/harness-profile.mjs';
+import { validateInstructions } from './prefs/instructions.mjs';
+import { validateModelSettings } from './prefs/model-settings.mjs';
+import { validateCustomCommands } from './prefs/custom-commands.mjs';
+import { validatePersona } from './prefs/persona.mjs';
 export const appearanceDefaults = Object.freeze({ motion: 'system', interfaceFont: 'anthropic', codeFont: '', transcriptSize: 'm', transcriptWidth: 's',
   codeThemeLight: DEFAULT_CODE_THEMES.light, codeThemeDark: DEFAULT_CODE_THEMES.dark, transcriptView: DEFAULT_TRANSCRIPT_VIEW });
 // Code theme ids are validated against the catalog and their column's mode (a dark theme is not a light theme).
@@ -65,5 +71,11 @@ export function settingsPatch(config, patch, models = []) {
   const fast = fastTierForModel(selectedCatalogModel(models, next.model));
   if (patch.fastMode === true && !fast) throw new Error('Fast mode is not available for this model.');
   if ('model' in patch && !fast) next.fastMode = false;
+  if ('persona' in patch) { const v = validatePersona(patch.persona); if (v === null) delete next.persona; else next.persona = v; }
+  if ('customCommands' in patch) { const v = validateCustomCommands(patch.customCommands); if (v === null) delete next.customCommands; else next.customCommands = v; }
+  if ('modelSettings' in patch) { const v = validateModelSettings(patch.modelSettings); if (v === null) delete next.modelSettings; else next.modelSettings = v; }
+  if ('customInstructions' in patch) { const v = validateInstructions(patch.customInstructions); if (v === null) delete next.customInstructions; else next.customInstructions = v; }
+  if ('harnessProfile' in patch) { const v = validateHarnessProfile(patch.harnessProfile); if (v === null) delete next.harnessProfile; else next.harnessProfile = v; }
+  if ('customTheme' in patch) { const v = validateTheme(patch.customTheme); if (v === null) delete next.customTheme; else next.customTheme = v; }
   return next;
 }

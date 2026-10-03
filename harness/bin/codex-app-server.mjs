@@ -8,7 +8,8 @@
  * settings come from the user's Harness home ($DSH_HOME, default ~/.dsh), so a
  * DeepSeek API key configured in DeepSeek Harness works here unchanged.
  */
-import { dirname, join, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv, loadProfileDirectory, StartupError } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
@@ -26,6 +27,19 @@ if (args.includes('--version') || args.includes('-V')) {
   process.exit(0)
 }
 
+// Overlays after the app-owned profile (Settings › Harness): Code Desktop sets
+// CODE_DESKTOP_CORE_PATCHES to <userData>/harness/overlay.patch.yml and
+// user.patch.yml, joined with the path delimiter. CODE_DESKTOP_CORE_SAFE_MODE=1
+// skips them all, so a broken overlay can never lock the core out.
+const listedPatches = (process.env.CODE_DESKTOP_CORE_PATCHES || '').split(delimiter).filter(Boolean)
+const patchFiles = process.env.CODE_DESKTOP_CORE_SAFE_MODE === '1'
+  ? []
+  : [...new Set(listedPatches.filter((file) => isAbsolute(file) && existsSync(file)))]
+if (listedPatches.length > 0)
+  process.stderr.write(process.env.CODE_DESKTOP_CORE_SAFE_MODE === '1'
+    ? `code-desktop-core: safe mode, profile overlays skipped: ${listedPatches.join(', ')}\n`
+    : `code-desktop-core: profile overlays applied: ${patchFiles.length ? patchFiles.join(', ') : '(none found)'}\n`)
+
 try {
   const profile = loadProfileDirectory('code-desktop-core', profileDir, installAnchor)
   if (profile.skippedBundles.length > 0)
@@ -33,7 +47,7 @@ try {
   await runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: 'code-desktop',
-    patchFiles: [],
+    patchFiles,
     args,
     resolvedProfile: { profile, installAnchor },
   })

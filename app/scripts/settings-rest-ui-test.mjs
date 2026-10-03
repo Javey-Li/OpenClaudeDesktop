@@ -554,7 +554,8 @@ try {
   assert.deepEqual(metrics.searchTranscript, ["Code", "Transcript text size", "Transcript width", "Default transcript view"]);
   await search.fill("theme");
   metrics.searchTheme = await page.locator(".ss-search-results>button").evaluateAll(rows=>rows.map(row=>[...row.querySelectorAll('.ss-search-heading>span:not([data-cds=Icon]),.ss-search-via,.ss-search-child')].map(el=>el.textContent).join('')));
-  assert.deepEqual(metrics.searchTheme, ["PreferencesTheme", "CodeCode theme"]);
+  // C4: the Theme page (label match, no indexed rows) ranks first.
+  assert.deepEqual(metrics.searchTheme, ["Theme", "PreferencesTheme", "CodeCode theme"]);
   await page.getByRole("button",{name:"Code theme in Code",exact:true}).click();
   assert.equal(await page.getByRole("combobox", { name: "Light code theme", exact: true }).count(), 1, "the search result opens the real code theme block");
   await closeSettings();

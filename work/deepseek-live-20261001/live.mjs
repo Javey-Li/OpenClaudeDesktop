@@ -21,7 +21,8 @@ await fs.copyFile(path.join(here, 'memory-clipboard.cjs'), path.join(launcher, '
 await fs.writeFile(path.join(launcher, 'package.json'), JSON.stringify({ name: 'code-desktop-deepseek-live', version: '0.0.0', main: 'bootstrap.cjs' }))
 await fs.writeFile(path.join(workspace, 'ui-smoke.txt'), 'CODE_DESKTOP_SMOKE_OK\n')
 // PREFERENCES (JSON) is merged over the default profile, e.g. to seed remembered sessions.
-await fs.writeFile(path.join(profile, 'preferences.json'), JSON.stringify({ cwd: workspace, theme: process.env.THEME || 'light', mode: 'code', effort: 'low', threadIds: [], ...(process.env.PREFERENCES ? JSON.parse(process.env.PREFERENCES) : {}) }))
+// CUSTOM_INSTRUCTIONS (text): seeds the C1 global custom instructions in this throwaway profile.
+await fs.writeFile(path.join(profile, 'preferences.json'), JSON.stringify({ cwd: workspace, theme: process.env.THEME || 'light', mode: 'code', effort: 'low', threadIds: [], ...(process.env.CUSTOM_INSTRUCTIONS ? { customInstructions: { enabled: true, global: process.env.CUSTOM_INSTRUCTIONS, projects: {} } } : {}), ...(process.env.PREFERENCES ? JSON.parse(process.env.PREFERENCES) : {}) }))
 
 const env = { ...process.env, CODE_DESKTOP_DATA: profile, CODE_DESKTOP_VERIFY_ROOT: appRoot, CODE_DESKTOP_OFFSCREEN_SCALE: '2', CODE_DESKTOP_OFFSCREEN_LAUNCH: launcher, CODE_DESKTOP_MEMORY_CLIPBOARD: '0' }
 delete env.ELECTRON_RUN_AS_NODE
@@ -383,6 +384,33 @@ try {
         return { name: node.querySelector('.cz-skill-head h3')?.textContent ?? null, switchDisabled: toggle?.disabled ?? null, switchChecked: toggle?.getAttribute('aria-checked') ?? null,
           reason: node.querySelector('[data-cz-detail="skill"] [data-cds-disabled-reason]')?.textContent ?? null, notice: node.querySelector('.cz-skill-detail > .cz-muted')?.textContent ?? null }
       })
+    }
+  }
+  // CUSTOM_SETTINGS=1: after the prompts, open the customization pages
+  // (Preferences/Persona, Theme, Instructions, Commands, Models, Harness) and
+  // screenshot each one (no model calls). Screenshots are prefixed with THEME.
+  if (process.env.CUSTOM_SETTINGS) {
+    await page.keyboard.press('Meta+,')
+    const dialog = page.locator('.ss-settings-dialog')
+    await dialog.waitFor({ timeout: 15000 })
+    report.customSettings = []
+    const tone = process.env.THEME || 'light'
+    for (const [name, label] of [['preferences', 'Preferences'], ['theme', 'Theme'], ['instructions', 'Instructions'], ['commands', 'Commands'], ['models', 'Models'], ['harness', 'Harness']]) {
+      await dialog.getByRole('navigation', { name: 'Settings', exact: true }).getByRole('button', { name: label, exact: true }).click()
+      await page.waitForTimeout(1500)
+      if (name === 'preferences') await dialog.getByText('Persona', { exact: true }).first().scrollIntoViewIfNeeded().catch(() => {})
+      await shot(`c-${tone}-${name}`)
+      if (name === 'theme') {
+        await dialog.locator('[data-setting-id="themeFontScale"]').scrollIntoViewIfNeeded().catch(() => {})
+        await page.waitForTimeout(400)
+        await shot(`c-${tone}-theme-scale`)
+      }
+      report.customSettings.push(await dialog.evaluate((node, name) => ({
+        page: name,
+        headings: Array.from(node.querySelectorAll('h2, h3')).map((entry) => entry.textContent.trim()).filter(Boolean).slice(0, 12),
+        alerts: Array.from(node.querySelectorAll('[role="alert"]')).map((entry) => entry.textContent.trim()).filter(Boolean),
+        textareas: Array.from(node.querySelectorAll('textarea')).map((entry) => entry.value.slice(0, 80)),
+      }), name))
     }
   }
 } catch (error) {
