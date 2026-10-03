@@ -426,8 +426,10 @@ html[data-reduce-motion="true"] .source-user-attachment-picture { transition: no
   align-items: center;
 }
 .source-reasoning-step-text {
-  color: var(--cds-text-secondary);
-  font-style: normal;
+  /* User preference over the source's non-italic H2 body: every thought reads
+     the same muted italic as the classic block. */
+  color: var(--cds-text-muted);
+  font-style: italic;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
