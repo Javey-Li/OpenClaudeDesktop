@@ -135,6 +135,8 @@ const allowed = new Set([
   // DeepSeek bridge extension (harness index.js, capabilities.livePermissions): a Mode change during a turn,
   // sent with the turn/start permission params; bypass is validated like turn/start below.
   "codeDesktop/thread/permissions",
+  // DeepSeek bridge extension (capabilities.modelWorkflows): stop a run of the model's `workflow` tool.
+  "codeDesktop/workflow/stop",
 ]);
 // Deprecated in 0.155.1 and deliberately unreachable from the renderer:
 // thread/rollback (thread_processor.rs:810-826, replaced by thread/revert)
@@ -789,6 +791,12 @@ app.whenReady().then(async () => {
           await validateBypassRequest(params, () => config, () => owner.request("configRequirements/read", {}));
           if (owner !== client) throw new Error("The DeepSeek connection changed. Try again.");
         }
+        // The DeepSeek bridge shows the model its `workflow` tool only while Dynamic workflows is on
+        // (harness structured.js workflowsAllowedBy); the setting lives here, so it is stamped here.
+        if (["thread/start", "thread/resume", "turn/start", "codeDesktop/thread/permissions"].includes(p.method) && params.codeDesktop && typeof params.codeDesktop === "object") {
+          params.codeDesktop = { ...params.codeDesktop, dynamicWorkflows: config.dynamicWorkflows === true };
+        }
+        if (p.method === "codeDesktop/workflow/stop" && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");
         if (p.method === "turn/start") {
           config.stats[params.threadId] ??= { messages: 0, ids: [] };
           config.stats[params.threadId].model = params.model;

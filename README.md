@@ -1,5 +1,19 @@
 # Code Desktop
 
+## 2026-10-03 Dynamic workflows 补全：模型自己发起工作流、agent schema 结构化输出、可写工作流（未构建、未安装）
+
+背景：/workflow 已用内置的 scasella/claude-dynamic-workflows-codex（MIT，`app/third-party/codex-workflows-runner`）在 DeepSeek 内核上跑，但 ① runner 的 `agent(prompt,{schema})`（outputSchema）与 agentType 系统提示（developerInstructions）在本内核被忽略；② 只能由用户 /workflow 启动，模型不能自己发起；③ agent 一律只读。DeepSeek Harness 自带模型可调用的 `workflow` 工具（dsh-tool-workflow + dsh-workflow-ptc，dsh-base 已加载），只是 UI 不认识它。
+
+改动（详见 `harness/README.md` 协议映射）：
+- 内核 `structured.js`：`thread/start.developerInstructions` → agent 作用域的 system prompt 段（存进 threads.json，恢复会话时重挂）；`turn/start.outputSchema` → 这一轮的 `structured_output` 捕获工具（Harness 子代理同一机制，按 schema 校验），被接受的参数成为本轮的 JSON agentMessage。非对象根 schema → `-32602`。
+- 内核 `workflows.js` + projection.js：模型的 `workflow` 工具调用带 `workflowRun`（app 自己的运行形状），由持久记录 `tool-workflow/*` 与实时 `workflow/phase` 驱动，回放可重建；`codeDesktop/workflow/stop` 停前台（停本轮）或后台（kill job）运行。
+- Dynamic workflows 设置同时管模型的工具：main.cjs 在 DeepSeek 模式请求上盖 `codeDesktop.dynamicWorkflows`，内核默认对线程隐藏 `workflow` 工具与提示段，开时放出。
+- app：`model-workflow-model.mjs`——模型发起的运行在转录里是 WorkflowRow（保留轮次页脚/错误卡），在 Tasks 里是 WorkflowCard，Stop 走内核；/workflow 新增 `--write` 与对话框 "Let agents edit files"（workspace-write、不询问，脚本不能提高；resume 身份包含访问级别，旧的只读运行仍可 resume）。
+
+测试：harness `npm test` 140/140（新增 `tests/workflows.test.mjs` 10 项）；新增 `harness/tests/fake-model-smoke.mjs`——用 app 的 CodexClient 驱动真实内核、本地脚本化 Messages 服务代替模型，22 项全过（developerInstructions 进 system prompt、outputSchema 工具与 JSON 答案、只作用一轮、非法 schema、开关开/关、三 agent 两阶段运行与 schema 子 agent、回放、前台 Stop、后台 job Stop、runner 只读不能写/可写能写且都不询问）。app 新增 `tests/model-workflows.test.mjs` 2 项、workflow-package 新增 1 项（`write:true` → thread/start `workspace-write`，脚本 `sandbox` 不能提高，只读 resume 被拒）。app 全量 `npm test`（本 Linux 容器）1627 项 1590 通过、35 失败；同容器未改动的 HEAD 为 1624 项 1588 通过、34 失败，失败集合相同（缺 gitignore 的参考 CSS/资源、进程组等环境差异），多出的 1 项是 file-name-search 的 Git 子进程取消用例，在未改动的 HEAD 上单独重跑 3 次也失败 2 次（时序抖动），与本改动无关。
+
+未运行：`npm run build`（本环境缺 gitignore 的 `public/reference/*` 资源，未改动前同样失败）、离屏/原生 GUI 套件、真实 DeepSeek 模型。剩余：模型 workflow 的 agent 无 token/模型名，agent 行不能打开子会话转录。
+
 ## 2026-09-24 重复审批请求断线修复（源码与安装版已修复）
 
 修复 `Codex reused an outstanding request ID. Reconnect to continue.`：Codex 在 thread/resume 时会重发尚未完成的审批。ApprovalLedger 现在对相同 wire ID、method、完整 params 的重发沿用原条目，保留 nonce、草稿、revision 和 sending 锁；内容冲突及过期身份仍拦截。

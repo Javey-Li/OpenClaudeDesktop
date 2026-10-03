@@ -6,6 +6,7 @@ import { saveConfirmedPreferences } from './preference-save.mjs';
 import {WorkflowRow,WorkflowCard,WorkflowLaunch} from "./source-workflow.jsx";
 import {mergeWorkflow} from "./workflow-progress-model.mjs";
 import {parseWorkflowLaunch} from "./workflow-launch-model.mjs";
+import {isModelWorkflow,modelWorkflowRuns,withModelWorkflowRows,workflowTask} from "./model-workflow-model.mjs";
 import {SourceBackgroundTasks} from "./source-background-tasks.jsx";
 import {backgroundTasks,taskSections} from "./background-tasks-model.mjs";
 import { SourceTasksPane } from "./source-agent.jsx";
@@ -527,13 +528,13 @@ function App() {
   }, []);
   const [taskFocus,setTaskFocus]=useState(null);
   const workflows=workflowRuns.filter(run=>run.threadId===current);
-  const tasks=[...backgroundTasks(state,current,{connected:!!boot?.connected}),...workflows.map(run=>({id:'workflow:'+run.id,kind:'workflow',status:run.status,description:run.description,startedAt:run.startedAt,completedAt:run.completedAt,run}))];
+  const tasks=[...backgroundTasks(state,current,{connected:!!boot?.connected}),...[...workflows,...modelWorkflowRuns(items,current)].map(workflowTask)];
   useEffect(()=>{if(!current)return;let alive=true;call('workflow-list',{threadId:current}).then(rows=>{if(alive)setWorkflowRuns(old=>rows.reduce(mergeWorkflow,old));}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[current]);
   const openWorkflow=id=>{changeTileView({taskViews:[]});setTaskFocus('workflow:'+id);openPaneTile('tasks');};
   useEffect(()=>{if(!current||!boot?.connected)return;let live=true,timer;const id=current,connectionId=state.approvalConnectionId;const poll=async()=>{const requestId=Symbol('background-read');dispatch({type:'backgroundReadStarted',id,connectionId,requestId});try{const snapshot=await call('background-read',{threadId:id});if(live)dispatch({type:'backgroundSnapshot',id,connectionId,requestId,snapshot});}catch(e){if(live)dispatch({type:'backgroundSnapshot',id,connectionId,requestId,snapshot:{errors:[e.message],terminals:[]}});}finally{if(live)timer=setTimeout(poll,2000);}};poll();return()=>{live=false;clearTimeout(timer);};},[current,boot?.connected,state.approvalConnectionId]);
   const openBackgroundTask=itemId=>{changeTileView({taskViews:[]});setTaskFocus('bash:'+itemId);openPaneTile('tasks');};
   const stopBackgroundTask=async task=>{const expected={connectionId:state.approvalConnectionId,connectionEpoch:state.approvalConnectionEpoch};
-    if(task.kind==='workflow')return call('workflow-stop',{id:task.run.id});
+    if(task.kind==='workflow')return isModelWorkflow(task.run)?rpc('codeDesktop/workflow/stop',{threadId:current,runId:task.run.id}):call('workflow-stop',{id:task.run.id});
     if(task.kind==='agent')await call('interrupt',{threadId:task.threadId,turnId:task.turnId,expected});
     else {const result=await call('background-terminate',{threadId:current,processId:task.processId,expected});if(!result.terminated)throw Error('The process was not terminated.');}
   };
@@ -2679,7 +2680,7 @@ function App() {
   // Files pane tree-row and tab menus (file-context-menu-model.mjs, Mn): Attach as context through the same
   // path attachment as the Changes header and the transcript, Show in Finder through the session-scoped reveal IPC.
   const filePaneActions = { onAttachFile: transcriptActions.onAttachFile, onRevealFile: transcriptActions.onRevealFile };
-  const shownRows =groupFileTools(withLocalCommandRows(items,[...(localCommandRows[current]||[]),...workflows.map(run=>({id:"local-workflow:"+run.id,after:run.after,workflowRun:run}))]),transcriptView);
+  const shownRows =groupFileTools(withLocalCommandRows(withModelWorkflowRows(items),[...(localCommandRows[current]||[]),...workflows.map(run=>({id:"local-workflow:"+run.id,after:run.after,workflowRun:run}))]),transcriptView);
   shownRowCount.current = { id: current, count: shownRows.length };
   // approval-entry-current.js:4211-4233: xu (load failure) and Cl ("No messages
   // yet") replace the whole transcript scroller, so no status row is drawn with them.
@@ -2900,14 +2901,16 @@ function App() {
                       for the GitHub reference chips (source-forge-ref.jsx). */}
                   <SourceForgeRepoContext.Provider value={forgeRepoSlug(repoIdentities[workdir])}>
                   {shownRows.map((item, index, displayedItems) => {
-                    if(item.workflowRun)return <WorkflowRow key={item.id} run={item.workflowRun} onOpen={()=>openWorkflow(item.workflowRun.id)}/>;
+                    // A /workflow run's local row; a model-started run (model-workflow-model.mjs) is a turn row below.
+                    if(item.workflowRun&&!item.turnId)return <WorkflowRow key={item.id} run={item.workflowRun} onOpen={()=>openWorkflow(item.workflowRun.id)}/>;
                     if(item.localCommand)return <div key={item.id} data-local-command="status"><div className="source-user-bubble"><SourceUserText text="/status" nonInteractive/></div><SessionStatusDialog {...item} inline readStatus={readSessionStatus} onClose={()=>setLocalCommandRows(rows=>({...rows,[current]:(rows[current]||[]).filter(row=>row.id!==item.id)}))}/></div>;
                     const footer = turnFooters.get(item.toolGroup?.at(-1)?.id || item.id);
                     return <React.Fragment key={`${current}:${item.id}`}>
+                      {item.workflowRun ? <WorkflowRow run={item.workflowRun} onOpen={()=>openWorkflow(item.workflowRun.id)}/> :
                       <Message item={item} isInterrupting={stopping} agentContext={{state,onOpen:openAgent,onTask:openBackgroundTask}} sessionKey={current} isStreaming={isItemStreaming(state, current, item)} turnStart={!!item.turnId && item.turnId !== displayedItems[index - 1]?.turnId}
                         cwd={workdir} onOpenFileRef={openFileRef} onOpenChanges={() => { if (!gitStatus?.isRepo && !state.diffs[current]) return false; setPanel("changes"); return true; }} transcriptView={transcriptView} pendingApprovalItemIds={pendingApprovalItems}
                         turnStartedAtMs={item.type === "userMessage" ? turnSecondsToMs(state.turnTimes?.[current]?.[item.turnId]?.startedAt) : null}
-                        reasoningPlacement={item.type === "reasoning" ? reasoningPlacement(displayedItems, index, transcriptView) : undefined} />
+                        reasoningPlacement={item.type === "reasoning" ? reasoningPlacement(displayedItems, index, transcriptView) : undefined} />}
                       {footer && <SourceTurnFooter sessionKey={current} turnId={footer.turnId}
                         text={footer.text} completedAtMs={turnSecondsToMs(state.turnTimes?.[current]?.[footer.turnId]?.completedAt)} {...turnInteraction.forTurn(footer.turnId)} />}
                       {(() => {

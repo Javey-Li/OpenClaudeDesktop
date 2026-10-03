@@ -27,6 +27,8 @@ import { readFileSync, statSync } from 'node:fs'
 import { basename, isAbsolute, resolve } from 'node:path'
 import { unifiedDiff } from './diff.js'
 import { promptText, toCodexInputs } from './input.js'
+import { WORKFLOW_TOOL, isWorkflowRecord, workflowInterrupted, workflowPhase, workflowRecord, workflowRunOf, workflowToolResult } from './workflows.js'
+import { STRUCTURED_OUTPUT_TOOL } from './structured.js'
 
 const nowSeconds = (ms) => Math.floor((ms ?? Date.now()) / 1000)
 
@@ -247,7 +249,14 @@ function interruptedToolItem(item, durationMs) {
  * Desktop. `present` is the tool definition's pure presenter (may be absent).
  * `threadId` is the calling thread (a collab item's sender).
  */
-export function toolItem({ callId, name, args, cwd, definition, threadId }) {
+export function toolItem({ callId, name, args, cwd, definition, threadId, time = Date.now() }) {
+  // A model-written dynamic workflow: the generic tool item plus its run (workflows.js).
+  if (name === WORKFLOW_TOOL) {
+    return {
+      type: 'dynamicToolCall', id: callId, namespace: null, tool: name, arguments: args ?? {}, status: 'inProgress',
+      contentItems: null, success: null, durationMs: null, workflowRun: workflowRunOf(args, callId, time),
+    }
+  }
   const collab = COLLAB_TOOLS[name]
   if (collab) {
     const target = typeof args?.agent_id === 'string' && args.agent_id ? args.agent_id : null
@@ -534,6 +543,8 @@ export class ThreadProjector {
     this.rejectedCalls = new Set()
     // child session id → {turn, itemId, label} of the delegation that made it.
     this.spawns = new Map()
+    // Model workflow runs (workflows.js) → {turn, itemId}, by app run id and engine run id.
+    this.workflowItems = new Map()
     // This session's own delegation label (its `subagent/descriptor`), when it is a sub-agent.
     this.agentLabel = null
     // Thread recency: the last human prompt, reply or turn bound (isActivity).
@@ -700,8 +711,12 @@ export class ThreadProjector {
         if (!turn.id) break
         const args = parseArguments(data.arguments)
         const definition = this.toolDefinition(data.name)
-        const item = toolItem({ callId: data.callId, name: data.name, args, cwd: this.cwd, definition, threadId: this.threadId })
         this.tools.set(data.callId, { name: data.name, args, turn, startedAtMs: time, definition })
+        // The structured-output capture (structured.js) is the turn's answer, not a tool row:
+        // its accepted arguments become the closing agentMessage at tool/result.
+        if (data.name === STRUCTURED_OUTPUT_TOOL) break
+        const item = toolItem({ callId: data.callId, name: data.name, args, cwd: this.cwd, definition, threadId: this.threadId, time })
+        if (item.workflowRun) this.workflowItems.set(item.workflowRun.id, { turn, itemId: item.id })
         // The proposed plan reads as the Codex plan item, above its review card.
         if (data.name === 'exit_plan_mode' && typeof args?.plan === 'string') this.pushItem(notes, turn, { type: 'plan', id: `plan-${data.callId}`, text: args.plan }, time)
         this.pushItem(notes, turn, item, time, false)
@@ -713,14 +728,28 @@ export class ThreadProjector {
         const call = this.tools.get(message.toolCallId)
         if (!call) break
         const turn = call.turn
+        if (call.name === STRUCTURED_OUTPUT_TOOL) {
+          // Accepted (the tool validated it against the turn's schema): the JSON answer.
+          if (message.isError !== true && turn.id) {
+            const item = { type: 'agentMessage', id: `structured-${message.toolCallId}`, text: JSON.stringify(call.args ?? null), phase: null, memoryCitation: null, delivery: null, questions: null }
+            this.pushItem(notes, turn, item, time)
+          }
+          break
+        }
         const index = turn.items.findIndex((candidate) => candidate.id === message.toolCallId)
         if (index < 0) break
-        const item = completeToolItem(turn.items[index], {
+        let item = completeToolItem(turn.items[index], {
           name: call.name, args: call.args, definition: call.definition, cwd: this.cwd,
           result: { content: message.content, isError: message.isError, meta: data.meta },
           durationMs: Math.max(0, time - call.startedAtMs),
           error: data.error, rejected: this.rejectedCalls.has(message.toolCallId), imagePath: this.imagePath,
         })
+        if (item.workflowRun) {
+          const run = item.status === 'interrupted'
+            ? workflowInterrupted(item.workflowRun, time)
+            : workflowToolResult(item.workflowRun, { isError: message.isError === true, text: textOf(message.content) }, time)
+          item = { ...item, workflowRun: run }
+        }
         turn.items[index] = item
         if (item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent') {
           for (const childId of item.receiverThreadIds) if (!this.spawns.has(childId)) this.spawns.set(childId, { turn, itemId: item.id, label: item.description ?? null })
@@ -820,16 +849,65 @@ export class ThreadProjector {
         // (the live reducer settles it the same way).
         const settled = turn.status === 'interrupted' ? 'interrupted' : 'failed'
         for (const item of turn.items) {
-          if (item.status === 'inProgress') this.replaceItem(turn, { ...item, status: settled })
+          if (item.status !== 'inProgress') continue
+          this.replaceItem(turn, { ...item, status: settled, ...(item.workflowRun ? { workflowRun: workflowInterrupted(item.workflowRun, time) } : {}) })
         }
         notes.push({ method: 'turn/completed', params: { threadId: this.threadId, turn: this.snapshot(turn, 'notLoaded') } })
         if (this.current === turn) this.current = { ...turn, status: turn.status }
         break
       }
       default:
+        if (isWorkflowRecord(event.type)) this.applyWorkflow(notes, data, (run) => workflowRecord(run, event.type, data, time))
         break
     }
     return notes
+  }
+
+  /**
+   * A phase() call of a model workflow this log started (the engine's live
+   * `workflow/phase` event; not recorded durably).
+   * @returns {any[]} the item notifications
+   */
+  workflowPhase(runId, title, time = Date.now()) {
+    const notes = []
+    if (this.workflowItems.has(runId)) this.applyWorkflow(notes, { runId }, (run) => workflowPhase(run, title, time))
+    return notes
+  }
+
+  /** Whether a model workflow run (by engine run id) belongs to this log. */
+  hasWorkflowRun(runId) {
+    return this.workflowItems.has(runId)
+  }
+
+  /** The tool item of a model workflow run, by app run id or engine run id. */
+  workflowItem(runId) {
+    const entry = this.workflowItems.get(runId)
+    return entry?.turn.items.find((candidate) => candidate.id === entry.itemId)
+  }
+
+  /** Update one workflow item's run and re-announce the item (no lifecycle time: the app keeps its own). */
+  applyWorkflow(notes, data, reduce) {
+    let entry = typeof data?.runId === 'string' ? this.workflowItems.get(data.runId) : undefined
+    // run-start names the run of a call still waiting for its id (the record
+    // comes after start() returned, while the tool call is in progress).
+    if (!entry && typeof data?.runId === 'string') {
+      const candidates = [...this.workflowItems.values()].filter(({ turn, itemId }) => {
+        const item = turn.items.find((candidate) => candidate.id === itemId)
+        return item?.workflowRun && item.workflowRun.runId === null
+      })
+      entry = candidates.find(({ turn, itemId }) => turn.items.find((candidate) => candidate.id === itemId)?.workflowRun.name === data.name) ?? candidates[0]
+      if (entry) this.workflowItems.set(data.runId, entry)
+    }
+    if (!entry) return
+    const index = entry.turn.items.findIndex((candidate) => candidate.id === entry.itemId)
+    if (index < 0) return
+    const current = entry.turn.items[index]
+    const run = reduce(current.workflowRun)
+    if (run === current.workflowRun) return
+    const item = { ...current, workflowRun: run }
+    entry.turn.items[index] = item
+    if (!entry.turn.id) return
+    notes.push({ method: item.status === 'inProgress' ? 'item/started' : 'item/completed', params: { item, threadId: this.threadId, turnId: entry.turn.id } })
   }
 
   applyUserMessage(notes, message, time) {

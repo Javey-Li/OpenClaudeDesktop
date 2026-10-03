@@ -28,7 +28,10 @@ DeepSeek Harness runtime (同进程)
 npm install            # 首次
 npm run start          # 手动跑 stdio 服务（一般由 Code Desktop 拉起）
 node tests/live-smoke.mjs   # 用 app 自己的 CodexClient 做真机端到端测试（会调用 DeepSeek API）
+node tests/fake-model-smoke.mjs   # 同一客户端对真实内核，模型换成本地脚本化的 Messages 服务（DEEPSEEK_BASE_URL），不需要 key 与网络
 ```
+
+`fake-model-smoke.mjs` 覆盖 developerInstructions、outputSchema、模型的 `workflow` 工具（进度、回放、前台/后台 Stop、Dynamic workflows 开关）与 runner agent 的只读/可写权限。内核由 `#!/usr/bin/env node` 启动，CodexClient 会把 `~/.local/bin`、`/usr/local/bin` 放到 PATH 前面：那里的 node 必须 ≥ 22（Harness 要求），否则内核启动即退出。
 
 Code Desktop 默认使用本内核（`app/electron/codex.cjs` 的 `resolveCore()`）：
 
@@ -87,6 +90,11 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 | `config/read` | `{config: {sandbox_mode, approval_policy, mcp_servers}, origins: {}, layers: null}`（catalog.js `configReadResponse`）：权限取 `params.cwd` 下最近活动的已加载线程（`latestThreadIn`），否则默认 workspace-write / on-request。`mcp_servers` 每个 `@deepseek-ai/dsh-mcp-client` 条目一张表（键 = `serverName`）：command、args、url、cwd、`enabled`，`env` / `headers` 只给键名（值一律 `''`，密钥不出内核）。app 的沙箱行说明为 "Set per session with the Mode menu (DeepSeek Harness permission presets)." |
 | `mcpServerStatus/list` | profile 里每个 MCP client 条目（`ctx.configEditor.entries()`）一行（catalog.js `mcpServerStatuses`）：`runtimeStatus` 由条目决定，disabled → `disabled`，fiber active → `connected`，pending/loading → `starting`，failed → `failed`，其余 null；`tools` 来自 `ctx.tools.schemas()` 中 `mcp__<server>__` 前缀的工具，键为原始工具名；`authStatus: 'unsupported'`、`resources: []`、`serverInfo: null`。`config/mcpServer/reload`（Reconnect）重启每个在运行的 MCP client fiber（`fiber.restart()`，用当前配置重连），从未启动的 `entry.refresh()`。`config/batchWrite`、`mcpServer/oauth/login` 仍不支持：app 在 `mcpConfigWrite: false` 时隐藏 "Add custom connector"/"Remove connector"/Developer 的 Delete，改为提示 "Add a @deepseek-ai/dsh-mcp-client entry to <configPath>, then Reconnect" 并给 Edit config 按钮（打开 `configPath`，settings-pages.cjs `editConfigTarget`） |
 | `plugin/installed` / `plugin/read` | `ctx.pluginManager.listBundles()` → 一个本地 marketplace `deepseek-harness`（`path` = profile 目录，显示名 "DeepSeek Harness profile"），每个 bundle 一个 PluginSummary（`installed: true`，`enabled` = 是否被 profile 选中，显示名 = meta.title 或包名，简介 = package description）；没有 pluginManager 时为空目录而不是错误。`plugin/read` 返回该 bundle 的描述与它插入的 MCP client 行的 serverName（`mcpServers`），技能与 hooks 不归属到 bundle（空） |
+| `thread/start` `developerInstructions` | structured.js：线程 agent 作用域里的一个 system prompt 段（`code-desktop:developer-instructions`，紧跟部署人格前缀，不做 `{{}}` 插值）；同时存进桥接元数据 `threads.json`，`thread/resume` 打开时重新挂上。workflow runner 的 agentType（`.claude/agents`）系统提示走这里 |
+| `turn/start` `outputSchema` | structured.js：只对这一轮在 agent 作用域里注册 `structured_output` 捕获工具（参数 schema 即 outputSchema，执行时 `validateJsonSchemaValue` 校验、`concludeTurn()` 结束本轮）、`STRUCTURED_OUTPUT` 说明段与"已捕获后拒绝其他工具"的 guard——与 Harness 一次性子代理（dsh-subagent-in-process-driver）同一机制。被接受的参数在 projection.js 里成为本轮最后一条 agentMessage（JSON 文本），不显示为工具行；被拒的调用（不符合 schema）不显示，模型会重试。agent 正在跑时等这一轮的 user/message 落地才挂，`turn/end` 时卸下。schema 必须是对象根且在 `assertObjectJsonSchema` 支持的子集内，否则 `-32602`（runner 的 agent 得到 null）。`capabilities.structuredOutput` |
+| 模型的 `workflow` 工具（dsh-base 自带 dsh-tool-workflow + dsh-workflow-ptc） | workflows.js：工具调用仍是 dynamicToolCall，另带桥接字段 `workflowRun`——即 app 自己的运行形状（`workflow_phase` / `workflow_agent`，workflow-progress-model.mjs），所以转录行与 Tasks 卡片和 /workflow 的一样。`tool/call` 时为 running 并列出 meta.phases；持久记录 `tool-workflow/run-start`（引擎 run id 取代 `call-<callId>`）、`agent-start/end`（成员与其 phase、childId、结果）、`run-end`（completed/stopped/failed）随会话日志实时到达，也随回放重建；`workflow/phase` 只是引擎的实时事件（不落盘），按 run id 送到记录了该运行的线程，记录到达前的先缓存。前台失败用工具的错误文本收尾；后台（`run_in_background`）从受理文本里取 job id，工具返回后运行继续。更新以不带生命周期时间的 item/started / item/completed 重发。轮次被停止时运行与其中的 agent 记为 stopped |
+| `codeDesktop/workflow/stop`（桥接扩展） | `{threadId, runId}`：后台运行 `jobs.kill(jobId, threadId)`；前台运行就是正在执行的工具调用，所以与 `turn/interrupt` 一样停止本轮（工具把步骤的 abort signal 接到 `run.cancel()`）；已结束返回 `{status:'alreadyFinished'}`。`capabilities.modelWorkflows`；main.cjs 白名单放行并校验 threadId |
+| Dynamic workflows 开关 | 每个线程默认对模型隐藏 `workflow` 工具（作用域内 `tools.restrict({deny:['workflow']})`，并用空段遮住它的 `tool:workflow` 提示），只有请求带 `codeDesktop.dynamicWorkflows: true` 才放出、带 false 再收回（structured.js `workflowsAllowedBy` / `hideWorkflowTool`）。main.cjs 在 DeepSeek 模式的 thread/start、thread/resume、turn/start、`codeDesktop/thread/permissions` 上按设置盖这个值；workflow runner 自己的线程不带，所以不会嵌套工作流 |
 | 未知 thread id | `thread/read`、`thread/resume`、`turn/start` 等遇到 Harness 不认识的会话（`SESSION_QUERY_SESSION_NOT_FOUND` / `SessionPersistenceNotFoundError`，含 cause 链，或 stat 无 header）→ `-32602`，`data: {codexErrorInfo:'threadNotFound', threadId}`（errors.js；`threadNotFound` 是本桥接层的扩展值，Codex 的 CodexErrorInfo 没有它）。RpcError 不打 stderr 堆栈；`thread/unarchive` 对未知 id 也返回该错误，app 不会把它挪回活动列表 |
 
 ## 已知限制（诚实列出）
@@ -99,14 +107,15 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 - 没有可压缩历史时 `/compact` 仍以 completed 的空轮结束（界面显示 "Conversation compacted"），回放里不留这一轮。
 - `thread/delete` 是**软删除**（桥接层隐藏），Harness 的会话文件仍在 `~/.dsh/sessions`，官方 DeepSeek Harness App 仍能看到；因此 DeepSeek 内核下删除确认框写的是 "Remove session?"（"…will be removed from Code Desktop. Its history stays in DeepSeek Harness…"），不再承诺永久删除。
 - 图片附件走 Harness 附件存储，以图片块发给模型；只有不支持图片输入的模型（目录里 `inputModalities` 不含 `image`，如 deepseek-v4-pro）不能附图：app 在暂存时就拒绝（"The selected model doesn’t support image input."），已暂存后再换模型发送则内核返回 `-32602`。用户气泡里的图片是附件存储里规范化后的副本（可能被缩小、换格式），不是原文件。`@` 提及的行内 chip 位置（`text_elements`）不保存，回放时提及只显示为文件卡片；技能以 `/name` 文本出现在气泡里（不是技能卡片）；以前用文本标记发出的图片在回放里显示为图片卡片（原路径）。
-- `developerInstructions` 被忽略；人格前缀在 `packages/code-desktop-app/cordis.patch.yml`。
+- 部署人格前缀在 `packages/code-desktop-app/cordis.patch.yml`；`developerInstructions` 是它后面的一个段，不替换它。
+- 模型 workflow 的每个 agent 没有 token 数与模型名（持久记录不带）；它们是子代理会话（childId），但 Tasks 卡片的 agent 行还不能打开其转录。
 - Harness 没有"本会话一直允许"的原生授权；`acceptForSession` 由桥接层按上面的授权键记在内核进程的内存里：离开再打开同一会话仍有效，内核重启后失效。提权到 danger-full-access 的文件写入不提供本会话授权（原版对项目外文件也不给常驻授权）。
 - 额外工作目录不是 Harness 的可写根：模型写入那里时第一次仍会看到 `[sandbox: file access denied under workspace-write mode]`，需要自己带 `sandbox_permissions` 重试一次（随后自动放行）；bash 在这些目录里写文件仍会弹提权卡片。Plan 评审通过后的同一轮里额外目录暂不生效（Plan 的只读策略不带 writableRoots），下一轮恢复。
 - Plan 评审用的是通用问题卡 + Markdown 计划条目，原版专用的计划卡（"Claude proposed a plan"、Open plan、Revise）没有移植。`multi_select` 问题在问题卡里只能单选；`ask_user_question` 用 legacy 阻塞模式，没有接 timed 模式（`attachWait` / 迟到回复）。
 - 首次连接需启动 Harness 运行时（约 2–4 秒），期间首页显示 "Connecting to DeepSeek…"。
 - 冷读（侧栏、自动归档、`thread/list`）的 `model` 是默认路由，不是会话日志里的模型；打开会话（`thread/resume`）后才是真实模型。冷行的 `updatedAt` 是最后一次提问时间，已加载线程是最后一次回复/轮次结束时间，两者可能差几分钟。投影缓存按节流写入（每 200 个事件或 5 秒，轮次结束与会话释放时必写）。本内核启动后另一个进程（DeepSeek App）才写的检查点，本进程的缓存表一直看不到：不带轮次的 `thread/read`（侧栏、自动归档）发现日志 revision 变了会回放一次，但 `thread/list` 的行（标题、最近时间）会停在旧值，直到某次 `thread/read` 回放写回或内核重启。另一个进程正在跑一轮时，每次 `thread/read` 都回放（不写回半截的轮次）。启动列表与缓存表加载之间被别的进程写入的会话，revision 已是新的，那一次写入要等下一次变化才会被发现。
 - 离开或归档会话才释放写锁；仍在运行、有排队或待处理卡片、有后台 job 的会话保持加载（不会在空闲后自动释放），直到下次离开它或退出 Code Desktop。`thread/backgroundTerminals/list` 仍返回空，Tasks 面板与自动归档看不到 Harness 的后台 job：自动归档可能给一个 job 还在跑的空闲会话打上归档标记（job 不受影响，线程保持加载）。在 DeepSeek App 里打开着的会话，Code Desktop 打开时报 `sessionBusyElsewhere`，转录区显示通用的加载失败状态（Retry），已有内容时横幅显示这句说明。
-- Dynamic workflows 现在跑在 DeepSeek 内核上：`main.cjs` 按 `resolveCore()` 给 workflow runner 传 `{command: node, args: [本脚本, 'app-server', '--stdio']}`（workflow-service.cjs `workflowCoreCommand`；`CODE_DESKTOP_WORKFLOW_BINARY` 仍可覆盖，`CODE_DESKTOP_CORE=codex` 时仍用 Codex CLI）。runner 的 `developerInstructions`（脚本给 agent 的 system prompt）与 `outputSchema` 在本内核被忽略。
+- Dynamic workflows 现在跑在 DeepSeek 内核上：`main.cjs` 按 `resolveCore()` 给 workflow runner 传 `{command: node, args: [本脚本, 'app-server', '--stdio']}`（workflow-service.cjs `workflowCoreCommand`；`CODE_DESKTOP_WORKFLOW_BINARY` 仍可覆盖，`CODE_DESKTOP_CORE=codex` 时仍用 Codex CLI）。runner 的 `developerInstructions`（agentType 的 system prompt）与 `outputSchema`（`agent(prompt, {schema})`）都由上面的 structured.js 实现。runner agent 的权限由启动决定：默认 read-only，`/workflow … --write` 或对话框的 "Let agents edit files" 为 workspace-write（`approvalPolicy: never`，不询问；脚本的 `sandbox` 选项不能提高它）。
 - 子代理：只投影持久事件，不转发子代理的 token 级流式增量（Tasks 面板里的回答按步出现，不逐字出现）；子代理的审批卡片显示在父会话上（按命令 / diff，没有子代理条目的 "run <description>" 标题）；前台运行与可续运行之外的后台 job 形式（`started background subagent job`）不跟踪结束状态；内核重启前没有收到结束通知的可续子代理，回放时委派行仍是 running。本批次之前创建的子代理没有记下 label，`thread/list` 里 `agentNickname` 为空（app 回退到委派行的 description，`thread/read` 从子会话的 descriptor 读到 label）。
 
 ## 文件
@@ -124,6 +133,8 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 | `packages/codex-app-server/src/approval.js` | 审批来源与处理决定（`approvalDecision` / `approvalAnswer`）、"本会话允许"授权键与 preset 变化时的清理（`updatePermission` / `presetFor`）、英文 reason、额外工作目录的路径判断、只读工具表与子代理审批（`rootThreadFor` / `childDecision` / `childApproval`） |
 | `packages/codex-app-server/src/list.js` | 会话列表冷行：`sessionListMetadata` 投影单元（上游原样）与注册、缓存读取（`cachedValues`）、`coldRow`、`readColdThread`、缓存表的日志 revision（`CacheRevisions`）、回放能否写回（`seedable`）、`matchesSearch`、`titleOf`，以及 unsubscribe 时是否必须保持加载（`mustStayLoaded`、`descendantIds`、`ownsRunningJob`） |
 | `packages/codex-app-server/src/subagents.js` | 会话谱系 → Codex 线程字段（`threadLineage`：parentThreadId / forkedFromId / thread_spawn source / agentNickname）与 `thread/list` 的 sourceKinds 过滤 |
+| `packages/codex-app-server/src/structured.js` | `developerInstructions` 段、一轮的 `structured_output` 捕获、Dynamic workflows 开关（`workflowsAllowedBy` / `hideWorkflowTool`） |
+| `packages/codex-app-server/src/workflows.js` | 模型 `workflow` 工具的运行 → `item.workflowRun`（纯函数：`workflowRunOf`、`workflowRecord`、`workflowPhase`、`workflowToolResult`、`workflowInterrupted`） |
 | `packages/codex-app-server/src/questions.js` | `user-questions/request` ↔ `item/tool/requestUserInput` 映射、计划评审判定、Plan 模式提示 |
 | `packages/codex-app-server/src/errors.js` | 需要 app 区分的 RpcError（`threadNotFound`、`skillToggleUnsupported`）与 Harness 错误的 cause 链判断 |
 | `packages/codex-app-server/src/account.js` | `account/read`：凭据服务的 key 状态与 DeepSeek Platform 登录 → Codex 账户 + `deepseek` 扩展 |
@@ -134,3 +145,4 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 | `packages/codex-app-server/src/diff.js` | Myers 行 diff → 无头 unified diff |
 | `packages/codex-app-server/src/transport.js` | 换行 JSON-RPC 传输 |
 | `tests/live-smoke.mjs` | 真机端到端测试 |
+| `tests/fake-model-smoke.mjs` | 脚本化模型的端到端测试（本地 Messages 服务，无需 key） |

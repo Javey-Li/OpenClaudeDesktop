@@ -15,7 +15,7 @@ export const sessionCommands = [
   {id:'status',label:'Session status',description:'Show this session’s version, model, environment, and account',session:true,idle:true,icon:'UsageGaugeMiddle'},
   {id:'usage',aliases:['stats','cost'],label:'Usage',description:'Show plan usage and rate limits'},
   {id:'diff',label:'Show changes',description:'Show or hide this session’s changes',session:true},
-  {id:'workflow',label:'Run workflow',description:'Run a local dynamic workflow',argumentHint:'[path] [--plan] [--resume run-id] [--args JSON]',session:true},
+  {id:'workflow',label:'Run workflow',description:'Run a local dynamic workflow',argumentHint:'[path] [--plan] [--write] [--resume run-id] [--args JSON]',session:true},
   {id:'workflows',label:'Workflows',description:'Show workflows in background tasks',session:true},
   {id:'tasks',aliases:['bashes'],label:'Background tasks',description:'Show this session’s background tasks',session:true},
   {id:'config',aliases:['settings'],label:'Settings',description:'Open Code settings'},

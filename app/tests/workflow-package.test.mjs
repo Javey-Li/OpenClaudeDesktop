@@ -42,3 +42,11 @@ test('workflow agents run on the session core: the DeepSeek bridge gets its scri
   const trace=(await fs.readFile(path.join(root,'workflow-wire.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);assert.deepEqual(trace.find(q=>q.argv)?.argv,['app-server','--stdio']);assert.equal(trace.filter(q=>q.method==='thread/start').length,1);
  }finally{await server.dispose();await fs.rm(root,{recursive:true,force:true});}
 });
+
+test('a launch that lets agents edit files gives them workspace-write access, never more',async()=>{const root=await fs.mkdtemp(path.join(os.tmpdir(),'workflow-write-'));const {fork}=await import('node:child_process');const server=service.createWorkflowService({root:path.join(root,'runs'),getConfig:()=>({threadIds:['t'],cwd:root,dynamicWorkflows:true}),emit:()=>{},command:path.resolve('tests/fixtures/workflow-server.cjs'),version:'test',spawn:(file,args,options)=>fork(file,args,{...options,env:{...options.env,CODEX_HOME:path.join(root,'codex-home')}})});try{
+ const file=path.join(root,'write.workflow.js');await fs.writeFile(file,'return await agent("FAST",{sandbox:"danger-full-access"});');
+ let run=await server.start({threadId:'t',file,model:'fixture',write:true});assert.equal(run.write,true);await until(async()=>{run=(await server.list('t')).find(r=>r.id===run.id);return run.status!=='running';});assert.equal(run.status,'completed');
+ const starts=(await fs.readFile(path.join(root,'workflow-wire.jsonl'),'utf8')).trim().split('\n').map(JSON.parse).filter(q=>q.method==='thread/start');
+ assert.equal(starts.length,1);assert.equal(starts[0].params.sandbox,'workspace-write','a script cannot raise the launch access');assert.equal(starts[0].params.approvalPolicy,'never');
+ await assert.rejects(server.start({threadId:'t',file,model:'fixture',resumeId:run.id}),/same script, arguments, model, access/,'a read-only resume of a write run is refused');
+}finally{await server.dispose();await fs.rm(root,{recursive:true,force:true});}});

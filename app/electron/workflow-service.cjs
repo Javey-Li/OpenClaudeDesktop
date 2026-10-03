@@ -26,7 +26,7 @@ function createWorkflowService({root,getConfig,emit,command,args:commandArgs,ver
   }catch{}}})();
  async function list(threadId){await ready;return [...runs.values()].filter(r=>r.threadId===threadId).sort((a,b)=>a.startedAt-b.startedAt);}
  function trusted(id){if(!idPattern.test(id)||!runs.has(id))throw Error('Unknown workflow.');const run=runs.get(id);if(!getConfig().threadIds.includes(run.threadId))throw Error('Unknown session.');return run;}
- async function startRun({threadId,file,args={},plan=false,resumeId,model:chosenModel,effort,cwd:requestedCwd,after}){
+ async function startRun({threadId,file,args={},plan=false,write=false,resumeId,model:chosenModel,effort,cwd:requestedCwd,after}){
   await ready;if(disposed)throw Error('Application is closing.');const config=getConfig();
   if(!config.dynamicWorkflows)throw Error('Dynamic workflows are disabled.');
   if(!config.threadIds.includes(threadId))throw Error('Choose a session before starting a workflow.');
@@ -37,12 +37,12 @@ function createWorkflowService({root,getConfig,emit,command,args:commandArgs,ver
   if(!/[\\/]/.test(file)&&! /\.(?:m?js|cjs)$/.test(file)){const dirs=[path.join(cwd,'.claude/workflows'),path.join(require('node:os').homedir(),'.claude/workflows')];const match=dirs.flatMap(dir=>[file+'.js',file+'.workflow.js',file+'.mjs'].map(name=>path.join(dir,name))).find(f=>fs.existsSync(f));if(!match)throw Error('No saved workflow with this name.');file=match;}
   const script=fs.realpathSync(path.resolve(cwd,file));
   if(!/\.(?:m?js|cjs)$/.test(script)||fs.statSync(script).size>1048576)throw Error('Select a JavaScript workflow smaller than 1 MB.');
-  const source=fs.readFileSync(script,'utf8'),hash=crypto.createHash('sha256').update(source).update(JSON.stringify(args)).update(cwd).update(chosenModel||'').update(effort||'').digest('hex');
+  const source=fs.readFileSync(script,'utf8'),hash=crypto.createHash('sha256').update(source).update(JSON.stringify(args)).update(cwd).update(chosenModel||'').update(effort||'').update(write===true?'write':'').digest('hex');
   const id=crypto.randomUUID(),directory=path.join(root,id);fs.mkdirSync(directory);
-  if(resumeId){const previous=trusted(resumeId);if(previous.threadId!==threadId||previous.identity!==hash||previous.status==='running'||previous.plan)throw Error('Resume requires the same script, arguments, model and working directory from a finished run.');const journal=path.join(root,resumeId,'journal.jsonl');if(fs.existsSync(journal))fs.copyFileSync(journal,path.join(directory,'journal.jsonl'));}
+  if(resumeId){const previous=trusted(resumeId);if(previous.threadId!==threadId||previous.identity!==hash||previous.status==='running'||previous.plan)throw Error('Resume requires the same script, arguments, model, access and working directory from a finished run.');const journal=path.join(root,resumeId,'journal.jsonl');if(fs.existsSync(journal))fs.copyFileSync(journal,path.join(directory,'journal.jsonl'));}
   fs.writeFileSync(path.join(directory,'source.workflow.js'),source);
   const {workflowEvent}=await model;
-  let run={id,threadId,after:typeof after==='string'?after:undefined,identity:hash,file:script,cwd,args,model:chosenModel,effort,plan:!!plan,description:path.basename(script),status:'running',startedAt:Date.now(),sequence:0,workflowProgress:[]};
+  let run={id,threadId,after:typeof after==='string'?after:undefined,identity:hash,file:script,cwd,args,model:chosenModel,effort,plan:!!plan,write:write===true,description:path.basename(script),status:'running',startedAt:Date.now(),sequence:0,workflowProgress:[]};
   runs.set(id,run);fs.writeFileSync(path.join(directory,'origin.json'),JSON.stringify(run));persist(run);emit({kind:'workflow',run});
   function record(event,at=Date.now()) {run=workflowEvent(run,event,at);runs.set(id,run);fs.appendFileSync(path.join(directory,'events.jsonl'),JSON.stringify({sequence:run.sequence,at,event})+'\n');persist(run);emit({kind:'workflow',run});}
   if(disposed){record({type:'settled',status:'failed',error:'Application is closing.'});return run;}
@@ -56,7 +56,7 @@ function createWorkflowService({root,getConfig,emit,command,args:commandArgs,ver
   });
   const stop=()=>{if(stopRequested)return completion;stopRequested=true;try{process.kill(-child.pid,'SIGTERM');}catch{}killTimer=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}},1500);return completion;};
   running.set(id,{stop,completion,pid:child.pid});
-  child.send({directory,source,cwd,args,plan:!!plan,resume:!!resumeId,model:chosenModel,effort,command,commandArgs,version});return run;
+  child.send({directory,source,cwd,args,plan:!!plan,write:write===true,resume:!!resumeId,model:chosenModel,effort,command,commandArgs,version});return run;
  }
  async function start(params){if(running.size+starting>=4)throw Error('Four workflows are already running.');starting++;try{return await startRun(params);}finally{starting--;}}
  async function stop(id){await ready;trusted(id);const entry=running.get(id);if(!entry)throw Error('This workflow is no longer running.');return entry.stop();}

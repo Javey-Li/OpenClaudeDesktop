@@ -30,6 +30,11 @@
  *                       shape from the same folds
  *   user input          Codex parts ↔ Harness content (input.js): images are
  *                       attachment-store image blocks, skills the /name gesture
+ *   developerInstructions / outputSchema
+ *                       a scoped prompt section / a one-turn structured_output
+ *                       capture tool on the agent's scope (structured.js)
+ *   dynamic workflows   the Harness `workflow` tool's runs as workflowRun on its
+ *                       item (workflows.js); codeDesktop/workflow/stop
  *
  * @module @code-desktop/dsh-codex-app-server
  */
@@ -58,6 +63,7 @@ import { afterPlanPermission, approvedAfterPlan, codexQuestions, harnessAnswer, 
 import { DEEPSEEK_KEY_REF, accountReadResponse, providerAccountResponse } from './account.js'
 import { UsageCache, accountTokenUsage, codeStats, localDayKey, sessionUsageSummaries } from './usage.js'
 import { CacheRevisions, cachedValues, coldRow, descendantIds, matchesSearch, mustStayLoaded, ownsRunningJob, readColdThread, registerListProjection, seedable, titleOf } from './list.js'
+import { attachDeveloperInstructions, attachStructuredOutput, developerInstructionsOf, hideWorkflowTool, outputSchemaOf, workflowsAllowedBy } from './structured.js'
 
 export const name = 'codex-app-server'
 export const inject = ['codeDesktopStartup', 'agents', 'llm', 'sessionPersistence', 'sessions']
@@ -77,7 +83,9 @@ const DSH_VERSION = '0.2.0-rc.2'
 // livePermissions: codeDesktop/thread/permissions applies a Mode change to a running thread (the app keeps
 // Mode usable during a turn and sends it only to a core that lists this capability).
 // codeStats: codeDesktop/stats/read serves the home stats card (the app falls back to its own ledger without it).
-const CAPABILITIES = { unsupportedMethods: ['thread/fork', 'review/start', 'thread/revert'], skillToggle: false, mcpConfigWrite: false, livePermissions: true, codeStats: true }
+// modelWorkflows: the model's `workflow` tool reports runs as item.workflowRun, stopped by codeDesktop/workflow/stop.
+// structuredOutput: thread/start developerInstructions and turn/start outputSchema are honored (structured.js).
+const CAPABILITIES = { unsupportedMethods: ['thread/fork', 'review/start', 'thread/revert'], skillToggle: false, mcpConfigWrite: false, livePermissions: true, codeStats: true, modelWorkflows: true, structuredOutput: true }
 
 // How long after start account/read waits for the credentials and account services.
 const ACCOUNT_SERVICE_WAIT_MS = 5000
@@ -161,8 +169,14 @@ export function apply(ctx, config) {
   // ---------------------------------------------------------------- threads
 
   class LiveThread {
-    constructor(handle, cwd) {
+    constructor(handle, cwd, agentCtx) {
       this.handle = handle
+      // The agent's scope: per-thread prompt sections and the turn's structured capture (structured.js).
+      this.agentCtx = agentCtx
+      // {schema, messageId, dispose, started} while a turn/start outputSchema applies.
+      this.structured = null
+      // Shows the `workflow` tool again; set while it is hidden (structured.js hideWorkflowTool).
+      this.workflowGate = null
       this.agent = handle.agent
       this.id = handle.agent.session.id
       this.cwd = cwd
@@ -218,11 +232,13 @@ export function apply(ctx, config) {
       const activity = this.projector.lastActivityMs
       if (activity !== null && (this.lastActivityMs === null || activity > this.lastActivityMs)) this.lastActivityMs = activity
       for (const note of notes) notify(note.method, note.params)
+      releasePhases(this, event)
       if (event.type === 'assistant/message' && event.data?.usage) {
         this.addUsage(event.data.usage)
         const turnId = this.projector.turnIdFor(event.data.turn)
         if (turnId) notify('thread/tokenUsage/updated', { threadId: this.id, turnId, tokenUsage: this.tokenUsage(event.data.usage) })
       }
+      this.trackStructured(event)
       if (event.type === 'turn/end') {
         this.stream.endTurn(event.data.turn)
         // An ask the approval service settled without a card (policy, abort) leaves its id.
@@ -230,6 +246,58 @@ export function apply(ctx, config) {
       }
       // A child this thread just made: its label names it in thread/list.
       if (event.type === 'subagent/catalog') rememberLabel(event.data?.childId, this.projector.childLabel(event.data?.childId))
+    }
+
+    /**
+     * The outputSchema of a turn/start applies to that turn only: attached when
+     * its message lands (at once when the agent was idle), removed at its end.
+     */
+    applyStructured(schema, messageId) {
+      this.dropStructured()
+      this.structured = { schema, messageId, dispose: null, started: false }
+      if (this.agent.status !== 'running' && !this.projector.activeTurn) this.attachStructured()
+    }
+
+    attachStructured() {
+      const pending = this.structured
+      if (!pending || pending.dispose || !this.agentCtx) return
+      try {
+        pending.dispose = attachStructuredOutput(this.agentCtx, pending.schema)
+      } catch (error) {
+        logger.warn(`structured output for ${this.id}: ${errorChain(error)}`)
+        this.structured = null
+      }
+    }
+
+    dropStructured() {
+      const pending = this.structured
+      this.structured = null
+      try { pending?.dispose?.() } catch {}
+    }
+
+    trackStructured(event) {
+      const pending = this.structured
+      if (!pending) return
+      if (event.type === 'user/message' && event.data?.id === pending.messageId) {
+        this.attachStructured()
+        pending.started = true
+      } else if (event.type === 'turn/start' && pending.dispose) pending.started = true
+      else if (event.type === 'turn/end' && pending.started) this.dropStructured()
+    }
+
+    /**
+     * The model's `workflow` tool follows the app's Dynamic workflows setting.
+     * Hidden until a request allows it, so a client that never says (the
+     * workflow runner's own agents) gets no nested workflows.
+     */
+    gateWorkflows(params, initial = false) {
+      const allowed = workflowsAllowedBy(params)
+      if (allowed === true && this.workflowGate) {
+        this.workflowGate()
+        this.workflowGate = null
+      } else if ((allowed === false || (allowed === null && initial)) && !this.workflowGate && this.agentCtx) {
+        this.workflowGate = hideWorkflowTool(this.agentCtx)
+      }
     }
 
     addUsage(usage) {
@@ -299,6 +367,7 @@ export function apply(ctx, config) {
       if (this.closing) return this.closing
       this.closing = (async () => {
         for (const pending of this.pendingApprovals.values()) pending.abort(reason)
+        this.dropStructured()
         this.queue.close()
         this.compaction?.controller.abort(compactionInterrupted())
         try {
@@ -418,6 +487,32 @@ export function apply(ctx, config) {
     children.delete(child.id)
     child.publishStatus({ type: 'idle' })
   })
+  // A model workflow's phase() calls are live engine events only (workflows.js):
+  // they reach the thread whose log recorded the run; one before that record is held.
+  const heldPhases = new Map()
+  ctx.on('workflow/phase', (info, title) => {
+    const runId = info?.id
+    if (typeof runId !== 'string') return
+    for (const thread of threads.values()) {
+      if (!thread.projector.hasWorkflowRun(runId)) continue
+      for (const note of thread.projector.workflowPhase(runId, title)) notify(note.method, note.params)
+      return
+    }
+    const held = heldPhases.get(runId) ?? []
+    if (held.length < 64) heldPhases.set(runId, [...held, title])
+    if (heldPhases.size > 64) heldPhases.delete(heldPhases.keys().next().value)
+  })
+  ctx.on('workflow/end', (info) => { heldPhases.delete(info?.id) })
+  // The run's record arrived: replay what came before it.
+  const releasePhases = (thread, event) => {
+    if (event.type !== 'tool-workflow/run-start') return
+    const runId = event.data?.runId
+    const held = heldPhases.get(runId)
+    if (!held) return
+    heldPhases.delete(runId)
+    for (const title of held) for (const note of thread.projector.workflowPhase(runId, title)) notify(note.method, note.params)
+  }
+
   // Queue edits, follow-ups and claims all surface as inbox events.
   ctx.on('agent/inbox/inserted', ({ agent }) => byAgent(agent)?.queue.changed())
   ctx.on('agent/inbox/discarded', ({ agent }) => byAgent(agent)?.queue.changed())
@@ -669,16 +764,23 @@ export function apply(ctx, config) {
     const selection = await catalog.selection(params.model, params.effort ?? params.config?.model_reasoning_effort, undefined)
     const sessionId = randomUUID()
     const selectionRef = { current: selection, assembled: undefined }
+    const instructions = developerInstructionsOf(params)
+    let scope
     const handle = await ctx.agents.create({
       sessionId,
       meta: { cwd },
       agentOptions: selection ? { provider: selection.provider, model: selection.model, ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}) } : {},
       // A defined setup return value must be a commit handle; return nothing.
       setup: (agentCtx) => {
+        scope = agentCtx
         installModelSelection(agentCtx, selectionRef)
+        if (instructions) attachDeveloperInstructions(agentCtx, instructions)
       },
     })
-    const thread = new LiveThread(handle, cwd)
+    // Kept with the bridge metadata: a resumed session gets its instructions back.
+    if (instructions) store.update(sessionId, { developerInstructions: instructions })
+    const thread = new LiveThread(handle, cwd, scope)
+    thread.gateWorkflows(params, true)
     thread.selection = selectionRef
     threads.set(thread.id, thread)
     thread.hydrate([])
@@ -698,11 +800,15 @@ export function apply(ctx, config) {
       await catalog.load().catch(() => undefined)
       const route = catalog.defaultRoute()
       const selectionRef = { current: undefined, assembled: undefined }
+      const instructions = developerInstructionsOf(store.get(threadId))
+      let scope
       // requireSession again: the log can vanish between stat and resume.
       const handle = await requireSession(threadId, () => ctx.agents.resume({
         resumeSessionId: threadId,
         agentOptions: { provider: route.provider, model: route.model },
         setup: (agentCtx, agent) => {
+          scope = agentCtx
+          if (instructions) attachDeveloperInstructions(agentCtx, instructions)
           const logged = agent.session.requestHeader?.()
           selectionRef.current = logged?.config
             ? { provider: logged.config.provider, model: logged.config.model, ...(logged.config.reasoningEffort && logged.adapterDefaults?.reasoningEffort !== true ? { reasoningEffort: logged.config.reasoningEffort } : {}) }
@@ -714,7 +820,8 @@ export function apply(ctx, config) {
         // a second core); an agent of this process owning it is not that.
         throw isSessionOwnedElsewhere(error) && !ctx.agents.get?.(threadId) ? sessionBusyElsewhere(threadId) : error
       }))
-      const thread = new LiveThread(handle, handle.agent.session.header.cwd ?? header.cwd)
+      const thread = new LiveThread(handle, handle.agent.session.header.cwd ?? header.cwd, scope)
+      thread.gateWorkflows(undefined, true)
       thread.selection = selectionRef
       threads.set(threadId, thread)
       let events = []
@@ -737,6 +844,7 @@ export function apply(ctx, config) {
   }
 
   async function applyPermissions(thread, params) {
+    thread.gateWorkflows(params)
     await applyThreadPermissions(thread, params, permissionServices())
   }
 
@@ -1222,10 +1330,13 @@ export function apply(ctx, config) {
         return method === 'thread/unsubscribe' ? { status: loaded ? 'unsubscribed' : 'notLoaded' } : {}
       }
       case 'turn/start': {
+        // Checked first: a schema the core cannot enforce fails the request before anything changes.
+        const schema = outputSchemaOf(params)
         const thread = await openThread(requireId(params.threadId))
         await applyPermissions(thread, params)
         await applyRoute(thread, params)
         const message = await inputMessage(params.input, thread)
+        if (schema) thread.applyStructured(schema, message.id)
         thread.agent.followup(message)
         thread.lastActivityMs = Date.now()
         // A cold row's recency when the cache record lags (list.js coldRow).
@@ -1320,6 +1431,8 @@ export function apply(ctx, config) {
         // turn/start or thread/resume carries the new mode anyway.
         return livePermissions(threads.get(requireId(params.threadId)), params, applyPermissions)
       }
+      case 'codeDesktop/workflow/stop':
+        return stopWorkflow(threads.get(requireId(params.threadId)), params.runId)
       case 'codeDesktop/diagnostics': {
         const tools = ctx.get('tools')
         let toolNames = []
@@ -1330,6 +1443,28 @@ export function apply(ctx, config) {
       default:
         throw new RpcError(METHOD_NOT_FOUND, `${method} is not supported by the DeepSeek core yet.`)
     }
+  }
+
+  /**
+   * Stop a model workflow run. A background run is its own job (job_kill's
+   * path); a foreground run is the running tool call, so its turn stops, as
+   * the tool bridges the step's abort signal to the run's cancel().
+   */
+  function stopWorkflow(thread, runId) {
+    if (typeof runId !== 'string' || !runId) throw invalidParams('runId is required')
+    const item = thread && !thread.closing ? thread.projector.workflowItem(runId) : undefined
+    if (!item?.workflowRun) throw invalidParams('Unknown workflow run.')
+    const run = item.workflowRun
+    if (run.status !== 'running') return { status: 'alreadyFinished' }
+    if (run.jobId) {
+      const jobs = ctx.get('jobs')
+      if (!jobs) throw new RpcError(-32000, 'Background jobs are not available in this Harness profile.')
+      return { status: jobs.kill(run.jobId, thread.id, 'Stopped from Code Desktop') === 'requested' ? 'stopping' : 'alreadyFinished' }
+    }
+    if (item.status !== 'inProgress') return { status: 'alreadyFinished' }
+    for (const pending of thread.pendingApprovals.values()) pending.abort('Turn interrupted.')
+    thread.queue.interrupt()
+    return { status: 'stopping' }
   }
 
   // list.js mustStayLoaded: anything in flight keeps the agent (and its lock).

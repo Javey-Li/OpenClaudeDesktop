@@ -17,11 +17,13 @@ process.once('message',async options=>{
   // commandArgs: the core's arguments (the DeepSeek bridge script + app-server --stdio); absent = the runner's Codex default.
   const clientOptions={command:options.command,...(Array.isArray(options.commandArgs)?{args:options.commandArgs}:{}),clientInfo:{name:'code-desktop-workflows',title:'Code Desktop',version:options.version}};
   if(!options.plan){const client=await getClient(clientOptions);send({type:'connection',pid:client.pid});}
-  // Script options cannot elevate the embedding application's read-only policy.
-  const controlled=opts=>({...opts,cwd:options.cwd,sandbox:'read-only',clientOptions,pinnedModel:options.model});
+  // The launch chooses the access (read-only, or workspace-write when the user let agents edit files);
+  // script options cannot raise it. Agents never ask (approvalPolicy never): the choice was made at launch.
+  const sandbox=options.write===true?'workspace-write':'read-only';
+  const controlled=opts=>({...opts,cwd:options.cwd,sandbox,clientOptions,pinnedModel:options.model});
   const result=await runWorkflowSource(options.source,{
    args:options.args,plan:options.plan,journal,defaultModel:options.model,pinnedModel:options.model,
-   defaults:{cwd:options.cwd,sandbox:'read-only',effort:options.effort,clientOptions},
+   defaults:{cwd:options.cwd,sandbox,effort:options.effort,clientOptions},
    runAgent:(prompt,opts)=>codexAgent(prompt,controlled(opts)),
    startSession:opts=>startCodexSession(controlled(opts)),
    onPhase:title=>send({type:'phase',title}),onEvent:send,
