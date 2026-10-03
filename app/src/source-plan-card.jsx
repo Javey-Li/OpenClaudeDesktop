@@ -8,14 +8,15 @@ import { ActionButton, BusyAnnouncement, currentlyVisible, useAllowArming, useHo
 import { SourceQuestionCard } from "./source-question-card.jsx";
 import "./source-approval-card.css";
 import "./source-plan-card.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Mk/Nk (approval-current.js:9443-9458): the accept label per target mode. The local
 // targets are the modes an approved plan continues in (permission-policy.mjs
 // afterPlanPermission): 'ask' is the source's 'default' (Manual); Bypass is never one.
 export const PLAN_ACCEPT_LABELS = Object.freeze({
-  ask: "Accept",
-  acceptEdits: "Accept and allow edits",
-  auto: "Accept and auto mode",
+  ask: t("Accept"),
+  acceptEdits: t("Accept and allow edits"),
+  auto: t("Accept and auto mode"),
 });
 export const planTargetOf = (target) => (PLAN_TARGETS.includes(target) ? target : "auto");
 /** :9802-9884 actions: left Reject / Revise…; right Accept (only when the target is not
@@ -23,13 +24,13 @@ export const planTargetOf = (target) => (PLAN_TARGETS.includes(target) ? target 
  * feedback field; :9783-9801 swaps in Back / Revise. */
 export function planCardActions(target, revising = false) {
   if (revising) return {
-    left: [{ key: "back", label: "Back", primary: false }],
-    right: [{ key: "revise", label: "Revise", primary: true }],
+    left: [{ key: "back", label: t("Back"), primary: false }],
+    right: [{ key: "revise", label: t("Revise"), primary: true }],
   };
   const mode = planTargetOf(target);
   return {
-    left: [{ key: "reject", label: "Reject", primary: false },
-      { key: "revise-open", label: "Revise…", primary: false, keycap: "esc", shortcut: "Escape" }],
+    left: [{ key: "reject", label: t("Reject"), primary: false },
+      { key: "revise-open", label: t("Revise…"), primary: false, keycap: "esc", shortcut: "Escape" }],
     right: [
       ...(mode !== "ask" ? [{ key: "accept", label: PLAN_ACCEPT_LABELS.ask, primary: false,
         keycap: "cmd+shift+enter", shortcut: "Meta+Shift+Enter Control+Shift+Enter" }] : []),
@@ -123,13 +124,13 @@ function PlanCard({ runtime, request, ticket, view, getVisibleThreadId, respond,
         revising, the 3-row 'Plan feedback' TextArea (:9734-9782). */}
     <div className="sac-body spc-body">
       <div className="spc-heading">
-        <span className="spc-heading-copy"><span id={headingId} className="spc-title">DeepSeek proposed a plan</span></span>
+        <span className="spc-heading-copy"><span id={headingId} className="spc-title">{t("DeepSeek proposed a plan")}</span></span>
         {onOpenPlan && <span className="spc-trailing">
-          <button type="button" className="spc-open-plan" data-cds="TextLink" onClick={onOpenPlan}>Open plan</button>
+          <button type="button" className="spc-open-plan" data-cds="TextLink" onClick={onOpenPlan}>{t("Open plan")}</button>
         </span>}
       </div>
       {revising && <textarea ref={field} className="spc-feedback" data-cds="TextArea" rows={3}
-        aria-label="Plan feedback" placeholder="What should change? (optional)" value={feedback}
+        aria-label={t("Plan feedback")} placeholder={t("What should change? (optional)")} value={feedback}
         disabled={busy} onChange={event => setFeedback(event.target.value)} onKeyDown={fieldKeyDown} />}
     </div>
     {view.error && <p role="alert" className="sac-error">{view.error}</p>}

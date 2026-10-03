@@ -18,8 +18,21 @@
 // overlay row (harness-profile.cjs setManagedRow) and one env var per route
 // (setCoreEnv), applied when the core restarts. Keys never reach
 // preferences.json, the renderer or ~/.dsh.
+//
+// API connection (ops connection-read / connection-save): the DeepSeek core
+// talks to the official API or to a third-party relay (an Anthropic
+// Messages-compatible base URL). The mode and relay URL live in
+// <userData>/harness/connection.json; each mode's key sits in the same
+// encrypted provider-keys.bin under a reserved name ("@official", "@relay",
+// never a valid route). They reach the core as DEEPSEEK_API_KEY and
+// DEEPSEEK_BASE_URL (the inherited environment outranks ~/.dsh), applied when
+// the core restarts. Without a saved key the launch environment or ~/.dsh applies.
+// A relay that names models differently lists its ids (relayModels, or op
+// connection-models reads its /v1/models); they replace the llm-deepseek
+// adapter's catalog through one managed overlay row.
 const fs = require("node:fs");
 const path = require("node:path");
+const { createRelayProxy } = require("./relay-proxy.cjs");
 const METHOD_NOT_FOUND = -32601;
 const DEEPSEEK_ENGINE = "deepseek-harness";
 const THREAD_METHODS = new Set(["thread/start", "thread/resume", "turn/start"]);
@@ -33,11 +46,14 @@ function prefs() {
   try { return prefsModule = require("./prefs/model-settings.mjs"); } catch { return null; }
 }
 
-function createModelSettings({ getConfig, getClient, app, getHarnessProfile = () => null, safeStorage, dir }) {
+function createModelSettings({ getConfig, getClient, app, getHarnessProfile = () => null, safeStorage, dir, relayProxy = createRelayProxy() }) {
   const isDeepSeek = client => client?.serverInfo?.engine === DEEPSEEK_ENGINE;
   const harnessDir = () => dir || path.join(app.getPath("userData"), "harness");
   const providersFile = () => path.join(harnessDir(), "providers.json");
   const keysFile = () => path.join(harnessDir(), "provider-keys.bin");
+  const connectionFile = () => path.join(harnessDir(), "connection.json");
+  // What the app was launched with, restored when a saved value is cleared.
+  const inherited = { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL };
   const storage = () => safeStorage ?? (safeStorage = require("electron").safeStorage);
 
   function writeAtomic(file, data, mode = 0o600) {
@@ -72,6 +88,33 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
     for (const route of previous) if (!providers.some(provider => provider.route === route)) profile.setCoreEnv(prefs().providerKeyEnv(route), null);
     for (const provider of providers) profile.setCoreEnv(prefs().providerKeyEnv(provider.route), keys[provider.route] ?? null);
   }
+  function readConnection() {
+    try { return prefs().normalizeConnection(JSON.parse(fs.readFileSync(connectionFile(), "utf8"))); } catch { return prefs().normalizeConnection(null); }
+  }
+  // Relay mode routes the core through the loopback forwarder (relay-proxy.cjs).
+  async function exportConnection(connection = readConnection(), keys = readKeys()) {
+    const profile = getHarnessProfile();
+    if (!profile?.setCoreEnv) return;
+    const relay = connection.mode === "relay";
+    const key = keys[relay ? prefs().CONNECTION_KEY_RELAY : prefs().CONNECTION_KEY_OFFICIAL];
+    let base = inherited.DEEPSEEK_BASE_URL ?? null;
+    if (relay) {
+      try { base = await relayProxy.start(connection.relayBaseURL); }
+      catch (error) { console.warn("Couldn’t start the relay forwarder; using the relay directly:", error?.message || error); base = connection.relayBaseURL; }
+    } else await relayProxy.stop();
+    profile.setCoreEnv("DEEPSEEK_API_KEY", key ?? inherited.DEEPSEEK_API_KEY ?? null);
+    profile.setCoreEnv("DEEPSEEK_BASE_URL", base);
+  }
+  function connectionView() {
+    const keys = readKeys();
+    return {
+      available: !!getHarnessProfile()?.setCoreEnv,
+      ...readConnection(),
+      officialKey: !!keys[prefs().CONNECTION_KEY_OFFICIAL],
+      relayKey: !!keys[prefs().CONNECTION_KEY_RELAY],
+      inheritedKey: !!inherited.DEEPSEEK_API_KEY,
+    };
+  }
   async function applyProviders(providers, keys, previousRoutes) {
     const profile = getHarnessProfile();
     if (!profile?.setManagedRow) throw new Error("Custom providers need Settings › Harness, which isn’t available.");
@@ -91,7 +134,12 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
     };
   }
   // Keys are exported once the app is ready (safeStorage needs it), before main's connect().
-  app?.whenReady?.().then(() => { try { if (prefs()) exportKeys(); } catch (error) { console.warn("Couldn’t export the provider keys:", error?.message || error); } });
+  // main.cjs connect() awaits ready() before the first core spawn, so the
+  // relay forwarder's port is in the core's environment.
+  const exported = !app?.whenReady ? Promise.resolve() : app.whenReady().then(async () => {
+    await loading;
+    try { if (prefs()) { exportKeys(); await exportConnection(); } } catch (error) { console.warn("Couldn’t export the provider keys:", error?.message || error); }
+  });
 
   function decorate(method, params) {
     if (!params || typeof params !== "object" || !prefs() || !isDeepSeek(getClient())) return params;
@@ -111,6 +159,44 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
     await loading;
     if (!prefs()) throw new Error("Model settings aren’t available.");
     if (p.op === "providers-read") return providersView();
+    if (p.op === "connection-read") return connectionView();
+    if (p.op === "connection-save") {
+      if (!getHarnessProfile()?.setCoreEnv) throw new Error("The API connection needs Settings › Harness, which isn’t available.");
+      const connection = prefs().validateConnection({ ...readConnection(), ...p.connection });
+      const keys = readKeys();
+      for (const [field, name] of [["officialKey", prefs().CONNECTION_KEY_OFFICIAL], ["relayKey", prefs().CONNECTION_KEY_RELAY]]) {
+        const value = p[field];
+        if (typeof value === "string" && value.trim()) {
+          if (value.length > 4096 || /[\x00-\x1f\x7f]/.test(value.trim())) throw new Error("Invalid API key.");
+          keys[name] = value.trim();
+        } else if (value === null) delete keys[name];
+      }
+      if (connection.mode === "relay" && !keys[prefs().CONNECTION_KEY_RELAY]) throw new Error("Enter the relay’s API key.");
+      writeAtomic(connectionFile(), JSON.stringify({ version: 1, ...connection }, null, 2) + "\n", 0o644);
+      writeKeys(keys);
+      await exportConnection(connection, keys);
+      // The relay's model ids replace the adapter's catalog (deepseek-flash / deepseek-v4-pro).
+      const profile = getHarnessProfile(), row = prefs().relayCatalogRow(connection);
+      if (row && profile.setManagedRow) await profile.setManagedRow(prefs().DEEPSEEK_ROW_ID, row);
+      else if (!row && profile.removeManagedRow) await profile.removeManagedRow(prefs().DEEPSEEK_ROW_ID);
+      return connectionView();
+    }
+    if (p.op === "connection-models") {
+      // GET <base>/v1/models with the typed or the saved relay key; the key never goes back.
+      const base = String(p.relayBaseURL ?? readConnection().relayBaseURL ?? "").trim().replace(/\/+$/, "");
+      const urlError = prefs().relayBaseURLError(base);
+      if (urlError) throw new Error(urlError);
+      const key = typeof p.relayKey === "string" && p.relayKey.trim() ? p.relayKey.trim() : readKeys()[prefs().CONNECTION_KEY_RELAY];
+      if (!key) throw new Error("Enter the relay’s API key.");
+      const root = new URL(base).pathname.endsWith("/v1") ? base : `${base}/v1`;
+      let response;
+      try { response = await fetch(`${root}/models`, { headers: { authorization: `Bearer ${key}`, "x-api-key": key, "anthropic-version": "2023-06-01" }, signal: AbortSignal.timeout(20000) }); }
+      catch (error) { throw new Error(`Couldn’t reach ${root}/models: ${error?.message || error}`); }
+      if (!response.ok) throw new Error(`The relay answered ${response.status} for ${root}/models.`);
+      const body = await response.json().catch(() => null);
+      const list = Array.isArray(body?.data) ? body.data : Array.isArray(body?.models) ? body.models : [];
+      return { models: prefs().parseRelayModels(list.map(item => typeof item === "string" ? item : item?.id).filter(id => typeof id === "string").slice(0, prefs().MAX_ENTRIES)) };
+    }
     if (p.op === "provider-save") {
       const provider = prefs().validateProvider(p.provider);
       const providers = readProviders(), previousRoutes = providers.map(item => item.route);
@@ -155,7 +241,7 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
     }
   }
 
-  return { decorate, run };
+  return { decorate, run, ready: () => exported, dispose: () => relayProxy.stop() };
 }
 
 module.exports = { createModelSettings };

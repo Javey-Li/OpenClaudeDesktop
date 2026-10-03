@@ -11,6 +11,7 @@ import {composerSchema,composerDocument,composerText,composerTextOffset,composer
 import {SourceMenu} from './source-menu.jsx';
 import {pathChoices} from './file-tool-model.mjs';
 import {positionMenu} from './menu-model.mjs';
+import { t } from '../electron/i18n/index.mjs';
 import {safeHoverHull,insideHoverHull} from './source-tooltip-model.js';
 import './source-composer-editor.css';
 
@@ -51,19 +52,19 @@ function MentionChip({path,label,selected,getActions,onDelete,onFocusEditor}) {
   onMouseDown={event=>{if(event.button!==0)event.stopPropagation();}} onContextMenu={event=>event.stopPropagation()}
   onClick={event=>{if(!event.currentTarget.contains(event.target))return;event.preventDefault();setMenu(true);}}>
   <span className="sc-mention-chip-trigger"><span className="sc-mention-chip-glow" aria-hidden="true"/><span className="sc-mention-chip-label" title={path}>{name}</span></span>
-  {menu&&<SourceMenu.Popup anchor={trigger.current} side="bottom" align="start" label="Mention actions" finalFocus={false}
+  {menu&&<SourceMenu.Popup anchor={trigger.current} side="bottom" align="start" label={t('Mention actions')} finalFocus={false}
    onClose={reason=>{setMenu(false);if(reason==='escape-key'||reason==='item-click')requestAnimationFrame(onFocusEditor);}}>
-   <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>Copy</SourceMenu.SubmenuTrigger><SourceMenu.Popup label="Copy">
-    {choices?.absolute&&<SourceMenu.Item onClick={act(()=>copy(choices.absolute))}>Absolute path</SourceMenu.Item>}
-    {choices?.relative&&<SourceMenu.Item onClick={act(()=>copy(choices.relative))}>Relative path</SourceMenu.Item>}
-    <SourceMenu.Item onClick={act(()=>copy(choices?.filename||name))}>Filename</SourceMenu.Item>
+   <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>{t('Copy')}</SourceMenu.SubmenuTrigger><SourceMenu.Popup label={t('Copy')}>
+    {choices?.absolute&&<SourceMenu.Item onClick={act(()=>copy(choices.absolute))}>{t('Absolute path')}</SourceMenu.Item>}
+    {choices?.relative&&<SourceMenu.Item onClick={act(()=>copy(choices.relative))}>{t('Relative path')}</SourceMenu.Item>}
+    <SourceMenu.Item onClick={act(()=>copy(choices?.filename||name))}>{t('Filename')}</SourceMenu.Item>
    </SourceMenu.Popup></SourceMenu.Submenu>
    <SourceMenu.Separator/>
-   <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>Open in</SourceMenu.SubmenuTrigger><SourceMenu.Popup label="Open in">
-    <SourceMenu.Item onClick={act(()=>getActions()?.onOpen?.(path))}>Files pane</SourceMenu.Item>
+   <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>{t('Open in')}</SourceMenu.SubmenuTrigger><SourceMenu.Popup label={t('Open in')}>
+    <SourceMenu.Item onClick={act(()=>getActions()?.onOpen?.(path))}>{t('Files pane')}</SourceMenu.Item>
    </SourceMenu.Popup></SourceMenu.Submenu>
    <SourceMenu.Separator/>
-   <SourceMenu.Item variant="danger" onClick={()=>{setMenu(false);onDelete();}}>Delete</SourceMenu.Item>
+   <SourceMenu.Item variant="danger" onClick={()=>{setMenu(false);onDelete();}}>{t('Delete')}</SourceMenu.Item>
   </SourceMenu.Popup>}
  </span>;
 }

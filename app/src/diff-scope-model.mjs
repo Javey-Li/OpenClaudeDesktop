@@ -1,3 +1,5 @@
+import { t, tn } from "../electron/i18n/index.mjs";
+
 // Changes-pane diff scope, 2.2553.1 readable/panes-tile-current.js:2842-3117
 // (Fm branch order, Im "Compare against" section, zm scope trigger + sections,
 // Bm commit label) and panes-diff-states-current.js:340-357 (an unset scope, or
@@ -11,18 +13,18 @@ export const DIFF_SCOPE_COMMIT_LIMIT = 50;
 // zm Lm, rendered by the label as an ArrowRight glyph with alt "to".
 export const DIFF_SCOPE_ARROW = "→";
 export const DIFF_SCOPE_LABELS = Object.freeze({
-  workingTree: "working tree",
-  to: "to",
-  allChanges: "All changes",
-  uncommitted: "Uncommitted changes",
-  compareAgainst: "Compare against",
-  searchBranches: "Search branches",
-  branchesFailed: "Couldn’t load branches",
-  noBranchesMatch: "No branches match",
-  loadingBranches: "Loading branches…",
-  defaultHint: "default",
-  commits: "Commits",
-  noMessage: "(no message)",
+  workingTree: t("working tree"),
+  to: t("to"),
+  allChanges: t("All changes"),
+  uncommitted: t("Uncommitted changes"),
+  compareAgainst: t("Compare against"),
+  searchBranches: t("Search branches"),
+  branchesFailed: t("Couldn’t load branches"),
+  noBranchesMatch: t("No branches match"),
+  loadingBranches: t("Loading branches…"),
+  defaultHint: t("default"),
+  commits: t("Commits"),
+  noMessage: t("(no message)"),
 });
 
 const SHA = /^[0-9a-f]{7,64}$/i;
@@ -68,7 +70,7 @@ export function diffScopeTrigger(scope, { base, head, commits } = {}) {
     : `${base} ${DIFF_SCOPE_ARROW} ${target}`;
   return {
     label,
-    ariaLabel: `Diff scope: ${label}`,
+    ariaLabel: t("Diff scope: {label}", { label }),
     branch: scope?.kind === "commit" || scope?.kind === "uncommitted" ? null : { base, head: target },
   };
 }
@@ -112,7 +114,7 @@ export function diffScopeSections({
   onSelectScope = noop, onSelectBase = noop, onBaseMenuOpen = noop,
 } = {}) {
   const sections = [{ key: "diff-scope", items: [
-    { value: "branch", label: DIFF_SCOPE_LABELS.allChanges, hint: `vs ${base}`, checked: scope.kind === "branch", checkedRole: "radio",
+    { value: "branch", label: DIFF_SCOPE_LABELS.allChanges, hint: t("vs {base}", { base }), checked: scope.kind === "branch", checkedRole: "radio",
       onSelect: () => onSelectScope(DEFAULT_DIFF_SCOPE) },
     ...(uncommittedAvailable ? [{ value: "uncommitted", label: DIFF_SCOPE_LABELS.uncommitted, checked: scope.kind === "uncommitted",
       checkedRole: "radio", onSelect: () => onSelectScope(UNCOMMITTED_DIFF_SCOPE) }] : []),
@@ -150,7 +152,7 @@ export function diffScopeSections({
           checked: listed === undefined ? undefined : commit.sha === listed, checkedRole: "radio",
           onSelect: () => onSelectScope({ kind: "commit", sha: commit.sha }),
         })),
-        ...(hidden > 0 ? [{ value: "more-commits", label: `${hidden} older ${hidden === 1 ? "commit" : "commits"} not shown`, disabled: true, onSelect: noop }] : []),
+        ...(hidden > 0 ? [{ value: "more-commits", label: tn(hidden, "{count} older commit not shown", "{count} older commits not shown"), disabled: true, onSelect: noop }] : []),
       ],
     }] });
   }

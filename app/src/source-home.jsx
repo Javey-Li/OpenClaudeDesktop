@@ -5,6 +5,7 @@ import {
   greetingName, greetingText, heatmapLightness, heatmapWeeks, localDayKey, modelColor,
 } from "./home-model.mjs";
 import "./source-home.css";
+import { t } from "../electron/i18n/index.mjs";
 import { usePersona } from "./use-persona.js";
 import { greetingFor } from "./persona-store.mjs";
 import { PersonaSparkGlyph } from "./source-spark.jsx";
@@ -13,8 +14,8 @@ import { PersonaSparkGlyph } from "./source-spark.jsx";
 // The card renders the original getCodeStats object (main.cjs 'stats': the
 // DeepSeek core's codeDesktop/stats/read, or this client's ledger on Codex).
 
-const TAB_SEGMENTS = [{ value: "overview", label: "Overview" }, { value: "models", label: "Models" }];
-const RANGE_SEGMENTS = [{ value: "all", label: "All" }, { value: "30d", label: "30d" }, { value: "7d", label: "7d" }];
+const TAB_SEGMENTS = [{ value: "overview", label: t("Overview") }, { value: "models", label: t("Models") }];
+const RANGE_SEGMENTS = [{ value: "all", label: t("All") }, { value: "30d", label: t("30d") }, { value: "7d", label: t("7d") }];
 const MODEL_ROWS = 6;
 const LABEL_PROBE_KEY = "2000-09-30";
 const formatNumber = (value) => new Intl.NumberFormat().format(value);
@@ -79,9 +80,9 @@ function StatsTabs({ segments, value, label, live, onChange }) {
 function TabsRow({ tab, range, live, onTab, onRange, dimmed }) {
   return (
     <div className={"sh-tabs-row" + (dimmed ? " is-hold" : "")}>
-      <StatsTabs segments={TAB_SEGMENTS} value={tab} label="Stats view" live={live} onChange={onTab} />
+      <StatsTabs segments={TAB_SEGMENTS} value={tab} label={t("Stats view")} live={live} onChange={onTab} />
       <span className="sh-spacer" />
-      <StatsTabs segments={RANGE_SEGMENTS} value={range} label="Date range" live={live} onChange={onRange} />
+      <StatsTabs segments={RANGE_SEGMENTS} value={range} label={t("Date range")} live={live} onChange={onRange} />
     </div>
   );
 }
@@ -110,7 +111,7 @@ function revealStarted(event) {
   if (!isReveal(event)) return;
   event.currentTarget.setAttribute("data-shown", "");
   const label = event.currentTarget.querySelector("[data-skeleton-label]");
-  if (label && label.textContent === "") label.textContent = "Loading";
+  if (label && label.textContent === "") label.textContent = t("Loading");
 }
 // hc onAnimationEnd (:3377-3382): a settled group never replays the reveal.
 function revealEnded(event) {
@@ -164,13 +165,13 @@ function HoldCard({ surface, startedAt }) {
 /** Jw: "Couldn’t load usage stats" + Retry (disabled with its reason while disconnected). */
 function FailedCard({ surface, onRetry, connected, attempts }) {
   const button = (
-    <button type="button" className="sh-retry" disabled={!connected} onClick={onRetry}>Retry</button>
+    <button type="button" className="sh-retry" disabled={!connected} onClick={onRetry}>{t("Retry")}</button>
   );
   return (
     <div className={cardClass(surface)} data-testid="epitaxy-stats-failed" data-stats-attempts={attempts}>
       <div className="sh-failed">
-        <span className="sh-failed-text">Couldn’t load usage stats</span>
-        {onRetry && (connected ? button : <SourceTooltip disabledReason="Available when reconnected">{button}</SourceTooltip>)}
+        <span className="sh-failed-text">{t("Couldn’t load usage stats")}</span>
+        {onRetry && (connected ? button : <SourceTooltip disabledReason={t("Available when reconnected")}>{button}</SourceTooltip>)}
       </div>
     </div>
   );
@@ -196,7 +197,7 @@ function Heatmap({ dailyActivity, todayKey }) {
   const [tooltips, setTooltips] = useState(false);
   return (
     <SourceTooltipGroup>
-      <div role="img" aria-label="Daily activity heatmap" className="activity-heatmap sh-heatmap"
+      <div role="img" aria-label={t("Daily activity heatmap")} className="activity-heatmap sh-heatmap"
         onPointerEnter={tooltips ? undefined : (event) => { if (event.pointerType !== "touch") setTooltips(true); }}>
         {weeks.map((week, index) => (
           <div key={index} className="sh-heatmap-column">
@@ -228,12 +229,12 @@ function Overview({ stats, ranged, models, todayKey, seed }) {
   return (
     <div className="sh-overview">
       <div className="stats-grid sh-grid">
-        <Tile label="Sessions" value={formatNumber(ranged.totalSessions)} />
-        <Tile label="Messages" value={formatNumber(ranged.totalMessages)} />
-        <Tile label="Total tokens" value={compactTokens(ranged.totalTokens)} />
-        <Tile label="Active days" value={String(ranged.activeDays)} />
-        <Tile label="Peak hour" value={peak} />
-        <Tile label="Favorite model" value={favoriteName} small />
+        <Tile label={t("Sessions")} value={formatNumber(ranged.totalSessions)} />
+        <Tile label={t("Messages")} value={formatNumber(ranged.totalMessages)} />
+        <Tile label={t("Total tokens")} value={compactTokens(ranged.totalTokens)} />
+        <Tile label={t("Active days")} value={String(ranged.activeDays)} />
+        <Tile label={t("Peak hour")} value={peak} />
+        <Tile label={t("Favorite model")} value={favoriteName} small />
       </div>
       <Heatmap dailyActivity={stats.dailyActivity} todayKey={todayKey} />
       {sentence && <span className="stats-footnote sh-footnote">{sentence}</span>}
@@ -277,7 +278,7 @@ function TokenChart({ chart, models }) {
   }, []);
   const step = chartLabelStep(chart.days.length, widths.plot, widths.probe);
   return (
-    <div role="img" aria-label="Daily tokens by model" data-size="sm" className="sh-chart">
+    <div role="img" aria-label={t("Daily tokens by model")} data-size="sm" className="sh-chart">
       <div className="sh-chart-axis" aria-hidden="true">
         {chart.ticks.map((tick) => <span key={tick} className="sh-chart-tick">{compactTokens(tick)}</span>)}
       </div>
@@ -320,14 +321,14 @@ function ModelsView({ ranged, models }) {
           <div key={entry.model} className="sh-model-row" data-model={entry.model}>
             <span className="sh-model-swatch" aria-hidden="true" style={{ backgroundColor: modelColor(index) }} />
             <span className="sh-model-name">{modelDisplayName(models, entry.model)}</span>
-            <span className="sh-model-io">{compactTokens(entry.usage.inputTokens)} in · {compactTokens(entry.usage.outputTokens)} out</span>
+            <span className="sh-model-io">{t("{input} in · {output} out", { input: compactTokens(entry.usage.inputTokens), output: compactTokens(entry.usage.outputTokens) })}</span>
             <span className="sh-model-pct">{((entry.tokens / total) * 100).toFixed(1)}%</span>
           </div>
         ))}
-        {ranged.modelTotals.length === 0 && <span className="sh-model-empty">No model usage in this range</span>}
+        {ranged.modelTotals.length === 0 && <span className="sh-model-empty">{t("No model usage in this range")}</span>}
         {ranged.modelTotals.length > MODEL_ROWS && (
           <button type="button" className="sh-model-more" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-            {expanded ? "Show less" : `Show ${hidden} more`}
+            {expanded ? t("Show less") : t("Show {count} more", { count: hidden })}
           </button>
         )}
       </div>

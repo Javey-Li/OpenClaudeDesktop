@@ -8,6 +8,7 @@
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -205,6 +206,32 @@ try {
   })
   const rejected = await client.request('turn/start', { threadId, input: [{ type: 'text', text: 'x' }], outputSchema: { type: 'array', items: { type: 'string' } } }).then(() => null, (error) => error)
   check('a non-object output schema fails with INVALID_PARAMS', () => assert.equal(rejected?.code, -32602))
+
+  // thread/delete also deletes the Harness history (<DSH_HOME>/sessions/<project>/<id>/).
+  const sessionDirs = async (id) => {
+    const sessionsRoot = path.join(process.env.DSH_HOME, 'sessions'), found = []
+    for (const project of await fs.readdir(sessionsRoot).catch(() => [])) {
+      const dir = path.join(sessionsRoot, project, id)
+      if (await fs.stat(dir).then((info) => info.isDirectory(), () => false)) found.push(dir)
+    }
+    return found
+  }
+  const doomed = (await client.request('thread/start', { cwd: workspace, model, approvalPolicy: 'never', sandbox: 'read-only' })).thread.id
+  from = events.length
+  await client.request('turn/start', { threadId: doomed, input: [{ type: 'text', text: 'plain follow-up' }] })
+  await turnDone(doomed, from)
+  const beforeDelete = await sessionDirs(doomed)
+  await client.request('thread/delete', { threadId: doomed })
+  const afterDelete = await sessionDirs(doomed)
+  const reread = await client.request('thread/read', { threadId: doomed, includeTurns: false }).then(() => null, (error) => error)
+  check('thread/delete removes the session directory from the Harness sessions root', () => {
+    assert.equal(beforeDelete.length, 1, 'the session was persisted before the delete')
+    assert.deepEqual(afterDelete, [])
+    assert.ok(reread, 'the deleted session can no longer be read')
+    assert.ok(fsSync.existsSync(path.join(process.env.DSH_HOME, 'sessions')), 'the sessions root itself stays')
+  })
+  const survivor = await sessionDirs(threadId)
+  check('other sessions are untouched by a delete', () => assert.equal(survivor.length, 1))
 
   // The /workflow runner's agents (codexAgent.js buildThreadParams): approvalPolicy never and the
   // launch's sandbox on thread/start, nothing on turn/start; read-only, or workspace-write with --write.

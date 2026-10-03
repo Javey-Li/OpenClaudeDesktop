@@ -163,15 +163,12 @@ test('delete confirm copy: Codex keeps the source strings, DeepSeek says remove'
   assert.equal(deleteConfirmCopy(two).body, 'These 2 sessions will be permanently deleted. This can’t be undone.');
   for (const engine of ['deepseek', 'deepseek-harness']) {
     const single = deleteConfirmCopy(one, { engine }), plural = deleteConfirmCopy(two, { engine });
-    for (const copy of [single, plural]) {
-      assert.doesNotMatch(copy.body, /permanently|can’t be undone/);
-      assert.equal(copy.danger, true);
-    }
-    assert.deepEqual(single, { title: 'Remove session?', body: '“Middle task” will be removed from Code Desktop. Its history stays in DeepSeek Harness (~/.dsh/sessions) and other DeepSeek apps.', confirmLabel: 'Remove', danger: true });
-    assert.deepEqual(plural, { title: 'Remove 2 sessions?', body: 'These 2 sessions will be removed from Code Desktop. Their history stays in DeepSeek Harness (~/.dsh/sessions) and other DeepSeek apps.', confirmLabel: 'Remove', danger: true });
+    // The DeepSeek core's delete also removes the Harness history, and says so.
+    assert.deepEqual(single, { title: 'Delete session?', body: '“Middle task” and its history in DeepSeek Harness (~/.dsh/sessions) will be permanently deleted. This can’t be undone.', confirmLabel: 'Delete', danger: true });
+    assert.deepEqual(plural, { title: 'Delete 2 sessions?', body: 'These 2 sessions and their history in DeepSeek Harness (~/.dsh/sessions) will be permanently deleted. This can’t be undone.', confirmLabel: 'Delete', danger: true });
   }
   assert.deepEqual(olderConfirmCopy('delete', 3), { title: 'Delete older sessions?', body: 'This will permanently delete 3 sessions older than a week. Pinned sessions aren’t affected. This can’t be undone.', confirmLabel: 'Delete all', danger: true });
-  assert.deepEqual(olderConfirmCopy('delete', 1, { engine: 'deepseek' }), { title: 'Remove older sessions?', body: 'This will remove 1 session older than a week from Code Desktop. Pinned sessions aren’t affected. Their history stays in DeepSeek Harness.', confirmLabel: 'Remove all', danger: true });
+  assert.deepEqual(olderConfirmCopy('delete', 1, { engine: 'deepseek' }), { title: 'Delete older sessions?', body: 'This will permanently delete 1 session older than a week, including its DeepSeek Harness history. Pinned sessions aren’t affected. This can’t be undone.', confirmLabel: 'Delete all', danger: true });
   assert.deepEqual(olderConfirmCopy('archive', 2, { engine: 'deepseek' }), olderConfirmCopy('archive', 2));
 });
 

@@ -3,6 +3,7 @@ import { createFinishedTaskHold, sparkState, taskButtonLabel, transcriptSparkSiz
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { SourceSpark, SPARK_PATH } from "./source-spark.jsx";
 import "./source-transcript-status.css";
+import { t } from "../electron/i18n/index.mjs";
 import { createThinkingReader, elapsedTurnSeconds, runtimeStatLabels, subscribeThinkingClock, subscribeTurnClock, thinkingChangeAt, turnActivity } from './transcript-runtime-stats.mjs';
 import { createActivityLabelStore } from './activity-label-store.mjs';
 
@@ -110,7 +111,7 @@ export function SourceTranscriptStatus({ textSize = "m", turnId, turnStats, item
               <span className="sts-stat" data-runtime-stat={index === 0 ? 'elapsed' : 'tokens'}>{stat}</span><span className="sts-separator" aria-hidden="true">·</span>
             </React.Fragment>)}
             {tasks && <>{tasks}{separator}</>}
-            {thinkingToggle ? <button aria-label={`${label}, ${thinkingShown ? 'hide from transcript' : 'show in transcript'}`} type="button"
+            {thinkingToggle ? <button aria-label={t(thinkingShown ? '{label}, hide from transcript' : '{label}, show in transcript', { label })} type="button"
               className="source-shimmer sts-activity sts-thinking-toggle" onClick={onToggleThinking}>{label}</button>
               : <span className={view.busy && !thoughtLabel ? 'source-shimmer sts-activity' : 'sts-activity'}>{label}</span>}
           </>}

@@ -11,6 +11,8 @@
 // `action` (and `value`) that main.cjs binds; edit items keep _W's roles.
 // Renderer widgets that preventDefault the DOM contextmenu event keep their
 // own menus: Chromium never emits "context-menu" for a cancelled event.
+// LABELS are the English sources; contextMenuTemplate translates them per menu.
+const { t } = require("./i18n/index.mjs");
 const LABELS = Object.freeze({
   learn: "Learn Spelling", lookUp: "Look Up", openLink: "Open Link in Default Browser", copyLink: "Copy Link Address",
   copyImage: "Copy Image", copyImageAddress: "Copy Image Address", undo: "Undo", redo: "Redo", cut: "Cut", copy: "Copy",
@@ -35,47 +37,47 @@ function contextMenuTemplate(params, { allowDevTools = false } = {}) {
   }
   if (params.misspelledWord) {
     separate();
-    items.push({ label: LABELS.learn, action: "learn-spelling", value: params.misspelledWord });
+    items.push({ label: t(LABELS.learn), action: "learn-spelling", value: params.misspelledWord });
     pending = true;
   }
   if (params.selectionText) {
     separate();
-    items.push({ label: LABELS.lookUp, action: "look-up" });
+    items.push({ label: t(LABELS.lookUp), action: "look-up" });
     pending = true;
   }
   if (params.linkURL) {
     separate();
-    if (externalLink(params.linkURL)) items.push({ label: LABELS.openLink, action: "open-link", value: params.linkURL });
-    items.push({ label: LABELS.copyLink, action: "copy-text", value: params.linkURL });
+    if (externalLink(params.linkURL)) items.push({ label: t(LABELS.openLink), action: "open-link", value: params.linkURL });
+    items.push({ label: t(LABELS.copyLink), action: "copy-text", value: params.linkURL });
     pending = true;
   }
   if (params.hasImageContents) {
     separate();
-    items.push({ label: LABELS.copyImage, action: "copy-image" });
-    if (params.srcURL) items.push({ label: LABELS.copyImageAddress, action: "copy-text", value: params.srcURL });
+    items.push({ label: t(LABELS.copyImage), action: "copy-image" });
+    if (params.srcURL) items.push({ label: t(LABELS.copyImageAddress), action: "copy-text", value: params.srcURL });
     pending = true;
   }
   if (params.isEditable && (flags.canUndo || flags.canRedo)) {
     separate();
-    items.push({ label: LABELS.undo, accelerator: "CmdOrCtrl+Z", role: "undo", enabled: !!flags.canUndo });
-    items.push({ label: LABELS.redo, accelerator: "CmdOrCtrl+Shift+Z", role: "redo", enabled: !!flags.canRedo });
+    items.push({ label: t(LABELS.undo), accelerator: "CmdOrCtrl+Z", role: "undo", enabled: !!flags.canUndo });
+    items.push({ label: t(LABELS.redo), accelerator: "CmdOrCtrl+Shift+Z", role: "redo", enabled: !!flags.canRedo });
     pending = true;
   }
   separate();
   if (params.isEditable) {
-    items.push({ label: LABELS.cut, accelerator: "CmdOrCtrl+X", role: "cut", enabled: !!flags.canCut });
-    items.push({ label: LABELS.copy, accelerator: "CmdOrCtrl+C", role: "copy", enabled: !!flags.canCopy });
-    items.push({ label: LABELS.paste, accelerator: "CmdOrCtrl+V", role: "paste", enabled: !!flags.canPaste });
-  } else items.push({ label: LABELS.copy, accelerator: "CmdOrCtrl+C", role: "copy", enabled: !!flags.canCopy });
+    items.push({ label: t(LABELS.cut), accelerator: "CmdOrCtrl+X", role: "cut", enabled: !!flags.canCut });
+    items.push({ label: t(LABELS.copy), accelerator: "CmdOrCtrl+C", role: "copy", enabled: !!flags.canCopy });
+    items.push({ label: t(LABELS.paste), accelerator: "CmdOrCtrl+V", role: "paste", enabled: !!flags.canPaste });
+  } else items.push({ label: t(LABELS.copy), accelerator: "CmdOrCtrl+C", role: "copy", enabled: !!flags.canCopy });
   pending = true;
   if (flags.canSelectAll) {
     separate();
-    items.push({ label: LABELS.selectAll, accelerator: "CmdOrCtrl+A", role: "selectAll" });
+    items.push({ label: t(LABELS.selectAll), accelerator: "CmdOrCtrl+A", role: "selectAll" });
     pending = true;
   }
   if (allowDevTools) {
     separate();
-    items.push({ label: LABELS.inspect, action: "inspect" });
+    items.push({ label: t(LABELS.inspect), action: "inspect" });
   }
   return items;
 }

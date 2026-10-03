@@ -1,6 +1,7 @@
 import React,{createContext,useContext,useEffect,useId,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {createPortal} from 'react-dom';
 import {Icon} from './icons.jsx';
+import {t} from '../electron/i18n/index.mjs';
 import {createToastStore,toastClearance} from './toast-store.mjs';
 import './source-toast.css';
 const ToastContext=createContext(null);
@@ -58,7 +59,7 @@ function ToastViewport({store}) {
   if(!shown)return null;
   let visibleIndex=0;
   return createPortal(<div ref={scope} className="cds-root source-toast-scope" data-cds-portal="" data-cds="Toast" data-density="compact" data-font={font}>
-    <div ref={viewport} className="source-toast-viewport" role="region" aria-label="Notifications" aria-live="polite" aria-atomic="false" aria-relevant="additions text" tabIndex={-1} style={{height:frontHeight||undefined}}
+    <div ref={viewport} className="source-toast-viewport" role="region" aria-label={t('Notifications')} aria-live="polite" aria-atomic="false" aria-relevant="additions text" tabIndex={-1} style={{height:frontHeight||undefined}}
       onMouseEnter={()=>store.pause('hover')} onMouseLeave={()=>store.resume('hover')}
       onFocus={event=>{if(event.relatedTarget&&!event.currentTarget.contains(event.relatedTarget))previous.current=event.relatedTarget;store.pause('focus');}} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))store.resume('focus');}}
       onKeyDown={event=>{
@@ -88,7 +89,7 @@ function ToastCard({entry,front,limited,order,zIndex,frontHeight,onHeight,store,
     <div className="source-toast-surface"><div ref={content} className="source-toast-content" data-behind={layout.behind||undefined} style={{height:layout.height||undefined}}>
       <Icon name={entry.variant==='neutral'?'Info':entry.variant==='danger'?'WarningCircle':'Warning'} size={20}/>
       <div id={title} className="source-toast-message">{text}</div>
-      <button type="button" className="source-toast-dismiss" aria-label="Dismiss" onClick={()=>dismiss(entry.id)}><Icon name="X" size={16}/></button>
+      <button type="button" className="source-toast-dismiss" aria-label={t('Dismiss')} onClick={()=>dismiss(entry.id)}><Icon name="X" size={16}/></button>
     </div></div>
   </div>;
 }

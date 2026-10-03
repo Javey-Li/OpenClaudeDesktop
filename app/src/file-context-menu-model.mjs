@@ -13,29 +13,30 @@
 // directory "Open in terminal" section (no terminal pane) have no local target.
 import { absoluteDiffPath, splitPosixPath, stripClipboardControls } from "./diff-file-header-model.mjs";
 import { tabRelativePath } from "./file-tab-menu-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 
 export const FILE_MENU_LABELS = Object.freeze({
-  attach: "Attach as context",
-  copy: "Copy",
-  absolutePath: "Absolute path",
-  relativePath: "Relative path",
-  filename: "Filename",
-  showInFinder: "Show in Finder",
-  revealInTree: "Reveal in file tree",
+  attach: t("Attach as context"),
+  copy: t("Copy"),
+  absolutePath: t("Absolute path"),
+  relativePath: t("Relative path"),
+  filename: t("Filename"),
+  showInFinder: t("Show in Finder"),
+  revealInTree: t("Reveal in file tree"),
 });
 export const FILE_MENU_SURFACES = Object.freeze(["file_browser", "file_tab"]);
 
 // Rg/zg (readable/panes-tile-current.js:5572-5588): the symlink mark's alt and
 // the tree row tooltip detail; "Symbolic link" when the target is unknown.
 const LINK_LABELS = Object.freeze({
-  ok: "Link to {target}",
-  external: "Link to {target}, outside the working directory",
-  dangling: "Broken link to {target}",
-  cycle: "Circular link to {target}",
+  ok: t("Link to {target}"),
+  external: t("Link to {target}, outside the working directory"),
+  dangling: t("Broken link to {target}"),
+  cycle: t("Circular link to {target}"),
 });
 export function fileLinkLabel(link) {
   const target = typeof link?.target === "string" ? link.target : "";
-  return target !== "" && Object.hasOwn(LINK_LABELS, link?.state) ? LINK_LABELS[link.state].replace("{target}", target) : "Symbolic link";
+  return target !== "" && Object.hasOwn(LINK_LABELS, link?.state) ? LINK_LABELS[link.state].replace("{target}", target) : t("Symbolic link");
 }
 
 const isAbsolute = (value) => /^(?:\/|[A-Za-z]:[\\/]|~(?:$|[\\/]))/.test(value);

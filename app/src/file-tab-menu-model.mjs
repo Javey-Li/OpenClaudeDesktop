@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // Files pane tab strip model (2.2553.1).
 // Tab model: readable/panes-tile-current.js:6656-6668 ce — id=path, label=mn(path)
 // (basename), detail = dn(path, workingDir) up to its last "/" ("/" when that is
@@ -6,17 +8,17 @@
 // Menu: readable/panes-tabs-current.js:470-485 he popup — Se keep (preview only),
 // I close, be/xe close-others/close-all (only when not solo, Me = je === 1 :785).
 export const FILE_TAB_LABELS = Object.freeze({
-  closeTab: "Close file",
-  closeOtherTabs: "Close other files",
-  closeAllTabs: "Close all files",
-  keepTab: "Keep open",
-  previewTabHint: "preview",
-  closeTabDeleteHint: "Press Delete or Backspace to close the file",
+  closeTab: t("Close file"),
+  closeOtherTabs: t("Close other files"),
+  closeAllTabs: t("Close all files"),
+  keepTab: t("Keep open"),
+  previewTabHint: t("preview"),
+  closeTabDeleteHint: t("Press Delete or Backspace to close the file"),
   // le (panes-tile-current.js:6669-6710): the overflow trigger and its rows'
   // hint, and the Control+Shift+Arrow reorder hint every tab is described by.
-  moreTabs: "More files",
-  closeTabHint: "press right arrow to close",
-  moveTabHint: "Press Control+Shift+Left Arrow or Right Arrow to move the file",
+  moreTabs: t("More files"),
+  closeTabHint: t("press right arrow to close"),
+  moveTabHint: t("Press Control+Shift+Left Arrow or Right Arrow to move the file"),
 });
 
 // F (readable/panes-state-current.js:1596-1616): a tab with the same path is

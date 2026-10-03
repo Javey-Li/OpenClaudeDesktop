@@ -137,6 +137,9 @@ import { customCommandsStore } from "./custom-commands-store.mjs";
 import { mergeCommands, expandCommand } from "./custom-commands-model.mjs";
 import { normalizeCustomCommands } from "../electron/prefs/custom-commands.mjs";
 import { setPersona } from "./persona-store.mjs";
+import { SourceLanguagePicker } from "./source-language-picker.jsx";
+import { SourceSideChat } from "./source-side-chat.jsx";
+import { t } from "../electron/i18n/index.mjs";
 const api = window.desktop;
 // index.html ships data-mode="system" (the loaded CSS resolves it through
 // prefers-color-scheme, which nativeTheme.themeSource drives). Before the first
@@ -148,7 +151,7 @@ document.documentElement.dataset.mode = bootAppearance.mode;
 // instance per renderer, persisted under localStorage "code-desktop-tiles".
 const tileStore = createTileLayoutStore({ storage: (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })() });
 const EMPTY_TILE_ENTRY = emptySessionEntry();
-const PANE_NAMES = { files: "Files", changes: "Changes", plan: "Plan", tasks: "Background tasks" };
+const PANE_NAMES = { files: t("Files"), changes: t("Changes"), plan: t("Plan"), tasks: t("Background tasks") };
 const baseTileLayout = (entry) => (entry?.expandedTile ? entry.baseLayout : entry?.tileLayout) ?? null;
 // The home page (no session) keeps its own Files pane over the chosen folder
 // (local behavior; the official home route has no side panes).
@@ -171,7 +174,7 @@ function sidebarCycleRows() {
 const call = (action, p) =>
   api
     ? api.call(action, p)
-    : Promise.reject(new Error("Open Code Desktop to connect to DeepSeek."));
+    : Promise.reject(new Error(t("Open Code Desktop to connect to DeepSeek.")));
 const rpc = (method, params = {}) => call("rpc", { method, params }).then(rpcResult);
 // Skills / Connectors / Plugins catalog shared by the settings pages and the
 // composer Add menu (loaded on demand, refreshed by skills/changed and the
@@ -184,10 +187,10 @@ const GIT_STATUS_RESPONDING_INTERVAL = 10000;
 // git-status-card.js cc (5590) / 4930-4960: the commit action is disabled while
 // the session responds ("Claude is working") or when the working tree is clean
 // (F12: Qe isWorkingTreeDirty, not the branch stats that keep the band visible).
-const COMMIT_RESPONDING_REASON = "Claude is working \u2014 wait for the turn to finish";
-const COMMIT_CLEAN_REASON = "No changes to commit";
+const COMMIT_RESPONDING_REASON = t("Claude is working \u2014 wait for the turn to finish");
+const COMMIT_CLEAN_REASON = t("No changes to commit");
 // git-status-card.js:4962-4977 xr: every Commit send failure is this danger toast.
-const COMMIT_SEND_FAILED = "Message couldn\u2019t be sent. Try again.";
+const COMMIT_SEND_FAILED = t("Message couldn\u2019t be sent. Try again.");
 // git-pr-slot.js:5834 im: a held snapshot of a revisited session is dropped after 6s.
 const GIT_BAND_HOLD_MS = 6000;
 // Worktree change signal for the Changes panel: only a real change in the
@@ -292,6 +295,9 @@ function App() {
     [fastMode, setFastMode] = useState(false),
     [fastSaving, setFastSaving] = useState(false),
     [whatsNew, setWhatsNew] = useState(false),
+    [languagePicker, setLanguagePicker] = useState(false),
+    // /btw side chat (source-side-chat.jsx): open, and a question /btw passed to ask on open.
+    [sideChat, setSideChat] = useState({ open: false, pending: null }),
     // titlebar-release-notes.js:5063 P `[a,o]`: last client version whose notes
     // were opened, read once from localStorage (throws/empty read as "").
     [whatsNewSeen, setWhatsNewSeen] = useState(() => readSeenVersion((() => { try { return globalThis.localStorage ?? null; } catch { return null; } })())),
@@ -542,7 +548,7 @@ function App() {
   const stopBackgroundTask=async task=>{const expected={connectionId:state.approvalConnectionId,connectionEpoch:state.approvalConnectionEpoch};
     if(task.kind==='workflow')return isModelWorkflow(task.run)?rpc('codeDesktop/workflow/stop',{threadId:current,runId:task.run.id}):call('workflow-stop',{id:task.run.id});
     if(task.kind==='agent')await call('interrupt',{threadId:task.threadId,turnId:task.turnId,expected});
-    else {const result=await call('background-terminate',{threadId:current,processId:task.processId,expected});if(!result.terminated)throw Error('The process was not terminated.');}
+    else {const result=await call('background-terminate',{threadId:current,processId:task.processId,expected});if(!result.terminated)throw Error(t('The process was not terminated.'));}
   };
   const openAgent = (item, childId, opener) => {
     const sessionId = currentRef.current;
@@ -636,7 +642,7 @@ function App() {
   const diffRoot = gitStatus?.isRepo ? gitStatus.cwd : workdir;
   const diffFileActions = {
     root: diffRoot,
-    onCopy: (text) => copyWithToast(text, "Copied to clipboard."),
+    onCopy: (text) => copyWithToast(text, t("Copied to clipboard.")),
     onOpenFile: (filePath) => {
       const absolute = absoluteDiffPath(diffRoot, filePath);
       if (!absolute) return;
@@ -831,7 +837,7 @@ function App() {
       inFlight = true;
       call("workspace-git-status", { cwd: workdir, sessionId: current })
         .then(result => { if (live) { rememberGitBand(current, result); setGitStatus(previous => sameGitStatus(previous, result) ? previous : result); setGitStatusError(""); refreshedDiff(); } })
-        .catch(reason => { if (live) { setGitStatusError("Could not read repository changes: " + reason.message); setError("Could not read repository changes: " + reason.message); refreshedDiff(); } })
+        .catch(reason => { if (live) { setGitStatusError(t("Could not read repository changes: {reason}", { reason: reason.message })); setError(t("Could not read repository changes: {reason}", { reason: reason.message })); refreshedDiff(); } })
         .finally(() => { inFlight = false; });
     };
     query();
@@ -1030,7 +1036,7 @@ function App() {
     queueMicrotask(async () => {
       for (const { entry, file } of pending) {
         try {
-          if (!file) throw new Error("Failed to process image. You can try again.");
+          if (!file) throw new Error(t("Failed to process image. You can try again."));
           const bytes = new Uint8Array(await file.arrayBuffer());
           const staged = await call("attachments:stage", { name: entry.name, type: entry.mime, bytes });
           updateComposerAttachments((entries) => (entries.some((item) => item.id === entry.id) ? markReady(entries, entry.id, { path: staged.path }) : entries));
@@ -1039,7 +1045,7 @@ function App() {
           const known = liveComposer.current.attachments.some((item) => item.id === entry.id)
             || [...composerDrafts.current.values()].some((stash) => stash.attachments.some((item) => item.id === entry.id));
           updateComposerAttachments((entries) => markFailed(entries, entry.id).entries);
-          if (known) { revokePreview(entry); setError(IMAGE_PROCESS_ERROR); }
+          if (known) { revokePreview(entry); setError(t(IMAGE_PROCESS_ERROR)); }
         }
       }
     });
@@ -1063,7 +1069,7 @@ function App() {
   }
   // The mention chip's menu (c856385e2 Z for a ccd-files mention): Copy ▸ with the c3e58cab4 'Copied to clipboard.'
   // toast, Open in ▸ Files pane. Paths are relative to the root the '@' search ran in.
-  const mentionActions = { root: workdir || cwd, onCopy: (text) => copyWithToast(text, "Copied to clipboard."), onOpen: (path) => openFileRef({ path }) };
+  const mentionActions = { root: workdir || cwd, onCopy: (text) => copyWithToast(text, t("Copied to clipboard.")), onOpen: (path) => openFileRef({ path }) };
   // Queue bar actions over the real Codex queue with optimistic removal and
   // rollback; edit = delete + restore into the draft (official onEdit).
   async function queueCancel(id) {
@@ -1595,6 +1601,18 @@ function App() {
     resumed.current.delete(previous);
     rpc("thread/unsubscribe", { threadId: previous }).catch(() => {});
   }
+  const closeSideChat = useCallback(() => setSideChat(value => value.open ? { open: false, pending: null } : value), []);
+  useEffect(() => { setSideChat(value => value.open ? { open: false, pending: null } : value); }, [current]);
+  useEffect(() => {
+    const toggle = (event) => {
+      if (event.repeat || event.isComposing || !event.metaKey || event.shiftKey || event.altKey || event.ctrlKey || event.key !== ";") return;
+      if (!currentRef.current || settings) return;
+      event.preventDefault(); event.stopPropagation();
+      setSideChat(value => ({ open: !value.open, pending: null }));
+    };
+    document.addEventListener("keydown", toggle, true);
+    return () => document.removeEventListener("keydown", toggle, true);
+  }, [settings]);
   function navigate(id) {
     // shared-19 Rh -> Mh: opening a row (or any navigation) closes the collapsed sidebar's peek.
     closePeek();
@@ -1827,7 +1845,7 @@ function App() {
       if (lane === "next") {
         const outcome = await call("steer", { threadId: id, expectedTurnId: turnId, input, clientUserMessageId });
         if (!outcome.ok) {
-          if (!isNotSteerable(outcome)) throw new Error(outcome.message || "The message could not be sent to the running turn.");
+          if (!isNotSteerable(outcome)) throw new Error(outcome.message || t("The message could not be sent to the running turn."));
           await rpc("thread/queue/add", { threadId: id, input, clientUserMessageId });
         }
       } else {
@@ -1910,7 +1928,7 @@ function App() {
       if (checkout) {
         try { await call("branch-checkout", { cwd: turnCwd, branch: checkout }); }
         catch {
-          if (toasts) toasts.add(WORKING_TREE_ERROR, { variant: "danger" }); else setError(WORKING_TREE_ERROR);
+          if (toasts) toasts.add(t(WORKING_TREE_ERROR), { variant: "danger" }); else setError(t(WORKING_TREE_ERROR));
           if (stay) restoreStay();
           return;
         }
@@ -1970,7 +1988,7 @@ function App() {
   }
   async function performOperation(operation, extra = {}) {
     const id = currentRef.current, sequence = loadSeq.current;
-    if (!id || actionLock.current.has(id)) throw new Error("A session action is already starting.");
+    if (!id || actionLock.current.has(id)) throw new Error(t("A session action is already starting."));
     const expected = {connectionId:state.approvalConnectionId, connectionEpoch:state.approvalConnectionEpoch};
     actionLock.current.add(id);
     setError("");
@@ -2017,10 +2035,12 @@ function App() {
         switch (id) {
           case "review": setActionDialog({kind:"review", instructions:args}); break;
           case "status": {
-            const record={id:crypto.randomUUID(),after:items.at(-1)?.id,session,model:chosen?.displayName||model,effort,serviceTier:fastEnabled?fastTier.name:"Standard",permission:effectivePermission,cwd:workdir,usage:state.usage[current],connected:!!boot?.connected,running,operation,account:boot?.account};
+            const record={id:crypto.randomUUID(),after:items.at(-1)?.id,session,model:chosen?.displayName||model,effort,serviceTier:fastEnabled?fastTier.name:t("Standard"),permission:effectivePermission,cwd:workdir,usage:state.usage[current],connected:!!boot?.connected,running,operation,account:boot?.account};
             setLocalCommandRows(value=>({...value,[current]:[...(value[current]||[]),record]}));break;
           }
           case "help": setActionDialog({kind:"help"}); break;
+          // /btw [question]: the side chat, without touching the running turn.
+          case "btw": setSideChat({ open: true, pending: args || null }); clearCommand(); break;
           case "clear": navigate(null); break;
           case "resume": setSearch(args); setShowSearch(true); break;
           case "config": setSettings("code"); break;
@@ -2031,26 +2051,26 @@ function App() {
             const parsed=parseThemeCommand(args);
             if(parsed.open){setSettings("preferences");break;}
             // :33700-33716 addSuccess('Appearance set to …') → a neutral toast.
-            await updatePreferences({theme:parsed.set});notice('Appearance set to '+THEME_LABELS[parsed.set],{variant:'neutral'});break;
+            await updatePreferences({theme:parsed.set});notice(t('Appearance set to {theme}',{theme:t(THEME_LABELS[parsed.set])}),{variant:'neutral'});break;
           }
           case "skills": setSettings("customize-skills"); break;
           case "mcp": setSettings("customize-connectors"); break;
           case "plugin": setSettings("customize-plugins"); break;
           case "fast": {
-            if(args&&!["on","off"].includes(args.toLowerCase()))throw new Error("Use /fast, /fast on, or /fast off.");
+            if(args&&!["on","off"].includes(args.toLowerCase()))throw new Error(t("Use /fast, /fast on, or /fast off."));
             const next=args?args.toLowerCase()==="on":!fastEnabled;
             // :11310-11322 addWarning(…, {uniqueKey:'epitaxy-fast-command-notice'}).
-            if(next===fastEnabled)notice(`Fast mode is already ${next?'on':'off'}.`,{variant:'warning',key:'epitaxy-fast-command-notice'});else await changeFastMode(next);break;
+            if(next===fastEnabled)notice(next?t('Fast mode is already on.'):t('Fast mode is already off.'),{variant:'warning',key:'epitaxy-fast-command-notice'});else await changeFastMode(next);break;
           }
           case "model": {
             if(!args){setMenu({kind:"model",anchor:document.querySelector('.sc-model-trigger')});break;}
-            const next=models.find(m=>m.model===args||m.id===args);if(!next)throw new Error(`“${args}” isn’t an available model.`);
+            const next=models.find(m=>m.model===args||m.id===args);if(!next)throw new Error(t('“{name}” isn’t an available model.',{name:args}));
             await updatePreferences({model:next.model,effort:next.defaultReasoningEffort});break;
           }
           case "effort":
             // /effort alone opens the effort popover on its chip (the model pill when the chip is absent).
             if(!args){setMenu({kind:"effort",anchor:document.querySelector('.sc-chin .sc-effort-trigger')||document.querySelector('.sc-model-trigger'),token:++menuToken.current});break;}
-            if(!efforts.some(e=>e.reasoningEffort===args))throw new Error(`“${args}” isn’t an available effort level.`);
+            if(!efforts.some(e=>e.reasoningEffort===args))throw new Error(t('“{name}” isn’t an available effort level.',{name:args}));
             await updatePreferences({effort:args});break;
           case "permissions": setMenu({kind:"permission",anchor:document.querySelector('.sc-permission')}); break;
           case "plan": {
@@ -2060,7 +2080,7 @@ function App() {
             if(plan.switchToPlan)await updatePreferences({permission:'plan'});
             if(plan.openPane)setPanel('plan');
             // :33860-33877 addWarning(…, {uniqueKey:'epitaxy-plan-command-notice'}).
-            if(plan.notice)notice(plan.notice==='already_in_plan_no_plan'?'Already in plan mode. No plan written yet.':'Already in plan mode.',{variant:'warning',key:'epitaxy-plan-command-notice'});
+            if(plan.notice)notice(plan.notice==='already_in_plan_no_plan'?t('Already in plan mode. No plan written yet.'):t('Already in plan mode.'),{variant:'warning',key:'epitaxy-plan-command-notice'});
             if(plan.composerText!==null)setDraft(plan.composerText);break;
           }
           case "diff": togglePaneTile("changes"); break;
@@ -2075,12 +2095,12 @@ function App() {
           }
           case "export": {
             const full=await readFullHistory(current);
-            if(full.truncated||full.unavailable)throw new Error('Conversation history is incomplete. Export was not saved.');
+            if(full.truncated||full.unavailable)throw new Error(t('Conversation history is incomplete. Export was not saved.'));
             await call('slash-export',{threadId:current,markdown:transcriptMarkdown(full.thread,full.turns)});break;
           }
           case "rewind": {
             const full=await readFullHistory(current);
-            if(full.thread.historyMode!=='paginated')throw new Error('Rewind is not available for legacy sessions.');
+            if(full.thread.historyMode!=='paginated')throw new Error(t('Rewind is not available for legacy sessions.'));
             if(sequence===loadSeq.current)setActionDialog({kind:'rewind',threadId:current,turns:rewindChoices(full.turns)});break;
           }
         }
@@ -2099,13 +2119,13 @@ function App() {
     const id=actionDialog.threadId,sequence=loadSeq.current,baselineItems=state.items[actionDialog.threadId],baselineActiveVersion=state.activeVersions?.[actionDialog.threadId];
     const result=await call('slash-rewind',{threadId:id,beforeTurnId,expected:{connectionId:state.approvalConnectionId,connectionEpoch:state.approvalConnectionEpoch}});
     const history=await loadThreadHistory(rpc,{threadId:id,thread:result.thread,route:historyRoute(result.thread)});
-    if(history.truncated||history.unavailable)throw new Error('Rewind succeeded, but retained history could not be fully loaded. Reopen the session.');
+    if(history.truncated||history.unavailable)throw new Error(t('Rewind succeeded, but retained history could not be fully loaded. Reopen the session.'));
     dispatch({type:'hydrate',id,thread:{...result.thread,turns:history.turns},replaceHistory:true,baselineItems,baselineActiveVersion});
     setLocalCommandRows(rows=>({...rows,[id]:[]}));
     if(sequence===loadSeq.current){setDraft(actionDialog.turns.find(t=>t.id===beforeTurnId)?.text||'');setActionDialog(null);}
   }
   async function readSessionStatus() {
-    if (!boot?.connected) return {error:"Reconnect to load account usage limits."};
+    if (!boot?.connected) return {error:t("Reconnect to load account usage limits.")};
     const [account, limits] = await Promise.allSettled([rpc("account/read", {refreshToken:false}), rpc("account/rateLimits/read")]);
     return {account:account.status === "fulfilled" ? account.value : null, limits:limits.status === "fulfilled" ? limits.value : null,
       error:[account,limits].filter(result => result.status === "rejected").map(result => result.reason.message).join("\n")};
@@ -2115,7 +2135,7 @@ function App() {
     // Quota is required for this page. A failed RPC must reach SourceUsage's
     // failed-refresh path, rather than replacing its last snapshot with null.
     // A successful empty limits object remains a valid, unavailable snapshot.
-    if (data.limits == null) throw new Error(data.error || "Usage limits are unavailable for this account or connection.");
+    if (data.limits == null) throw new Error(data.error || t("Usage limits are unavailable for this account or connection."));
     try { data.tokenUsage = await rpc("account/usage/read", {}); }
     catch (error) { data.tokenUsageError = error.message; }
     return data;
@@ -2139,11 +2159,11 @@ function App() {
   async function sessionAction(action, target, payload = {}) {
     switch (action) {
       case "rename":
-        if (!await renameSession(target.id, payload.name)) throw new Error(ACTION_ERROR_COPY.rename);
+        if (!await renameSession(target.id, payload.name)) throw new Error(t(ACTION_ERROR_COPY.rename));
         return;
       case "archive":
       case "unarchive": {
-        if (state.active[target.id] || operationPending(state.operations?.[target.id]) || actionLock.current.has(target.id)) throw new Error("Stop the running task before archiving it.");
+        if (state.active[target.id] || operationPending(state.operations?.[target.id]) || actionLock.current.has(target.id)) throw new Error(t("Stop the running task before archiving it."));
         const result = await rpc("thread/" + action, { threadId: target.id });
         if (action === "archive") resumed.current.delete(target.id);
         setSessions(list => list.map(thread => thread.id === target.id ? { ...thread, ...result.thread, archived: action === "archive" } : thread));
@@ -2154,7 +2174,7 @@ function App() {
       case "delete": {
         // Protocol thread/delete; main.cjs refuses running/pending sessions and
         // drops the id from every config list. Callers confirm before calling.
-        if (state.active[target.id] || operationPending(state.operations?.[target.id]) || actionLock.current.has(target.id)) throw new Error("Stop the running task before deleting it.");
+        if (state.active[target.id] || operationPending(state.operations?.[target.id]) || actionLock.current.has(target.id)) throw new Error(t("Stop the running task before deleting it."));
         await rpc("thread/delete", { threadId: target.id });
         resumed.current.delete(target.id);
         setSessions(list => list.filter(thread => thread.id !== target.id));
@@ -2169,7 +2189,7 @@ function App() {
         // composer /fork, but for the row's thread instead of the open one.
         const unsupported = unsupportedCommand("fork", commandContext);
         if (unsupported) throw new Error(unsupported);
-        if (actionLock.current.has(target.id)) throw new Error("A session action is already starting.");
+        if (actionLock.current.has(target.id)) throw new Error(t("A session action is already starting."));
         const expected = { connectionId: state.approvalConnectionId, connectionEpoch: state.approvalConnectionEpoch };
         actionLock.current.add(target.id);
         try {
@@ -2189,7 +2209,7 @@ function App() {
       case "mark-read": return updateSessionMetadata(target.id, { unread: false });
       case "mark-unread": return updateSessionMetadata(target.id, { unread: true });
       case "move-to-group": return updateSessionMetadata(target.id, { customGroupId: payload.groupId });
-      default: throw new Error("Unsupported session action.");
+      default: throw new Error(t("Unsupported session action."));
     }
   }
   async function createGroup(name, sessionId, sessionIds) {
@@ -2500,8 +2520,8 @@ function App() {
     const rows = transcriptViewMenu({ sessionView: sessionViews[sessionId], defaultView: prefs.transcriptView,
       hasThinking: sessionHasThinking(state.items[sessionId] || []) });
     return <SourceMenu.Submenu>
-      <SourceMenu.SubmenuTrigger label="Transcript view">Transcript view</SourceMenu.SubmenuTrigger>
-      <SourceMenu.Popup label="Transcript view">
+      <SourceMenu.SubmenuTrigger label={t("Transcript view")}>{t("Transcript view")}</SourceMenu.SubmenuTrigger>
+      <SourceMenu.Popup label={t("Transcript view")}>
         <SourceMenu.Group>
           {rows.items.map(row => <SourceMenu.Item key={row.view} checked={row.checked} checkedRole="radio" data-transcript-view={row.view}
             onClick={() => { if (row.view !== rows.current) setSessionView(sessionId, row.view); }}>{row.label}</SourceMenu.Item>)}
@@ -2522,9 +2542,9 @@ function App() {
         // the Local row is a checked radio (VV); environment settings stay a plain row.
         return (
           <>
-            <SourceMenu.Item checked checkedRole="radio">Local</SourceMenu.Item>
+            <SourceMenu.Item checked checkedRole="radio">{t("Local")}</SourceMenu.Item>
             <SourceMenu.Separator />
-            <SourceMenu.Item onClick={() => setSettings(true)}>Environment settings</SourceMenu.Item>
+            <SourceMenu.Item onClick={() => setSettings(true)}>{t("Environment settings")}</SourceMenu.Item>
           </>
         );
       case "home-folder":
@@ -2536,12 +2556,12 @@ function App() {
         // with GroupLabel 'Working directory' over the shared repo items (Ko/qo → gitRepoMenuItems).
         return (
           <SourceMenu.Group>
-            <SourceMenu.GroupLabel>Working directory</SourceMenu.GroupLabel>
+            <SourceMenu.GroupLabel>{t("Working directory")}</SourceMenu.GroupLabel>
             {gitRepoMenuItems({ openFolder: true, copyPath: true }).map((item) => <React.Fragment key={item.label}>
               {item.separatorBefore && <SourceMenu.Separator />}
-              <SourceMenu.Item onClick={() => item.label === "Copy path"
-                ? copyWithToast(workdir, "Path copied to clipboard.")
-                : call("reveal-folder", { cwd: workdir }).catch(e => setError(e.message))}>{item.label}</SourceMenu.Item>
+              <SourceMenu.Item onClick={() => item.label === "Copy path" || item.label === t("Copy path")
+                ? copyWithToast(workdir, t("Path copied to clipboard."))
+                : call("reveal-folder", { cwd: workdir }).catch(e => setError(e.message))}>{t(item.label)}</SourceMenu.Item>
             </React.Fragment>)}
           </SourceMenu.Group>
         );
@@ -2561,19 +2581,19 @@ function App() {
         // claude.ai Directory and have no Codex counterpart, so they are absent.
         return (
           <>
-            <SourceMenu.Item icon="Attachment" onClick={attach}>Add files or photos</SourceMenu.Item>
-            <SourceMenu.Item icon="Folder" onClick={folder}>Add folder</SourceMenu.Item>
-            <SourceMenu.Item icon="SlashShortcutCommand" onClick={() => { setDraft(d=>d.startsWith('/')?d:'/'+d); textarea.current?.focus(); textarea.current?.dispatchEvent(new Event('open-slash')); }}>Slash commands</SourceMenu.Item>
+            <SourceMenu.Item icon="Attachment" onClick={attach}>{t("Add files or photos")}</SourceMenu.Item>
+            <SourceMenu.Item icon="Folder" onClick={folder}>{t("Add folder")}</SourceMenu.Item>
+            <SourceMenu.Item icon="SlashShortcutCommand" onClick={() => { setDraft(d=>d.startsWith('/')?d:'/'+d); textarea.current?.focus(); textarea.current?.dispatchEvent(new Event('open-slash')); }}>{t("Slash commands")}</SourceMenu.Item>
             {/* jy (:9309-9338) returns null when it has no skill rows: there is
                 no "loading"/"empty" row in the Skills submenu, the entry is
                 simply absent until skills/list answers. */}
             {addSkills.items.length > 0 && (
               <SourceMenu.Submenu>
-                <SourceMenu.SubmenuTrigger icon="Scroll" data-testid="add-skills">Skills</SourceMenu.SubmenuTrigger>
-                <SourceMenu.Popup label="Skills" className="add-skills-popup">
+                <SourceMenu.SubmenuTrigger icon="Scroll" data-testid="add-skills">{t("Skills")}</SourceMenu.SubmenuTrigger>
+                <SourceMenu.Popup label={t("Skills")} className="add-skills-popup">
                   {addSkills.items.map((item) => <SourceMenu.SkillItem key={item.path} item={item} onSelect={applySkill} />)}
                   <SourceMenu.Separator />
-                  <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-skills")}>Manage skills</SourceMenu.Item>
+                  <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-skills")}>{t("Manage skills")}</SourceMenu.Item>
                 </SourceMenu.Popup>
               </SourceMenu.Submenu>
             )}
@@ -2589,8 +2609,8 @@ function App() {
                 </div>
               : addPlugins.groups.length > 0 && (
                 <SourceMenu.Submenu>
-                  <SourceMenu.SubmenuTrigger icon="Plugin" data-testid="add-plugins">Plugins</SourceMenu.SubmenuTrigger>
-                  <SourceMenu.Popup label="Plugins" className="add-plugins-popup">
+                  <SourceMenu.SubmenuTrigger icon="Plugin" data-testid="add-plugins">{t("Plugins")}</SourceMenu.SubmenuTrigger>
+                  <SourceMenu.Popup label={t("Plugins")} className="add-plugins-popup">
                     {addPlugins.groups.map((group) => (
                       <SourceMenu.Submenu key={group.id}>
                         <SourceMenu.SubmenuTrigger icon="Plugin" data-plugin-id={group.id}>{group.label}</SourceMenu.SubmenuTrigger>
@@ -2600,7 +2620,7 @@ function App() {
                       </SourceMenu.Submenu>
                     ))}
                     <SourceMenu.Separator />
-                    <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-plugins")}>Manage plugins</SourceMenu.Item>
+                    <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-plugins")}>{t("Manage plugins")}</SourceMenu.Item>
                   </SourceMenu.Popup>
                 </SourceMenu.Submenu>
               )}
@@ -2613,7 +2633,7 @@ function App() {
             ...((state.plans[current]?.length || state.planDocs?.[current] || openPanes.has("plan")) ? [{kind: "plan", label: "Plan", icon: "Checklist"}] : []),
             ...((tasks.length||openPanes.has("tasks"))?[{kind:"tasks",label:"Background tasks",icon:"AgentsSimple"}]:[])]
             .map(item => <SourceMenu.Item key={item.kind} className="st-view-item" icon={item.icon} checked={openPanes.has(item.kind)} shortcut={item.shortcut}
-              onClick={() => togglePaneTile(item.kind)}>{item.label}</SourceMenu.Item>)}
+              onClick={() => togglePaneTile(item.kind)}>{t(item.label)}</SourceMenu.Item>)}
           <SourceMenu.Separator />
           {transcriptViewSubmenu(menu.data?.id)}
           <SourceMenu.Separator />
@@ -2652,21 +2672,23 @@ function App() {
               <span className="smenu-header-line" data-testid="user-menu-header">{accountLines.identity}</span>
               {accountLines.orgPrimary && <span className="smenu-header-line smenu-header-secondary" data-testid="user-menu-header-org">{accountOrgLine(accountLines)}</span>}
             </SourceMenu.Header>
-            <SourceMenu.Item icon="Settings" shortcut="cmd+," data-testid="user-menu-settings" onClick={() => setSettings(true)}>Settings</SourceMenu.Item>
+            <SourceMenu.Item icon="Settings" shortcut="cmd+," data-testid="user-menu-settings" onClick={() => setSettings(true)}>{t("Settings")}</SourceMenu.Item>
             {/* sidebar-rows.js:16769-16793 uV (claudified_usage_page_pace treatment): Usage, right after Settings,
                 opens the nav-hidden Usage section in the stacked Settings dialog (fidelity F14). */}
-            <SourceMenu.Item icon="UsageGaugeMiddle" data-testid="user-menu-usage" onClick={() => setSettings("usage")}>Usage</SourceMenu.Item>
+            <SourceMenu.Item icon="UsageGaugeMiddle" data-testid="user-menu-usage" onClick={() => setSettings("usage")}>{t("Usage")}</SourceMenu.Item>
+            {/* shared-21 $B :16218-16227: Language (Globe, user-menu-language) opens "Choose your language". */}
+            <SourceMenu.Item icon="Globe" data-testid="user-menu-language" onClick={() => setLanguagePicker(true)}>{t("Language")}</SourceMenu.Item>
             <SourceMenu.Item icon={theme === "dark" ? "Sun" : "Moon"} onClick={() => preference("theme", theme === "dark" ? "light" : "dark")}>
-              {theme === "dark" ? "Light appearance" : "Dark appearance"}
+              {theme === "dark" ? t("Light appearance") : t("Dark appearance")}
             </SourceMenu.Item>
-            {boot?.account?.deepseek && <SourceMenu.Item icon="Key" data-testid="user-menu-deepseek-key" onClick={() => setSettings("preferences")}>DeepSeek API key</SourceMenu.Item>}
+            {boot?.account?.deepseek && <SourceMenu.Item icon="Key" data-testid="user-menu-deepseek-key" onClick={() => setSettings("preferences")}>{t("DeepSeek API key")}</SourceMenu.Item>}
             <SourceMenu.Separator />
-            <SourceMenu.Item icon="Scroll" onClick={() => setWhatsNew(true)}>View changelog</SourceMenu.Item>
+            <SourceMenu.Item icon="Scroll" onClick={() => setWhatsNew(true)}>{t("View changelog")}</SourceMenu.Item>
             <SourceMenu.Submenu>
-              <SourceMenu.SubmenuTrigger icon="Info">Learn more</SourceMenu.SubmenuTrigger>
-              <SourceMenu.Popup label="Learn more" className="account-learn-more">
+              <SourceMenu.SubmenuTrigger icon="Info">{t("Learn more")}</SourceMenu.SubmenuTrigger>
+              <SourceMenu.Popup label={t("Learn more")} className="account-learn-more">
                 {/* shared-21-D098Wd--.js:16424-16431: J.Item {shortcut: Mn("shortcuts_modal").shortcutString} → ⌘/, no icon. */}
-                <SourceMenu.Item shortcut={SHORTCUTS_DIALOG_KEYS} onClick={()=>setActionDialog({kind:"shortcuts"})}>Keyboard shortcuts</SourceMenu.Item>
+                <SourceMenu.Item shortcut={SHORTCUTS_DIALOG_KEYS} onClick={()=>setActionDialog({kind:"shortcuts"})}>{t("Keyboard shortcuts")}</SourceMenu.Item>
               </SourceMenu.Popup>
             </SourceMenu.Submenu>
           </>
@@ -2676,8 +2698,8 @@ function App() {
         return (
           <>
             <SourceMenu.Header>{connectionMenuHeader(engine, !!boot?.connected)}</SourceMenu.Header>
-            <SourceMenu.Item icon="ArrowClockwise" onClick={reconnect}>Reconnect</SourceMenu.Item>
-            <SourceMenu.Item icon="Settings" onClick={() => setSettings(true)}>Settings</SourceMenu.Item>
+            <SourceMenu.Item icon="ArrowClockwise" onClick={reconnect}>{t("Reconnect")}</SourceMenu.Item>
+            <SourceMenu.Item icon="Settings" onClick={() => setSettings(true)}>{t("Settings")}</SourceMenu.Item>
           </>
         );
       default:
@@ -2695,7 +2717,7 @@ function App() {
     onAttachFile: composerAttachable ? attachFilePath : null,
     onOpenFile: openFileRef,
     onRevealFile: current ? (absolute) => call("reveal-tool-file", { sessionId: current, path: absolute }).catch(actionFailed("reveal-file")) : null,
-    onCopyPath: (text) => { if (text) copyWithToast(text, "Copied to clipboard."); },
+    onCopyPath: (text) => { if (text) copyWithToast(text, t("Copied to clipboard.")); },
     onOpenLink: (href) => { call("external", { url: href }).catch(actionFailed("open-link")); },
   };
   // Files pane tree-row and tab menus (file-context-menu-model.mjs, Mn): Attach as context through the same
@@ -2798,7 +2820,7 @@ function App() {
           renderTile={(tileId, tileApi) => tileId === "tasks" ? (
             <SourceTasksPane transcriptView={transcriptView} state={state} sessionId={current} views={tileEntry?.taskViews || []} background={<SourceBackgroundTasks key={current} tasks={tasks} sessionId={current} renderWorkflow={task=><WorkflowCard run={task.run} onStop={()=>stopBackgroundTask(task)}/>} onOpen={openAgent} onStop={stopBackgroundTask} focusTask={taskFocus} onFocusDone={()=>setTaskFocus(null)} error={state.background?.[current]?.error} finishedExpanded={tileEntry?.finishedExpanded||false} onFinishedExpanded={value=>changeTileView({finishedExpanded:value})}/>} onOpen={openAgent} onLoad={loadAgent}
               onBack={() => changeTileView({taskViews:(tileEntry?.taskViews || []).slice(0,-1)})} onClose={() => closePaneTile("tasks")}
-              headerCenter={tileApi.dragHandle} controls={<SourcePaneControls tileId="tasks" paneName="Background tasks" layout={baseTileLayout(tileEntry)} expanded={expandedTile === "tasks"}
+              headerCenter={tileApi.dragHandle} controls={<SourcePaneControls tileId="tasks" paneName={PANE_NAMES.tasks} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "tasks"}
                 onMoveToEdge={edge => moveTileEdge("tasks",edge)} onToggleExpand={() => toggleExpandTile("tasks")} onClose={() => closePaneTile("tasks")} />}
               renderItem={(childItem,childId,placement) => <Message item={childItem} agentNested agentContext={{state,onOpen:openAgent}} sessionKey={childId} reasoningPlacement={placement}
                 isStreaming={isItemStreaming(state,childId,childItem)} cwd={state.threads[childId]?.cwd || workdir}
@@ -2892,12 +2914,12 @@ function App() {
                       {boot?.connected && boot.account?.deepseek && !boot.account.account && (
                         <div className="sh-card is-outline connection-card" data-testid="deepseek-key-card">
                           <div className="connection-card-copy">
-                            <span className="connection-card-title">Add your DeepSeek API key</span>
-                            <span className="connection-card-body">Save a key in DeepSeek Harness (~/.dsh) or set DEEPSEEK_API_KEY, then refresh.</span>
+                            <span className="connection-card-title">{t("Add your DeepSeek API key")}</span>
+                            <span className="connection-card-body">{t("Save a key in DeepSeek Harness (~/.dsh) or set DEEPSEEK_API_KEY, then refresh.")}</span>
                           </div>
                           <div className="connection-card-actions">
-                            <SourceSettingsButton size="sm" onClick={() => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message))}>Refresh</SourceSettingsButton>
-                            <SourceSettingsButton size="sm" variant="primary" onClick={() => call("external", { url: DEEPSEEK_KEYS_URL }).catch((e) => setError(e.message))}>Get an API key</SourceSettingsButton>
+                            <SourceSettingsButton size="sm" onClick={() => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message))}>{t("Refresh")}</SourceSettingsButton>
+                            <SourceSettingsButton size="sm" variant="primary" onClick={() => call("external", { url: DEEPSEEK_KEYS_URL }).catch((e) => setError(e.message))}>{t("Get an API key")}</SourceSettingsButton>
                           </div>
                         </div>
                       )}
@@ -2908,11 +2930,11 @@ function App() {
                         !boot.account?.account && (
                           <div className="sh-card is-outline connection-card">
                             <div className="connection-card-copy">
-                              <span className="connection-card-title">Sign in to Codex</span>
-                              <span className="connection-card-body">Continue with your ChatGPT account.</span>
+                              <span className="connection-card-title">{t("Sign in to Codex")}</span>
+                              <span className="connection-card-body">{t("Continue with your ChatGPT account.")}</span>
                             </div>
                             <div className="connection-card-actions">
-                              <SourceSettingsButton size="sm" variant="primary" onClick={() => call("login").catch((e) => setError(e.message))}>Sign in</SourceSettingsButton>
+                              <SourceSettingsButton size="sm" variant="primary" onClick={() => call("login").catch((e) => setError(e.message))}>{t("Sign in")}</SourceSettingsButton>
                             </div>
                           </div>
                         )}
@@ -2953,8 +2975,8 @@ function App() {
                   {/* _d (approval-entry-current.js:1141-1190) pending phase. With
                       cached rows only the sr-only announcement remains. */}
                   {loading && current && (shownRows.length === 0
-                    ? <div className="loading-state source-transcript-pending" role="status"><span className="sr-only">Loading session</span><SourceTranscriptSkeleton /></div>
-                    : <div className="loading-state" role="status"><span className="sr-only">Loading session</span></div>)}
+                    ? <div className="loading-state source-transcript-pending" role="status"><span className="sr-only">{t("Loading session")}</span><SourceTranscriptSkeleton /></div>
+                    : <div className="loading-state" role="status"><span className="sr-only">{t("Loading session")}</span></div>)}
                   {emptyPane === "failure" && <SourceTranscriptLoadFailure onRetry={() => openSession(current, { retry: true })} />}
                   {emptyPane === "empty" && <SourceTranscriptEmpty />}
                   {shownApprovals.map((a) => (
@@ -3001,7 +3023,7 @@ function App() {
                     onToggleThinking={current && transcriptView !== "verbose" ? () => {
                       const next = transcriptView === "thinking" ? "normal" : "thinking";
                       setSessionView(current, next);
-                      toasts?.add(next === "thinking" ? "Switched transcript view to Thinking." : "Switched transcript view to Normal.");
+                      toasts?.add(next === "thinking" ? t("Switched transcript view to Thinking.") : t("Switched transcript view to Normal."));
                     } : null}
                     thinkingShown={transcriptView === "thinking"} />}
                 </SourceTranscript>
@@ -3011,20 +3033,20 @@ function App() {
                   <div role="alert" className="inline-error composer-error">
                     <span>{error}</span>{commandSuggestion&&<button onClick={()=>{setDraft(`/${commandSuggestion} `);setError("");setCommandSuggestion(null);textarea.current?.focus();}}>/{commandSuggestion}</button>}
                     <ToolButton
-                      label="Dismiss error"
+                      label={t("Dismiss error")}
                       icon="X"
                       tooltip
                       onClick={() => setError("")}
                     />
                   </div>
                 )}
-                {session?.archived && <div className="archive-notice">This session is archived.<button onClick={() => sessionAction("unarchive", session).catch(actionFailed("unarchive"))}>Restore session</button></div>}
+                {session?.archived && <div className="archive-notice">{t("This session is archived.")}<button onClick={() => sessionAction("unarchive", session).catch(actionFailed("unarchive"))}>{t("Restore session")}</button></div>}
                 {operation && <div className="session-operation-status" role="status" data-operation={operation.operation} data-phase={operation.phase}>
-                  <span>{operation.phase === "failed" ? operation.error || "Session action failed."
+                  <span>{operation.phase === "failed" ? operation.error || t("Session action failed.")
                     : operation.phase === "unknown" ? operation.error
-                    : operation.phase === "completed" ? ({compact:"Conversation compacted", review:"Review complete", fork:"Session forked"}[operation.operation])
-                    : ({compact:"Compacting conversation…", review:"Reviewing code…", fork:"Forking session…"}[operation.operation])}</span>
-                  {!actionPending && <button aria-label="Dismiss session action" onClick={() => dispatch({type:"dismiss-operation", id:current})}><Icon name="X" size={12}/></button>}
+                    : operation.phase === "completed" ? ({compact:t("Conversation compacted"), review:t("Review complete"), fork:t("Session forked")}[operation.operation])
+                    : ({compact:t("Compacting conversation…"), review:t("Reviewing code…"), fork:t("Forking session…")}[operation.operation])}</span>
+                  {!actionPending && <button aria-label={t("Dismiss session action")} onClick={() => dispatch({type:"dismiss-operation", id:current})}><Icon name="X" size={12}/></button>}
                 </div>}
                 {current && queue.threadId === current && queue.entries.length > 0 && (
                   <SourceQueuedMessages key={`${current}:queued`} entries={queue.entries} lockedIds={queue.lockedIds}
@@ -3042,12 +3064,12 @@ function App() {
                   // a revisited session shows its held snapshot until its own status arrives.
                   beforeComposer={current && (bandStatus ? <SourceGitStatus status={bandStatus} prMode="commit"
                     onOpenFolder={() => call("reveal-folder", { cwd: gitStatus?.cwd || workdir }).catch(actionFailed("reveal"))}
-                    onCopyPath={path => copyWithToast(path || gitStatus?.cwd || workdir, "Path copied to clipboard.")}
-                    onCopyBranch={branch => copyWithToast(branch || gitStatus?.branch || "", "Branch name copied to clipboard.")}
+                    onCopyPath={path => copyWithToast(path || gitStatus?.cwd || workdir, t("Path copied to clipboard."))}
+                    onCopyBranch={branch => copyWithToast(branch || gitStatus?.branch || "", t("Branch name copied to clipboard."))}
                     onOpenChanges={() => togglePaneTile("changes")} onMeasured={rememberBandHeight}
-                    onAction={sendCommitTurn} actionLabel="Commit" actionDisabled={commitDisabled} actionDisabledReason={commitDisabledReason} />
+                    onAction={sendCommitTurn} actionLabel={t("Commit")} actionDisabled={commitDisabled} actionDisabledReason={commitDisabledReason} />
                     : bandHold ? <SourceGitStatus stale status={bandHold.status} heightPx={bandHold.heightPx} prMode="commit"
-                      onAction={sendCommitTurn} actionLabel="Commit" /> : null)}
+                      onAction={sendCommitTurn} actionLabel={t("Commit")} /> : null)}
                   showPet={!current && !error && !draft.startsWith("/")}
                   showContext={!current}
                   // cc43287c9 :28686 placeholder Yn ? 'Type / for commands' : 'Describe a task or ask a question'
@@ -3089,8 +3111,8 @@ function App() {
                   mentionActions={mentionActions}
                   // A DeepSeek core without a key: the warning row stands in for the sign-in gate (send() refuses), and
                   // its Retry re-reads account/read like the home key card's Refresh.
-                  warning={boot !== null && boot?.connected === false && !loading ? "Connection to DeepSeek lost."
-                    : boot?.connected && boot.account?.deepseek && !boot.account.account ? "Add a DeepSeek API key to start a session." : undefined}
+                  warning={boot !== null && boot?.connected === false && !loading ? t("Connection to DeepSeek lost.")
+                    : boot?.connected && boot.account?.deepseek && !boot.account.account ? t("Add a DeepSeek API key to start a session.") : undefined}
                   onReconnect={boot?.connected && boot.account?.deepseek && !boot.account.account
                     ? () => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message)) : reconnect}
                   onStop={stop}
@@ -3120,7 +3142,7 @@ function App() {
             ) : (
               <div className="section-surface">
                 <header>
-                  <h1>{section[0].toUpperCase() + section.slice(1)}</h1>
+                  <h1>{t(section[0].toUpperCase() + section.slice(1))}</h1>
                   <button
                     className="secondary-button"
                     onClick={() =>
@@ -3132,15 +3154,15 @@ function App() {
                     <Icon
                       name={section === "artifacts" ? "Folder" : "Settings"}
                     />
-                    {section === "artifacts" ? "Browse project" : "Settings"}
+                    {section === "artifacts" ? t("Browse project") : t("Settings")}
                   </button>
                 </header>
                 <p>
                   {section === "artifacts"
-                    ? "Files created in your workspace are available in the project browser."
+                    ? t("Files created in your workspace are available in the project browser.")
                     : section === "routines"
-                      ? "Scheduled tasks are not connected in this local DeepSeek client."
-                      : "Configure your local DeepSeek environment and workspace."}
+                      ? t("Scheduled tasks are not connected in this local DeepSeek client.")
+                      : t("Configure your local DeepSeek environment and workspace.")}
                 </p>
                 {section === "artifacts" && (
                   <FilePanel
@@ -3159,7 +3181,7 @@ function App() {
           )} />
       </main>
       {shownBypass.value && <SourceBypassDialog key={`bypass-${shownBypass.key}`} open={shownBypass.open} onExited={shownBypass.onExited} cwd={workdir || cwd} onConfirm={bypassMode.confirm} onClose={bypassMode.cancel}/> }
-      {menu?.kind === "model" ? <SourceModelMenu key={menu.token ?? "model"} anchor={menu.anchor} models={models} selected={model} onSelect={m => { updatePreferences({model:m.model, effort:m.defaultReasoningEffort}).catch(e=>setError(e.message)); }} fastTier={fastTier} fastMode={fastEnabled} fastDisabled={fastSaving || running || sending || !boot?.connected} fastSaving={fastSaving} onFastModeChange={value=>changeFastMode(value).catch(e=>setError(e.message))} onClose={closeMenu} initialHighlight={menu.entry} /> : menu?.kind === "permission" ? <SourcePermissionMenu key={menu.token ?? "permission"} anchor={menu.anchor} value={effectivePermission} defaultValue={permission} bypassEnabled={bypassMode.available} onChange={value => bypassMode.select(value)} onClose={closeMenu} onSelectComplete={() => textarea.current?.focus()} initialHighlight={menu.entry} /> : ["session", "titlebar"].includes(menu?.kind) ? <SourceSidebarMenu key={menu.token ?? menu.kind} anchor={menu.anchor} kind={menu.kind} label="Session menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceSidebarMenu> : menu?.kind === "account" ? <SourceMenu.Popup key={menu.token ?? "account"} anchor={menu.anchor} side="top" align="start" label="Account menu" className="account-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "add" ? <SourceMenu.Popup key={menu.token ?? "add"} anchor={menu.anchor} side="top" align="start" label="Add" className="add-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "effort" ? <SourceEffortPopover key={menu.token ?? "effort"} anchor={menu.anchor} levels={efforts} value={effort}
+      {menu?.kind === "model" ? <SourceModelMenu key={menu.token ?? "model"} anchor={menu.anchor} models={models} selected={model} onSelect={m => { updatePreferences({model:m.model, effort:m.defaultReasoningEffort}).catch(e=>setError(e.message)); }} fastTier={fastTier} fastMode={fastEnabled} fastDisabled={fastSaving || running || sending || !boot?.connected} fastSaving={fastSaving} onFastModeChange={value=>changeFastMode(value).catch(e=>setError(e.message))} onClose={closeMenu} initialHighlight={menu.entry} /> : menu?.kind === "permission" ? <SourcePermissionMenu key={menu.token ?? "permission"} anchor={menu.anchor} value={effectivePermission} defaultValue={permission} bypassEnabled={bypassMode.available} onChange={value => bypassMode.select(value)} onClose={closeMenu} onSelectComplete={() => textarea.current?.focus()} initialHighlight={menu.entry} /> : ["session", "titlebar"].includes(menu?.kind) ? <SourceSidebarMenu key={menu.token ?? menu.kind} anchor={menu.anchor} kind={menu.kind} label={t("Session menu")} onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceSidebarMenu> : menu?.kind === "account" ? <SourceMenu.Popup key={menu.token ?? "account"} anchor={menu.anchor} side="top" align="start" label={t("Account menu")} className="account-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "add" ? <SourceMenu.Popup key={menu.token ?? "add"} anchor={menu.anchor} side="top" align="start" label={t("Add")} className="add-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "effort" ? <SourceEffortPopover key={menu.token ?? "effort"} anchor={menu.anchor} levels={efforts} value={effort}
         onChange={value => preference("effort", value)} onClose={closeMenu} />
       : menu?.kind === "usage" ? <SourceUsagePopover key={menu.token ?? "usage"} anchor={menu.anchor} usage={state.usage[current]} fresh={!current}
         onSeeDetails={current ? () => executeCommand("status") : undefined} onClose={closeMenu}
@@ -3168,7 +3190,7 @@ function App() {
         onCompact={current && !session?.archived ? () => { closeMenu(); executeCommand("compact"); } : undefined}
         compactState={{ running: running || (actionPending && operation?.operation !== "compact"), connected: !!boot?.connected,
           compacting: operation?.operation === "compact" && actionPending }} />
-      : ENV_MENUS[menu?.kind] ? <SourceMenu.Popup key={menu.token ?? menu.kind} anchor={menu.anchor} {...ENV_MENUS[menu.kind]}
+      : ENV_MENUS[menu?.kind] ? <SourceMenu.Popup key={menu.token ?? menu.kind} anchor={menu.anchor} {...ENV_MENUS[menu.kind]} label={t(ENV_MENUS[menu.kind].label)}
         onClose={closeMenu} initialHighlight={menu.kind === "branch" ? null : menu.entry}>{menuContent()}</SourceMenu.Popup>
       : null}
       {/* R05 GR (cc43287c9 :28413-28421 mounted with ge): onResolved → D(le) records the target; Cancel keeps the branch. */}
@@ -3178,13 +3200,19 @@ function App() {
         onResolved={() => { const { targetBranch, currentBranch } = shownBranchSwitch.value;
           recordBranch(targetBranch, currentBranch); setBranchSwitch(null); refreshChanges(); }}
         onCancel={() => setBranchSwitch(null)}
-        onError={() => { if (toasts) toasts.add(WORKING_TREE_ERROR, { variant: "danger" }); else setError(WORKING_TREE_ERROR); }} />}
+        onError={() => { if (toasts) toasts.add(t(WORKING_TREE_ERROR), { variant: "danger" }); else setError(t(WORKING_TREE_ERROR)); }} />}
       {shownActionDialog.value?.kind === "shortcuts" && <KeyboardShortcutsDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("shortcuts")} fastMode={models.some(m => fastTierForModel(m))} onClose={()=>setActionDialog(null)}/>}
       {shownActionDialog.value?.kind === "help" && <SlashHelp key={`action-${shownActionDialog.key}`} {...actionDialogProps("help")} onClose={()=>setActionDialog(null)}/>}
       {shownActionDialog.value?.kind === "rewind" && <RewindDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("rewind")} turns={shownActionDialog.value.turns} onConfirm={rewindConversation} onClose={()=>setActionDialog(null)}/>}
       {shownActionDialog.value?.kind === "review" && <ReviewDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("review")} initialInstructions={shownActionDialog.value.instructions} workspaceInfo={workspaceInfo}
         onClose={() => setActionDialog(null)} onSubmit={async target => { const dialog = actionDialog; await performOperation("review", {target}); setActionDialog(value => value === dialog ? null : value); }} />}
       {shownWhatsNew.value && <LocalReleaseNotes key={`whats-new-${shownWhatsNew.key}`} open={shownWhatsNew.open} onExited={shownWhatsNew.onExited} onClose={() => setWhatsNew(false)} />}
+      {languagePicker && <SourceLanguagePicker open onClose={() => setLanguagePicker(false)} onSave={updatePreferences} />}
+      {current && <SourceSideChat threadId={current} open={sideChat.open} rpc={rpc}
+        contextCount={items.filter(item => item?.type === "userMessage" || item?.type === "agentMessage").length}
+        pending={sideChat.pending} onPendingTaken={() => setSideChat(value => ({ ...value, pending: null }))}
+        onClose={closeSideChat}
+        onBranch={(text) => { setSideChat({ open: false, pending: null }); navigate(null); setDraft(text); }} />}
       {workflowLaunch&&<WorkflowLaunch initial={workflowLaunch} onClose={()=>setWorkflowLaunch(null)} onPick={()=>call('workflow-pick')} onStart={async options=>{const run=await call('workflow-start',{...options,threadId:workflowLaunch.threadId,model:workflowLaunch.model,effort:workflowLaunch.effort,cwd:workflowLaunch.cwd,permission:workflowLaunch.permission,mode:workflowLaunch.mode,after:workflowLaunch.after});setWorkflowRuns(old=>mergeWorkflow(old,run));if(currentRef.current===run.threadId)openWorkflow(run.id);}}/>}
       {<SourceSettings open={!!settings} config={{...boot?.config,...localPreferences,theme,displayName,fastMode}} model={model} effort={effort} permission={permission}
         boot={boot} busy={running || sending || actionPending} onSave={updatePreferences} onClose={()=>setSettings(false)}
@@ -3199,7 +3227,7 @@ function App() {
       {/* Rename on the shared Dialog (source-dialog.jsx): size sm, title, the name field (initial focus) and a
           Qf footer with CDS Buttons; Escape, the backdrop and Close dismiss it. */}
       {shownRename.value && renameShown && (
-        <SourceDialog key={`rename-${shownRename.key}`} open={shownRename.open} onExited={shownRename.onExited} size="sm" title="Rename session"
+        <SourceDialog key={`rename-${shownRename.key}`} open={shownRename.open} onExited={shownRename.onExited} size="sm" title={t("Rename session")}
           initialFocusRef={renameInput} onClose={() => setRename(null)} className="rename-session-dialog">
           <form
             className="rename-session-form"
@@ -3224,13 +3252,13 @@ function App() {
           >
             <input
               ref={renameInput}
-              aria-label="Session name"
+              aria-label={t("Session name")}
               value={renameShown.name}
               onChange={(e) => setRename((current) => current && { ...current, name: e.target.value })}
             />
             <SourceDialogFooter>
-              <SourceSettingsButton onClick={() => setRename(null)}>Cancel</SourceSettingsButton>
-              <SourceSettingsButton type="submit" variant="primary" disabled={!renameShown.name.trim()}>Save</SourceSettingsButton>
+              <SourceSettingsButton onClick={() => setRename(null)}>{t("Cancel")}</SourceSettingsButton>
+              <SourceSettingsButton type="submit" variant="primary" disabled={!renameShown.name.trim()}>{t("Save")}</SourceSettingsButton>
             </SourceDialogFooter>
           </form>
         </SourceDialog>
@@ -3270,7 +3298,7 @@ function PopoutApp({ sessionId, pane, cwd }) {
         if (!live) return;
         setGitStatus(status);
       })
-      .catch((reason) => { if (live) setGitError("Could not read repository changes: " + reason.message); });
+      .catch((reason) => { if (live) setGitError(t("Could not read repository changes: {reason}", { reason: reason.message })); });
     return () => { live = false; };
   }, [pane, cwd, sessionId, gitDismissedKey]);
   // F12: the popped-out Changes pane has its own zm diff scope (default "All changes vs {base}").
@@ -3283,7 +3311,7 @@ function PopoutApp({ sessionId, pane, cwd }) {
     if (popoutShownScope.current !== popoutScopeKey) { popoutShownScope.current = popoutScopeKey; setGitDiff(null); }
     call("workspace-git-diff", { cwd, sessionId, completeContext: true, scope: popoutScope.param, ...(popoutScope.base ? { base: popoutScope.base } : {}) })
       .then((diff) => { if (live) setGitDiff(diff); })
-      .catch((reason) => { if (live) setGitError("Could not read repository changes: " + reason.message); });
+      .catch((reason) => { if (live) setGitError(t("Could not read repository changes: {reason}", { reason: reason.message })); });
     return () => { live = false; };
     // gitStatus is a fresh object per status read (popout-refresh / Refresh), which re-reads the diff as before.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3302,7 +3330,7 @@ function PopoutApp({ sessionId, pane, cwd }) {
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const toggleAlwaysOnTop = () => call("popout-always-on-top", { value: !alwaysOnTop })
     .then((value) => setAlwaysOnTop(value === true)).catch((reason) => setError(reason.message));
-  useEffect(() => { document.title = `${PANE_NAMES[pane] ?? "Pane"} — Code Desktop`; }, [pane]);
+  useEffect(() => { document.title = `${PANE_NAMES[pane] ?? t("Pane")} — Code Desktop`; }, [pane]);
   return (
     <div className="popout-root" data-popout-pane={pane} data-popout-session={sessionId} data-connected={connected}>
       <main className="workspace epitaxy-root cds-root popout-workspace" data-density="compact" data-platform="desktop">

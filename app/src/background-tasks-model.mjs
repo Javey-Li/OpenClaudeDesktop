@@ -1,3 +1,4 @@
+import { t } from '../electron/i18n/index.mjs';
 import {connectionInterrupted} from "./item-observation.mjs";
 import {agentTargets,agentView} from './agent-model.mjs';
 import {commandRowState} from './command-row-model.mjs';
@@ -15,11 +16,11 @@ export function backgroundTasks(state,sessionId,{connected=true}={}) {
   const start=state.backgroundStarts?.[sessionId]?.[id];
   const newerStart=phase==='busy'&&start?.connectionId===state.approvalConnectionId&&start?.processId===item.processId&&snapshot?.coveredProcesses&&snapshot.coveredProcesses[id]!==item.processId;
   const status=terminalStatus||(!connected||snapshot?.error?'unknown':terminal||newerStart?'running':snapshot?'unknown':phase==='busy'?'running':'unknown');
-  tasks.push({id:'bash:'+id,kind:'bash',threadId:sessionId,itemId:id,processId:item?.processId||record?.processId,description:item?.command||record?.command||'Command',command:item?.command||record?.command,output:item?.aggregatedOutput||'',status,
+  tasks.push({id:'bash:'+id,kind:'bash',threadId:sessionId,itemId:id,processId:item?.processId||record?.processId,description:item?.command||record?.command||t('Command'),command:item?.command||record?.command,output:item?.aggregatedOutput||'',status,
    startedAt:Number.isFinite(item?.startedAtMs)?item.startedAtMs:null,completedAt:Number.isFinite(item?.completedAtMs)?item.completedAtMs:null,durationMs:item?.durationMs});
  }
  return tasks;
 }
 export function taskSections(tasks){const order=new Map(tasks.map((task,index)=>[task,index]));return {running:tasks.filter(t=>t.status==='running').sort((a,b)=>(a.startedAt??Infinity)-(b.startedAt??Infinity)),unknown:tasks.filter(t=>t.status==='unknown'),finished:tasks.filter(t=>['completed','failed','stopped'].includes(t.status)).sort((a,b)=>(b.completedAt??-Infinity)-(a.completedAt??-Infinity)||order.get(b)-order.get(a))};}
-export function taskOutput(text){return text.length>8000?`… (${text.length-8000} chars truncated)\n${text.slice(-8000)}`:text;}
+export function taskOutput(text){return text.length>8000?`${t('… ({count} chars truncated)',{count:text.length-8000})}\n${text.slice(-8000)}`:text;}
 export function dismissedTasks(map,sessionId,ids,running=[]){const entries=Object.entries(map||{}).filter(([id,value])=>id!==sessionId&&Array.isArray(value)).slice(-99);const restored=new Set(running);return {...Object.fromEntries(entries),[sessionId]:[...new Set([...(map?.[sessionId]||[]),...ids])].filter(id=>typeof id==='string'&&!restored.has(id)).slice(-1000)};}

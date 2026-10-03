@@ -10,6 +10,7 @@ import {storageKinds} from './storage-meter-model.mjs';
 import mcpEmpty from './generated/mcp-empty.json';
 import { mcpStatus } from './settings-model.mjs';
 import { canRemoveDeveloperServer } from './developer-server-actions.mjs';
+import { t, tn } from '../electron/i18n/index.mjs';
 import './source-settings-pages.css';
 
 // c71860c77-CCdfSDER j/N: real configured servers on the left, the selected
@@ -37,7 +38,7 @@ export function DeveloperServers({ desktop, connected, pending, onEditConfig, on
   const failed = status === 'Failed';
   const loading = !desktop;
   const busy = pending || !!removal.name;
-  const edit = <SourceSettingsButton className="ssp-button" variant={names.length ? "secondary" : "primary"} disabled={!connected || busy} onClick={onEditConfig}>Edit config</SourceSettingsButton>;
+  const edit = <SourceSettingsButton className="ssp-button" variant={names.length ? "secondary" : "primary"} disabled={!connected || busy} onClick={onEditConfig}>{t('Edit config')}</SourceSettingsButton>;
   const remove = async event => {
     if (!connected || busy || removing.current || !onRemove || !canRemoveDeveloperServer(definition, server)) return;
     removing.current = true;
@@ -46,41 +47,41 @@ export function DeveloperServers({ desktop, connected, pending, onEditConfig, on
     let message = '';
     try { await onRemove(selectedName); }
     // c4fa092cc K5b1jjmNX7 "Couldn’t remove {serverName}." (raw reason logged, mcp_server_remove_failed).
-    catch (reason) { console.warn('Couldn’t remove MCP server:', reason); message = `Couldn’t remove ${selectedName}.`; }
+    catch (reason) { console.warn('Couldn’t remove MCP server:', reason); message = t('Couldn’t remove {serverName}.', { serverName: selectedName }); }
     finally { removing.current = false; if (live.current) setRemoval({ name: null, error: message }); }
   };
   return <section ref={root} className="ss-group ss-developer" aria-labelledby="ss-mcp-heading">
-    <h3 id="ss-mcp-heading" className="text-heading-semibold settings-row-title">Local MCP servers<span className="ss-mcp-heading-description">Add and manage MCP servers that you’re working on.</span></h3>
+    <h3 id="ss-mcp-heading" className="text-heading-semibold settings-row-title">{t('Local MCP servers')}<span className="ss-mcp-heading-description">{t('Add and manage MCP servers that you’re working on.')}</span></h3>
     <div className="ss-developer-body">
       {names.length > 0 && <div className="ss-developer-actions" data-setting-id="mcp-config">{edit}</div>}
       {error && <p role="alert" className="ss-error">{error}</p>}
       {removal.error && <p role="alert" className="ss-error">{removal.error}</p>}
-      {loading ? <div className="ss-mcp-skeleton" aria-label="Loading MCP servers" aria-busy="true"><div/><div/></div> : names.length > 0 ?
+      {loading ? <div className="ss-mcp-skeleton" aria-label={t('Loading MCP servers')} aria-busy="true"><div/><div/></div> : names.length > 0 ?
         <div className="ss-mcp-frame">
-          <nav className="ss-mcp-list" aria-label="Local MCP servers"><ul>{names.map(name => {
+          <nav className="ss-mcp-list" aria-label={t('Local MCP servers')}><ul>{names.map(name => {
             const member = statuses.find(row => row.name === name);
             return <li key={name}><button type="button" aria-current={name === selectedName ? 'true' : undefined} onClick={() => setSelected(name)}>
               <span>{name}</span>{mcpStatus(member || {}) === 'Failed' && <Icon name="Warning" size={16} className="ss-error"/>}
             </button></li>;
           })}</ul></nav>
           <div className="ss-mcp-detail" key={selectedName} data-setting-id={'mcp-' + selectedName}>
-            <header><div className="ss-mcp-title"><h2>{selectedName}</h2><span className="ss-mcp-status" data-status={failed ? 'failed' : status === 'Running' ? 'running' : status === 'Starting' ? 'starting' : 'unknown'}>{status}</span></div>
-              {onRemove && canRemoveDeveloperServer(definition, server) && <SourceSettingsButton className="ssp-button ss-mcp-delete" variant="ghost" size="sm" iconOnly icon="Trash" iconSize={16} aria-label="Delete" title="Delete" disabled={!connected || busy} onClick={remove}/>}
+            <header><div className="ss-mcp-title"><h2>{selectedName}</h2><span className="ss-mcp-status" data-status={failed ? 'failed' : status === 'Running' ? 'running' : status === 'Starting' ? 'starting' : 'unknown'}>{t(status)}</span></div>
+              {onRemove && canRemoveDeveloperServer(definition, server) && <SourceSettingsButton className="ssp-button ss-mcp-delete" variant="ghost" size="sm" iconOnly icon="Trash" iconSize={16} aria-label={t('Delete')} title={t('Delete')} disabled={!connected || busy} onClick={remove}/>}
             </header>
-            {server?.pluginId && <p>This server is managed by a plugin</p>}
-            {definition?.command && <Detail label="Command">{definition.command}</Detail>}
+            {server?.pluginId && <p>{t('This server is managed by a plugin')}</p>}
+            {definition?.command && <Detail label={t('Command')}>{definition.command}</Detail>}
             {definition?.url && <Detail label="URL">{definition.url}</Detail>}
-            {definition?.args?.length > 0 && <Detail label="Arguments">{definition.args.join(' ')}</Detail>}
-            {!definition?.command && !definition?.url && <Detail label="Configuration">Configuration details are unavailable.</Detail>}
-            {server?.toolsError && <Detail label="Error" danger>{server.toolsError}</Detail>}
-            {definition?.environmentNames?.length > 0 && <SourceDisclosure key={selectedName} className="ss-mcp-advanced" label="Advanced options"><section><h3>Environment variables</h3><div className="ss-mcp-environment">{definition.environmentNames.map(name=><p key={name}>{name}</p>)}</div></section></SourceDisclosure>}
+            {definition?.args?.length > 0 && <Detail label={t('Arguments')}>{definition.args.join(' ')}</Detail>}
+            {!definition?.command && !definition?.url && <Detail label={t('Configuration')}>{t('Configuration details are unavailable.')}</Detail>}
+            {server?.toolsError && <Detail label={t('Error')} danger>{server.toolsError}</Detail>}
+            {definition?.environmentNames?.length > 0 && <SourceDisclosure key={selectedName} className="ss-mcp-advanced" label={t('Advanced options')}><section><h3>{t('Environment variables')}</h3><div className="ss-mcp-environment">{definition.environmentNames.map(name=><p key={name}>{name}</p>)}</div></section></SourceDisclosure>}
           </div>
         </div> : <div className="ss-mcp-empty">
           <McpEmptyIllustration/>
-          <p>{desktop?.errors?.servers || desktop?.errors?.policy ? 'MCP servers are unavailable.' : 'No servers added'}</p>
-          <div>{edit}<SourceSettingsButton className="ssp-button" icon="ArrowUpRight" iconPosition="end" onClick={onDocs}>Developer docs</SourceSettingsButton></div>
+          <p>{desktop?.errors?.servers || desktop?.errors?.policy ? t('MCP servers are unavailable.') : t('No servers added')}</p>
+          <div>{edit}<SourceSettingsButton className="ssp-button" icon="ArrowUpRight" iconPosition="end" onClick={onDocs}>{t('Developer docs')}</SourceSettingsButton></div>
         </div>}
-      {desktop?.serversTruncated && <p className="ss-mcp-note">Some server statuses could not be loaded.</p>}
+      {desktop?.serversTruncated && <p className="ss-mcp-note">{t('Some server statuses could not be loaded.')}</p>}
     </div>
   </section>;
 }
@@ -111,7 +112,7 @@ function StorageRow({ label, description, control, below }) {
 // shared-frame AS (InfoTip): a muted Info glyph whose hover/focus popup carries the tip, max-w 320px.
 function StorageTip({ content }) {
   return <SourceTooltip content={content} side="top" multiline className="ss-storage-tip-popup">
-    <button type="button" data-cds="InfoTip" aria-label="More info" className="ss-storage-tip"><Icon name="Info" size={16}/></button>
+    <button type="button" data-cds="InfoTip" aria-label={t('More info')} className="ss-storage-tip"><Icon name="Info" size={16}/></button>
   </SourceTooltip>;
 }
 // c71860c77-B72Ova_w X: a 4px bar of the counted kinds (role=img) above a dot legend on the opacity ramp;
@@ -133,8 +134,7 @@ export function StorageKinds({ label, color, items }) {
   </div>;
 }
 // c71860c77-B72Ova_w Z: the 'Details' disclosure (footnote trigger named for its area; flex-col gap-sm pt-sm).
-const StorageDetails = ({ label, children }) => <SourceDisclosure className="ss-storage-details" label="Details" ariaLabel={label}>{children}</SourceDisclosure>;
-const plural = (count, one, other) => `${count} ${count === 1 ? one : other}`;
+const StorageDetails = ({ label, children }) => <SourceDisclosure className="ss-storage-details" label={t('Details')} ariaLabel={label}>{children}</SourceDisclosure>;
 // ht/mt colours: Cowork takes categorical 1, so Code sessions is categorical 2 and Runtime categorical 3;
 // App caches is muted (the area meter uses the same paints).
 const AREA_COLORS = { code: 'var(--cds-chart-categorical-2)', runtime: 'var(--cds-chart-categorical-3)', app: MUTED_CHART };
@@ -175,41 +175,42 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
   };
   return createPortal(<div className="ss-backdrop ss-storage-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="ss-storage-dialog" ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title} aria-describedby={description} onKeyDown={keyboard}>
-      <header className="ss-storage-header"><h2 id={title}>Storage</h2><p id={description}>Space Code Desktop and local DeepSeek Harness data use on this computer.</p><button className="ss-close" aria-label="Close" onClick={onClose}><Icon name="X" size={16}/></button></header>
+      <header className="ss-storage-header"><h2 id={title}>{t('Storage')}</h2><p id={description}>{t('Space Code Desktop and local DeepSeek Harness data use on this computer.')}</p><button className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button></header>
       <div className="ss-storage-content" aria-busy={state.loading || undefined}>
-        {state.error && <p role="alert" className="ss-error">Couldn’t calculate storage. Try again. {state.error}</p>}
-        {!value && state.loading ? <div className="ss-storage-skeleton" aria-label="Calculating storage"><i/><i/><i/><i/></div> : value && <StorageRows value={value}/>}
+        {state.error && <p role="alert" className="ss-error">{t('Couldn’t calculate storage. Try again.')} {state.error}</p>}
+        {!value && state.loading ? <div className="ss-storage-skeleton" aria-label={t('Calculating storage')}><i/><i/><i/><i/></div> : value && <StorageRows value={value}/>}
       </div>
-      <footer><SourceSettingsButton className="ssp-button" variant="ghost" icon="Folder" onClick={() => { Promise.resolve().then(() => callRef.current('reveal-settings')).catch(error => setState(current => ({ ...current, error: error.message }))); }}>Open folder</SourceSettingsButton><SourceSettingsButton className="ssp-button" icon="ArrowClockwise" disabled={state.loading} onClick={() => { root.current?.focus({ preventScroll: true }); setRevision(value => value + 1); }}>Refresh</SourceSettingsButton></footer>
+      <footer><SourceSettingsButton className="ssp-button" variant="ghost" icon="Folder" onClick={() => { Promise.resolve().then(() => callRef.current('reveal-settings')).catch(error => setState(current => ({ ...current, error: error.message }))); }}>{t('Open folder')}</SourceSettingsButton><SourceSettingsButton className="ssp-button" icon="ArrowClockwise" disabled={state.loading} onClick={() => { root.current?.focus({ preventScroll: true }); setRevision(value => value + 1); }}>{t('Refresh')}</SourceSettingsButton></footer>
     </section>
   </div>, document.body);
 }
 
 // The report body: Disk space used with the area meter, then one row per area with its Details kind bar.
 export function StorageRows({ value }) {
-  const areas = value.areas || [], area = id => areas.find(item => item.id === id);
+  // Area and kind labels are main's English copy; shown translated.
+  const areas = (value.areas || []).map(item => ({ ...item, label: t(item.label), kinds: (item.kinds || []).map(kind => ({ ...kind, label: t(kind.label) })) })), area = id => areas.find(item => item.id === id);
   const code = area('code'), runtime = area('runtime'), app = area('app');
   const size = bytes => <span className="ss-storage-size">{formatStorage(bytes)}</span>;
   const kindsOf = (item, extra = {}) => item.kinds.map(kind => kind.outside ? { ...kind, ...extra } : kind);
   const outside = code ? code.kinds.filter(kind => kind.outside).reduce((sum, kind) => sum + kind.bytes, 0) : 0;
   return <div className="settings-group-dividers ss-storage-rows">
-    <StorageRow label="Disk space used"
-      description={value.incomplete ? 'Some folders couldn’t be measured, so this is a lower bound.' : <>Calculated <SourceTimestamp dateMs={value.computedAt} className="ss-storage-when"/>.</>}
+    <StorageRow label={t('Disk space used')}
+      description={value.incomplete ? t('Some folders couldn’t be measured, so this is a lower bound.') : <>{`${t('Calculated')} `}<SourceTimestamp dateMs={value.computedAt} className="ss-storage-when"/>{t('.')}</>}
       control={<span className="ss-storage-size ss-storage-total-size">{formatStorage(value.bytes)}</span>}
       below={<div className="ss-storage-meter">
         <SourceStorageMeter areas={areas} formatValue={formatStorage}/>
         <ul role="list" className="ss-storage-legend">{areas.map(item => <li key={item.id}><i data-area={item.id}/><span>{item.label}</span><span>{formatStorage(item.bytes)}</span></li>)}</ul>
       </div>}/>
     {code && <StorageRow label={code.label}
-      description={code.worktreeCount > 0 ? `${plural(code.sessionCount, 'session', 'sessions')} and ${plural(code.worktreeCount, 'worktree', 'worktrees')}.` : `${plural(code.sessionCount, 'session', 'sessions')}.`}
+      description={code.worktreeCount > 0 ? t('{sessions} and {worktrees}.', { sessions: tn(code.sessionCount, '{count} session', '{count} sessions'), worktrees: tn(code.worktreeCount, '{count} worktree', '{count} worktrees') }) : t('{sessions}.', { sessions: tn(code.sessionCount, '{count} session', '{count} sessions') })}
       control={size(code.bytes)}
-      below={(code.bytes > 0 || outside > 0) && <StorageDetails label="Code session details"><StorageKinds label="Code storage by kind" color={AREA_COLORS.code}
-        items={kindsOf(code, { tip: `History from ${runtime?.name || 'DeepSeek Harness'} outside Code Desktop. Shown for completeness; not counted above and never removed from here.` })}/></StorageDetails>}/>}
+      below={(code.bytes > 0 || outside > 0) && <StorageDetails label={t('Code session details')}><StorageKinds label={t('Code storage by kind')} color={AREA_COLORS.code}
+        items={kindsOf(code, { tip: t('History from {name} outside Code Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime?.name || 'DeepSeek Harness' }) })}/></StorageDetails>}/>}
     {runtime && <StorageRow label={runtime.label}
-      description={runtime.versionCount === 0 ? `${runtime.name} downloads.` : `${plural(runtime.versionCount, `installed ${runtime.name} version`, `installed ${runtime.name} versions`)}.`}
+      description={runtime.versionCount === 0 ? t('{name} downloads.', { name: runtime.name }) : tn(runtime.versionCount, '{count} installed {name} version.', '{count} installed {name} versions.', { name: runtime.name })}
       control={size(runtime.bytes)}
-      below={runtime.bytes > 0 && <StorageDetails label="Runtime details"><StorageKinds label="Runtime storage by kind" color={AREA_COLORS.runtime} items={runtime.kinds}/></StorageDetails>}/>}
-    {app && <StorageRow label={app.label} description="Web cache, browser panes and logs." control={size(app.bytes)}
-      below={app.bytes > 0 && <StorageDetails label="App cache details"><StorageKinds label="App storage by kind" color={AREA_COLORS.app} items={app.kinds}/></StorageDetails>}/>}
+      below={runtime.bytes > 0 && <StorageDetails label={t('Runtime details')}><StorageKinds label={t('Runtime storage by kind')} color={AREA_COLORS.runtime} items={runtime.kinds}/></StorageDetails>}/>}
+    {app && <StorageRow label={app.label} description={t('Web cache, browser panes and logs.')} control={size(app.bytes)}
+      below={app.bytes > 0 && <StorageDetails label={t('App cache details')}><StorageKinds label={t('App storage by kind')} color={AREA_COLORS.app} items={app.kinds}/></StorageDetails>}/>}
   </div>;
 }

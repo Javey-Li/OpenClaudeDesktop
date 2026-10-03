@@ -30,6 +30,7 @@ import { SourceConfirmationDialog, SourceDialog, SourceDialogFooter, useDialogRe
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { hiddenSessionsNotice } from "./session-engine-model.mjs";
 import "./source-sidebar.css";
+import { t, tn } from "../electron/i18n/index.mjs";
 
 /** Current classic sidebar DOM menus on the shared CDS SourceMenu primitive:
  * sidebar-main Z.Root/Z.Popup (Filter: side bottom, align end, sideOffset 4,
@@ -49,9 +50,10 @@ export function SourceSidebarMenu({ anchor, label, onClose, children, point, kin
   </SourceMenu.Popup>;
 }
 
+// String children are looked up (literal item copy is localized; translated text passes through).
 function Choice({ children, checked, radio, onClick, disabled, disabledReason, shortcut, keepOpen, icon, variant, digit }) {
   return <SourceMenu.Item checked={checked} checkedRole={radio ? "radio" : "checkbox"} disabled={disabled} variant={variant} digit={digit}
-    disabledReason={disabledReason} shortcut={shortcut} keepOpen={keepOpen} icon={icon} onClick={onClick}>{children}</SourceMenu.Item>;
+    disabledReason={disabledReason} shortcut={shortcut} keepOpen={keepOpen} icon={icon} onClick={onClick}>{t(children)}</SourceMenu.Item>;
 }
 
 function Divider() { return <SourceMenu.Separator />; }
@@ -72,29 +74,29 @@ export function SourceSidebarFilterMenu({ preferences, onChange, onClose, knownF
     if (!keepOpen) onClose();
   };
   const optionMenu = (name, label, options, active = false) => <Submenu
-    key={name} label={label} detail={options.find(([value]) => value === prefs[name])?.[1]} active={active}>
+    key={name} label={label} detail={t(options.find(([value]) => value === prefs[name])?.[1])} active={active}>
     {options.map(([value, title]) => <React.Fragment key={value}>
       {name === "groupBy" && value === "none" && <Divider />}
       <Choice radio checked={prefs[name] === value} onClick={() => update({
         [name]: value, ...(name === "groupBy" && value === "state" ? { status: "active" } : {}),
-      })}>{title}</Choice>
+      })}>{t(title)}</Choice>
     </React.Fragment>)}
   </Submenu>;
   return <>
-    {optionMenu("status", "Status", CLASSIC_STATUS_OPTIONS, prefs.status !== "active")}
-    {prefs.groupBy === "state" && optionMenu("stateActivityDays", "Last activity",
+    {optionMenu("status", t("Status"), CLASSIC_STATUS_OPTIONS, prefs.status !== "active")}
+    {prefs.groupBy === "state" && optionMenu("stateActivityDays", t("Last activity"),
       [[1, "1d"], [3, "3d"], [7, "7d"], [30, "30d"], [0, "All"]], prefs.stateActivityDays !== 7)}
     <Divider />
-    {optionMenu("groupBy", "Group by", CLASSIC_GROUP_OPTIONS)}
-    {optionMenu("sortBy", "Sort by", CLASSIC_SORT_OPTIONS)}
+    {optionMenu("groupBy", t("Group by"), CLASSIC_GROUP_OPTIONS)}
+    {optionMenu("sortBy", t("Sort by"), CLASSIC_SORT_OPTIONS)}
     {((prefs.groupBy === "project" && knownFolders.length > 0) || (prefs.groupBy === "custom" && customGroups.length > 0)) && <>
       <Divider />
       <Choice checked={prefs.showEmptyGroups} keepOpen
-        onClick={() => update({ showEmptyGroups: !prefs.showEmptyGroups }, true)}>Show empty groups</Choice>
+        onClick={() => update({ showEmptyGroups: !prefs.showEmptyGroups }, true)}>{t("Show empty groups")}</Choice>
     </>}
     {hasSidebarFilters(prefs) && <>
       <Divider />
-      <Choice onClick={() => { onChange(clearSidebarFilters(prefs)); onClose(); }}>Clear filters</Choice>
+      <Choice onClick={() => { onChange(clearSidebarFilters(prefs)); onClose(); }}>{t("Clear filters")}</Choice>
     </>}
   </>;
 }
@@ -103,7 +105,10 @@ export function SourceSidebarFilterMenu({ preferences, onChange, onClose, knownF
 // the document level except when the key is typed into an editable control.
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"]';
 const digitFor = (index) => (index < 9 ? String(index + 1) : undefined);
-const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+// Bulk result toasts: the composed English ("Archived {count} older sessions",
+// "{count} session couldn’t be removed. Try again.") is the dictionary key.
+const bulkDoneMessage = (verb, count, noun) => tn(count, `${verb} {count} ${noun}`, `${verb} {count} ${noun}s`);
+const bulkFailedMessage = (verb, count) => tn(count, `{count} session couldn’t be ${verb}. Try again.`, `{count} sessions couldn’t be ${verb}. Try again.`);
 
 /**
  * Session row menu (sidebar-session-items.js M single / N multi). Letter keys
@@ -152,27 +157,27 @@ export function SourceSidebarSessionMenu({
       ...(onCreateGroup ? [() => { onClose(); onCreateGroup(selected); }] : []),
     ].slice(0, 9).map((action, index) => [String(index + 1), action]));
     return <div className="source-session-menu-contents" data-multi-count={count}>
-      <Choice shortcut="u" onClick={() => run("mark-unread")}>{`Mark ${count} as unread`}</Choice>
+      <Choice shortcut="u" onClick={() => run("mark-unread")}>{t("Mark {count} as unread", { count })}</Choice>
       {(customGroups.length > 0 || onCreateGroup) && <SourceMenu.Submenu onOpenChange={trackSubmenu}>
-        <SourceMenu.SubmenuTrigger label={`Move ${count} to group`}>{`Move ${count} to group`}</SourceMenu.SubmenuTrigger>
-        <SourceMenu.Popup label={`Move ${count} to group`}>
+        <SourceMenu.SubmenuTrigger label={t("Move {count} to group", { count })}>{t("Move {count} to group", { count })}</SourceMenu.SubmenuTrigger>
+        <SourceMenu.Popup label={t("Move {count} to group", { count })}>
           <SourceMenu.Group>
             {customGroups.map((group, index) => <Choice key={group.id} shortcut={digitFor(index)} digit={digitFor(index)}
               onClick={() => run("move-to-group", { groupId: group.id })}>{group.name}</Choice>)}
             {customGroups.length > 0 && <Divider />}
             <Choice shortcut={digitFor(customGroups.length)} digit={digitFor(customGroups.length)}
-              onClick={() => run("move-to-group", { groupId: null })}>Ungrouped</Choice>
+              onClick={() => run("move-to-group", { groupId: null })}>{t("Ungrouped")}</Choice>
           </SourceMenu.Group>
           {onCreateGroup && <>
             <Divider />
             <Choice shortcut={digitFor(moveEntries - 1)} digit={digitFor(moveEntries - 1)}
-              onClick={() => { onClose(); onCreateGroup(selected); }}>New group…</Choice>
+              onClick={() => { onClose(); onCreateGroup(selected); }}>{t("New group…")}</Choice>
           </>}
         </SourceMenu.Popup>
       </SourceMenu.Submenu>}
       <Divider />
-      <Choice shortcut="a" onClick={() => run(allArchived ? "unarchive" : "archive")}>{allArchived ? `Unarchive ${count}` : `Archive ${count}`}</Choice>
-      <Choice shortcut="d" variant="danger" onClick={() => run("delete")}>{`Delete ${count}`}</Choice>
+      <Choice shortcut="a" onClick={() => run(allArchived ? "unarchive" : "archive")}>{allArchived ? t("Unarchive {count}", { count }) : t("Archive {count}", { count })}</Choice>
+      <Choice shortcut="d" variant="danger" onClick={() => run("delete")}>{t("Delete {count}", { count })}</Choice>
     </div>;
   }
   digitActions.current = new Map();
@@ -181,7 +186,7 @@ export function SourceSidebarSessionMenu({
   const canArchive = !running;
   const archived = sessionArchived(session);
   // forkUnavailable: the core cannot fork at all (unsupportedCommand, session-command-model).
-  const forkReason = forkUnavailable || (running ? "Stop the running task before forking it." : archived ? "Restore this session before forking it." : undefined);
+  const forkReason = forkUnavailable || (running ? t("Stop the running task before forking it.") : archived ? t("Restore this session before forking it.") : undefined);
   const pinnedAt = pinnedSiblings && metadata.pinned ? pinnedSiblings.indexOf(session.id) : -1;
   const reorder = (direction) => {
     const ids = movePinned(pinnedSiblings, session.id, direction);
@@ -197,37 +202,37 @@ export function SourceSidebarSessionMenu({
   ]);
   return <div className="source-session-menu-contents">
     {session.cwd && <>
-      <Submenu label="Open in" onOpenChange={trackSubmenu}>
-        <Choice onClick={() => act("reveal-folder")}>Finder</Choice>
-        <Choice onClick={() => act("open-terminal")}>Terminal</Choice>
+      <Submenu label={t("Open in")} onOpenChange={trackSubmenu}>
+        <Choice onClick={() => act("reveal-folder")}>{t("Finder")}</Choice>
+        <Choice onClick={() => act("open-terminal")}>{t("Terminal")}</Choice>
       </Submenu>
       <Divider />
     </>}
-    {pinnedAt > 0 && <Choice onClick={() => reorder("up")}>Move up</Choice>}
-    {pinnedAt !== -1 && pinnedAt < pinnedSiblings.length - 1 && <Choice onClick={() => reorder("down")}>Move down</Choice>}
-    <Choice shortcut="p" onClick={() => act(metadata.pinned ? "unpin" : "pin")}>{metadata.pinned ? "Unpin" : "Pin"}</Choice>
-    {!busy && <Choice shortcut="u" onClick={() => act(metadata.unread ? "mark-read" : "mark-unread")}>{metadata.unread ? "Mark as read" : "Mark as unread"}</Choice>}
-    <Choice shortcut="r" onClick={() => { onClose(); onRename(); }}>Rename</Choice>
-    {onFork && <Choice shortcut="f" disabled={!!forkReason} disabledReason={forkReason} onClick={() => { onClose(); onFork(session); }}>Fork</Choice>}
-    {nested && nested.childCount > 0 && <Choice onClick={() => { onClose(); nested.onToggle(); }}>{nested.collapsed ? "Show nested sessions" : "Hide nested sessions"}</Choice>}
+    {pinnedAt > 0 && <Choice onClick={() => reorder("up")}>{t("Move up")}</Choice>}
+    {pinnedAt !== -1 && pinnedAt < pinnedSiblings.length - 1 && <Choice onClick={() => reorder("down")}>{t("Move down")}</Choice>}
+    <Choice shortcut="p" onClick={() => act(metadata.pinned ? "unpin" : "pin")}>{metadata.pinned ? t("Unpin") : t("Pin")}</Choice>
+    {!busy && <Choice shortcut="u" onClick={() => act(metadata.unread ? "mark-read" : "mark-unread")}>{metadata.unread ? t("Mark as read") : t("Mark as unread")}</Choice>}
+    <Choice shortcut="r" onClick={() => { onClose(); onRename(); }}>{t("Rename")}</Choice>
+    {onFork && <Choice shortcut="f" disabled={!!forkReason} disabledReason={forkReason} onClick={() => { onClose(); onFork(session); }}>{t("Fork")}</Choice>}
+    {nested && nested.childCount > 0 && <Choice onClick={() => { onClose(); nested.onToggle(); }}>{nested.collapsed ? t("Show nested sessions") : t("Hide nested sessions")}</Choice>}
     {(customGroups.length > 0 || onCreateGroup) && <>
       <Divider />
-      <Submenu label="Move to group" onOpenChange={trackSubmenu}>
+      <Submenu label={t("Move to group")} onOpenChange={trackSubmenu}>
         {customGroups.map((group) => <Choice key={group.id} checked={metadata.customGroupId === group.id}
           onClick={() => act("move-to-group", { groupId: group.id })}>{group.name}</Choice>)}
-        {metadata.customGroupId && <Choice onClick={() => act("move-to-group", { groupId: null })}>Remove from group</Choice>}
+        {metadata.customGroupId && <Choice onClick={() => act("move-to-group", { groupId: null })}>{t("Remove from group")}</Choice>}
         {onCreateGroup && <>
           {customGroups.length > 0 && <Divider />}
-          <Choice onClick={() => { onClose(); onCreateGroup([session]); }}>New group…</Choice>
+          <Choice onClick={() => { onClose(); onCreateGroup([session]); }}>{t("New group…")}</Choice>
         </>}
       </Submenu>
     </>}
     <Divider />
     <Choice shortcut="a" disabled={!canArchive} onClick={() => act(archived ? "unarchive" : "archive")}>
-      {archived ? "Unarchive" : "Archive"}
+      {archived ? t("Unarchive") : t("Archive")}
     </Choice>
-    {onDelete && <Choice shortcut="d" variant="danger" disabled={!canArchive} disabledReason={canArchive ? undefined : "Stop the running task before deleting it."}
-      onClick={() => { onClose(); onDelete(session); }}>Delete</Choice>}
+    {onDelete && <Choice shortcut="d" variant="danger" disabled={!canArchive} disabledReason={canArchive ? undefined : t("Stop the running task before deleting it.")}
+      onClick={() => { onClose(); onDelete(session); }}>{t("Delete")}</Choice>}
   </div>;
 }
 
@@ -242,7 +247,7 @@ function StatusGlyph({ label, live = false, children }) {
 
 // sidebar-rows.js:6687-6697 fE (PR state names) for the review glyph; :6755-6772 TE/EE/DE for the code
 // error glyph: rate_limit -> usage, network -> offline, anything else -> warning.
-const PR_STATE_LABELS = { open: "Open", draft: "Draft", approved: "Approved", changesRequested: "Changes requested", conflicting: "Merge conflicts" };
+const PR_STATE_LABELS = { open: t("Open"), draft: t("Draft"), approved: t("Approved"), changesRequested: t("Changes requested"), conflicting: t("Merge conflicts") };
 const ERROR_GLYPHS = { warning: ["Warning", "danger"], usage: ["UsageGaugeHigh", "danger"], offline: ["CloudSlash", "secondary"] };
 
 /** NO (sidebar-rows.js:8512-8545) with DO/mO/bO/CO (:8152-8270): archived, error, awaiting, running,
@@ -251,23 +256,23 @@ const ERROR_GLYPHS = { warning: ["Warning", "danger"], usage: ["UsageGaugeHigh",
 function SessionStatus({ session, state, unread }) {
   const status = sessionState(session, state);
   const approval = hasPendingApproval(state, session.id);
-  if (sessionArchived(session)) return <StatusGlyph label="Archived"><Icon name="Archive" size={16} className="source-status-archived" /></StatusGlyph>;
+  if (sessionArchived(session)) return <StatusGlyph label={t("Archived")}><Icon name="Archive" size={16} className="source-status-archived" /></StatusGlyph>;
   if (status === "blocked" && !approval) {
     const error = latestTurnError(state, session.id);
     const view = error ? describeTurnError(error) : null;
     const [icon, tone] = ERROR_GLYPHS[view?.category === "rate_limit" ? "usage" : view?.category === "network" ? "offline" : "warning"];
-    return <StatusGlyph live label={view?.headline ?? "Something went wrong"}>
+    return <StatusGlyph live label={view?.headline ?? t("Something went wrong")}>
       <Icon name={icon} size={16} className="source-status-error" data-tone={tone} />
     </StatusGlyph>;
   }
   if (status === "blocked" || status === "working" || unread) {
     const kind = approval ? "awaiting" : status === "working" ? "running" : "ready";
-    return <StatusGlyph live label={approval ? "Awaiting input" : status === "working" ? "Running" : "Unread response"}>
+    return <StatusGlyph live label={approval ? t("Awaiting input") : status === "working" ? t("Running") : t("Unread response")}>
       <span className="status-dot" data-kind={kind} />
     </StatusGlyph>;
   }
-  if (status === "review") return <StatusGlyph label={PR_STATE_LABELS[session.prState] ?? "Open"}><Icon name="GitPullRequest" size={16} /></StatusGlyph>;
-  return <StatusGlyph label="Idle"><span className="source-session-dot" /></StatusGlyph>;
+  if (status === "review") return <StatusGlyph label={PR_STATE_LABELS[session.prState] ?? t("Open")}><Icon name="GitPullRequest" size={16} /></StatusGlyph>;
+  return <StatusGlyph label={t("Idle")}><span className="source-session-dot" /></StatusGlyph>;
 }
 
 /** AD + jD (sidebar-rows.js:7222-7325): the inline edit field. It focuses and selects on entry; a blur in
@@ -291,7 +296,7 @@ function InlineRenameInput({ initial, label, maxLength, className = "", onCommit
     const name = value.trim();
     if (submit && name && name !== initial) onCommit(name);
   };
-  return <input ref={input} type="text" value={value} maxLength={maxLength} aria-label={label}
+  return <input ref={input} type="text" value={value} maxLength={maxLength} aria-label={t(label)}
     className={`hide-focus-ring ${className}`.trim()} onChange={(event) => setValue(event.target.value)}
     onBlur={() => {
       if (done.current) return;
@@ -312,7 +317,7 @@ function RenameRow({ label, glyph, selected, nested, onCommit, onClose }) {
   return <div className="source-session-row source-session-rename" data-row="" data-nested={nested || undefined}
     data-selected={selected ? "focused" : undefined}>
     <span className="source-leading-slot">{glyph}</span>
-    <InlineRenameInput initial={label} label="Rename" maxLength={200} className="source-session-rename-input" onCommit={onCommit} onClose={onClose} />
+    <InlineRenameInput initial={label} label={t("Rename")} maxLength={200} className="source-session-rename-input" onCommit={onCommit} onClose={onClose} />
   </div>;
 }
 
@@ -324,7 +329,7 @@ function GroupNameDialog({ switchesToCustom = false, onSubmit, onClose, open, on
   const [name, setName] = useState(""), [pending, setPending] = useState(false), [error, setError] = useState("");
   const input = useRef(null);
   const close = () => { if (!pending) onClose(); };
-  return <SourceDialog open={open} onExited={onExited} size="sm" showClose={false} density="comfortable" title="New group" initialFocusRef={input}
+  return <SourceDialog open={open} onExited={onExited} size="sm" showClose={false} density="comfortable" title={t("New group")} initialFocusRef={input}
     onClose={close} className="source-group-dialog">
     <form className="source-group-form" onSubmit={async (event) => {
       event.preventDefault();
@@ -333,13 +338,13 @@ function GroupNameDialog({ switchesToCustom = false, onSubmit, onClose, open, on
       try { await onSubmit(name.trim()); onClose(); }
       catch (reason) { setError(reason.message || String(reason)); setPending(false); }
     }}>
-      <input ref={input} aria-label="Group name" placeholder="Group name" value={name} maxLength={100}
+      <input ref={input} aria-label={t("Group name")} placeholder={t("Group name")} value={name} maxLength={100}
         disabled={pending} onChange={(event) => setName(event.target.value)} />
-      {switchesToCustom && <p className="source-group-switch-note">The list will switch to Custom groups to show it.</p>}
+      {switchesToCustom && <p className="source-group-switch-note">{t("The list will switch to Custom groups to show it.")}</p>}
       {error && <p role="alert">{error}</p>}
       <SourceDialogFooter>
-        <SourceSettingsButton disabled={pending} onClick={close}>Cancel</SourceSettingsButton>
-        <SourceSettingsButton type="submit" variant="primary" busy={pending} disabled={!name.trim()}>{switchesToCustom ? "Create and group by custom" : "Create group"}</SourceSettingsButton>
+        <SourceSettingsButton disabled={pending} onClick={close}>{t("Cancel")}</SourceSettingsButton>
+        <SourceSettingsButton type="submit" variant="primary" busy={pending} disabled={!name.trim()}>{switchesToCustom ? t("Create and group by custom") : t("Create group")}</SourceSettingsButton>
       </SourceDialogFooter>
     </form>
   </SourceDialog>;
@@ -347,8 +352,8 @@ function GroupNameDialog({ switchesToCustom = false, onSubmit, onClose, open, on
 
 /** yD deleteBody (sidebar-rows.js:7097-7140) for a custom group holding `count` sessions. */
 export function deleteGroupCopy(groupName, count) {
-  const rest = count === 0 ? "Nothing is in it." : count === 1 ? "The 1 item in it will no longer be grouped." : `The ${count} items in it will no longer be grouped.`;
-  return { title: "Delete group?", body: `“${groupName}” will be removed. ${rest}`, confirmLabel: "Delete", danger: true };
+  const rest = count === 0 ? t("Nothing is in it.") : tn(count, "The {count} item in it will no longer be grouped.", "The {count} items in it will no longer be grouped.");
+  return { title: t("Delete group?"), body: t("“{name}” will be removed. {rest}", { name: groupName, rest }), confirmLabel: t("Delete"), danger: true };
 }
 
 /** Confirm dialog for destructive sidebar actions: the shared ConfirmationDialog (shared-frame rp,
@@ -367,44 +372,37 @@ export function SourceConfirmDialog({ title, body, confirmLabel, danger = false,
   </SourceConfirmationDialog>;
 }
 
-// The DeepSeek core's thread/delete only hides the session in Code Desktop:
-// Harness has no delete, so the log stays in ~/.dsh/sessions and other
-// DeepSeek apps keep showing it. Its dialogs say "remove", not "permanently
-// delete". engine is boot.core's ("deepseek", or the raw "deepseek-harness").
-const removesOnly = (engine) => engine === "deepseek" || engine === "deepseek-harness";
+// The DeepSeek core's thread/delete also deletes the Harness history
+// (~/.dsh/sessions/<project>/<id>, codex-app-server deleteSessionFiles), so its
+// dialogs say so. engine is boot.core's ("deepseek", or the raw "deepseek-harness").
+const deletesHarnessHistory = (engine) => engine === "deepseek" || engine === "deepseek-harness";
 
-/** sidebar-session.js:13885-13924 delete confirm copy (Codex), or the DeepSeek remove copy. */
+/** sidebar-session.js:13885-13924 delete confirm copy; DeepSeek names the Harness history too. */
 export function deleteConfirmCopy(sessions, { engine } = {}) {
-  const count = sessions.length;
-  if (removesOnly(engine)) return {
-    title: count === 1 ? "Remove session?" : `Remove ${count} sessions?`,
-    body: count === 1 ? `“${sessionName(sessions[0])}” will be removed from Code Desktop. Its history stays in DeepSeek Harness (~/.dsh/sessions) and other DeepSeek apps.`
-      : `These ${count} sessions will be removed from Code Desktop. Their history stays in DeepSeek Harness (~/.dsh/sessions) and other DeepSeek apps.`,
-    confirmLabel: "Remove", danger: true,
-  };
+  const count = sessions.length, harness = deletesHarnessHistory(engine);
   return {
-    title: count === 1 ? "Delete session?" : `Delete ${count} sessions?`,
-    body: count === 1 ? `“${sessionName(sessions[0])}” will be permanently deleted. This can’t be undone.`
-      : `These ${count} sessions will be permanently deleted. This can’t be undone.`,
-    confirmLabel: "Delete", danger: true,
+    title: tn(count, "Delete session?", "Delete {count} sessions?"),
+    body: count === 1
+      ? harness ? t("“{name}” and its history in DeepSeek Harness (~/.dsh/sessions) will be permanently deleted. This can’t be undone.", { name: sessionName(sessions[0]) })
+        : t("“{name}” will be permanently deleted. This can’t be undone.", { name: sessionName(sessions[0]) })
+      : harness ? t("These {count} sessions and their history in DeepSeek Harness (~/.dsh/sessions) will be permanently deleted. This can’t be undone.", { count })
+        : t("These {count} sessions will be permanently deleted. This can’t be undone.", { count }),
+    confirmLabel: t("Delete"), danger: true,
   };
 }
 
 /** sidebar-groups.js:18641-18669 Older bucket confirm copy (DeepSeek: remove copy). */
 export function olderConfirmCopy(action, count, { engine } = {}) {
   if (action === "archive") return {
-    title: "Archive older sessions?",
-    body: `This will archive ${plural(count, "session")} older than a week. Pinned sessions aren’t affected.`,
-    confirmLabel: "Archive all", danger: false,
+    title: t("Archive older sessions?"),
+    body: tn(count, "This will archive {count} session older than a week. Pinned sessions aren’t affected.", "This will archive {count} sessions older than a week. Pinned sessions aren’t affected."),
+    confirmLabel: t("Archive all"), danger: false,
   };
-  return removesOnly(engine) ? {
-    title: "Remove older sessions?",
-    body: `This will remove ${plural(count, "session")} older than a week from Code Desktop. Pinned sessions aren’t affected. Their history stays in DeepSeek Harness.`,
-    confirmLabel: "Remove all", danger: true,
-  } : {
-    title: "Delete older sessions?",
-    body: `This will permanently delete ${plural(count, "session")} older than a week. Pinned sessions aren’t affected. This can’t be undone.`,
-    confirmLabel: "Delete all", danger: true,
+  return {
+    title: t("Delete older sessions?"),
+    body: tn(count, ...(deletesHarnessHistory(engine) ? ["This will permanently delete {count} session older than a week, including its DeepSeek Harness history. Pinned sessions aren’t affected. This can’t be undone.", "This will permanently delete {count} sessions older than a week, including their DeepSeek Harness history. Pinned sessions aren’t affected. This can’t be undone."]
+      : ["This will permanently delete {count} session older than a week. Pinned sessions aren’t affected. This can’t be undone.", "This will permanently delete {count} sessions older than a week. Pinned sessions aren’t affected. This can’t be undone."])),
+    confirmLabel: t("Delete all"), danger: true,
   };
 }
 
@@ -443,12 +441,12 @@ const emptyPictogramPath = () => (emptyPictoPath ??= EMPTY_PICTO_RECTS.map(([x, 
  * (sidebar-main.js:13774-13778 onShowAllSessions, code mode only). */
 export function SourceSidebarEmpty({ variant, onShowAllSessions }) {
   if (variant === "filtered") return <div className="source-sidebar-empty" data-empty-variant="filtered">
-    <p className="source-sidebar-empty-text">No sessions match the current filters</p>
-    {onShowAllSessions && <button type="button" className="source-sidebar-show-all hide-focus-ring" onClick={onShowAllSessions}>Show all sessions</button>}
+    <p className="source-sidebar-empty-text">{t("No sessions match the current filters")}</p>
+    {onShowAllSessions && <button type="button" className="source-sidebar-show-all hide-focus-ring" onClick={onShowAllSessions}>{t("Show all sessions")}</button>}
   </div>;
   const scale = 0.55;
   return <div className="source-sidebar-empty" data-empty-variant="no-sessions">
-    <p className="source-sidebar-empty-text">Sessions you start will show up here</p>
+    <p className="source-sidebar-empty-text">{t("Sessions you start will show up here")}</p>
     <div aria-hidden="true"><svg width={150 * scale} height={140 * scale} viewBox="0 0 150 140" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d={emptyPictogramPath()} fill="hsl(var(--pictogram-200))" />
     </svg></div>
@@ -461,7 +459,7 @@ export function SourceSidebarEmpty({ variant, onShowAllSessions }) {
  * not persist, so the local count stays 3. */
 const SKELETON_WIDTHS = ["68%", "54%", "44%"];
 export function SourceSidebarSkeleton({ rows = 3 }) {
-  return <div className="df-placeholder-rows source-sidebar-skeleton" data-testid="sidebar-rows-skeleton" role="status" aria-label="Loading sessions">
+  return <div className="df-placeholder-rows source-sidebar-skeleton" data-testid="sidebar-rows-skeleton" role="status" aria-label={t("Loading sessions")}>
     {Array.from({ length: rows }, (_, index) => <div key={index} data-row="" className="source-sidebar-skeleton-row">
       <span className="source-leading-slot"><span data-cds="Skeleton" className="smenu-skeleton source-skeleton-dot" style={{ width: 6, height: 6 }} /></span>
       <span data-cds="Skeleton" className="smenu-skeleton" style={{ width: SKELETON_WIDTHS[index % SKELETON_WIDTHS.length], height: "var(--df-row-font, 13px)" }} />
@@ -570,8 +568,8 @@ function SidebarResizeHandle({ width, minWidth = SIDEBAR_WIDTH.MIN, onCommit, on
   // Kl {side right, trackCursorAxis y, hoverable false, cmd+b, "Drag to
   // resize"}; closed while a drag is in progress.
   return <SourceTooltip side="right" trackCursorAxis="y" hoverable={false} content={SIDEBAR_TOGGLE_TOOLTIP.hide.content}
-    shortcut={SIDEBAR_TOGGLE_TOOLTIP.hide.shortcut} detail="Drag to resize" open={dragging ? false : undefined}>
-    <div ref={handle} className={`${RESIZE_HANDLE_CLASS} sidebar-resizer dframe-resize-handle`} data-cds="ResizeHandle" role="separator" aria-label="Resize sidebar"
+    shortcut={SIDEBAR_TOGGLE_TOOLTIP.hide.shortcut} detail={t("Drag to resize")} open={dragging ? false : undefined}>
+    <div ref={handle} className={`${RESIZE_HANDLE_CLASS} sidebar-resizer dframe-resize-handle`} data-cds="ResizeHandle" role="separator" aria-label={t("Resize sidebar")}
       aria-orientation="vertical" tabIndex={0} aria-valuenow={Math.round(Math.max(width, minWidth))}
       aria-valuemin={minWidth} aria-valuemax={SIDEBAR_WIDTH.MAX} data-dragging={dragging ? "" : undefined}
       onPointerDown={onPointerDown} onKeyDown={onKeyDown}>
@@ -590,7 +588,7 @@ const SELECTION_SAFE_SELECTOR = '[data-row], [data-cds-portal], [role="menu"], [
 export function SourceSidebar({
   collapsed, onCollapse, onCollapsedChange, historyAt = 0, historyLength = 1, travel, mode = "code", onMode,
   onNew, groups = [], sessions, current, state = {}, onOpen, onProject, onMenu, onAccount, accountMenuOpen = false, connectionMenuOpen = false,
-  displayName = "Local user", accountLabel, search = "", setSearch, showSearch, setShowSearch,
+  displayName = t("Local user"), accountLabel, search = "", setSearch, showSearch, setShowSearch,
   onFolder, sidebarWidth = 288, setSidebarWidth, section, setSection, sidebarFloor = SIDEBAR_WIDTH.MIN, onSidebarFloor, fullScreen = false,
   trafficLightSpacer, cdsFont = "sans",
   sidebarPreferences, onSidebarPreferencesChange, sessionMetadata = {}, customGroups = [], pinnedOrder = [],
@@ -603,7 +601,7 @@ export function SourceSidebar({
   const toasts = useSourceToasts();
   // Ro addSuccess / addError (sidebar-groups.js:18676-18682): row and bulk results are CDS toasts.
   const notify = (message, options) => toasts?.add(message, options);
-  const notifyError = (reason, fallback = "Something went wrong") => notify(reason?.message || (reason ? String(reason) : fallback), { variant: "danger" });
+  const notifyError = (reason, fallback = t("Something went wrong")) => notify(reason?.message || (reason ? String(reason) : fallback), { variant: "danger" });
   const [localPreferences, setLocalPreferences] = useState(() => normalizeSidebarPreferences(sidebarPreferences));
   const preferences = normalizeSidebarPreferences(sidebarPreferences ?? localPreferences);
   const [closed, setClosed] = useState(new Set()), [menu, setMenuState] = useState(null);
@@ -878,11 +876,11 @@ export function SourceSidebar({
     const results = await mapConcurrent(list, 8, (session) => onSessionAction(action, session, payload));
     const done = results.filter((result) => result.status === "fulfilled").length;
     const failed = results.length - done;
-    if (done > 0 && (action === "archive" || action === "delete")) notify(`${action === "archive" ? "Archived" : removesOnly(engine) ? "Removed" : "Deleted"} ${plural(done, older ? "older session" : "session")}`,
+    if (done > 0 && (action === "archive" || action === "delete")) notify(bulkDoneMessage(action === "archive" ? "Archived" : "Deleted", done, older ? "older session" : "session"),
       { variant: "neutral", key: older ? `${action}-older-bulk` : `group-bulk-${action}`, timeout: 3000 });
     if (failed > 0) notify(action === "archive" || action === "delete"
-      ? `${plural(failed, "session")} couldn’t be ${action === "archive" ? "archived" : removesOnly(engine) ? "removed" : "deleted"}. Try again.`
-      : results.find((result) => result.status === "rejected")?.reason?.message || "Some sessions could not be updated.", { variant: "danger" });
+      ? bulkFailedMessage(action === "archive" ? "archived" : "deleted", failed)
+      : results.find((result) => result.status === "rejected")?.reason?.message || t("Some sessions could not be updated."), { variant: "danger" });
     setSelectionState(clearSelection);
   };
   // A single Delete goes straight to the session action (the open session is
@@ -908,8 +906,8 @@ export function SourceSidebar({
     {/* sidebar-main.js:12290-12350 lI: hp (shared-frame Nu, default side "top",
         shared-frame-C_2npUJq.js:4588) {content, hoverable:false, open:false
         while the filter menu is open} around a trigger with tooltip:false. */}
-    <ToolButton label={hasSidebarFilters(preferences) ? "Filter (active)" : "Filter"} icon="Filter"
-      tooltip={{ content: hasSidebarFilters(preferences) ? "Filter (active)" : "Filter", hoverable: false, open: menu?.kind === "filter" ? false : undefined }}
+    <ToolButton label={hasSidebarFilters(preferences) ? t("Filter (active)") : t("Filter")} icon="Filter"
+      tooltip={{ content: hasSidebarFilters(preferences) ? t("Filter (active)") : t("Filter"), hoverable: false, open: menu?.kind === "filter" ? false : undefined }}
       active={menu?.kind === "filter"}
       {...menuTriggerProps({ open: menu?.kind === "filter", onOpen: (entry, event) => setMenu({ kind: "filter", anchor: event.currentTarget, entry }) })}
       onClick={(event) => setMenu(menu?.kind === "filter" ? null : { kind: "filter", anchor: event.currentTarget })} />
@@ -954,7 +952,7 @@ export function SourceSidebar({
     if (renaming === session.id) return <RenameRow key={session.id} label={shownName(session)} glyph={glyph} selected={selected} nested={nested}
       onCommit={(name) => commitSessionRename(session, name)} onClose={(refocus) => closeRename(session.id, refocus)} />;
     const kind = nested ? lineageKind(session, sessionMetadata) : null;
-    const lineage = kind === "fork" ? `Forked from ${sessionName(parent)}` : kind ? `Started by Claude from ${sessionName(parent)}` : null;
+    const lineage = kind === "fork" ? t("Forked from {name}", { name: sessionName(parent) }) : kind ? t("Started by Claude from {name}", { name: sessionName(parent) }) : null;
     const hint = jumpHints?.[session.id];
     // sidebar-groups.js:17202-17213: rows carry data-row-key and data-jump-hint-row for the pj hints.
     return <div key={session.id} className="source-session-row" data-row="" data-source-session-id={session.id}
@@ -993,7 +991,7 @@ export function SourceSidebar({
       {hint && <kbd aria-hidden="true" className="source-jump-hint">{hint}</kbd>}
       {/* sidebar-rows.js:7730-7750 JD: tooltip:false, tabIndex -1 and
           data-row-action (reached with ArrowRight from the row, not Tab). */}
-      <ToolButton label={`More options for ${shownName(session)}`} icon="DotsVertical" className="source-session-more code-icon-button"
+      <ToolButton label={t("More options for {name}", { name: shownName(session) })} icon="DotsVertical" className="source-session-more code-icon-button"
         tooltip={false} tabIndex={-1} data-row-action=""
         {...menuTriggerProps({ open: menu?.session?.id === session.id, onOpen: (entry, event) => {
           if (onSessionAction) openRowMenu(session, { anchor: event.currentTarget, entry });
@@ -1014,13 +1012,13 @@ export function SourceSidebar({
     // working; jK: "# more nested sessions" while some children stay listed.
     const { unread, working } = nestedStubCounts(hidden, { isUnread: (row) => !!sessionMetadata[row.id]?.unread, isWorking: (row) => sessionState(row, state) === "working" });
     const stubText = nestedStubText(hidden.length, kept.length > 0);
-    const stubLabel = unread > 0 ? `Show ${stubText}, ${unread} new` : `Show ${stubText}`;
+    const stubLabel = unread > 0 ? t("Show {sessions}, {count} new", { sessions: stubText, count: unread }) : t("Show {sessions}", { sessions: stubText });
     return <div key={`nest:${run.parentId}`} className="source-nested df-accordion-guide df-family" data-nested-parent={run.parentId} data-collapsed={folded || undefined}>
       {/* sidebar-groups.js:13749-13785 rI: Kl {content, lazy, delay 350, side
           "right"}; trackCursorAxis "y" has no local tooltip counterpart. */}
-      <SourceTooltip content={folded ? "Show nested sessions" : "Hide nested sessions"} delay={350} side="right">
+      <SourceTooltip content={folded ? t("Show nested sessions") : t("Hide nested sessions")} delay={350} side="right">
       <button type="button" className="df-family-handle" tabIndex={-1} aria-expanded={!folded}
-        aria-label={folded ? "Show nested sessions" : "Hide nested sessions"}
+        aria-label={folded ? t("Show nested sessions") : t("Hide nested sessions")}
         onMouseDown={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
         onClick={(event) => { event.stopPropagation(); if (event.detail > 1) return; toggleNested(run.parentId, event.altKey); }} />
@@ -1031,9 +1029,9 @@ export function SourceSidebar({
         onClick={(event) => { if (event.detail > 1) return; toggleNested(run.parentId); }}>
         <span className="source-nested-stub-text">{stubText}</span>
         {unread > 0 && <span className="source-nested-stub-meta"><span aria-hidden="true">·</span>
-          <span className="is-accent"><span className="status-dot" data-kind="ready" aria-hidden="true" />{unread} new</span></span>}
+          <span className="is-accent"><span className="status-dot" data-kind="ready" aria-hidden="true" />{t("{count} new", { count: unread })}</span></span>}
         {working > 0 && <span className="source-nested-stub-meta"><span aria-hidden="true">·</span>
-          <span>{working} working</span></span>}
+          <span>{t("{count} working", { count: working })}</span></span>}
       </button>}
     </div>;
   };
@@ -1069,8 +1067,8 @@ export function SourceSidebar({
       {/* sidebar-groups.js:17516-17525 BD / 7177-7231 VD: after the rows while
           rows are hidden; AD classes with a df-leading-slot spacer. */}
       {truncated?.hiddenCount > 0 && <button type="button" className="source-show-more" data-row="" data-roving-item=""
-        aria-label={`Show ${truncated.revealCount} more in ${group.label}`} onClick={(event) => showMore(group, truncated, event)}>
-        <span className="source-leading-slot df-leading-slot" aria-hidden="true" />Show {truncated.revealCount} more
+        aria-label={t("Show {count} more in {group}", { count: truncated.revealCount, group: group.label })} onClick={(event) => showMore(group, truncated, event)}>
+        <span className="source-leading-slot df-leading-slot" aria-hidden="true" />{t("Show {count} more", { count: truncated.revealCount })}
       </button>}
     </>;
   };
@@ -1110,19 +1108,19 @@ export function SourceSidebar({
   // (shared-frame-C_2npUJq.js:1196-1208 Li: cds-root, data-density compact
   // on desktop, data-platform, data-font), so the sidebar gets compact tokens,
   // the desktop default cursor and the --cds-font-sans family.
-  return <aside className="app-sidebar dframe-sidebar source-sidebar cds-root" aria-label="Sidebar" data-variant="web" data-density="compact" data-platform="desktop" data-font={cdsFont}>
+  return <aside className="app-sidebar dframe-sidebar source-sidebar cds-root" aria-label={t("Sidebar")} data-variant="web" data-density="compact" data-platform="desktop" data-font={cdsFont}>
     <div ref={toolbarRef} className="sidebar-toolbar df-titlebar window-drag">
       <div className="traffic-space" />
       {/* sidebar-groups.js:5320 hw: "Hide sidebar" with CDS tooltip Kl
           {shortcut:"cmd+b", hoverable:false} and no native title; the sidebar
           is hidden (visibility) while collapsed, so this is the open state only. */}
-      <ToolButton label="Hide sidebar" tooltip={SIDEBAR_TOGGLE_TOOLTIP.hide} icon="Sidebar" onClick={onCollapse} />
+      <ToolButton label={t("Hide sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.hide} icon="Sidebar" onClick={onCollapse} />
       {/* sidebar-session.js:10732-10800 qM in the sidebar placement. */}
       <SourceNavButtons placement="sidebar" historyAt={historyAt} historyLength={historyLength} travel={travel} />
       {/* sidebar-groups.js:1815-1830 Ze {tooltipSide "bottom"} -> shared-7 SR:
           icon-only segments get Xa {content, side, hoverable:false}, no native
           title. The cmd+alt+left/right hint (xy) has no local shortcut. */}
-      <div className="mode-switch" role="radiogroup" aria-label="Mode">
+      <div className="mode-switch" role="radiogroup" aria-label={t("Mode")}>
         {[["Claude", "chat", "Chat"], ["Code", "code", "Code"]].map(([label, value, icon]) => <SourceTooltip key={value} content={label} side="bottom" hoverable={false}>
           <button role="radio" aria-label={label} aria-checked={mode === value} onClick={() => onMode?.(value)}><Icon name={icon} /></button>
         </SourceTooltip>)}
@@ -1156,21 +1154,21 @@ export function SourceSidebar({
             {key === "new"
               ? <span className="source-leading-slot df-leading-slot"><span className="df-new-circle flex shrink-0 items-center justify-center rounded-full">
                 <Icon name="Add" size={16} className="text-secondary group-hover:text-primary group-data-[selected=focused]:text-primary" /></span></span>
-              : <span className="source-leading-slot"><Icon name={icon} size={16} /></span>}<span>{label}</span>
+              : <span className="source-leading-slot"><Icon name={icon} size={16} /></span>}<span>{t(label)}</span>
             {key === "new" && <kbd aria-hidden="true">⌘ N</kbd>}
           </button>;
         })}
       </div>
-      <div className="source-routines-label"><button onClick={() => setSection?.("routines")}>Routines <Icon name="CaretRight" size={12} /></button></div>
+      <div className="source-routines-label"><button onClick={() => setSection?.("routines")}>{t("Routines")} <Icon name="CaretRight" size={12} /></button></div>
       {showSearch && <div className="session-search-wrap">
-        <Icon name="Search" size={14} /><input autoFocus aria-label="Search sessions" placeholder="Search sessions"
+        <Icon name="Search" size={14} /><input autoFocus aria-label={t("Search sessions")} placeholder={t("Search sessions")}
           value={search} onChange={(event) => setSearch?.(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Escape") { setShowSearch?.(false); setSearch?.(""); } }} />
-        <ToolButton label="Close search" icon="X" tooltip={{ hoverable: false }} onClick={() => { setShowSearch?.(false); setSearch?.(""); }} />
+        <ToolButton label={t("Close search")} icon="X" tooltip={{ hoverable: false }} onClick={() => { setShowSearch?.(false); setSearch?.(""); }} />
       </div>}
       {/* dframe-nav-scroll: the loaded shared-styles copy of desktop-layout.css:799-801
           masks the top 12px while data-scrolled is set. */}
-      <nav ref={navRef} className="source-session-list df-session-list dframe-nav-scroll" aria-label="Sessions" aria-busy={loading}
+      <nav ref={navRef} className="source-session-list df-session-list dframe-nav-scroll" aria-label={t("Sessions")} aria-busy={loading}
         data-scrolled={scrolled || undefined}
         onScroll={(event) => {
           const nav = event.currentTarget;
@@ -1222,7 +1220,7 @@ export function SourceSidebar({
         {/* Local notice (no source counterpart): remembered sessions loadSessions
             kept out of the list, i.e. the other core's or unreadable ones. */}
         {hiddenNotice && <p className="source-sidebar-no-match source-sidebar-hidden-notice" data-sidebar-notice="hidden-sessions">{hiddenNotice}</p>}
-        {displayed.length === 0 && <div className="source-group-heading"><span>{preferences.status === "archived" ? "Archived" : "Sessions"}</span><div className="source-group-actions">{headerControls}</div></div>}
+        {displayed.length === 0 && <div className="source-group-heading"><span>{preferences.status === "archived" ? t("Archived") : t("Sessions")}</span><div className="source-group-actions">{headerControls}</div></div>}
         {displayed.map((group, index) => <section key={group.key} className="source-session-group" data-group-key={group.key}>
           {/* sidebar-session.js:15909-16030 OB/kB/MB (project) and :16275-16432 XB (custom): the group
               label row is a ContextMenu trigger; the Other and Ungrouped buckets have none. */}
@@ -1244,7 +1242,7 @@ export function SourceSidebar({
             <div className="source-group-actions">
               {/* sidebar-groups.js:13871-13907 cI: project buckets have no target, so no tooltip.
                   :19866-19880: the Other bucket has no cwd, so no '+'. */}
-              {group.cwd && onProject && <ToolButton label={`New session in ${group.label}`} icon="Add" tooltip={false} onClick={() => onProject(group.cwd)} />}
+              {group.cwd && onProject && <ToolButton label={t("New session in {name}", { name: group.label })} icon="Add" tooltip={false} onClick={() => onProject(group.cwd)} />}
               {/* sidebar-groups.js:17392-17410 / :18560-18590 / :19895-19905: a custom group's '+' (cI with the
                   Dz target: the folder its sessions share, else none) is labelled with the target and the group,
                   with the target tooltip and an 'Added to {group}' detail; in the code list it is the xs glyph in
@@ -1253,16 +1251,16 @@ export function SourceSidebar({
               {group.customGroupId && onGroupAction && (() => {
                 const name = shownGroupLabel(group), folders = new Set(group.sessions.map((session) => session.cwd).filter(Boolean));
                 const target = folders.size === 1 ? folderName([...folders][0]) : null;
-                const content = target === null ? "New session with no folder picked" : `New session in ${target}`;
+                const content = target === null ? t("New session with no folder picked") : t("New session in {name}", { name: target });
                 return <span className="source-group-reveal">
-                  <ToolButton label={target === null ? `New session with no folder picked, added to ${name}` : `New session in ${target}, added to ${name}`}
-                    tooltip={{ content, detail: `Added to ${name}`, side: "right", hoverable: false }} onClick={() => newSessionInGroup(group)}>
+                  <ToolButton label={target === null ? t("New session with no folder picked, added to {group}", { group: name }) : t("New session in {name}, added to {group}", { name: target, group: name })}
+                    tooltip={{ content, detail: t("Added to {group}", { group: name }), side: "right", hoverable: false }} onClick={() => newSessionInGroup(group)}>
                     <Icon name="Add" size={12} />
                   </ToolButton>
                 </span>;
               })()}
               {/* sidebar-groups.js:18925-18933 Vz trigger: tooltip:false. */}
-              {group === olderGroup && olderMenuAvailable && <ToolButton label="Bulk actions for older sessions" icon="DotsVertical" tooltip={false}
+              {group === olderGroup && olderMenuAvailable && <ToolButton label={t("Bulk actions for older sessions")} icon="DotsVertical" tooltip={false}
                 className="source-older-menu code-icon-button" active={menu?.kind === "older"}
                 {...menuTriggerProps({ open: menu?.kind === "older", onOpen: (entry, event) => setMenu({ kind: "older", anchor: event.currentTarget, group, entry }) })}
                 onClick={(event) => setMenu(menu?.kind === "older" ? null : { kind: "older", anchor: event.currentTarget, group })} />}
@@ -1272,17 +1270,17 @@ export function SourceSidebar({
           {!closed.has(group.key) && <div className="source-group-rows" data-group-rows="">
             {renderGroupRows(group)}
             {/* sidebar-groups.js:17505-17516: an empty custom group invites a drop; xB elsewhere. */}
-            {group.sessions.length === 0 && <p className="source-empty-group">{group.customGroupId ? "Drag or move sessions here" : "No active sessions"}</p>}
+            {group.sessions.length === 0 && <p className="source-empty-group">{group.customGroupId ? t("Drag or move sessions here") : t("No active sessions")}</p>}
           </div>}
         </section>)}
         {loading && sourceSessions.length === 0 && <SourceSidebarSkeleton rows={3} />}
         {/* Local adaptation: the source searches in a palette, so a list search
             with no hits keeps its own line instead of the OO variants. */}
-        {!loading && search && visibleCount === 0 && <div className="source-sidebar-no-match">No matching sessions</div>}
+        {!loading && search && visibleCount === 0 && <div className="source-sidebar-no-match">{t("No matching sessions")}</div>}
         {!loading && !search && emptyVariant && <SourceSidebarEmpty variant={emptyVariant}
           onShowAllSessions={() => updatePreferences(showAllSessionsPreferences(preferences))} />}
         {preferences.groupBy === "custom" && onCreateGroup && <button className="source-create-group" onClick={() => setGroupDialog({ kind: "create" })}>
-          <Icon name="Add" size={14} />New group
+          <Icon name="Add" size={14} />{t("New group")}
         </button>}
         <div ref={laneSentinel} aria-hidden="true" className="source-session-list-lane-sentinel" />
       </nav>
@@ -1292,7 +1290,7 @@ export function SourceSidebar({
       <div className="df-bottom-tray shrink-0">
         <div className="df-footer-row account-footer shrink-0 flex items-center gap-[var(--df-footer-gap)]">
           <div className="min-w-0 flex-1">
-            <button type="button" data-testid="user-menu-button" aria-label="Account menu"
+            <button type="button" data-testid="user-menu-button" aria-label={t("Account menu")}
               className="df-user-menu-btn account-button cds-reset flex h-[max(28px,var(--df-footer-btn-size))] max-w-full items-center gap-[var(--df-row-gap)] rounded-[var(--df-radius-pill)] pl-[var(--df-row-px)] pr-2 text-left outline-none hover:bg-[var(--df-hover)] focus-visible:shadow-focus"
               {...menuTriggerProps({ open: accountMenuOpen, onOpen: (entry, event) => onAccount?.(event, entry) })} onClick={(event) => onAccount?.(event)}>
               {/* Tn = shared-21 _B (:15687-15692): whatever the account, a static
@@ -1311,7 +1309,7 @@ export function SourceSidebar({
           {/* Local control (source aux holds vL/yL/gL): CDS tooltip, no native title. */}
           <div className="df-footer-aux ml-auto flex shrink-0 items-center">
             {/* Opens main.jsx 'connection' (SourceMenu Header + Items, side top / align start); closed tooltip while open. */}
-            <ToolButton label="Connection settings" icon="Ant" tooltip={{ hoverable: false, open: connectionMenuOpen ? false : undefined }}
+            <ToolButton label={t("Connection settings")} icon="Ant" tooltip={{ hoverable: false, open: connectionMenuOpen ? false : undefined }}
               {...menuTriggerProps({ open: connectionMenuOpen, onOpen: (entry, event) => onMenu?.("connection", event.currentTarget, undefined, entry) })}
               onClick={(event) => onMenu?.("connection", event.currentTarget)} />
           </div>
@@ -1320,7 +1318,7 @@ export function SourceSidebar({
     </div>
     {setSidebarWidth && <SidebarResizeHandle width={sidebarWidth} minWidth={sidebarFloor} onCommit={setSidebarWidth} onCollapse={onCollapse} onCollapsedChange={onCollapsedChange} />}
     {menu && <SourceSidebarMenu key={menu.token} anchor={menu.anchor} point={menu.point} kind={menu.kind} initialHighlight={menu.entry}
-      label={menu.kind === "filter" ? "Filter sessions" : menu.kind === "group" ? "Group options" :menu.kind === "older" ? "Older sessions" : menu.kind === "whitespace" ? "Sessions list options" : "Session options"}
+      label={t(menu.kind === "filter" ? "Filter sessions" : menu.kind === "group" ? "Group options" :menu.kind === "older" ? "Older sessions" : menu.kind === "whitespace" ? "Sessions list options" : "Session options")}
       onClose={() => setMenu(null)}>
       {menu.kind === "filter" && <SourceSidebarFilterMenu preferences={preferences} onChange={updatePreferences} onClose={() => setMenu(null)} knownFolders={folders} customGroups={customGroups} />}
       {menu.kind === "session" && <SourceSidebarSessionMenu session={menu.session} metadata={sessionMetadata[menu.session.id]} customGroups={customGroups}
@@ -1345,16 +1343,16 @@ export function SourceSidebar({
         </>;
         // MB (sidebar-session.js:15983-16030): New session + separator, then the order items.
         if (!custom) return <>
-          {group.cwd && onProject && <><Choice onClick={() => onProject(group.cwd)}>New session</Choice><Divider /></>}
+          {group.cwd && onProject && <><Choice onClick={() => onProject(group.cwd)}>{t("New session")}</Choice><Divider /></>}
           {orderItems}
         </>;
         // XB (:16378-16408): New session, separator, Rename group, New group…, AB (separator + order
         // items), separator, Delete group (danger). No local icon picker, so no 'Change icon…'.
         return <>
-          <Choice onClick={() => newSessionInGroup(group)}>New session</Choice>
+          <Choice onClick={() => newSessionInGroup(group)}>{t("New session")}</Choice>
           <Divider />
           <Choice onClick={() => startGroupRename(group)}>Rename group</Choice>
-          {onCreateGroup && <Choice onClick={() => setGroupDialog({ kind: "create" })}>New group…</Choice>}
+          {onCreateGroup && <Choice onClick={() => setGroupDialog({ kind: "create" })}>{t("New group…")}</Choice>}
           <Divider />
           {orderItems}
           <Divider />
@@ -1365,20 +1363,20 @@ export function SourceSidebar({
         const archivable = bulkTargets(selectedSessions, { metadata: sessionMetadata, currentId: current, state, action: "archive" });
         const deletable = bulkTargets(selectedSessions, { metadata: sessionMetadata, currentId: current, state, action: "delete" });
         return <>
-          <Choice onClick={() => setSelectionState((previous) => replaceSelection(previous, visibleOrderRef.current, SELECTION_DOMAIN))}>Select all</Choice>
-          {preferences.groupBy === "custom" && onCreateGroup && <Choice onClick={() => setGroupDialog({ kind: "create" })}>New group…</Choice>}
+          <Choice onClick={() => setSelectionState((previous) => replaceSelection(previous, visibleOrderRef.current, SELECTION_DOMAIN))}>{t("Select all")}</Choice>
+          {preferences.groupBy === "custom" && onCreateGroup && <Choice onClick={() => setGroupDialog({ kind: "create" })}>{t("New group…")}</Choice>}
           {(archivable.length > 0 || deletable.length > 0) && <>
             <Divider />
-            {archivable.length > 0 && <Choice onClick={() => runBulk("archive", archivable)}>Archive selected ({archivable.length})</Choice>}
-            {deletable.length > 0 && <Choice variant="danger" onClick={() => requestDelete(deletable)}>Delete selected ({deletable.length})</Choice>}
+            {archivable.length > 0 && <Choice onClick={() => runBulk("archive", archivable)}>{t("Archive selected ({count})", { count: archivable.length })}</Choice>}
+            {deletable.length > 0 && <Choice variant="danger" onClick={() => requestDelete(deletable)}>{t("Delete selected ({count})", { count: deletable.length })}</Choice>}
           </>}
         </>;
       })()}
       {menu.kind === "older" && (() => {
         const archivable = olderTargets(menu.group, "archive"), deletable = olderTargets(menu.group, "delete");
         return <>
-          {archivable.length > 0 && <Choice onClick={() => setConfirm({ ...olderConfirmCopy("archive", archivable.length), onConfirm: () => runBulk("archive", archivable, undefined, { older: true }) })}>Archive all ({archivable.length})</Choice>}
-          {deletable.length > 0 && <Choice variant="danger" onClick={() => setConfirm({ ...olderConfirmCopy("delete", deletable.length, { engine }), onConfirm: () => runBulk("delete", deletable, undefined, { older: true }) })}>Delete all ({deletable.length})</Choice>}
+          {archivable.length > 0 && <Choice onClick={() => setConfirm({ ...olderConfirmCopy("archive", archivable.length), onConfirm: () => runBulk("archive", archivable, undefined, { older: true }) })}>{t("Archive all ({count})", { count: archivable.length })}</Choice>}
+          {deletable.length > 0 && <Choice variant="danger" onClick={() => setConfirm({ ...olderConfirmCopy("delete", deletable.length, { engine }), onConfirm: () => runBulk("delete", deletable, undefined, { older: true }) })}>{t("Delete all ({count})", { count: deletable.length })}</Choice>}
         </>;
       })()}
     </SourceSidebarMenu>}

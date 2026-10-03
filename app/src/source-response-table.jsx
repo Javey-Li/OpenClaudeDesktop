@@ -4,6 +4,7 @@ import { Icon } from './icons';
 import { createResponseTableStore, nearestTableHeading, observeTableOverflow, transitionMilliseconds } from './response-table-model.mjs';
 import { holdModalInert } from './modal-inert.mjs';
 import './source-response-table.css';
+import { t } from '../electron/i18n/index.mjs';
 
 const TableStoreContext = createContext(null);
 function tablePresentation(element) {
@@ -42,7 +43,7 @@ export function SourceResponseTable({ children, isStreaming, wrapSnapshot, ...pr
   };
   return <div className="smd-table">
     <div ref={scroller} className="source-table-scroll"><table {...props} style={{ ...props.style, ...(isStreaming ? { tableLayout: 'fixed' } : {}) }}>{children}</table></div>
-    {(!isStreaming && overflow || selected) && <span className="smd-table-action" data-not-prose=""><button type="button" ref={trigger} className="smd-table-button" aria-label="Expand table" onClick={expand}><Icon name="Expand" size={16}/></button></span>}
+    {(!isStreaming && overflow || selected) && <span className="smd-table-action" data-not-prose=""><button type="button" ref={trigger} className="smd-table-button" aria-label={t("Expand table")} onClick={expand}><Icon name="Expand" size={16}/></button></span>}
   </div>;
 }
 
@@ -90,7 +91,7 @@ function TableDialog({ store, state }) {
       if (focused && focused !== doc.body && !root.current?.contains(focused)) return;
       if (previous?.isConnected && !previous.closest('[inert]')) previous.focus({ preventScroll: true });
       else {
-        const composer = doc.querySelector('[aria-label="Message DeepSeek"]');
+        const composer = doc.querySelector(`[aria-label="Message DeepSeek"], [aria-label="${t('Message DeepSeek')}"]`);
         if (composer && !composer.closest('[inert]')) composer.focus({ preventScroll: true });
       }
     };
@@ -119,7 +120,7 @@ function TableDialog({ store, state }) {
     <section ref={root} className="smd-table-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title}
       data-open={open && entered} style={presentation.typography} onKeyDown={keyDown}
       onTransitionEnd={event => { if (event.target === event.currentTarget && event.propertyName === 'opacity' && !open) store.release(version); }}>
-      <header><h2 id={title} className={snapshot.heading ? '' : 'source-sr-only'}>{snapshot.heading || 'Table'}</h2><button type="button" className="smd-table-button" aria-label="Close" onClick={() => store.close()}><Icon name="X" size={16}/></button></header>
+      <header><h2 id={title} className={snapshot.heading ? '' : 'source-sr-only'}>{snapshot.heading || t('Table')}</h2><button type="button" className="smd-table-button" aria-label={t("Close")} onClick={() => store.close()}><Icon name="X" size={16}/></button></header>
       <div className="source-markdown"><div className="source-table-scroll" dir={snapshot.props.dir}><table {...snapshot.props}>{snapshot.rows}</table></div></div>
     </section>
   </div>, doc.body);

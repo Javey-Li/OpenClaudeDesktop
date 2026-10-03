@@ -5,6 +5,7 @@
 // renderer parses the frontmatter (custom-commands-model.mjs), because node_modules (yaml) are not packaged.
 const fs = require("node:fs");
 const path = require("node:path");
+const { t } = require("./i18n/index.mjs");
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MAX_BYTES = 64 * 1024;
@@ -156,7 +157,7 @@ function createCustomCommands({ app, shell, dialog, getConfig, emit = () => {}, 
   }
 
   async function pickDir() {
-    const result = await dialog.showOpenDialog(getWindow() || undefined, { properties: ["openDirectory", "createDirectory"], buttonLabel: "Use folder" });
+    const result = await dialog.showOpenDialog(getWindow() || undefined, { properties: ["openDirectory", "createDirectory"], buttonLabel: t("Use folder") });
     return result.canceled || !result.filePaths?.[0] ? null : result.filePaths[0];
   }
 

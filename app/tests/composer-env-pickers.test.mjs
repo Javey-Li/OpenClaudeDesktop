@@ -136,7 +136,7 @@ test('the legacy code-ui Popover/MenuItem host is gone; menus and popovers use t
   assert.match(main, /local: \{ side: "top", align: "start", label: "Local environment", className: "sc-env-menu" \}/);
   assert.match(main, /branch: \{ side: "top", align: "start", sideOffset: 8, label: "Branch", className: "sc-branch-menu" \}/);
   assert.match(main, /folder: \{ side: "bottom", align: "start", label: "Working directory" \}/);
-  assert.match(main, /<SourceMenu\.GroupLabel>Working directory<\/SourceMenu\.GroupLabel>\s*\{gitRepoMenuItems\(/);
+  assert.match(main, /<SourceMenu\.GroupLabel>\{t\("Working directory"\)\}<\/SourceMenu\.GroupLabel>\s*\{gitRepoMenuItems\(/);
   // R02 (work/fidelity-r3/LOG.md "Identity"): the connection header names the active core.
   assert.match(main, /<SourceMenu\.Header>\{connectionMenuHeader\(engine, !!boot\?\.connected\)\}<\/SourceMenu\.Header>/);
   const composer = read('src/source-composer.jsx');
@@ -144,7 +144,7 @@ test('the legacy code-ui Popover/MenuItem host is gone; menus and popovers use t
   assert.match(composer, /<SourcePopover anchor=\{anchor\} side="top" align="end" sideOffset=\{8\} padding="none" className="epitaxy-root sc-usage-popover"/);
   assert.match(composer, /<SourcePopoverTitle className="sp-sr-only">Usage<\/SourcePopoverTitle>/);
   assert.match(read('src/source-composer.css'), /\.sp-popup\.sc-usage-popover \{ width: 360px; max-width: calc\(100vw - 2rem\); max-height: min\(var\(--available-height\), 640px\);/);
-  assert.match(read('electron/main.cjs'), /const title = p\.additional \? "Add folder to session" : "Select folder for local session";/);
+  assert.match(read('electron/main.cjs'), /const title = p\.additional \? i18n\.t\("Add folder to session"\) : i18n\.t\("Select folder for local session"\);/);
 });
 
 test('SourcePopover carries the px/gx contract', () => {

@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import { SourceTooltip } from "./source-tooltip";
 import { SourceShortcut } from "./source-shortcut";
+import { t } from "../electron/i18n/index.mjs";
 import {
   CONTEXT_MENU_LAYER_OFFSET, MENU_LAYER_OFFSET, NESTED_SIDE_OFFSET, ROOT_SIDE_OFFSET, SAFE_POLYGON_LINGER,
   SUBMENU_HOVER_DELAY, isNumericText, menuLayer, moveHighlight, nestedAnchor, normalizeShortcut,
@@ -696,7 +697,7 @@ function MenuPendingList({ pending = false, loading = false, placeholderRows = 3
         : <div key={index} aria-hidden={entry.first ? undefined : true} className="smenu-skeleton-row">
             {entry.icon && <span className="smenu-skeleton" style={{ width: 20, height: 20 }} />}
             <span className="smenu-skeleton" style={{ width: entry.width, height: 16 }} role={entry.first ? "status" : undefined}>
-              {entry.first && <span className="smenu-sr-only">Loading</span>}
+              {entry.first && <span className="smenu-sr-only">{t("Loading")}</span>}
             </span>
           </div>)}</div> : children}
     </div>
@@ -724,7 +725,7 @@ function MenuSkillItem({ item, onSelect }) {
           style={{ top: `${Math.round(box.top)}px`, left: `${Math.round(box.right + 8)}px`,
             maxWidth: `min(26rem, max(10rem, ${Math.max(0, Math.floor(window.innerWidth - box.right - 16))}px))` }}>
           {description && <div className="smenu-hovercard-text">{description}</div>}
-          {pluginName && <div className="smenu-hovercard-source" data-first={description ? undefined : ""}>{pluginName} plugin</div>}
+          {pluginName && <div className="smenu-hovercard-source" data-first={description ? undefined : ""}>{t("{name} plugin", { name: pluginName })}</div>}
         </div>, document.body)}
     </>
   );

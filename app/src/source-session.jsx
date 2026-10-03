@@ -84,13 +84,14 @@ import { ApprovalFileChangeBody, FileToolMessage } from "./source-file-tool.jsx"
 import { fileAction } from "./file-tool-model.mjs";
 import { rowExpansionKey, toolRowExpansion } from "./tool-group-expansion.mjs";
 import "./source-session.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Source chain and deliberate Codex adaptations: analysis/source-session-batch1.md.
 const desktopCall = (action, params) =>
   window.desktop?.call(action, params) ??
-  Promise.reject(new Error("Open Code Desktop to connect to DeepSeek."));
+  Promise.reject(new Error(t("Open Code Desktop to connect to DeepSeek.")));
 const basename = (path = "") =>
-  path.split(/[\\/]/).filter(Boolean).at(-1) || "Files";
+  path.split(/[\\/]/).filter(Boolean).at(-1) || t("Files");
 const textOf = (value) =>
   typeof value === "string" ? value : JSON.stringify(value, null, 2);
 const errorMessage = (error) => error?.message || String(error);
@@ -141,10 +142,10 @@ function SourceRedactedSecret({ value, patternId }) {
   const mask = useMemo(() => maskSecret(value), [value]);
   return <span data-redacted-secret="" className="smd-secret">
     <span className="smd-secret-value">{revealed ? value : <>
-      <span data-find-omitted="" className="source-sr-only smd-secret-sr">{`Redacted ${label}`}</span>
+      <span data-find-omitted="" className="source-sr-only smd-secret-sr">{t("Redacted {label}", { label })}</span>
       <span aria-hidden="true">{mask}</span>
     </>}</span>
-    <button type="button" className="smd-secret-toggle" aria-pressed={revealed} aria-label={`${revealed ? "Hide" : "Reveal"} ${label}`}
+    <button type="button" className="smd-secret-toggle" aria-pressed={revealed} aria-label={t(revealed ? "Hide {label}" : "Reveal {label}", { label })}
       onClick={event => { event.stopPropagation(); setRevealed(value => !value); }}>
       <Icon name={revealed ? "EyeSlash" : "Eye"} size={12} />
     </button>
@@ -235,7 +236,7 @@ function SourceMarkdownImage({src,alt}) {
 }
 const RESPONSE_MARKDOWN_COMPONENTS = { img:SourceMarkdownImage, 'response-math': SourceResponseMath, span: ResponseRevealSpan, pre: SourceMarkdownPre, table: SourceMarkdownTable, code: SourceMarkdownCode, a: SourceMarkdownLink, input: ResponseTaskInput, li: ResponseTaskItem };
 
-function SourceMarkdown({ text = "", isStreaming = false, paceReveal = false, isInterrupting = false, sessionKey = null, itemId, cwd = null, onOpenFileRef = null }) {
+export function SourceMarkdown({ text = "", isStreaming = false, paceReveal = false, isInterrupting = false, sessionKey = null, itemId, cwd = null, onOpenFileRef = null }) {
   const instanceId = useId();
   const ownerKey = JSON.stringify([sessionKey, itemId ?? ["instance", instanceId]]);
   return <OwnedSourceMarkdown key={ownerKey} {...{text,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef}}/>;
@@ -299,11 +300,11 @@ export function sessionHasThinking(items = []) {
 // Words and tones: c05970c42-DsE8IUGc.js:61-92 (Ce). "blocked" reads
 // "Needs approval", not the state name.
 const STEP_OUTCOME_WORD = {
-  failed: "Failed",
-  stopped: "Stopped",
-  unknown: "Status unavailable",
-  denied: "Denied",
-  blocked: "Needs approval",
+  failed: t("Failed"),
+  stopped: t("Stopped"),
+  unknown: t("Status unavailable"),
+  denied: t("Denied"),
+  blocked: t("Needs approval"),
 };
 function SourceStep({
   item,
@@ -372,7 +373,7 @@ function SourceStep({
           <Icon name="CaretRight" size={caretSize} className="source-step-caret" />
         )}
         {state === "busy" && (
-          <span className="source-sr-only">In progress</span>
+          <span className="source-sr-only">{t("In progress")}</span>
         )}
       </div>
       {/* c425fb3cf:j - the body mounts on the first expansion and a later close
@@ -384,7 +385,7 @@ function SourceStep({
               h-[1lh] actions toolbar named by actionsLabel. */}
           {actions ? <div className="source-step-detail-row" data-cds-actions-scope="">
             <div className="source-step-detail-body">{children}</div>
-            <div className="source-step-actions" role="toolbar" aria-label={actionsLabel || "Message actions"}>{actions}</div>
+            <div className="source-step-actions" role="toolbar" aria-label={actionsLabel || t("Message actions")}>{actions}</div>
           </div> : children}
         </div>
       )}
@@ -433,7 +434,7 @@ function extensionBadge(name) {
 function UserImageTile({ part, index }) {
   const [state, setState] = useState("loading");
   const src = attachmentSource(part);
-  const name = part.path ? basename(part.path) : `Attached image ${index + 1}`;
+  const name = part.path ? basename(part.path) : t("Attached image {number}", { number: index + 1 });
   return (
     <div data-cds="MessageAttachmentsImage" data-state={state === "failed" ? "failed" : undefined}
       className="source-user-attachment-image" title={part.path || undefined}>
@@ -536,8 +537,8 @@ function SourceCopyQuote({ text, variant = "hover" }) {
     return () => { controller.current = null; feedback.dispose(); };
   }, []);
   useLayoutEffect(() => { controller.current?.setText(thinkingQuote(text)); }, [text]);
-  const copied = state === "copied", label = copied ? "Copied" : "Copy as quote";
-  const copy = () => { void controller.current?.copy().then(done => { if (done) toasts?.add("Copied"); }); };
+  const copied = state === "copied", label = copied ? t("Copied") : t("Copy as quote");
+  const copy = () => { void controller.current?.copy().then(done => { if (done) toasts?.add(t("Copied")); }); };
   return <SourceTooltip content={label} hoverable={false}>
     <SourceSettingsButton ref={button} variant="ghost" size={variant === "action" ? "xs" : undefined} iconOnly icon={copied ? "Check" : "Copy"}
       iconSize={variant === "action" ? "auto-sm" : "auto"} className="source-reasoning-copy-button" aria-label={label}
@@ -581,8 +582,8 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
     // Both are plain text: no Markdown and no reveal pacing.
     if (reasoningPlacement === "preceding-tools")
       return (
-        <SourceStep item={item} label="Thought process" className="source-reasoning source-reasoning-step" defaultOpen {...stepDefaults}
-          actions={<SourceCopyQuote text={text} variant="action" />} actionsLabel="Thinking actions">
+        <SourceStep item={item} label={t("Thought process")} className="source-reasoning source-reasoning-step" defaultOpen {...stepDefaults}
+          actions={<SourceCopyQuote text={text} variant="action" />} actionsLabel={t("Thinking actions")}>
           <div className="source-reasoning-step-text"><bdi>{text}</bdi></div>
         </SourceStep>
       );
@@ -610,7 +611,7 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
     const live = state === "busy" && item.processId && agentContext?.onTask
       ? <button type="button" className="src-cmd-live" data-row-live=""
           onClick={event => { event.stopPropagation(); agentContext.onTask(item.id); }}
-          onKeyDown={event => event.stopPropagation()}>View live output</button>
+          onKeyDown={event => event.stopPropagation()}>{t("View live output")}</button>
       : undefined;
     return (
       <SourceStep item={item} {...stepDefaults} {...commandRowLabel(item.command, state, item.description)} state={state} classic caretSize={14} trailing={live}>
@@ -650,12 +651,12 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
       <SourceStep
         item={item}
         {...stepDefaults}
-        label={isStreaming ? "Compacting conversation" : ["failed", "stopped"].includes(outcome(item)) ? "Compaction interrupted" : "Compacted conversation"}
+        label={isStreaming ? t("Compacting conversation") : ["failed", "stopped"].includes(outcome(item)) ? t("Compaction interrupted") : t("Compacted conversation")}
         state={outcome(item)}
       />
     );
   if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode")
-    return <SourceStep item={item} {...stepDefaults} label={item.type === "enteredReviewMode" ? "Review started" : "Review result"} state="done">
+    return <SourceStep item={item} {...stepDefaults} label={item.type === "enteredReviewMode" ? t("Review started") : t("Review result")} state="done">
       {item.review && <SourceMarkdown text={item.review} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} />}
     </SourceStep>;
   return null;
@@ -670,10 +671,10 @@ export function SourceWorking({
   const text =
     label ||
     (stopping
-      ? "Stopping…"
+      ? t("Stopping…")
       : waiting
-        ? "Waiting for your approval"
-        : "Working…");
+        ? t("Waiting for your approval")
+        : t("Working…"));
   return (
     <div
       className="source-message source-working"
@@ -684,7 +685,7 @@ export function SourceWorking({
       <span className={waiting ? "" : "source-shimmer"}>{text}</span>
       {Number.isFinite(elapsedSeconds) && elapsedSeconds >= 2 && !waiting && (
         <span className="source-working-time">
-          {Math.floor(elapsedSeconds)}s
+          {t("{seconds}s", { seconds: Math.floor(elapsedSeconds) })}
         </span>
       )}
     </div>
@@ -695,7 +696,7 @@ export function SourceWorking({
 export function SourceApproval(props) {
   if (!approvalIdentity(props.request)) return <SourceApprovalCardView
     request={props.request} item={props.item} enabled={false}
-    error="This request cannot be answered because its type or required identity is unsupported." />;
+    error={t("This request cannot be answered because its type or required identity is unsupported.")} />;
   // PM (approval-current.js:16105-16127): ExitPlanMode gets Rse's plan card; here the
   // bridge's exit_plan_mode review (question id 'plan-review', R07).
   if (isPlanReviewRequest(props.request)) return <SourcePlanApprovalCard {...props} />;
@@ -934,7 +935,7 @@ function SourceTreeNode({
       {entries && (
         <SourceMenu.Popup anchor={rowRef.current} trigger={null} point={menu} side="bottom" align="start"
           sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
-          label="File actions" onClose={() => setMenu(null)} finalFocus={() => {
+          label={t("File actions")} onClose={() => setMenu(null)} finalFocus={() => {
             // Base UI returns focus to where it was before the context menu opened.
             const previous = menuReturnFocus.current;
             return previous?.isConnected && previous !== previous.ownerDocument.body ? previous : rowRef.current?.closest('[role="treeitem"]');
@@ -1004,7 +1005,7 @@ function SourceTree({ children, busy, filterInputSelector }) {
     <div
       ref={ref}
       role="tree"
-      aria-label="Project files"
+      aria-label={t("Project files")}
       aria-busy={busy || undefined}
       tabIndex={0}
       className="source-tree-content"
@@ -1474,13 +1475,13 @@ function FilePane({
     closeFocus.current = null;
     const tabs = [...(pane.current?.querySelectorAll('[role="tab"]') || [])];
     const visible = (node) => node && !node.disabled && node.getClientRects().length > 0 && !node.closest("[hidden], [inert], [data-overflowed]");
-    const browserInput = [...(pane.current?.querySelectorAll('.source-files-tree input[aria-label="Filter files"]') || [])].find(visible);
+    const browserInput = [...(pane.current?.querySelectorAll(`.source-files-tree input[aria-label="${t("Filter files")}"]`) || [])].find(visible);
     const treeButton = [...(pane.current?.querySelectorAll(".source-files-tree button:not(:disabled)") || [])].find(visible);
     const target =
       tabs.find((node) => visible(node) && node.closest(".source-file-tab")?.dataset.filePath === request.path) ||
       tabs.find((node) => visible(node) && node.getAttribute("aria-selected") === "true") ||
       browserInput || treeButton ||
-      pane.current?.querySelector('button[aria-label="Show file tree"]');
+      pane.current?.querySelector(`button[aria-label="${t("Show file tree")}"]`);
     target?.focus({ preventScroll: true });
   }, [fileTabs, activePath, tab]);
   const treeCanFit = paneWidth >= 400;
@@ -1562,7 +1563,7 @@ function FilePane({
   }
   useLayoutEffect(() => {
     if (!filterFocus.current || tab !== "files" || !treeVisible) return;
-    const input = pane.current?.querySelector('.source-files-tree input[aria-label="Filter files"]');
+    const input = pane.current?.querySelector(`.source-files-tree input[aria-label="${t("Filter files")}"]`);
     if (!input || input.disabled || input.closest("[hidden], [inert]")) return;
     filterFocus.current = false;
     input.focus({ preventScroll: true });
@@ -1742,7 +1743,7 @@ function FilePane({
   // Ge (c856385e2) copies through the clipboard and confirms with the
   // c3e58cab4 "Copied to clipboard." toast; the breadcrumb (Rs, cd2efac6e
   // :3384-3396) copies the relative path with "Path copied to clipboard.".
-  function copyText(value, message = "Copied to clipboard.") {
+  function copyText(value, message = t("Copied to clipboard.")) {
     if (!value) return;
     Promise.resolve().then(() => navigator.clipboard.writeText(value))
       .then(() => toasts?.add(message, { variant: "neutral" }), (reason) => console.warn(reason));
@@ -1780,17 +1781,17 @@ function FilePane({
     treeToggleRef.current = toggle;
     return () => { if (treeToggleRef.current === toggle) treeToggleRef.current = null; };
   }, [treeToggleRef, tab, diffListAvailable, toggleDiffTree]);
-  const title = tab === "files" ? "Files" : tab === "plan" ? "Plan" : "Changes";
+  const title = tab === "files" ? t("Files") : tab === "plan" ? t("Plan") : t("Changes");
   const displayTitle =
     tab === "changes" && diffScope === "uncommitted"
-      ? "Uncommitted changes"
+      ? t("Uncommitted changes")
       : title;
   // Pane-supplied "{pane} settings" sections (official f_ for the file pane:
   // a "Show file tree" checkbox that keeps the menu open). The official
   // "Preview tabs" preference has no local counterpart and is not offered.
   const menuSections =
     tab === "files" && cwd
-      ? [{ key: "files-tree", items: [{ value: "files-tree", label: "Show file tree", checked: treeVisible, checkedRole: "checkbox", keepOpen: true,
+      ? [{ key: "files-tree", items: [{ value: "files-tree", label: t("Show file tree"), checked: treeVisible, checkedRole: "checkbox", keepOpen: true,
           // f_ (panes-tile-current.js:6872-6900): the item carries the ⌘⇧Y shortcut.
           shortcut: treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined, onSelect: () => setVisibleTree(!treeVisible) }] }]
       : tab === 'changes' ? changesMenuSections({ hasPatch: !diffError && !loading && !!diffView.patch,
@@ -1813,7 +1814,7 @@ function FilePane({
       data-tree-resizing={
         treeResize.dragging || edgeResize.dragging || undefined
       }
-      aria-label={`${title} panel`}
+      aria-label={t("{title} panel", { title })}
       aria-busy={
         (tab === "changes" && loading) ||
         (tab === "files" &&
@@ -1834,11 +1835,11 @@ function FilePane({
           // Ut around the ListBullet (panes-tile-current.js:6716-6741): CDS
           // tooltip "Show/Hide file tree" with the ⌘⇧Y keycap (uu("files")),
           // side top / align start, not hoverable; no native title.
-          <SourceTooltip content={treeVisible ? "Hide file tree" : "Show file tree"} shortcut={treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined}
+          <SourceTooltip content={treeVisible ? t("Hide file tree") : t("Show file tree")} shortcut={treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined}
             side="top" align="start" hoverable={false}>
             <SourceIconButton
               name="ListBullet"
-              label={treeVisible ? "Hide file tree" : "Show file tree"}
+              label={treeVisible ? t("Hide file tree") : t("Show file tree")}
               nativeTitle={false}
               aria-pressed={treeVisible}
               aria-keyshortcuts={treeToggleRef ? "Meta+Shift+Y" : undefined}
@@ -1857,7 +1858,7 @@ function FilePane({
             ref={tabList}
             className="source-file-tabs"
             role="tablist"
-            aria-label="Open files"
+            aria-label={t("Open files")}
           >
             <SourceTooltipGroup delay={700}>
               {fileTabs.map((file, index) => (
@@ -1948,13 +1949,13 @@ function FilePane({
           // scope trigger (:2949-3110). The lu coachmark is not ported.
           <>
             {diffListAvailable && (
-              <SourceTooltip content={diffShowTree ? "Hide files" : "Show files"} shortcut={treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined}
+              <SourceTooltip content={diffShowTree ? t("Hide files") : t("Show files")} shortcut={treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined}
                 side="top" align="start" hoverable={false}>
                 <SourceIconButton
                   name="ListBullet"
                   className="source-icon-button -ml-[4px]"
                   data-diff-file-list-toggle=""
-                  label={diffShowTree ? "Hide files" : "Show files"}
+                  label={diffShowTree ? t("Hide files") : t("Show files")}
                   nativeTitle={false}
                   aria-pressed={diffShowTree}
                   aria-keyshortcuts={treeToggleRef ? "Meta+Shift+Y" : undefined}
@@ -1982,7 +1983,7 @@ function FilePane({
           // Mp (:1830-1866) leads the Plan trailing slot: "Copy plan" while a plan document exists.
           const search = tab === "files" && cwd ? <SourceFilesSearchButton onClick={focusFilesFilter} />
             : tab === "plan" && planDocument ? <SourcePlanCopyButton document={planDocument} /> : null;
-          const close = <SourceIconButton name="X" label="Close panel" onClick={onClose} />;
+          const close = <SourceIconButton name="X" label={t("Close panel")} onClick={onClose} />;
           return typeof paneControls === "function"
             ? paneControls({ menuSections, leading: search }) ?? <>{search}{close}</>
             : <>{search}{paneControls ?? close}</>;
@@ -2009,7 +2010,7 @@ function FilePane({
                   : undefined
               }
             >
-              {treeRefreshing && entries !== null && <span className="source-sr-only" role="status">Refreshing files</span>}
+              {treeRefreshing && entries !== null && <span className="source-sr-only" role="status">{t("Refreshing files")}</span>}
               <SourceFilesSearch
                 sessionId={sessionId}
                 searchPane={searchPane}
@@ -2032,7 +2033,7 @@ function FilePane({
               ) : !entries.length ? (
                 <SourceFilesTreeState state="empty" />
               ) : (
-                <SourceTree busy={treeRefreshing} filterInputSelector='input[aria-label="Filter files"]'>
+                <SourceTree busy={treeRefreshing} filterInputSelector={`input[aria-label="${t("Filter files")}"]`}>
                   {entries.map((entry) => (
                     <SourceTreeNode
                       key={entry.path}
@@ -2058,7 +2059,7 @@ function FilePane({
                   className="source-tree-divider"
                   role="separator"
                   tabIndex={0}
-                  aria-label="Resize file tree"
+                  aria-label={t("Resize file tree")}
                   aria-orientation="vertical"
                   aria-valuemin={160}
                   aria-valuemax={treeLimit}
@@ -2076,7 +2077,7 @@ function FilePane({
                 className="source-tree-edge"
                 role="separator"
                 tabIndex={0}
-                aria-label="Show file tree"
+                aria-label={t("Show file tree")}
                 aria-orientation="vertical"
                 aria-valuemin={0}
                 aria-valuemax={640}

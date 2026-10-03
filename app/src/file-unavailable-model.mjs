@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // Files pane viewer cards for files that open without a text body (2.2553.1
 // ion-dist/assets/v1/cd2efac6e-CAi4fxTN.js, prettier-formatted): the jo
 // unavailable card To/Un (:3602-3740, role "alert" unless the typed
@@ -6,15 +8,15 @@
 // text anyway" :4874-4897) and the empty card (:4336-4346, title only).
 // The reasons are the classified results of electron/files.cjs readFile.
 export const FILE_UNAVAILABLE_REASONS = Object.freeze(["missing", "outside_root", "too_large", "read_error", "binary", "empty"]);
-export const VIEW_AS_TEXT_LABEL = "View as text anyway";
+export const VIEW_AS_TEXT_LABEL = t("View as text anyway");
 
 const COPY = Object.freeze({
-  missing: { title: "Couldn’t find this file", body: "It may have been deleted or moved.", role: "alert", showsPath: true },
-  outside_root: { title: "This file is outside the working directory", body: "It can’t be opened here, but it may still exist on disk.", role: "alert", showsPath: true },
-  too_large: { title: "Preview isn’t available for this file", body: "It’s too large to preview here.", role: "alert", showsPath: true },
-  read_error: { title: "Couldn’t read this file", body: "It may be unreadable, or the session’s connection may have dropped.", role: "alert", showsPath: true },
-  binary: { title: "This file looks like binary data and can’t be previewed as text.", body: null, role: undefined, showsPath: false, action: "view-as-text" },
-  empty: { title: "This file is empty.", body: null, role: undefined, showsPath: false },
+  missing: { title: t("Couldn’t find this file"), body: t("It may have been deleted or moved."), role: "alert", showsPath: true },
+  outside_root: { title: t("This file is outside the working directory"), body: t("It can’t be opened here, but it may still exist on disk."), role: "alert", showsPath: true },
+  too_large: { title: t("Preview isn’t available for this file"), body: t("It’s too large to preview here."), role: "alert", showsPath: true },
+  read_error: { title: t("Couldn’t read this file"), body: t("It may be unreadable, or the session’s connection may have dropped."), role: "alert", showsPath: true },
+  binary: { title: t("This file looks like binary data and can’t be previewed as text."), body: null, role: undefined, showsPath: false, action: "view-as-text" },
+  empty: { title: t("This file is empty."), body: null, role: undefined, showsPath: false },
 });
 
 // Media read without their bytes (electron/files.cjs): the viewer shows them
@@ -26,10 +28,10 @@ export const FILE_MEDIA_KINDS = Object.freeze(["image", "video", "audio"]);
 // the media one.
 export function fileMediaErrorCopy(kind) {
   return {
-    title: "Couldn’t load this file",
+    title: t("Couldn’t load this file"),
     body: kind === "image"
-      ? "This image couldn’t be loaded. It may be too large, or it may have been deleted or moved."
-      : "This file couldn’t be loaded for preview. It may be too large to preview inline, in a format this browser can’t play, or it may have been deleted or moved.",
+      ? t("This image couldn’t be loaded. It may be too large, or it may have been deleted or moved.")
+      : t("This file couldn’t be loaded for preview. It may be too large to preview inline, in a format this browser can’t play, or it may have been deleted or moved."),
     role: undefined, showsPath: false, action: "view-as-text",
   };
 }

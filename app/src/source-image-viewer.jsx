@@ -4,6 +4,7 @@ import { MODAL_LAYER } from "./source-dialog.jsx";
 import { holdModalInert } from "./modal-inert.mjs";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import "./source-image-viewer.css";
+import { t } from "../electron/i18n/index.mjs";
 
 /*
  * ImagePreviewModal (2.2553.1 cb1b78cfa-DUGu0H_X.js), the image viewer the composer opens from an
@@ -111,11 +112,11 @@ export function SourceImageViewer({ src, alt = "", caption, originRef, onClose }
     <div className="sdlg-portal cds-root" data-cds-portal="" style={{ "--cds-portal-z": MODAL_LAYER.z, "--cds-layer-base": MODAL_LAYER.base }}>
       <div ref={popup} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} data-cds="ImagePreviewModal"
         className="siv-popup" onClick={close} onKeyDown={keyDown}>
-        <h2 id={titleId} className="siv-sr-only">{alt || "Image preview"}</h2>
+        <h2 id={titleId} className="siv-sr-only">{alt || t("Image preview")}</h2>
         <div className="siv-frame">
           <div className="siv-figure" onClick={(event) => event.stopPropagation()}>
             <div className="cds-dark-scope siv-actions" data-mode="dark">
-              <SourceSettingsButton ref={closeButton} variant="ghost" iconOnly icon="X" iconSize="auto" aria-label="Close image preview"
+              <SourceSettingsButton ref={closeButton} variant="ghost" iconOnly icon="X" iconSize="auto" aria-label={t("Close image preview")}
                 data-testid="close-file-preview" onClick={pressClose} />
             </div>
             <div ref={frame} className="siv-image" onClick={pressClose}>

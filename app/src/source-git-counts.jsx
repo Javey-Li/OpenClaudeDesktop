@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { useReducedMotion } from "./use-reduced-motion.js";
+import { t, tn } from "../electron/i18n/index.mjs";
 
 // shared-21-D098Wd--.js:16926-17004 (TV/EV, DV useCountTween, OV GitCounts).
 const MINUS = "−";
@@ -8,8 +9,8 @@ export const COUNT_TWEEN_MS = 400;
 /** OV sr-only part: the S5Ia/3aoNz and FnkQmHtZvP plurals joined as a unit list
  * (gu type "unit", en-US ", "), e.g. "3 additions, 1 deletion". */
 export function gitCountsLabel(added, removed) {
-  const plural = (count, one, other) => `${Number(count).toLocaleString()} ${count === 1 ? one : other}`;
-  return [plural(added, "addition", "additions"), plural(removed, "deletion", "deletions")].join(", ");
+  const plural = (count, one, other) => tn(count, one, other, { count: Number(count).toLocaleString() });
+  return t("{additions}, {deletions}", { additions: plural(added, "{count} addition", "{count} additions"), deletions: plural(removed, "{count} deletion", "{count} deletions") });
 }
 
 /** DV: the shown value starts at the target and, on a change, eases to the new

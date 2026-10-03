@@ -23,13 +23,14 @@ import {connectionInterrupted} from "./item-observation.mjs";
 import { stripAnsi } from "./ansi-model.mjs";
 import { summarizeCommand } from "./command-summary.mjs";
 import { describeVerb } from "./description-verb-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 
-export const RUNNING_VERB = "Running";
-export const DONE_VERB = "Ran";
+export const RUNNING_VERB = t("Running");
+export const DONE_VERB = t("Ran");
 /** :4152 - the meta when no summary can be produced. */
-export const PLAIN_META = "a command";
+export const PLAIN_META = t("a command");
 /** shared-2 LM :12279 - the output an interrupted tool call shows. */
-export const INTERRUPTED_OUTPUT = "Tool execution was interrupted.";
+export const INTERRUPTED_OUTPUT = t("Tool execution was interrupted.");
 /** KE :2813 VE - the running footer only shows a duration from ten seconds on. */
 export const DURATION_THRESHOLD_S = 10;
 
@@ -61,7 +62,7 @@ export function commandRowState(item = {}, awaitingApproval = false) {
  */
 export function commandRowLabel(command, state, description) {
   // Classic PN :17105–17255 uses failedVerb (:4156), unlike gated Step.
-  const verb = state === "busy" || state === "blocked" ? RUNNING_VERB : state === "failed" ? "Failed to run" : DONE_VERB;
+  const verb = state === "busy" || state === "blocked" ? RUNNING_VERB : state === "failed" ? t("Failed to run") : DONE_VERB;
   if (typeof description === "string" && description.trim()) {
     const tenses = describeVerb(description);
     if (state === "busy") return { label: tenses?.running ?? description, meta: null };
@@ -73,7 +74,7 @@ export function commandRowLabel(command, state, description) {
   }
   const summary = summarizeCommand(command);
   return summary === null
-    ? { label: `${verb} ${PLAIN_META}`, meta: null }
+    ? { label: state === "busy" || state === "blocked" ? t("Running a command") : state === "failed" ? t("Failed to run a command") : t("Ran a command"), meta: null }
     : { label: verb, meta: summary };
 }
 
@@ -83,9 +84,9 @@ export function formatDuration(totalSeconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const rest = seconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${rest}s`;
-  if (minutes > 0) return `${minutes}m ${rest}s`;
-  return `${rest}s`;
+  if (hours > 0) return t("{hours}h {minutes}m {seconds}s", { hours, minutes, seconds: rest });
+  if (minutes > 0) return t("{minutes}m {seconds}s", { minutes, seconds: rest });
+  return t("{seconds}s", { seconds: rest });
 }
 
 /** cf6ae6197 ip :3638-3645 - null below the threshold. */

@@ -82,13 +82,13 @@ test("home: a DeepSeek core without a key gets the key card; the ChatGPT card is
   const fs = await import("node:fs/promises");
   const main = await fs.readFile(path.join(import.meta.dirname, "..", "src/main.jsx"), "utf8");
   assert.match(main, /boot\?\.connected && boot\.account\?\.deepseek && !boot\.account\.account && \(/);
-  assert.match(main, /<span className="connection-card-title">Add your DeepSeek API key<\/span>\s*<span className="connection-card-body">Save a key in DeepSeek Harness \(~\/\.dsh\) or set DEEPSEEK_API_KEY, then refresh\.<\/span>/);
+  assert.match(main, /<span className="connection-card-title">\{t\("Add your DeepSeek API key"\)\}<\/span>\s*<span className="connection-card-body">\{t\("Save a key in DeepSeek Harness \(~\/\.dsh\) or set DEEPSEEK_API_KEY, then refresh\."\)\}<\/span>/);
   assert.match(main, /call\("account-auth", \{ operation: "refresh" \}\)[\s\S]{0,120}Refresh/);
   assert.match(main, /call\("external", \{ url: DEEPSEEK_KEYS_URL \}\)[\s\S]{0,120}Get an API key/);
   const chatgpt = main.slice(main.indexOf("boot.account?.requiresOpenaiAuth &&"), main.indexOf("Continue with your ChatGPT account."));
   assert.match(chatgpt, /!boot\.account\?\.deepseek &&/, "the ChatGPT card is gated off the DeepSeek core");
   // R02: the Codex card is titled for Codex, not 'Set up DeepSeek' above ChatGPT copy.
-  assert.match(chatgpt, /<span className="connection-card-title">Sign in to Codex<\/span>/);
+  assert.match(chatgpt, /<span className="connection-card-title">\{t\("Sign in to Codex"\)\}<\/span>/);
   assert.doesNotMatch(main, /Set up DeepSeek/);
 });
 
@@ -99,10 +99,10 @@ test("no-key wiring: composer warning + account refresh, a one-line send guard, 
   const main = await fs.readFile(path.join(import.meta.dirname, "..", "src/main.jsx"), "utf8");
   const missing = "boot?.connected && boot.account?.deepseek && !boot.account.account";
   const warning = main.slice(main.indexOf("warning={boot !== null"), main.indexOf("onStop={stop}"));
-  assert.ok(warning.includes(`${missing} ? "Add a DeepSeek API key to start a session." : undefined}`));
+  assert.ok(warning.includes(`${missing} ? t("Add a DeepSeek API key to start a session.") : undefined}`));
   assert.ok(warning.includes(`onReconnect={${missing}\n                    ? () => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message)) : reconnect}`));
   const send = main.slice(main.indexOf("async function send({ priority } = {}) {"), main.indexOf("const parsed = parseSessionCommand(draft, commandContext);", main.indexOf("async function send({ priority } = {}) {")));
   assert.match(send, /\n\s+if \(boot\?\.account\?\.deepseek && !boot\.account\.account\) return;/);
   assert.doesNotMatch(send, /setDraft|thread\/start|turn\/start/, "the guard keeps the draft and starts nothing");
-  assert.match(main, /\{boot\?\.account\?\.deepseek && <SourceMenu\.Item icon="Key" data-testid="user-menu-deepseek-key" onClick=\{\(\) => setSettings\("preferences"\)\}>DeepSeek API key<\/SourceMenu\.Item>\}/);
+  assert.match(main, /\{boot\?\.account\?\.deepseek && <SourceMenu\.Item icon="Key" data-testid="user-menu-deepseek-key" onClick=\{\(\) => setSettings\("preferences"\)\}>\{t\("DeepSeek API key"\)\}<\/SourceMenu\.Item>\}/);
 });

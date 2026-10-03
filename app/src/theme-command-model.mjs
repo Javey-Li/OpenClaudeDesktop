@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // Appearance model (pure): the /theme argument, the resolved light/dark mode
 // and which running transitions a mode flip finishes.
 
@@ -14,7 +16,7 @@ export function parseThemeCommand(args) {
   return theme ? { set: theme } : { open: "appearance" };
 }
 // shared-7 xh "Appearance set to …" toast names.
-export const THEME_LABELS = Object.freeze({ light: "Light", dark: "Dark", system: "System" });
+export const THEME_LABELS = Object.freeze({ light: t("Light"), dark: t("Dark"), system: t("System") });
 
 // shared-7 Bh: follow-system resolves through prefers-color-scheme; an
 // explicit choice is used as is. Anything unknown follows the system, which is

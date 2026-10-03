@@ -9,6 +9,7 @@ import { markdownToClipboardHtml } from "./rich-copy-html.mjs";
 import { attachableSelection, fileRefMenu, linkTarget, messageMenu } from "./transcript-context-menu-model.mjs";
 import { useTranscriptFeedNav } from "./use-transcript-feed-nav.js";
 import "./source-transcript.css";
+import { t } from "../electron/i18n/index.mjs";
 
 const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
@@ -204,8 +205,8 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
             data-visible={scroll.showJump}
             aria-label={
               pendingInput
-                ? "Needs your input. Scroll to the request"
-                : "Scroll to bottom"
+                ? t("Needs your input. Scroll to the request")
+                : t("Scroll to bottom")
             }
             aria-hidden={!scroll.showJump}
             inert={!scroll.showJump || undefined}
@@ -215,7 +216,7 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
             {pendingInput ? (
               <>
                 <span className="source-transcript-input-dot" />
-                Needs your input
+                {t("Needs your input")}
                 <Icon name="CaretDown" size={12} />
               </>
             ) : (
@@ -225,7 +226,7 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
         </div>
       )}
       {menu && <SourceMenu.Popup anchor={scroll.viewportRef.current} point={menu.point} dataCds="ContextMenu" layer="contextmenu"
-        label={menu.kind === "file" ? "File actions" : "Message actions"} onClose={() => setMenu(null)}>
+        label={menu.kind === "file" ? t("File actions") : t("Message actions")} onClose={() => setMenu(null)}>
         <MenuEntries entries={menu.entries} run={run} />
       </SourceMenu.Popup>}
     </div></SourceTableScope>

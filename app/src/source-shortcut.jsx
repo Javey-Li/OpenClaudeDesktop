@@ -2,6 +2,7 @@
 // Key parsing lives in shortcut-model.mjs (fo/po/ho with the ao/so/oo/co tables).
 import React, { Fragment, useSyncExternalStore } from "react";
 import { MAC_USER_AGENT, shortcutCaps, shortcutSequence } from "./shortcut-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 import "./source-shortcut.css";
 
 export { shortcutCaps, shortcutSequence } from "./shortcut-model.mjs";
@@ -25,7 +26,7 @@ export function SourceShortcut({ keys, variant = "keycap", onFill = false, class
   return <span {...rest} data-cds="Shortcut" data-variant={text ? "text" : "keycap"}
     className={["scds-shortcut", text && "scds-text", onFill && "scds-on-fill", className].filter(Boolean).join(" ")}>
     {chords.map((caps, index) => <Fragment key={index}>
-      {index > 0 && <span className="scds-then">then</span>}
+      {index > 0 && <span className="scds-then">{t("then")}</span>}
       {caps.map(({ label, spoken }, key) => <Fragment key={key}>
         {spell && key > 0 && <span className="scds-joiner">+</span>}
         <kbd className={text ? "scds-text-key" : capClass(label)}>

@@ -76,12 +76,12 @@ test('Usage page source: formatted dates and counts, Last updated beside Refresh
  // DeepSeek core: the estimated-cost layout replaces the limits copy and the token table only when the bridge sent `deepseek`.
  assert.match(page,/const cost=deepseekCostPresentation\(data,\{todayKey\}\);/);assert.match(page,/\{!cost&&daily\.length>0&&<section/);
  assert.match(page,/<td>\{dayCell\(bucket\.startDate\)\}<\/td><td>\{tokenCount\(bucket\.tokens\)\}<\/td>/);
- assert.match(page,/<tfoot><tr><th scope="row">All time<\/th><td>\{tokenCount\(lifetimeTokens\)\}<\/td><\/tr><\/tfoot>/);
- assert.match(page,/<span className="su-updated">Last updated: <SourceTimestamp dateMs=\{updatedAt\}\/><\/span>/);
+ assert.match(page,/<tfoot><tr><th scope="row">\{t\('All time'\)\}<\/th><td>\{tokenCount\(lifetimeTokens\)\}<\/td><\/tr><\/tfoot>/);
+ assert.match(page,/<span className="su-updated">\{t\('Last updated:'\)\} <SourceTimestamp dateMs=\{updatedAt\}\/><\/span>/);
  assert.doesNotMatch(page,/Loading usage limits…|toLocaleString\(\)<\/td>|<td>\{bucket\.startDate\}<\/td>/);
- assert.match(page,/<span>Loading usage limits<\/span>/);
+ assert.match(page,/<span>\{t\('Loading usage limits'\)\}<\/span>/);
  const actions=await fs.readFile(path.join(app,'src/source-session-actions.jsx'),'utf8');
- assert.match(actions,/<p role="status">Loading usage limits<\/p>/);assert.doesNotMatch(actions,/Loading usage limits…/);
+ assert.match(actions,/<p role="status">\{t\("Loading usage limits"\)\}<\/p>/);assert.doesNotMatch(actions,/Loading usage limits…/);
  const css=await fs.readFile(path.join(app,'src/source-usage.css'),'utf8');
  assert.match(css,/\.su-footer>\.su-updated\{color:var\(--cds-text-muted\)\}/);
  const {formatDayKey}=await import('../src/home-model.mjs');

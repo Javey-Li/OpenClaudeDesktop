@@ -17,13 +17,14 @@ import { SourceShortcut } from "./source-shortcut.jsx";
 import { ACTION_ERROR_COPY } from "./action-error-model.mjs";
 import { LOCAL_RELEASE_NOTE_VERSIONS, RELEASE_NOTE_KINDS, RELEASE_NOTE_KIND_LABELS, releaseNoteDate, releaseNoteSegments, releaseNotesFor } from "./release-notes.mjs";
 import "./source-titlebar.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // panes-toggle-current.js:3160-3172 diff spec + cl (:3571-3593): label
 // "Changes" (constant: no activeLabel), shortcut F("toggleDiff") = aR cmd+shift+d
 // (shared-21-D098Wd--.js:14165-14169), ze side "bottom" with the tooltip's
 // default hoverable (shared-frame Nu hoverable = !0). The tooltip gets the raw key
 // spec and Mu draws it in io order, ⇧⌘D (shared-frame-C_2npUJq.js:4572-4580).
-export const CHANGES_TOOLTIP = { content: "Changes", shortcut: "cmd+shift+d", side: "bottom", hoverable: true };
+export const CHANGES_TOOLTIP = { content: t("Changes"), shortcut: "cmd+shift+d", side: "bottom", hoverable: true };
 // cl indicator: activity (Ic, panes-toggle-current.js:3002-3012: working tree
 // dirty for a local non-remote session, 10s refetch while responding) && !p
 // renders sl (panes-toggle-current.js:3565-3570) through Button's indicator grid
@@ -83,9 +84,9 @@ export function SourceTitlebar({
   const restoreTitleFocus = useRef(false),
     keyboardEntry = useRef(false);
   const errorId = useId();
-  const title = session?.name || session?.preview || "Untitled";
+  const title = session?.name || session?.preview || t("Untitled");
   const folder =
-    session?.cwd?.split(/[\\/]/).filter(Boolean).at(-1) || "Workspace";
+    session?.cwd?.split(/[\\/]/).filter(Boolean).at(-1) || t("Workspace");
   sessionId.current = session?.id;
   useEffect(() => {
     transaction.current++;
@@ -177,14 +178,14 @@ export function SourceTitlebar({
       if (succeeded !== false) setEditing(false);
       else {
         submitted.current = false;
-        setRenameError(ACTION_ERROR_COPY.rename);
+        setRenameError(t(ACTION_ERROR_COPY.rename));
       }
     } catch (error) {
       if (token === transaction.current && id === sessionId.current) {
         submitted.current = false;
         // sidebar-groups.js:15393-15402: the catalog copy; the raw reason is for the console only.
         console.warn("Rename failed:", error);
-        setRenameError(ACTION_ERROR_COPY.rename);
+        setRenameError(t(ACTION_ERROR_COPY.rename));
       }
     } finally {
       if (token === transaction.current && id === sessionId.current)
@@ -212,7 +213,7 @@ export function SourceTitlebar({
         <div className="df-collapsed-chrome">
           {/* sidebar-groups.js:2679-2750 Nb: a pointerenter opens the peek; aria-expanded follows it,
               aria-controls names the sidebar body (the peek card) and the trigger is bg-neutral-30 while open. */}
-          <ToolButton label="Show sidebar" tooltip={SIDEBAR_TOGGLE_TOOLTIP.show} icon="Sidebar" onClick={onExpand}
+          <ToolButton label={t("Show sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.show} icon="Sidebar" onClick={onExpand}
             aria-expanded={peekOpen} aria-controls="frame-peek-popover" data-peek-open={peekOpen || undefined}
             onPointerEnter={onPeekEnter} onPointerLeave={onPeekLeave} />
           <div className="df-collapsed-nav">
@@ -227,7 +228,7 @@ export function SourceTitlebar({
       >
         {section !== "new" ? (
           <span className="session-title st-section-title">
-            {section[0].toUpperCase() + section.slice(1)}
+            {t(section[0].toUpperCase() + section.slice(1))}
           </span>
         ) : session ? (
           <div className="st-lead" data-pills-compact={compact || undefined}>
@@ -236,12 +237,12 @@ export function SourceTitlebar({
                 "top", which flips below at the window top) with content =
                 label; no native title. */}
             <span className="st-origin">
-              <SourceTooltip content="Local">
+              <SourceTooltip content={t("Local")}>
                 <span
                   className="st-origin-glyph"
                   data-testid="epitaxy-origin-indicator"
                   role="img"
-                  aria-label="Local"
+                  aria-label={t("Local")}
                 >
                   <Icon name="Laptop" size={18} />
                 </span>
@@ -252,7 +253,7 @@ export function SourceTitlebar({
                 <input
                   ref={input}
                   className="st-title-input"
-                  aria-label="Session name"
+                  aria-label={t("Session name")}
                   aria-invalid={!!renameError}
                   aria-describedby={renameError ? errorId : undefined}
                   title={renameError || undefined}
@@ -284,12 +285,12 @@ export function SourceTitlebar({
               ) : (
                 // c360a9e1c:7387-7420 mm: the title button sits in Zt {content
                 // "Rename"} (Nu defaults) and has no native title.
-                <SourceTooltip content="Rename">
+                <SourceTooltip content={t("Rename")}>
                 <button
                   ref={titleButton}
                   type="button"
                   className="session-title st-title"
-                  aria-label={`${title}, rename session`}
+                  aria-label={t("{title}, rename session", { title })}
                   disabled={loading || !onRename}
                   onClick={beginEdit}
                   onContextMenu={openSessionMenu}
@@ -312,7 +313,7 @@ export function SourceTitlebar({
               <button
                 type="button"
                 className="st-folder"
-                aria-label={`Folder: ${session.cwd || folder}`}
+                aria-label={t("Folder: {path}", { path: session.cwd || folder })}
                 aria-haspopup="menu"
                 aria-expanded={menuKind === "folder"}
                 data-popup-open={menuKind === "folder" ? "" : undefined}
@@ -348,12 +349,12 @@ export function SourceTitlebar({
             )}
             {loading && (
               <span className="st-visually-hidden" role="status">
-                Loading session
+                {t("Loading session")}
               </span>
             )}
             {saving && (
               <span className="st-visually-hidden" role="status">
-                Saving session name
+                {t("Saving session name")}
               </span>
             )}
           </div>
@@ -368,7 +369,7 @@ export function SourceTitlebar({
                 className="st-whats-new"
                 onClick={onWhatsNew}
               >
-                What’s new
+                {t("What’s new")}
               </button>
             )}
             {session && section === "new" && (
@@ -392,7 +393,7 @@ export function SourceTitlebar({
                   ) : undefined}
                 </ToolButton>
                 <ToolButton
-                  label="Session options"
+                  label={t("Session options")}
                   icon="DotsVertical"
                   {...menuTriggerProps({
                     open: menuKind === "titlebar",
@@ -437,7 +438,7 @@ function ReleaseNoteGroup({ kind, items }) {
   if (!shown.length) return null;
   return (
     <div className="st-release-group">
-      <h5>{RELEASE_NOTE_KIND_LABELS[kind]}</h5>
+      <h5>{t(RELEASE_NOTE_KIND_LABELS[kind])}</h5>
       <ul>{shown.map((item, index) => <li key={index}><ReleaseNoteText text={item.text} /></li>)}</ul>
     </div>
   );
@@ -452,11 +453,11 @@ function ReleaseNoteGroup({ kind, items }) {
 export function LocalReleaseNotes({ open = true, onClose, onExited }) {
   const entries = useMemo(() => releaseNotesFor(clientVersion), []);
   return (
-    <SourceDialog open={open} onExited={onExited} onClose={onClose} bleed size="md" title="What’s new" className="st-release-notes">
-      <p className="st-release-note">These release notes are included with this version of the app and may be one release behind.</p>
+    <SourceDialog open={open} onExited={onExited} onClose={onClose} bleed size="md" title={t("What’s new")} className="st-release-notes">
+      <p className="st-release-note">{t("These release notes are included with this version of the app and may be one release behind.")}</p>
       <div className="st-release-scroll">
         {entries.length === 0
-          ? <p className="st-release-empty">No release notes yet.</p>
+          ? <p className="st-release-empty">{t("No release notes yet.")}</p>
           : entries.map((entry) => (
             <section key={entry.version} className="st-release-entry">
               <div className="st-release-date">
@@ -464,7 +465,7 @@ export function LocalReleaseNotes({ open = true, onClose, onExited }) {
                 <span className="st-release-version" data-cds="Badge" data-variant="neutral">{entry.version}</span>
               </div>
               {RELEASE_NOTE_KINDS.map((kind) => <ReleaseNoteGroup key={kind} kind={kind} items={entry.items} />)}
-              {entry.limits?.length > 0 && <p className="st-release-limits">Known limits: {entry.limits.join(" ")}</p>}
+              {entry.limits?.length > 0 && <p className="st-release-limits">{t("Known limits:")} {entry.limits.join(" ")}</p>}
             </section>
           ))}
       </div>

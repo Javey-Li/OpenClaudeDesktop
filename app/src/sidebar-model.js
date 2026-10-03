@@ -1,6 +1,7 @@
 // Classic Code sidebar branch: desktop-sidebar.js xF/SF, Ck, rA/oA.
 // Keep this model free of UI/browser state so Codex records remain the source.
 import { hasPendingApproval, latestTurnError } from "./state.js";
+import { t, tn } from "../electron/i18n/index.mjs";
 export const CLASSIC_GROUP_OPTIONS = Object.freeze([
   ["date", "Date"],
   ["project", "Folder"],
@@ -44,12 +45,12 @@ export function normalizeSidebarPreferences(value = {}) {
 }
 
 export function sessionName(session) {
-  return session.name?.trim() || session.preview?.trim() || "New session";
+  return session.name?.trim() || session.preview?.trim() || t("New session");
 }
 
 export function folderName(path) {
   return path?.replace(/[/\\]+$/, "").split(/[/\\]/).filter(Boolean).at(-1)
-    || path || "Sessions";
+    || path || t("Sessions");
 }
 
 export function timestampMs(value) {
@@ -185,9 +186,9 @@ export function buildSidebarGroups({
   }).sort(compare);
   const pinned = orderPinned(list.filter((session) => metadata[session.id]?.pinned), pinnedOrder);
   const rest = list.filter((session) => !metadata[session.id]?.pinned);
-  const output = pinned.length ? [{ key: "pinned", label: "Pinned", sessions: pinned, kind: "pinned" }] : [];
+  const output = pinned.length ? [{ key: "pinned", label: t("Pinned"), sessions: pinned, kind: "pinned" }] : [];
   if (prefs.groupBy === "none") {
-    if (rest.length) output.push({ key: "sessions", label: prefs.status === "archived" ? "Archived" : "Sessions", sessions: rest, kind: "none" });
+    if (rest.length) output.push({ key: "sessions", label: prefs.status === "archived" ? t("Archived") : t("Sessions"), sessions: rest, kind: "none" });
     return output;
   }
   if (prefs.groupBy === "date") {
@@ -199,7 +200,7 @@ export function buildSidebarGroups({
     }
     buckets.forEach((bucket, index) => {
       if (!bucket.length) return;
-      const label = index === 0 ? "Today" : index === 1 ? "Yesterday" : index === 7 ? "Older"
+      const label = index === 0 ? t("Today") : index === 1 ? t("Yesterday") : index === 7 ? t("Older")
         : new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(days[index]);
       output.push({ key: index === 7 ? "older" : `day-${index}`, label, sessions: bucket, kind: "date" });
     });
@@ -208,7 +209,7 @@ export function buildSidebarGroups({
   if (prefs.groupBy === "state") {
     for (const [key, label] of CLASSIC_STATE_OPTIONS) {
       const bucket = rest.filter((session) => sessionState(session, state) === key);
-      if (bucket.length) output.push({ key: `state-${key}`, label, sessions: bucket, kind: "state" });
+      if (bucket.length) output.push({ key: `state-${key}`, label: t(label), sessions: bucket, kind: "state" });
     }
     return output;
   }
@@ -224,7 +225,7 @@ export function buildSidebarGroups({
       });
     }
     const ungrouped = rest.filter((session) => !assigned.has(session.id));
-    if (ungrouped.length) output.push({ key: "custom-ungrouped", label: "Ungrouped", sessions: ungrouped, kind: "custom" });
+    if (ungrouped.length) output.push({ key: "custom-ungrouped", label: t("Ungrouped"), sessions: ungrouped, kind: "custom" });
     return output;
   }
   // sidebar-groups.js:19580-19592: a project bucket per repo identity (IJ, sidebar-session.js:20892-20903),
@@ -269,7 +270,7 @@ export function buildSidebarGroups({
     }
     return byDefault(a, b);
   });
-  if (other.length) folderGroups.push({ key: `project:${OTHER_PROJECT_KEY}`, projectKey: OTHER_PROJECT_KEY, label: "Other", sessions: other, kind: "project" });
+  if (other.length) folderGroups.push({ key: `project:${OTHER_PROJECT_KEY}`, projectKey: OTHER_PROJECT_KEY, label: t("Other"), sessions: other, kind: "project" });
   return output.concat(folderGroups);
 }
 
@@ -389,8 +390,8 @@ export function nestedStubCounts(rows, { isUnread = () => false, isWorking = () 
 /** sidebar-session.js:19617-19626 + :19660-19662 jK: "{#} nested session(s)",
  * or "{#} more nested session(s)" while some children stay listed. */
 export function nestedStubText(hiddenCount, someListed = false) {
-  const noun = hiddenCount === 1 ? "nested session" : "nested sessions";
-  return `${hiddenCount} ${someListed ? "more " : ""}${noun}`;
+  return someListed ? tn(hiddenCount, "{count} more nested session", "{count} more nested sessions")
+    : tn(hiddenCount, "{count} nested session", "{count} nested sessions");
 }
 
 /** Lineage parent from real Codex Thread fields (forkedFromId, parentThreadId)

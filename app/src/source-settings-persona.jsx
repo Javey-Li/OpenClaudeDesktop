@@ -4,6 +4,7 @@ import { SourceSettingsButton } from './source-settings-button.jsx';
 import { SourceSegments } from './source-segments.jsx';
 import { PersonaSparkGlyph } from './source-spark.jsx';
 import { assistantNameError, normalizePersona, personaGreetingError, PERSONA_DEFAULT, ASSISTANT_NAME_MAX, GREETING_MAX } from '../electron/prefs/persona.mjs';
+import { t } from '../electron/i18n/index.mjs';
 import './source-profile-setting.css';
 import './persona-settings.css';
 
@@ -12,13 +13,15 @@ import './persona-settings.css';
 // Every save sends the whole persona object (read-modify-write over config).
 
 export const PERSONA_ICON_OPTIONS = Object.freeze([
-  { value: 'spark', label: 'Spark' },
-  { value: 'star', label: 'Star' },
-  { value: 'lightning', label: 'Lightning' },
-  { value: 'chat', label: 'Chat' },
-  { value: 'custom', label: 'Custom image' },
+  { value: 'spark', label: t('Spark') },
+  { value: 'star', label: t('Star') },
+  { value: 'lightning', label: t('Lightning') },
+  { value: 'chat', label: t('Chat') },
+  { value: 'custom', label: t('Custom image') },
 ]);
-const SAVE_ERROR = 'Couldn’t save the setting. Try again.';
+const SAVE_ERROR = t('Couldn’t save the setting. Try again.');
+// Image-pick and image-validation messages are shown as they are (main may send them translated).
+const IMAGE_ERRORS = new Set(['The image is too large. Choose one under 256 KB.', 'Choose a PNG, JPEG, WebP or SVG image.', 'Choose an image for the custom icon.'].map(text => t(text)));
 
 export function isDefaultPersona(persona) {
   const value = normalizePersona(persona);
@@ -46,8 +49,8 @@ export function PersonaTextField({ label, value, placeholder, maxLength, validat
     {help && <span id={helpId} className="persona-help">{help}</span>}
     {status.error && <span id={errorId} className="ss-error" role="alert">{status.error}</span>}
     {dirty && <div className="ss-profile-actions" data-size="sm">
-      <SourceSettingsButton type="submit" variant="primary" size="sm" busy={status.saving}>Save</SourceSettingsButton>
-      <SourceSettingsButton variant="ghost" size="sm" disabled={status.saving} onClick={() => { owner.current?.edit(); edited.current = false; setDraft(latest.current.value); input.current?.focus(); }}>Discard</SourceSettingsButton>
+      <SourceSettingsButton type="submit" variant="primary" size="sm" busy={status.saving}>{t('Save')}</SourceSettingsButton>
+      <SourceSettingsButton variant="ghost" size="sm" disabled={status.saving} onClick={() => { owner.current?.edit(); edited.current = false; setDraft(latest.current.value); input.current?.focus(); }}>{t('Discard')}</SourceSettingsButton>
     </div>}
   </form>;
 }
@@ -85,9 +88,9 @@ export function PersonaIconControl({ persona, onSave, desktopCall }) {
   };
   return <div className="persona-icon-row">
     <IconPreview persona={shown} />
-    <SourceSegments label="Assistant icon" value={shown.sparkIcon} options={PERSONA_ICON_OPTIONS} disabled={busy} onChange={choose} />
-    <SourceSettingsButton variant="secondary" size="sm" busy={busy} onClick={() => { void pick(); }}>Choose image…</SourceSettingsButton>
-    {error && <span className="ss-row-error" role="alert" title={error}>{/^(Choose|The image)/.test(error) ? error : SAVE_ERROR}</span>}
+    <SourceSegments label={t('Assistant icon')} value={shown.sparkIcon} options={PERSONA_ICON_OPTIONS} disabled={busy} onChange={choose} />
+    <SourceSettingsButton variant="secondary" size="sm" busy={busy} onClick={() => { void pick(); }}>{t('Choose image…')}</SourceSettingsButton>
+    {error && <span className="ss-row-error" role="alert" title={error}>{/^(Choose|The image)/.test(error) || IMAGE_ERRORS.has(error) ? t(error) : SAVE_ERROR}</span>}
   </div>;
 }
 
@@ -95,7 +98,7 @@ function ResetPersonaButton({ persona, onSave }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   return <>
     <SourceSettingsButton variant="secondary" size="sm" busy={busy} disabled={isDefaultPersona(persona)}
-      onClick={async () => { setBusy(true); setError(''); try { await onSave(null); } catch (e) { setError(e?.message || String(e)); } finally { setBusy(false); } }}>Reset</SourceSettingsButton>
+      onClick={async () => { setBusy(true); setError(''); try { await onSave(null); } catch (e) { setError(e?.message || String(e)); } finally { setBusy(false); } }}>{t('Reset')}</SourceSettingsButton>
     {error && <span className="ss-row-error" title={error}>{SAVE_ERROR}</span>}
   </>;
 }
@@ -107,16 +110,16 @@ export function personaGroup({ config = {}, onSave, desktopCall }) {
   const saveField = key => text => onSave({ persona: { ...normalizePersona(config.persona), [key]: text.trim() } });
   const row = (id, label, description, control, below) => ({ id, label, description, control, below });
   return { tab: 'preferences', title: 'Persona', rows: [
-    row('persona-name', 'Assistant name', 'Shown in approval titles, notifications and the transcript.', null,
-      <PersonaTextField label="Assistant name" value={persona.assistantName} placeholder="DeepSeek" maxLength={ASSISTANT_NAME_MAX}
+    row('persona-name', t('Assistant name'), t('Shown in approval titles, notifications and the transcript.'), null,
+      <PersonaTextField label={t('Assistant name')} value={persona.assistantName} placeholder="DeepSeek" maxLength={ASSISTANT_NAME_MAX}
         validate={assistantNameError} onSave={saveField('assistantName')} />),
-    row('persona-greeting', 'Home greeting', 'The heading on the home page.', null,
-      <PersonaTextField label="Home greeting" value={persona.greeting} placeholder="What’s up next, {name}?" maxLength={GREETING_MAX}
+    row('persona-greeting', t('Home greeting'), t('The heading on the home page.'), null,
+      <PersonaTextField label={t('Home greeting')} value={persona.greeting} placeholder={t('What’s up next, {name}?')} maxLength={GREETING_MAX}
         validate={personaGreetingError} onSave={saveField('greeting')}
-        help={<>Use <code>{'{name}'}</code> for your first name. Leave empty for the default greeting.</>} />),
-    row('persona-icon', 'Assistant icon', 'Replaces the spark in the sidebar, the home page and while it works.',
+        help={<>{t('Use')} <code>{'{name}'}</code> {t('for your first name. Leave empty for the default greeting.')}</>} />),
+    row('persona-icon', t('Assistant icon'), t('Replaces the spark in the sidebar, the home page and while it works.'),
       <PersonaIconControl persona={persona} onSave={savePersona} desktopCall={desktopCall} />),
-    row('persona-reset', 'Reset persona', 'Restore the default name, greeting and icon.',
+    row('persona-reset', t('Reset persona'), t('Restore the default name, greeting and icon.'),
       <ResetPersonaButton persona={persona} onSave={savePersona} />),
   ] };
 }

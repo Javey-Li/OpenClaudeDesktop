@@ -3,6 +3,7 @@
 // usage popover is a native Swift module with no local equivalent, so this is
 // the source's own fallback menu branch.
 import { usagePresentation } from './usage-model.mjs';
+import { t } from './i18n/index.mjs';
 
 // QDr: rows only for a signed-in account with a plan. API-key and Bedrock
 // credentials have no plan usage, so they get none rather than "unavailable".
@@ -14,13 +15,13 @@ export function trayUsageRows({ account, limits, limitsFailed }, locale) {
   if (!trayUsageEligible(account)) return [];
   const { rows, plan } = usagePresentation({ account, limits });
   const result = [];
-  if (plan) result.push({ label: `${plan} plan`, enabled: false });
+  if (plan) result.push({ label: t('{plan} plan', { plan }), enabled: false });
   // sOr: without any snapshot a failed read is "unavailable"; never read is none.
-  if (!limits && limitsFailed) result.push({ label: 'Usage unavailable', enabled: false });
+  if (!limits && limitsFailed) result.push({ label: t('Usage unavailable'), enabled: false });
   const peak = rows.reduce((max, row) => max === null ? row.used : Math.max(max, row.used), null);
   if (peak !== null) {
     const pct = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 }).format(Math.round(peak) / 100);
-    result.push({ label: `Usage: ${pct}`, enabled: false });
+    result.push({ label: t('Usage: {percent}', { percent: pct }), enabled: false });
   }
   return result;
 }
@@ -39,10 +40,10 @@ export function collapseSeparators(items) {
 
 export function trayMenuTemplate({ appName, rows }) {
   return collapseSeparators([
-    { id: 'show', label: 'Show App' },
+    { id: 'show', label: t('Show App') },
     { type: 'separator' },
     ...rows,
     { type: 'separator' },
-    { id: 'quit', label: `Quit ${appName}` },
+    { id: 'quit', label: t('Quit {appName}', { appName }) },
   ]);
 }

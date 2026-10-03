@@ -1,3 +1,4 @@
+import { t } from '../electron/i18n/index.mjs';
 import { formatDuration } from './command-row-model.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0;
@@ -126,17 +127,17 @@ export function subscribeThinkingClock(changeAt, notify, host = globalThis) {
 // scroll-messages-current.js zhe :58034-58063 (seconds = the turn's elapsed
 // time) and Y5 I :58280-58286.
 export function thinkingLabel(state, seconds) {
-  if (state?.kind === 'done') return `Thought for ${state.seconds}s`;
+  if (state?.kind === 'done') return t('Thought for {seconds}s', { seconds: state.seconds });
   if (state?.kind !== 'active') return null;
-  return seconds >= 60 ? 'Almost done thinking…' : seconds >= 45 ? 'Thinking some more…' : seconds >= 30 ? 'Thinking more…' : seconds >= 15 ? 'Still thinking…' : 'Thinking…';
+  return t(seconds >= 60 ? 'Almost done thinking…' : seconds >= 45 ? 'Thinking some more…' : seconds >= 30 ? 'Thinking more…' : seconds >= 15 ? 'Still thinking…' : 'Thinking…');
 }
 /** {kind: 'compacting' | 'tools' | 'thinking', label, thinking?} | null. Local
  * compaction and tool labels keep precedence over the thinking label. */
 export function turnActivity(turnId, items = [], phases = {}, seconds, thinking = thinkingState(turnId, items, phases)) {
   if (!turnId) return null;
   const live = liveTurnItems(turnId, items, phases);
-  if (live.some(item => item.type === 'contextCompaction')) return { kind: 'compacting', label: 'Compacting session…' };
-  if (live.some(item => tools.has(item.type))) return { kind: 'tools', label: 'Running tools…' };
+  if (live.some(item => item.type === 'contextCompaction')) return { kind: 'compacting', label: t('Compacting session…') };
+  if (live.some(item => tools.has(item.type))) return { kind: 'tools', label: t('Running tools…') };
   const label = thinkingLabel(thinking, seconds);
   return label ? { kind: 'thinking', label, thinking } : null;
 }
@@ -147,6 +148,6 @@ export function turnActivityLabel(turnId, items = [], phases = {}, seconds, thin
 export function runtimeStatLabels(seconds, tokens) {
   if (!Number.isFinite(seconds) || seconds < 2) return [];
   const labels = [formatDuration(seconds)];
-  if (count(tokens) && tokens > 0) labels.push(`${formatOutputTokens(tokens)} tokens`);
+  if (count(tokens) && tokens > 0) labels.push(t('{tokens} tokens', { tokens: formatOutputTokens(tokens) }));
   return labels;
 }

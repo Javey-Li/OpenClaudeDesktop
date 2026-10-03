@@ -2,6 +2,7 @@ import { parseUnifiedDiff } from './diff-model.js';
 import { commandRowState } from './command-row-model.mjs';
 import { isHiddenTranscriptItem } from './transcript-item-visibility.mjs';
 import { questionReceipt } from './generic-tool-model.mjs';
+import { t, tn, getLocale } from '../electron/i18n/index.mjs';
 
 // Contract: approval-current:4164–4238; cf6ae6197:6986–7031. Only protocol
 // actions classify a command. Never guess a tool from shell text.
@@ -17,7 +18,7 @@ export function readContents(output = '') {
   const prefix = /^ *\d+(?:[:|] ?|→|\t)/;
   return lines.every(line => !line || prefix.test(line)) ? lines.map(line => line.replace(prefix, '')).join('\n') : output;
 }
-const verbs = { read: ['Read', 'Reading', 'Failed to read'], add: ['Created', 'Creating', 'Failed to write'], update: ['Edited', 'Editing', 'Failed to edit'], delete: ['Deleted', 'Deleting', 'Failed to edit'], search: ['Searched', 'Searching', 'Failed to search'], listFiles: ['Listed', 'Listing', 'Failed to list'] };
+const verbs = { read: [t('Read'), t('Reading'), t('Failed to read')], add: [t('Created'), t('Creating'), t('Failed to write')], update: [t('Edited'), t('Editing'), t('Failed to edit')], delete: [t('Deleted'), t('Deleting'), t('Failed to edit')], search: [t('Searched'), t('Searching'), t('Failed to search')], listFiles: [t('Listed'), t('Listing'), t('Failed to list')] };
 const verb = (kind, state) => (verbs[kind] || verbs.update)[state === 'busy' || state === 'blocked' ? 1 : state === 'failed' ? 2 : 0];
 export function fileRunState(items, pending = new Set()) {
   const states = items.map(item => commandRowState(item, pending.has(item.id)));
@@ -44,8 +45,8 @@ export function fileToolSummary(items, state) {
     if (!groups.has(kind)) groups.set(kind, new Set());
     groups.get(kind).add(changePath(change));
   }
-  const parts = [...groups].map(([kind, paths]) => `${verb(kind, state).toLowerCase()} ${paths.size === 1 ? 'a file' : `${paths.size} files`}`);
-  const label = parts.join(', ');
+  const parts = [...groups].map(([kind, paths]) => tn(paths.size, '{verb} a file', '{verb} {count} files', { verb: verb(kind, state).toLowerCase() }));
+  const label = parts.join(t(', '));
   return { label: label ? label[0].toUpperCase() + label.slice(1) : verb('update', state) };
 }
 export function changePreview(change) {
@@ -136,7 +137,9 @@ export function groupFileTools(items, transcriptView = 'normal') {
 // ask_user_question, skill and job_* have none and stay 'used a tool'.
 const HARNESS_CATEGORIES = { todo_write: 'todo', exit_plan_mode: 'exit_plan_mode', run_code: 'code' };
 // fk metas without a count: 'searched code', 'found files', 'updated todos', 'proposed a plan', 'ran code'.
-const FIXED_META = { search: 'code', glob: 'files', list: 'files', web: 'the web', todo: 'todos', exit_plan_mode: 'a plan', code: 'code' };
+const FIXED_META = { search: t('code'), glob: t('files'), list: t('files'), web: t('the web'), todo: t('todos'), exit_plan_mode: t('a plan'), code: t('code') };
+// Count metas per noun: [one, other].
+const COUNT_META = { file: ['a file', '{count} files'], command: ['a command', '{count} commands'], agent: ['an agent', '{count} agents'], page: ['a page', '{count} pages'], tool: ['a tool', '{count} tools'] };
 // cf6ae6197 rk/ik/sk + Sk. Keep visual segments distinct from the full
 // accessible summary: all-failed categories tint only the verb; mixed failures
 // retain their count in the visible meta. Interruptions are not tool failures.
@@ -168,7 +171,7 @@ export function fileGroupPresentation(items) {
     else if (item.type === 'dynamicToolCall' && item.namespace == null && Object.hasOwn(HARNESS_CATEGORIES, item.tool)) add(HARNESS_CATEGORIES[item.tool], item.id, item);
     else add('tool', item.id, item);
   }
-  const words = { add: 'created', update: 'edited', delete: 'deleted', read: 'read', search: 'searched', glob: 'found', list: 'listed', web: 'browsed', web_fetch: 'fetched', command: 'ran', agent: 'ran', todo: 'updated', exit_plan_mode: 'proposed', code: 'ran', tool: 'used' };
+  const words = { add: t('created'), update: t('edited'), delete: t('deleted'), read: t('read'), search: t('searched'), glob: t('found'), list: t('listed'), web: t('browsed'), web_fetch: t('fetched'), command: t('ran'), agent: t('ran'), todo: t('updated'), exit_plan_mode: t('proposed'), code: t('ran'), tool: t('used') };
   const fileKinds = new Set(['add', 'update', 'delete', 'read']);
   // User-requested compact Read count; never call six reads of one path six files.
   const readBatch = items.length > 1 && items.every(item => fileAction(item)?.type === 'read');
@@ -176,14 +179,14 @@ export function fileGroupPresentation(items) {
   const fileCategories = [...categories.keys()].filter(kind => fileKinds.has(kind));
   const capital=value=>value.charAt(0).toUpperCase()+value.slice(1);
   const segment=(verb,meta,count,failed)=>{
-    const failedMeta=failed?`${meta} (${failed} failed)`:meta;
+    const failedMeta=failed?t('{meta} ({failed} failed)',{meta,failed}):meta;
     const isError=failed>0&&failed>=count;
     return {verb,meta:isError?meta:failedMeta,isError,failedMeta};
   };
   // Sk:16616–16702 groups the one known path even when commands or other
   // categories occur between its file operations. It stays at first file position.
   const fileSegment = sharedPath ? segment(
-    new Intl.ListFormat('en',{type:'conjunction'}).format(fileCategories.map(kind=>words[kind])),
+    new Intl.ListFormat(getLocale(),{type:'conjunction'}).format(fileCategories.map(kind=>words[kind])),
     fileBasename(sharedPath),fileCategories.length,
     fileCategories.filter(kind=>[...categories.get(kind).values()].includes('failed')).length,
   ) : null;
@@ -195,12 +198,12 @@ export function fileGroupPresentation(items) {
     }
     const count=entries.size,failed=[...entries.values()].filter(value=>value==='failed').length;
     const noun=fileKinds.has(kind)?'file':kind==='command'?'command':kind==='agent'?'agent':kind==='web_fetch'?'page':'tool';
-    let meta=Object.hasOwn(FIXED_META,kind)?FIXED_META[kind]:count===1?`${noun==='agent'?'an':'a'} ${noun}`:`${count} ${noun}s`;
-    if(readBatch && kind==='read' && items.length>count)meta+=` (${items.length} reads)`;
-    segments.push(segment(words[kind]||'used',meta,count,failed));
+    let meta=Object.hasOwn(FIXED_META,kind)?FIXED_META[kind]:tn(count,...COUNT_META[noun]);
+    if(readBatch && kind==='read' && items.length>count)meta=t('{meta} ({count} reads)',{meta,count:items.length});
+    segments.push(segment(words[kind]||t('used'),meta,count,failed));
   }
   if(segments.length)segments[0].verb=capital(segments[0].verb);
-  return {label:segments.map(value=>`${value.verb} ${value.failedMeta}`).join(', '),
+  return {label:segments.map(value=>`${value.verb} ${value.failedMeta}`).join(t(', ')),
     ...(fileSegment&&categories.size===fileCategories.length&&!fileSegment.isError&&fileSegment.meta===fileBasename(sharedPath)?{path:sharedPath}:{}),segments};
 }
 

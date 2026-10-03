@@ -3,6 +3,7 @@ import { Icon } from "./icons";
 import { SourceMenu } from "./source-menu";
 import { queuedCountLabel, reorderEntries } from "./queued-messages-model.mjs";
 import "./source-queued-messages.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // 2.2553.1 QueuedMessageBar (cf74bc599 :4028-4051 fp, :4053-4100 pp single
 // row, :4101-4240 mp collapsed button / expanded list, :3913-4027 dp rows)
@@ -11,7 +12,7 @@ import "./source-queued-messages.css";
 // reorder = thread/queue/reorder. Locked ids are in-flight removals.
 const stopMouseDown = (event) => event.preventDefault();
 
-function GhostButton({ icon, label, busy = false, busyLabel = "Removing…", size = 24, className = "", innerRef, ...props }) {
+function GhostButton({ icon, label, busy = false, busyLabel = t("Removing…"), size = 24, className = "", innerRef, ...props }) {
   return (
     <button type="button" ref={innerRef} aria-label={label} aria-busy={busy || undefined} data-cds="Button" data-size={size === 20 ? "sm" : undefined}
       className={`sc-button sc-icon-button sqm-ghost ${className}`} style={{ width: size, height: size, minWidth: size }} onMouseDown={stopMouseDown} {...props}>
@@ -25,8 +26,8 @@ function SingleRow({ entry, locked, onCancel, onEdit }) {
     <div className="sqm-row sqm-single" aria-busy={locked || undefined} data-take-back-entry={entry.id}>
       <span className="sqm-count">{queuedCountLabel(1)}</span>
       <span className="sqm-preview">{entry.preview}</span>
-      {onEdit && !locked && <GhostButton icon="Edit" label="Edit in composer" className="sqm-edit" onClick={() => onEdit(entry.id)} />}
-      {onCancel && <GhostButton icon="X" label="Remove from queue" className="sqm-cancel" busy={locked} onClick={() => !locked && onCancel(entry.id)} />}
+      {onEdit && !locked && <GhostButton icon="Edit" label={t("Edit in composer")} className="sqm-edit" onClick={() => onEdit(entry.id)} />}
+      {onCancel && <GhostButton icon="X" label={t("Remove from queue")} className="sqm-cancel" busy={locked} onClick={() => !locked && onCancel(entry.id)} />}
     </div>
   );
 }
@@ -38,13 +39,13 @@ function RowMenu({ entry, locked, onCancel, onEdit, onOpenChange }) {
   const close = () => { setAnchor(null); onOpenChange?.(false); };
   return (
     <>
-      <GhostButton innerRef={trigger} icon="DotsVertical" label="Queued message actions" size={20} className="sqm-menu-trigger"
+      <GhostButton innerRef={trigger} icon="DotsVertical" label={t("Queued message actions")} size={20} className="sqm-menu-trigger"
         aria-haspopup="menu" aria-expanded={!!anchor} onClick={open} />
       {anchor && (
-        <SourceMenu.Popup anchor={anchor} side="bottom" align="end" label="Queued message actions" onClose={close}>
-          {onEdit && <SourceMenu.Item disabled={locked} onClick={() => onEdit(entry.id)}>Edit in composer</SourceMenu.Item>}
+        <SourceMenu.Popup anchor={anchor} side="bottom" align="end" label={t("Queued message actions")} onClose={close}>
+          {onEdit && <SourceMenu.Item disabled={locked} onClick={() => onEdit(entry.id)}>{t("Edit in composer")}</SourceMenu.Item>}
           {onEdit && onCancel && <SourceMenu.Separator />}
-          {onCancel && <SourceMenu.Item variant="danger" disabled={locked} onClick={() => onCancel(entry.id)}>Remove from queue</SourceMenu.Item>}
+          {onCancel && <SourceMenu.Item variant="danger" disabled={locked} onClick={() => onCancel(entry.id)}>{t("Remove from queue")}</SourceMenu.Item>}
         </SourceMenu.Popup>
       )}
     </>
@@ -67,9 +68,9 @@ function Row({ entry, locked, onCancel, onEdit, sortable, onDragStart, onDragMov
       <span className={`sqm-item-text ${locked ? "sqm-item-text--muted" : ""} ${mask} ${maskMode}`}>{entry.preview}</span>
       {hasActions && (
         <span className={`sqm-item-actions ${fade}`}>
-          {locked && <GhostButton icon="X" label="Remove from queue" size={20} busy />}
+          {locked && <GhostButton icon="X" label={t("Remove from queue")} size={20} busy />}
           {sortable && !locked && (
-            <button type="button" aria-label="Reorder queued message" className={`sqm-handle ${dragging ? "sqm-handle--grabbing" : ""}`}
+            <button type="button" aria-label={t("Reorder queued message")} className={`sqm-handle ${dragging ? "sqm-handle--grabbing" : ""}`}
               onMouseDown={stopMouseDown}
               onPointerDown={(event) => onDragStart(entry.id, event)} onPointerMove={(event) => onDragMove(entry.id, event)}
               onPointerUp={(event) => onDragEnd(entry.id, event)} onPointerCancel={(event) => onDragEnd(entry.id, event, true)}
@@ -130,7 +131,7 @@ function MultiEntry({ entries, lockedIds, onCancel, onEdit, onReorder }) {
     return (
       <button ref={collapsedButton} type="button" aria-expanded={false} className="sqm-row sqm-collapsed" onClick={() => toggle(true, collapsedButton)}>
         <span className="sqm-count">{queuedCountLabel(entries.length)}</span>
-        <span className="sqm-preview">Next: {entries[0].preview}</span>
+        <span className="sqm-preview">{t("Next: {preview}", { preview: entries[0].preview })}</span>
         <span aria-hidden="true" className="sqm-caret"><Icon name="CaretDown" size={16} /></span>
       </button>
     );
@@ -139,9 +140,9 @@ function MultiEntry({ entries, lockedIds, onCancel, onEdit, onReorder }) {
     <div className="sqm-expanded">
       <div className="sqm-row sqm-header">
         <span className="sqm-count sqm-count--grow">{queuedCountLabel(entries.length)}</span>
-        <GhostButton innerRef={collapseButton} icon="CaretUp" label="Collapse queued messages" aria-expanded={true} onClick={() => toggle(false, collapseButton)} />
+        <GhostButton innerRef={collapseButton} icon="CaretUp" label={t("Collapse queued messages")} aria-expanded={true} onClick={() => toggle(false, collapseButton)} />
       </div>
-      <div ref={listRef} role="list" aria-label="Queued messages" className="sqm-list">
+      <div ref={listRef} role="list" aria-label={t("Queued messages")} className="sqm-list">
         {preview.map((entry, index) => (
           <React.Fragment key={entry.id}>
             {index > 0 && <div role="presentation" aria-hidden="true" className="sqm-divider" />}
@@ -153,7 +154,7 @@ function MultiEntry({ entries, lockedIds, onCancel, onEdit, onReorder }) {
       </div>
       {onCancel && (
         <div className="sqm-footer">
-          <button type="button" className="sqm-clear" onMouseDown={stopMouseDown} onClick={clearAll}>Clear all</button>
+          <button type="button" className="sqm-clear" onMouseDown={stopMouseDown} onClick={clearAll}>{t("Clear all")}</button>
         </div>
       )}
     </div>

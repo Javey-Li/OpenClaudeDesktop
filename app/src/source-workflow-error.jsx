@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import {createWorkflowPreview,workflowErrorPosition} from './workflow-error-popover-model.mjs';
 import {safeHoverHull,insideHoverHull} from './source-tooltip-model.js';
 import './source-workflow-error.css';
+import {t} from '../electron/i18n/index.mjs';
 const currentPreviews=new WeakMap();
 export function WorkflowErrorPopover({error}) {
  const [open,setOpen]=useState(false),trigger=useRef(null),popup=useRef(null),corridor=useRef(null),id=useId();
@@ -20,7 +21,7 @@ export function WorkflowErrorPopover({error}) {
   return()=>{doc.removeEventListener('keydown',key,true);doc.removeEventListener('pointerdown',outside,true);doc.removeEventListener('pointermove',move);};
  },[open,controller]);
  return <><span ref={trigger} tabIndex={0} aria-label={error} className="swf-error-trigger" data-popup-open={open||undefined}
- onPointerEnter={enter} onPointerLeave={leave} onFocus={event=>{if(event.target.matches(':focus-visible'))controller.focus(true);}} onBlur={blur}>Error</span>
+ onPointerEnter={enter} onPointerLeave={leave} onFocus={event=>{if(event.target.matches(':focus-visible'))controller.focus(true);}} onBlur={blur}>{t('Error')}</span>
  {open&&<ErrorPreview {...{error,trigger,popup,id}} onPointerEnter={enter} onPointerLeave={leave} onFocus={()=>controller.focus(true)} onBlur={blur} onHidden={()=>controller.dismiss()}/>}</>;
 }
 function ErrorPreview({error,trigger,popup,id,onHidden,...events}) {

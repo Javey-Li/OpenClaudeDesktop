@@ -1,3 +1,5 @@
+import { t } from '../electron/i18n/index.mjs';
+
 // Dot-delimited names need quoted key paths in the existing RPC adapter; keep
 // those on Edit config until that capability exists.
 export function canRemoveDeveloperServer(definition, status) {
@@ -5,8 +7,8 @@ export function canRemoveDeveloperServer(definition, status) {
 }
 
 export async function removeDeveloperServer(name, { confirm, call, refresh }) {
-  if (typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(name)) throw new Error('Use Edit config to remove this server.');
-  const accepted = await confirm(`Are you sure you want to remove the MCP server “${name}”?\n\nThis changes the DeepSeek Harness configuration. Project or managed configuration may still provide this server.`);
+  if (typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(name)) throw new Error(t('Use Edit config to remove this server.'));
+  const accepted = await confirm(t('Are you sure you want to remove the MCP server “{name}”?\n\nThis changes the DeepSeek Harness configuration. Project or managed configuration may still provide this server.', { name }));
   if (!accepted) return false;
   let failure;
   try { await call({ operation: 'mcp-remove', name }); }

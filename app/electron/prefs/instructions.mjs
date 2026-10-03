@@ -3,6 +3,7 @@
 // No length limit on custom instructions (user preference); long text only costs context tokens.
 // On the DeepSeek core a non-empty global text IS the whole system prompt (customSystemPrompt);
 // empty keeps the built-in prompt. Codex appends it to its own prompt instead.
+import { t } from '../i18n/index.mjs';
 export const INSTRUCTIONS_MAX_CHARS = Infinity;
 export const INSTRUCTIONS_MAX_PROJECTS = 64;
 export const INSTRUCTIONS_MAX_PATH = 1024;
@@ -32,24 +33,24 @@ export function normalizeInstructions(value) {
 /** Strict: throws Error with a user-facing message; null means "reset to default". */
 export function validateInstructions(value) {
   if (value === null) return null;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid custom instructions setting.');
-  if ('enabled' in value && typeof value.enabled !== 'boolean') throw new Error('Invalid custom instructions setting.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(t('Invalid custom instructions setting.'));
+  if ('enabled' in value && typeof value.enabled !== 'boolean') throw new Error(t('Invalid custom instructions setting.'));
   const checkText = (raw, where) => {
     if (raw === undefined) return '';
-    if (typeof raw !== 'string' || raw.includes('\0')) throw new Error(`Invalid ${where}.`);
+    if (typeof raw !== 'string' || raw.includes('\0')) throw new Error(where === 'global instructions' ? t('Invalid global instructions.') : t('Invalid project instructions.'));
     const clean = cleanText(raw);
-    if (clean.length > INSTRUCTIONS_MAX_CHARS) throw new Error(`${where[0].toUpperCase()}${where.slice(1)} must be ${INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`);
+    if (clean.length > INSTRUCTIONS_MAX_CHARS) throw new Error(t(where === 'global instructions' ? 'Global instructions must be {max} characters or fewer.' : 'Project instructions must be {max} characters or fewer.', { max: INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US') }));
     return clean;
   };
   checkText(value.global, 'global instructions');
   if (value.projects !== undefined) {
-    if (!value.projects || typeof value.projects !== 'object' || Array.isArray(value.projects)) throw new Error('Invalid project instructions.');
+    if (!value.projects || typeof value.projects !== 'object' || Array.isArray(value.projects)) throw new Error(t('Invalid project instructions.'));
     const entries = Object.entries(value.projects);
-    if (entries.length > INSTRUCTIONS_MAX_PROJECTS) throw new Error(`Instructions can be saved for up to ${INSTRUCTIONS_MAX_PROJECTS} projects.`);
+    if (entries.length > INSTRUCTIONS_MAX_PROJECTS) throw new Error(t('Instructions can be saved for up to {max} projects.', { max: INSTRUCTIONS_MAX_PROJECTS }));
     for (const [key, entry] of entries) {
-      if (!validPath(key)) throw new Error('Project instructions need an absolute folder path.');
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Invalid project instructions.');
-      if ('useFile' in entry && typeof entry.useFile !== 'boolean') throw new Error('Invalid project instructions.');
+      if (!validPath(key)) throw new Error(t('Project instructions need an absolute folder path.'));
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(t('Invalid project instructions.'));
+      if ('useFile' in entry && typeof entry.useFile !== 'boolean') throw new Error(t('Invalid project instructions.'));
       checkText(entry.text, 'project instructions');
     }
   }

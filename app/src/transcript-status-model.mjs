@@ -1,3 +1,4 @@
+import { t, tn } from "../electron/i18n/index.mjs";
 import { retryShortLabel } from "./turn-error-model.mjs";
 const presentation = (phase, label = "", visible = true, retry = null) => Object.freeze({
   phase,
@@ -12,10 +13,10 @@ const presentation = (phase, label = "", visible = true, retry = null) => Object
 // and token stats. Codex ErrorNotification carries no attempt counts, so the
 // local label is "Retrying…"; the DeepSeek bridge adds `retry {attempt,
 // maxRetries}` (maxRetries null for an unbounded policy).
-export const RETRYING_LABEL = "Retrying…";
+export const RETRYING_LABEL = t("Retrying…");
 const count = (value) => Number.isInteger(value) && value > 0;
 export function retryingLabel(attempt, maxRetries) {
-  return count(attempt) && count(maxRetries) ? `Retrying (${attempt}/${maxRetries})` : RETRYING_LABEL;
+  return count(attempt) && count(maxRetries) ? t("Retrying ({attempt}/{maxRetries})", { attempt, maxRetries }) : RETRYING_LABEL;
 }
 // state.retrying[thread] ({codexErrorInfo, attempt, maxRetries}) -> the
 // `retrying` input of transcriptStatusPresentation.
@@ -27,9 +28,9 @@ export function retryingStatus(entry) {
 const HOME = presentation("home", "", false);
 const LOADING = presentation("loading", "", false);
 const IDLE = presentation("idle");
-const RUNNING = presentation("running", "Working…");
-const STOPPING = presentation("stopping", "Stopping…");
-const APPROVAL = presentation("approval", "Waiting for your approval");
+const RUNNING = presentation("running", t("Working…"));
+const STOPPING = presentation("stopping", t("Stopping…"));
+const APPROVAL = presentation("approval", t("Waiting for your approval"));
 const APPROVAL_REPLACES_ROW = presentation("approval", "", false);
 
 // No timers, inferred completion, request dispatch, or per-turn history. The
@@ -80,8 +81,8 @@ export function sparkState(view) {
 // '{count, plural, one {# running task} other {# running tasks}}' while any
 // task runs, else the Whe-held finished count; null hides the button (P).
 export function taskButtonLabel(running = 0, finished = 0) {
-  if (running > 0) return `${running} running task${running === 1 ? "" : "s"}`;
-  if (finished > 0) return `${finished} task${finished === 1 ? "" : "s"} finished`;
+  if (running > 0) return tn(running, "{count} running task", "{count} running tasks");
+  if (finished > 0) return tn(finished, "{count} task finished", "{count} tasks finished");
   return null;
 }
 

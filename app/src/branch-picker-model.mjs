@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // Composer branch picker, step 1 (2.2553.1 cc43287c9-BMbiZYzF.js:22009-22035
 // hT props, :12050-12071 branch order; cd2687f9f-CY3xvb9b.js N combobox).
 // - Default branch: the repo's defaultBranch (F). Locally that is origin/HEAD's
@@ -12,9 +14,9 @@
 //   substring match on the label keeps the sorted order.
 // - Trigger label: the chosen branch or "—" (triggerLabel c ?? "—").
 
-export const BRANCH_SEARCH_PLACEHOLDER = "Search branches…";
-export const BRANCH_EMPTY_MESSAGE = "No branches match";
-export const BRANCH_TOOLTIP = "Branch to start from";
+export const BRANCH_SEARCH_PLACEHOLDER = t("Search branches…");
+export const BRANCH_EMPTY_MESSAGE = t("No branches match");
+export const BRANCH_TOOLTIP = t("Branch to start from");
 
 /** F: origin/HEAD ("origin/main" or "main") when it is a local branch, else main, else master, else null. */
 export function defaultBranch({ originHead = "", branches = [] } = {}) {
@@ -77,6 +79,6 @@ export function branchCheckoutTarget(info) {
 }
 
 // UR (:15860-15912) and GR (:15920-16060) copy.
-export const WORKING_TREE_ERROR = "Couldn’t update the working tree.";
+export const WORKING_TREE_ERROR = t("Couldn’t update the working tree.");
 export const BRANCH_SWITCH_MODES = Object.freeze(["stash", "commit", "discard"]);
-export const BRANCH_SWITCH_LABELS = Object.freeze({ stash: "Stash changes", commit: "Commit as WIP", discard: "Discard changes" });
+export const BRANCH_SWITCH_LABELS = Object.freeze({ stash: t("Stash changes"), commit: t("Commit as WIP"), discard: t("Discard changes") });

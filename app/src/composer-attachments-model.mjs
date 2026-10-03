@@ -1,3 +1,5 @@
+import { t, tn } from "../electron/i18n/index.mjs";
+
 // Composer attachment staging (2.2553.1 c099c328d :1520-1625 image lane and
 // :2947-2975 image/file pills), reduced to what the local Codex backend can
 // carry: an image becomes {type:"localImage",path}, any other file becomes a
@@ -6,16 +8,16 @@
 export const IMAGE_TYPES = Object.freeze(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 export const IMAGE_MAX_BYTES = 31457280;
 export const IMAGE_CAP = 5;
-export const IMAGE_TYPE_ERROR = "Only PNG, JPEG, GIF, and WebP images are supported.";
-export const IMAGE_SIZE_ERROR = "Some images were too large to attach. Maximum size is 30 MB.";
-export const IMAGE_PROCESS_ERROR = "Failed to process image. You can try again.";
+export const IMAGE_TYPE_ERROR = t("Only PNG, JPEG, GIF, and WebP images are supported.");
+export const IMAGE_SIZE_ERROR = t("Some images were too large to attach. Maximum size is 30 MB.");
+export const IMAGE_PROCESS_ERROR = t("Failed to process image. You can try again.");
 // Local addition for a catalog model without image input (the DeepSeek core
 // rejects such a turn); Codex catalogs either list "image" or say nothing.
-export const IMAGE_MODEL_ERROR = "The selected model doesn’t support image input.";
+export const IMAGE_MODEL_ERROR = t("The selected model doesn’t support image input.");
 const EXTENSION_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 
 export function trimMessage(removed, max) {
-  return `Removed ${removed} ${removed === 1 ? "image" : "images"} — this session allows up to ${max}.`;
+  return tn(removed, "Removed {count} image — this session allows up to {max}.", "Removed {count} images — this session allows up to {max}.", { max });
 }
 
 export function basename(path = "") {

@@ -7,13 +7,14 @@ import { validateInstructions } from './prefs/instructions.mjs';
 import { validateModelSettings } from './prefs/model-settings.mjs';
 import { validateCustomCommands } from './prefs/custom-commands.mjs';
 import { validatePersona } from './prefs/persona.mjs';
+import { LOCALE_CODES } from './i18n/index.mjs';
 export const appearanceDefaults = Object.freeze({ motion: 'system', interfaceFont: 'anthropic', codeFont: '', transcriptSize: 'm', transcriptWidth: 's',
   codeThemeLight: DEFAULT_CODE_THEMES.light, codeThemeDark: DEFAULT_CODE_THEMES.dark, transcriptView: DEFAULT_TRANSCRIPT_VIEW });
 // Code theme ids are validated against the catalog and their column's mode (a dark theme is not a light theme).
 const codeThemeKeys = { codeThemeLight: 'light', codeThemeDark: 'dark' };
 const choices = { theme:['light','dark','system'], mode:['code','chat'], permission:['auto','ask','acceptEdits','plan'],
   motion:['system','reduce'], interfaceFont:['anthropic','system','dyslexic'], transcriptSize:['s','m','l'], transcriptWidth:['s','m','l'],
-  transcriptView:[...TRANSCRIPT_VIEWS] };
+  transcriptView:[...TRANSCRIPT_VIEWS], locale:[...LOCALE_CODES] };
 // shared-7-DsClUbcz.js xh bi("userThemeMode","auto"): the theme follows the
 // system until the user picks Light or Dark. Profiles without (or with an
 // unknown) saved theme resolve to it; main.cjs applies the result to

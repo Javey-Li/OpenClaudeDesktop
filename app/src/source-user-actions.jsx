@@ -13,6 +13,7 @@ import { clipboardEnvironment, writeClipboardPayload } from './clipboard-payload
 import { markdownToClipboardHtml } from './rich-copy-html.mjs';
 import { SourceTimestamp } from './source-timestamp.jsx';
 import './source-user-actions.css';
+import { t } from '../electron/i18n/index.mjs';
 
 function useCoarseInput(root) {
   const [coarse, setCoarse] = useState(false);
@@ -60,14 +61,14 @@ function UserActions({ identity, itemId, text, startedAtMs, interacted }) {
   }, [mounted]);
   const showActions = () => { focusRequested.current = true; setLatched(true); };
   const copied = state === 'copied', failed = state === 'error';
-  const announcement = copied ? 'Copied' : failed ? 'Couldn’t copy to the clipboard. Try again.' : '';
+  const announcement = copied ? t('Copied') : failed ? t('Couldn’t copy to the clipboard. Try again.') : '';
   return <div ref={root} className="sua-row" data-user-actions-id={itemId}>
     {!mounted ? <div className="sua-deferred" data-find-omitted="">
       <span className="sua-placeholder" aria-hidden="true" />
       <button type="button" className="sua-show-actions sua-sr-only" onFocusCapture={showActions}
-        onClick={showActions}>Show message actions</button>
+        onClick={showActions}>{t("Show message actions")}</button>
     </div> : <div className="sua-toolbar" data-cds="MessageActions" data-reveal="fade"
-      role="toolbar" aria-label="Message actions" tabIndex={-1}
+      role="toolbar" aria-label={t("Message actions")} tabIndex={-1}
       onKeyDown={event => {
         const button = copyButton.current;
         const index = turnFooterKeyIndex(event, { count: button && !button.disabled ? 1 : 0,
@@ -77,10 +78,10 @@ function UserActions({ identity, itemId, text, startedAtMs, interacted }) {
       }}>
       <SourceTooltipGroup>
         {startedAtMs != null && <SourceTimestamp dateMs={startedAtMs} />}
-        <SourceTooltip content="Copy" automatic={true} hoverable={false}>
+        <SourceTooltip content={t("Copy")} automatic={true} hoverable={false}>
           <button ref={copyButton} type="button" className="sua-copy" data-cds="Button" data-variant="ghost"
             data-cds-icon-only="" data-cds-ghost=""
-            aria-label="Copy" aria-describedby={failed ? statusId : undefined} tabIndex={0}
+            aria-label={t("Copy")} aria-describedby={failed ? statusId : undefined} tabIndex={0}
             onMouseDown={event => {
               const editable = Boolean(event.target.closest?.("input:not([type='hidden']):not([disabled]),[contenteditable]:not([contenteditable='false']),textarea:not([disabled])"));
               if (preventRepeatedSelection({ detail: event.detail, button: event.button, editable })) event.preventDefault();

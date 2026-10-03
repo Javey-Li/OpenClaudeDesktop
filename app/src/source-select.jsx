@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Icon } from './icons';
 import { positionMenu, typeaheadMatch, typeaheadState } from './menu-model.mjs';
 import { selectOptions, selectHighlight } from './select-model.mjs';
+import { t } from '../electron/i18n/index.mjs';
 import './source-select.css';
 
 // Independent CDS Combobox single/select branch (shared-frame xb → Tb → Eb).
@@ -131,7 +132,7 @@ function SelectPopup({ id, label, items, value, searchable, trigger, initial, al
             onClick={() => choose(index)}>
             <div className="sselect-option-copy"><span className="sselect-option-label">{item.label}</span>{item.description!=null&&<span className="sselect-option-description">{item.description}</span>}</div>{String(item.value) === String(value) && <Icon name="Check" size={20} weight="strong" className="sselect-check"/>}
           </div>)}
-          {!visible.length && <div className="sselect-empty">No results</div>}
+          {!visible.length && <div className="sselect-empty">{t('No results')}</div>}
         </div>
       </div>
     </div>

@@ -11,6 +11,7 @@
 // segments rendered only with >= 2 non-empty groups).
 
 import { coreEngine } from "./session-engine-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 
 export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 
@@ -37,7 +38,7 @@ export function skillGroup(skill) {
 }
 
 export const SKILL_GROUP_LABELS = Object.freeze({
-  all: "All", personal: "Personal", repository: "Repository", plugins: "Plugins", managed: "Managed",
+  all: t("All"), personal: t("Personal"), repository: t("Repository"), plugins: t("Plugins"), managed: t("Managed"),
 });
 
 // Official Hi: Anthropic / owner / "Your organization" / "You". Locally the
@@ -49,10 +50,10 @@ export function skillAuthor(row, plugins = []) {
     return plugin ? plugin.name : row.pluginId;
   }
   switch (row.scope) {
-    case "user": return "You";
-    case "repo": return "Repository";
+    case "user": return t("You");
+    case "repo": return t("Repository");
     case "system": return "DeepSeek Harness";
-    case "admin": return "Managed";
+    case "admin": return t("Managed");
     default: return "—";
   }
 }
@@ -145,9 +146,9 @@ export function skillInvocable(row) {
 // model-hidden skill reads "Slash command" (customize-skill-detail :118).
 export function skillTrigger(row, copy = customizeCore()) {
   if (row?.userInvocable === undefined) return null;
-  if (row.userInvocable === false) return { label: "Auto", tooltip: copy.skillTriggerTooltips.auto };
-  if (row.modelInvocable === false) return { label: "Slash command", tooltip: copy.skillTriggerTooltips.slash };
-  return { label: "Slash command + auto", tooltip: copy.skillTriggerTooltips.both };
+  if (row.userInvocable === false) return { label: t("Auto"), tooltip: copy.skillTriggerTooltips.auto };
+  if (row.modelInvocable === false) return { label: t("Slash command"), tooltip: copy.skillTriggerTooltips.slash };
+  return { label: t("Slash command + auto"), tooltip: copy.skillTriggerTooltips.both };
 }
 
 // Composer Add menu → Skills submenu items (official Ay/jy): user-invocable
@@ -174,7 +175,7 @@ export function customizeCore(core) {
   const deepseek = coreEngine(core) === "deepseek";
   const capabilities = core?.capabilities || {};
   const configPath = typeof core?.configPath === "string" && core.configPath ? core.configPath : null;
-  const configFile = deepseek ? configPath || "the DeepSeek core profile" : CODEX_CONFIG_FILE;
+  const configFile = deepseek ? configPath || t("the DeepSeek core profile") : CODEX_CONFIG_FILE;
   return {
     deepseek,
     skillToggle: capabilities.skillToggle !== false,
@@ -187,31 +188,31 @@ export function customizeCore(core) {
     skillRoots: deepseek
       ? ["<project>/.dsh/skills", "<project>/.agents/skills", "~/.dsh/skills", "~/.agents/skills"]
       : ["~/.codex/skills", "~/.agents/skills", "<workspace>/.agents/skills"],
-    addConnectorNote: deepseek ? `Saved to ${configFile}.` : `Saved to ${CODEX_CONFIG_FILE}, shared with the Codex CLI.`,
+    addConnectorNote: deepseek ? t("Saved to {file}.", { file: configFile }) : t("Saved to {file}, shared with the Codex CLI.", { file: CODEX_CONFIG_FILE }),
     // Source copy that names the assistant, with Claude → DeepSeek:
     // c6f9b6c10 s("skills"), customize-skills :3104-3108, customize-connectors
     // :3693-3697 (its claude.ai "Learn more" link is not drawn) and
     // customize-plugins :1418-1421.
-    skillDescriptionTooltip: "DeepSeek uses these descriptions when deciding which skills to use in chat.",
-    skillsEmpty: "Add skills to extend DeepSeek’s capabilities.",
-    connectorsEmpty: "Unlock more with DeepSeek when you connect your team’s tools.",
-    pluginsEmpty: "Give DeepSeek role-level expertise with plugins",
+    skillDescriptionTooltip: t("DeepSeek uses these descriptions when deciding which skills to use in chat."),
+    skillsEmpty: t("Add skills to extend DeepSeek’s capabilities."),
+    connectorsEmpty: t("Unlock more with DeepSeek when you connect your team’s tools."),
+    pluginsEmpty: t("Give DeepSeek role-level expertise with plugins"),
     // ccb4abbdf r Trigger tooltips (hjJUiuUPEX / eFWPHBACre); a slash-only
     // skill keeps the first sentence only, since it never runs automatically.
     skillTriggerTooltips: {
-      auto: "DeepSeek runs this skill automatically when it’s relevant to your request.",
-      both: "Appears in the / menu. DeepSeek can also run it automatically when relevant.",
-      slash: "Appears in the / menu.",
+      auto: t("DeepSeek runs this skill automatically when it’s relevant to your request."),
+      both: t("Appears in the / menu. DeepSeek can also run it automatically when relevant."),
+      slash: t("Appears in the / menu."),
     },
     // c36b3644c _e tab descriptions (knl1HOkRzw / 7E0XKPYZcj / jBsLHc22T9).
     pluginTabDescriptions: {
-      skills: "Invoke by typing / in chat, or let DeepSeek use them automatically for relevant tasks.",
-      connectors: "Tools and data sources this plugin connects to. Connect each one so DeepSeek can use it.",
-      hooks: "Commands this plugin runs automatically — on session events, or when its skills are used.",
+      skills: t("Invoke by typing / in chat, or let DeepSeek use them automatically for relevant tasks."),
+      connectors: t("Tools and data sources this plugin connects to. Connect each one so DeepSeek can use it."),
+      hooks: t("Commands this plugin runs automatically — on session events, or when its skills are used."),
     },
     // c5fb58ef0 personal removal dialog body (xonrKBdErN + GXIZPZXIvC); its
     // claude.ai "project files synced" sentence has no local counterpart.
-    connectorRemoveNote: "However, DeepSeek won’t be able to access new content or perform new tasks.",
+    connectorRemoveNote: t("However, DeepSeek won’t be able to access new content or perform new tasks."),
   };
 }
 
@@ -219,22 +220,22 @@ export function customizeCore(core) {
 // (KODL04UyPx, MMd95RjV2L), customize-connectors :2565-2590 (tDkUqq5UZf) and
 // c5fb58ef0 (6ZBacUc8Qf).
 export const CONNECTOR_TOASTS = Object.freeze({
-  connectFailed: "Connection to server failed. You can try again.",
-  refreshFailed: "Couldn’t refresh tools list. You can try again.",
-  refreshed: "Tools list refreshed",
-  removeFailed: "Failed to remove server",
+  connectFailed: t("Connection to server failed. You can try again."),
+  refreshFailed: t("Couldn’t refresh tools list. You can try again."),
+  refreshed: t("Tools list refreshed"),
+  removeFailed: t("Failed to remove server"),
 });
 
 // ---------------------------------------------------------------------------
 // MCP servers ("Connectors")
 
 export const MCP_STATUS_LABELS = Object.freeze({
-  connected: "Connected",
-  connecting: "Connecting",
-  unreachable: "Server not responding",
-  signIn: "Sign-in required",
-  disabled: "Disabled",
-  notStarted: "Not started",
+  connected: t("Connected"),
+  connecting: t("Connecting"),
+  unreachable: t("Server not responding"),
+  signIn: t("Sign-in required"),
+  disabled: t("Disabled"),
+  notStarted: t("Not started"),
 });
 
 // runtimeStatus is null whenever no thread runtime backs the listing; that is
@@ -297,9 +298,9 @@ export function filterMcp(rows, { query = "" } = {}) {
 // customize-connectors Ja (:3013-3023): the uncontained "Filter by status"
 // segments, shown above the table whenever at least one connector exists.
 export const MCP_STATUS_FILTERS = Object.freeze([
-  Object.freeze({ value: "all", label: "All" }),
-  Object.freeze({ value: "connected", label: "Connected" }),
-  Object.freeze({ value: "notConnected", label: "Not connected" }),
+  Object.freeze({ value: "all", label: t("All") }),
+  Object.freeze({ value: "connected", label: t("Connected") }),
+  Object.freeze({ value: "notConnected", label: t("Not connected") }),
 ]);
 
 // :3361-3420 Ge: "connected" keeps the connected rows (M), "notConnected" the
@@ -323,7 +324,7 @@ export function connectorsListView({ total = 0, visible = 0, status = "all", que
   return {
     filter: total > 0,
     table,
-    filterEmpty: !table && status !== "all" && !searching ? (status === "connected" ? "Nothing connected." : "Nothing to connect.") : null,
+    filterEmpty: !table && status !== "all" && !searching ? (status === "connected" ? t("Nothing connected.") : t("Nothing to connect.")) : null,
     empty: !table && (searching || status === "all") ? (searching ? "search" : "empty") : null,
   };
 }
@@ -340,10 +341,10 @@ export function connectorsListView({ total = 0, visible = 0, status = "all", que
 //   never-started rows get Connect (the reload). A disabled server cannot be
 //   started from here, so its Connect is disabled (the source's unavailable
 //   connector also shows a disabled Connect).
-export const CONNECTOR_ACTION_LABELS = Object.freeze({ reconnect: "Reconnect", signIn: "Sign in", connect: "Connect" });
+export const CONNECTOR_ACTION_LABELS = Object.freeze({ reconnect: t("Reconnect"), signIn: t("Sign in"), connect: t("Connect") });
 
 export function connectorDetailState(row) {
-  const state = (view, issue, action, disabled = false) => ({ view, issue, action, label: action ? (issue ? "Reconnect" : CONNECTOR_ACTION_LABELS[action]) : null, disabled });
+  const state = (view, issue, action, disabled = false) => ({ view, issue, action, label: action ? (issue ? CONNECTOR_ACTION_LABELS.reconnect : CONNECTOR_ACTION_LABELS[action]) : null, disabled });
   switch (row?.kind) {
     case "connected": return state("connected", false, null);
     case "connecting": return state("checking", false, null);
@@ -356,12 +357,12 @@ export function connectorDetailState(row) {
 
 // En message copy (:5QF1f3BckZ / :3lTGLnIzRn), {name} = the connector's display name.
 export function connectorDetailMessage(state, name) {
-  return state.issue ? `Your connection to ${name} stopped working. Reconnect to continue.` : `You’re not connected to ${name} yet.`;
+  return state.issue ? t("Your connection to {name} stopped working. Reconnect to continue.", { name }) : t("You’re not connected to {name} yet.", { name });
 }
 
 export function validateServerName(name) {
-  if (typeof name !== "string" || !name.trim()) return "Enter a connector name.";
-  if (!SERVER_NAME_PATTERN.test(name)) return "Use 1–64 letters, digits, dots, dashes or underscores for the name.";
+  if (typeof name !== "string" || !name.trim()) return t("Enter a connector name.");
+  if (!SERVER_NAME_PATTERN.test(name)) return t("Use 1–64 letters, digits, dots, dashes or underscores for the name.");
   return "";
 }
 
@@ -381,11 +382,11 @@ export function mcpServerConfigValue({ command, args = [], url } = {}) {
   }
   if (link) {
     let parsed;
-    try { parsed = new URL(link); } catch { throw new Error("Enter a valid http(s) URL."); }
-    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Enter a valid http(s) URL.");
+    try { parsed = new URL(link); } catch { throw new Error(t("Enter a valid http(s) URL.")); }
+    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(t("Enter a valid http(s) URL."));
     return { url: parsed.href };
   }
-  throw new Error("Enter a command or a URL.");
+  throw new Error(t("Enter a command or a URL."));
 }
 
 export function mcpBatchWriteParams(name, value) {
@@ -461,7 +462,7 @@ export function pluginMenuGroups(plugins, skills) {
   const counts = new Map();
   for (const plugin of plugins) counts.set(plugin.name, (counts.get(plugin.name) || 0) + 1);
   return plugins.filter((plugin) => plugin.enabled).map((plugin) => {
-    const label = counts.get(plugin.name) > 1 && plugin.source === "local" ? `${plugin.name} (local)` : plugin.name;
+    const label = counts.get(plugin.name) > 1 && plugin.source === "local" ? t("{name} (local)", { name: plugin.name }) : plugin.name;
     // Cr's hover card reads sourcePluginName for plugin-owned skills.
     return { id: plugin.id, label, items: skillMenuItems(skills.filter((skill) => skill.pluginId === plugin.id)).map((item) => ({ ...item, sourcePluginName: label })) };
   }).filter((group) => group.items.length > 0);
@@ -482,36 +483,36 @@ export const SKILLS_CHANGED_DEBOUNCE_MS = 250;
 // Plugin installs (DeepSeek core, harness plugins.js over dsh-plugin-manager).
 
 const INSTALL_FAILURES = {
-  "pnpm-missing": "The package manager (pnpm) could not be started.",
-  timeout: "The installation timed out.",
-  "not-found": "No package was found for this spec.",
-  "no-matching-version": "No version of this package matches.",
-  network: "The package registry could not be reached. Check your connection and try again.",
-  "disk-full": "There is not enough disk space.",
-  permission: "The plugin folder is not writable.",
-  "build-blocked": "The package needs to run build scripts.",
-  integrity: "The downloaded package failed its integrity check.",
+  "pnpm-missing": t("The package manager (pnpm) could not be started."),
+  timeout: t("The installation timed out."),
+  "not-found": t("No package was found for this spec."),
+  "no-matching-version": t("No version of this package matches."),
+  network: t("The package registry could not be reached. Check your connection and try again."),
+  "disk-full": t("There is not enough disk space."),
+  permission: t("The plugin folder is not writable."),
+  "build-blocked": t("The package needs to run build scripts."),
+  integrity: t("The downloaded package failed its integrity check."),
 };
 const MANAGEMENT_ERRORS = {
-  "not-bundle": "This package is not a DeepSeek Harness plugin.",
-  "not-removable": "This plugin is part of Code Desktop and cannot be removed.",
-  "management-required": "Code Desktop needs this plugin.",
-  "invalid-spec": "Enter a package name, absolute path, git URL or tarball URL.",
-  "incompatible-version": "This plugin does not support this DeepSeek Harness version.",
-  "bundle-in-use": "This plugin is in use and cannot be removed now.",
+  "not-bundle": t("This package is not a DeepSeek Harness plugin."),
+  "not-removable": t("This plugin is part of Code Desktop and cannot be removed."),
+  "management-required": t("Code Desktop needs this plugin."),
+  "invalid-spec": t("Enter a package name, absolute path, git URL or tarball URL."),
+  "incompatible-version": t("This plugin does not support this DeepSeek Harness version."),
+  "bundle-in-use": t("This plugin is in use and cannot be removed now."),
 };
 
 // A finished install/remove/toggle (dsh-plugin-manager ChangeResult) → what the page says.
 export function pluginChangeOutcome(result) {
-  if (!result || typeof result !== "object") return { ok: false, message: "The plugin change did not finish." };
-  if (result.application === "cancelled") return { ok: false, cancelled: true, message: "Installation cancelled." };
+  if (!result || typeof result !== "object") return { ok: false, message: t("The plugin change did not finish.") };
+  if (result.application === "cancelled") return { ok: false, cancelled: true, message: t("Installation cancelled.") };
   const pending = Array.isArray(result.pendingBuilds) ? result.pendingBuilds.filter((name) => typeof name === "string") : [];
   if (result.error || result.application === "failed" || (result.stage === "install" && result.changed !== true)) {
     const kind = result.packageResult?.kind;
     const incompatible = Array.isArray(result.error?.incompatible) && result.error.incompatible.length
       ? ` (${result.error.incompatible.map((item) => `${item.name}@${item.version}`).join(", ")})` : "";
     const message = (result.error?.code && MANAGEMENT_ERRORS[result.error.code] ? MANAGEMENT_ERRORS[result.error.code] + incompatible : "")
-      || (kind && INSTALL_FAILURES[kind]) || text(result.error?.diagnostic).trim() || "The plugin change failed.";
+      || (kind && INSTALL_FAILURES[kind]) || text(result.error?.diagnostic).trim() || t("The plugin change failed.");
     return { ok: false, message, pendingBuilds: pending, output: text(result.packageResult?.output) };
   }
   return { ok: true, restartRequired: result.application === "restart-required" && result.changed !== false, bundle: text(result.bundle) || text(result.target) };
@@ -520,12 +521,11 @@ export function pluginChangeOutcome(result) {
 // install-state progress → one status line.
 export function pluginInstallStatus(install) {
   if (!install) return "";
-  if (install.phase === "cancelling") return "Cancelling…";
-  if (install.phase === "applying") return "Applying…";
+  if (install.phase === "cancelling") return t("Cancelling…");
+  if (install.phase === "applying") return t("Applying…");
   const attempt = install.attempt;
-  const registry = attempt?.registry ? ` from ${attempt.registry}` : "";
   const count = attempt && attempt.total > 1 ? ` (${attempt.index + 1}/${attempt.total})` : "";
-  return `Installing${registry}${count}…`;
+  return attempt?.registry ? t("Installing from {registry}{count}…", { registry: attempt.registry, count }) : t("Installing{count}…", { count });
 }
 
 export const PLUGIN_LOG_LIMIT = 20000;

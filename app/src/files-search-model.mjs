@@ -1,3 +1,5 @@
+import { t, tn } from "../electron/i18n/index.mjs";
+
 // Source adapter for the async filename branch of Qh, panes-tile-current.js.
 // The official ready FileIndex branch is immediate; this backend has no index.
 export const FILE_SEARCH_DELAY = 120;
@@ -36,13 +38,13 @@ export function revealChild(relative, revealPath) {
 
 export function searchLimitMessage({ matches = [], truncationReasons = [] }) {
   if (truncationReasons.length && truncationReasons.every(reason => reason === "result-limit"))
-    return `Only the first ${matches.length} ${matches.length === 1 ? "result is" : "results are"} shown. Keep typing to narrow.`;
+    return tn(matches.length, "Only the first {count} result is shown. Keep typing to narrow.", "Only the first {count} results are shown. Keep typing to narrow.");
   const enumerationLimits = new Set(["candidate-limit", "index-byte-limit", "git-output-limit", "entry-limit",
     "directory-limit", "depth-limit", "unsupported-path", "workspace-changed"]);
   if (truncationReasons.some(reason => enumerationLimits.has(reason)))
-    return "Only part of this project was searched. Choose a smaller folder for a more complete search.";
-  if (truncationReasons.includes("result-output-limit")) return "Some matching files could not be shown.";
-  return "Search results are incomplete.";
+    return t("Only part of this project was searched. Choose a smaller folder for a more complete search.");
+  if (truncationReasons.includes("result-output-limit")) return t("Some matching files could not be shown.");
+  return t("Search results are incomplete.");
 }
 
 // Build text nodes, never HTML. A match in either UTF-16 half lights the whole

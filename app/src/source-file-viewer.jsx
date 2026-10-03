@@ -11,6 +11,7 @@ import { breadcrumbParts, csvTruncationCaption, fileHighlightLanguage, filePrevi
 import { FILE_MEDIA_KINDS, fileMediaErrorCopy, fileTabReason, fileUnavailableCopy, VIEW_AS_TEXT_LABEL } from "./file-unavailable-model.mjs";
 import "./highlight-tokens.css";
 import "./source-file-viewer.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Files pane file viewer (2.2553.1 ion-dist/assets/v1/cd2efac6e-CAi4fxTN.js,
 // prettier-formatted, jo :2576-4674). Mounted by FilePane for the active tab.
@@ -28,18 +29,18 @@ import "./source-file-viewer.css";
 // ("Preview" / "View source"); a file opened at a line starts on its source.
 // Images, video and audio (nr/ir) render from their file:// URL.
 export const FILE_VIEWER_LABELS = Object.freeze({
-  loading: "Loading file",
-  pathCopied: "Path copied to clipboard.",
-  plainNotice: "Shown as plain text: formatting this file would be too slow.",
+  loading: t("Loading file"),
+  pathCopied: t("Path copied to clipboard."),
+  plainNotice: t("Shown as plain text: formatting this file would be too slow."),
   // The subheader Eye/Code toggle (cd2efac6e :4169-4186).
-  preview: "Preview",
-  viewSource: "View source",
+  preview: t("Preview"),
+  viewSource: t("View source"),
   // EpitaxyCsvPreview (cd5fd9055-AkFKEmX0.js).
-  tablePreview: "Table preview",
-  csvEmpty: "This file is empty.",
-  csvError: "Couldn’t parse this file as a table. Switch to Source to view the raw text.",
+  tablePreview: t("Table preview"),
+  csvEmpty: t("This file is empty."),
+  csvError: t("Couldn’t parse this file as a table. Switch to Source to view the raw text."),
 });
-export const copyPathLabel = (path) => `Copy path ${path}`;
+export const copyPathLabel = (path) => t("Copy path {path}", { path });
 
 // Yo (:4804-4872) with an onCopyPath and no lister: a button "text-body
 // text-secondary flex min-w-0 text-left rounded-[3px] -mx-0.75

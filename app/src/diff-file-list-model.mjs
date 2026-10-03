@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // Changes pane "Changed files" column model (2.2553.1). Pure: no React, no DOM.
 // Sources (readable/):
 // - panes-diff-view-current.js:2577-2586 di/fi (the test-path regex, ported exactly),
@@ -21,18 +23,18 @@ export const LARGE_DIFF_LINES = 5000;
 export const DIFF_FILE_KINDS = Object.freeze(["test", "build", "generated"]);
 
 export const DIFF_FILE_LIST_LABELS = Object.freeze({
-  changedFiles: "Changed files",
-  showFiles: "Show files",
-  hideFiles: "Hide files",
-  resize: "Resize file list",
-  groupByFolder: "Group files by folder",
-  groupByKind: "Separate test, build, and generated files",
-  test: "Test files",
-  build: "Build files",
-  generated: "Generated files",
-  largeBanner: "Files are collapsed for large diffs. Select a file to expand it.",
-  expandAllTooLarge: "This diff is too large to expand at once. Select a file to expand it.",
-  coachmark: "Open the file list to see everything this diff touches and jump between files.",
+  changedFiles: t("Changed files"),
+  showFiles: t("Show files"),
+  hideFiles: t("Hide files"),
+  resize: t("Resize file list"),
+  groupByFolder: t("Group files by folder"),
+  groupByKind: t("Separate test, build, and generated files"),
+  test: t("Test files"),
+  build: t("Build files"),
+  generated: t("Generated files"),
+  largeBanner: t("Files are collapsed for large diffs. Select a file to expand it."),
+  expandAllTooLarge: t("This diff is too large to expand at once. Select a file to expand it."),
+  coachmark: t("Open the file list to see everything this diff touches and jump between files."),
 });
 
 // di (:2577-2583), ported exactly.

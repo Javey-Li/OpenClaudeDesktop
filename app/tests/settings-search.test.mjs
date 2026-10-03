@@ -51,7 +51,7 @@ test('nav-hidden sections leave the nav and the narrow tabs but stay searchable'
  const main=fs.readFileSync(path.resolve(import.meta.dirname,'../src/main.jsx'),'utf8');
  const settingsItem=main.indexOf('data-testid="user-menu-settings"'),usageItem=main.indexOf('data-testid="user-menu-usage"');
  assert.ok(settingsItem>0&&usageItem>settingsItem&&main.slice(settingsItem,usageItem).split('<SourceMenu.Item').length===2,'Usage follows Settings in the account menu');
- assert.match(main.slice(usageItem-80,usageItem+120),/icon="UsageGaugeMiddle" data-testid="user-menu-usage" onClick=\{\(\) => setSettings\("usage"\)\}>Usage</);
+ assert.match(main.slice(usageItem-80,usageItem+120),/icon="UsageGaugeMiddle" data-testid="user-menu-usage" onClick=\{\(\) => setSettings\("usage"\)\}>\{t\("Usage"\)\}</);
 });
 // Fidelity F14: c71860c77-B72Ova_w It — General lists version, Run on startup, Menu bar and Storage; keep-awake is a Code row only.
 test("searching 'keep awake' finds a single Code section hit; General no longer repeats the keep-awake rows",async()=>{

@@ -3,6 +3,7 @@ import { Icon } from "./icons";
 import { SourceTooltip } from "./source-tooltip.jsx";
 import { ATTENTION_KINDS, PLACEHOLDER_WIDTHS, narrowRelativeTime, sessionsLimit } from "./home-model.mjs";
 import "./source-action-center.css";
+import { getLocale, t } from "../electron/i18n/index.mjs";
 
 // 2.2553.1 Action Center (cc43287c9 Zk/Qk/tA/Ak/Dk/Ok/Mk/Nk). Only the Sessions
 // section has a local data source; Projects and Pull requests are omitted, which
@@ -48,7 +49,7 @@ function RowButton({ kind, title, subtitle, meta, time, now, ...props }) {
       <span className="hac-main-trail">
         {meta ? <span className="hac-meta">{meta}</span> : null}
         <span className="hac-time">
-          {time ? <time dateTime={new Date(time).toISOString()}>{narrowRelativeTime(time, now)}</time> : null}
+          {time ? <time dateTime={new Date(time).toISOString()}>{narrowRelativeTime(time, now, getLocale())}</time> : null}
         </span>
         <Icon name="CaretRight" size={16} className="hac-caret" />
       </span>
@@ -59,7 +60,7 @@ function RowButton({ kind, title, subtitle, meta, time, now, ...props }) {
 function SessionRow({ row, menuOpen, now, identity, onOpen, onDismiss, onContextMenu }) {
   const { session, kind } = row;
   const name = session.name || session.preview || "";
-  const title = name || "Untitled session";
+  const title = name || t("Untitled session");
   return (
     <li className="hac-row" data-menu-open={menuOpen || undefined} data-attention-kind={kind} data-session-id={session.id}
       onContextMenu={onContextMenu ? (event) => {
@@ -68,11 +69,11 @@ function SessionRow({ row, menuOpen, now, identity, onOpen, onDismiss, onContext
       } : undefined}>
       <div className="hac-row-body">
         <RowButton kind={kind} title={title} meta={repoMeta(identity)} time={row.timestamp} now={now}
-          aria-label={`Open session ${name}`} onClick={() => onOpen(session, kind)} />
+          aria-label={t("Open session {name}", { name })} onClick={() => onOpen(session, kind)} />
       </div>
       {onDismiss && (
-        <SourceTooltip content="Dismiss" hoverable={false}>
-          <button type="button" className="hac-dismiss" data-row-dismiss="" aria-label="Dismiss session"
+        <SourceTooltip content={t("Dismiss")} hoverable={false}>
+          <button type="button" className="hac-dismiss" data-row-dismiss="" aria-label={t("Dismiss session")}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => { event.stopPropagation(); onDismiss(session, kind); }}>
             <Icon name="X" size={16} />
@@ -93,16 +94,16 @@ function SessionsSection({ rows, limit, menuOpenId, now, repoIdentities, onOpen,
   return (
     <section className="hac-section" data-action-center-section="sessions">
       <header className="hac-header">
-        <h2 className="hac-heading">Sessions</h2>
+        <h2 className="hac-heading">{t("Sessions")}</h2>
         <span className="sh-spacer" />
         {clearable && onMarkAllRead && (
           <button type="button" className="hac-ghost" onClick={() => onMarkAllRead(rows.filter((row) => row.kind === "unread").map((row) => row.session))}>
-            Mark all as read
+            {t("Mark all as read")}
           </button>
         )}
         {rows.length > limit && (
           <button type="button" className="hac-ghost" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-            {expanded ? "Show less" : `Show ${hidden} more`}
+            {expanded ? t("Show less") : t("Show {count} more", { count: hidden })}
           </button>
         )}
       </header>
@@ -133,7 +134,7 @@ function PlaceholderSection({ title, count, limit, dismissSlot }) {
     <section className="hac-section" data-action-center-section="placeholder">
       <header className="hac-header">
         <h2 className="hac-heading">{title}</h2>
-        {count > limit && <button type="button" className="hac-ghost is-invisible" tabIndex={-1} aria-hidden="true">Show {count - limit} more</button>}
+        {count > limit && <button type="button" className="hac-ghost is-invisible" tabIndex={-1} aria-hidden="true">{t("Show {count} more", { count: count - limit })}</button>}
       </header>
       <ul role="list" aria-hidden="true" className="hac-list">
         {Array.from({ length: Math.min(count, limit) }, (_, index) => (
@@ -152,8 +153,8 @@ function PlaceholderSection({ title, count, limit, dismissSlot }) {
 export function SourceActionCenterPlaceholder({ counts, limit }) {
   return (
     <div className="source-action-center" aria-busy="true">
-      <span className="hac-sr-only" data-skeleton-label="">Loading…</span>
-      <PlaceholderSection title="Sessions" count={counts?.sessions || 0} limit={limit} dismissSlot />
+      <span className="hac-sr-only" data-skeleton-label="">{t("Loading…")}</span>
+      <PlaceholderSection title={t("Sessions")} count={counts?.sessions || 0} limit={limit} dismissSlot />
     </div>
   );
 }

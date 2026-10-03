@@ -4,6 +4,7 @@ import { SourceMenu, useMenuPopup } from "./source-menu";
 import { SourceTooltip } from "./source-tooltip";
 import { isAtEdge } from "./tile-layout-model.mjs";
 import "./source-pane-controls.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Pane header trailing cluster, written from the traced 2.2553.1 behavior
 // (panes-toggle-current.js ka :1448-1560, sa :1022-1194, ca :1194-1298;
@@ -23,16 +24,16 @@ const LONG_PRESS_SLOP_PX = 10; // movement that cancels the press
 const HOVER_OPEN_MS = 100; // Base UI Menu.Trigger openOnHover delay
 const HOVER_LEAVE_GRACE_MS = 120; // time allowed to cross from the trigger into the popup
 const EDGES = [
-  ["left", "Move to left"],
-  ["right", "Move to right"],
-  ["top", "Move to top"],
-  ["bottom", "Move to bottom"],
+  ["left", t("Move to left")],
+  ["right", t("Move to right")],
+  ["top", t("Move to top")],
+  ["bottom", t("Move to bottom")],
 ];
 
 function GhostButton({ label, icon, shortcut, tooltip = label, tooltipOpen, onClick, className = "", children, buttonRef, ...rest }) {
   return (
-    <SourceTooltip content={tooltip} shortcut={shortcut} side="bottom" hoverable={false} open={tooltipOpen}>
-      <button type="button" ref={buttonRef} className={`source-icon-button spc-ghost ${className}`.trim()} aria-label={label} onClick={onClick}
+    <SourceTooltip content={t(tooltip)} shortcut={shortcut} side="bottom" hoverable={false} open={tooltipOpen}>
+      <button type="button" ref={buttonRef} className={`source-icon-button spc-ghost ${className}`.trim()} aria-label={t(label)} onClick={onClick}
         onMouseDown={(event) => event.preventDefault()} {...rest}>
         {children ?? <Icon name={icon} size={16} />}
       </button>
@@ -101,21 +102,21 @@ function ArrangePopupContent({ tileId, layout, expanded, onMoveToEdge, onToggleE
   };
   return (
     <>
-      <PickGroup label="Move">
+      <PickGroup label={t("Move")}>
         {EDGES.map(([edge, label]) => (
           <PickButton key={edge} kind={edge} label={label} active={atEdge(edge)} data-pane-move={edge} onPick={() => pickEdge(edge)} />
         ))}
       </PickGroup>
-      <PickGroup label="Fill and arrange">
-        <PickButton kind="fill" label="Fill" active={expanded} shortcut={TOGGLE_SHORTCUT_LABEL} data-pane-arrange="fill" onPick={() => pickMode(true)} />
-        <PickButton kind="tile" label="Tile" active={!expanded} shortcut={TOGGLE_SHORTCUT_LABEL} data-pane-arrange="tile" onPick={() => pickMode(false)} />
+      <PickGroup label={t("Fill and arrange")}>
+        <PickButton kind="fill" label={t("Fill")} active={expanded} shortcut={TOGGLE_SHORTCUT_LABEL} data-pane-arrange="fill" onPick={() => pickMode(true)} />
+        <PickButton kind="tile" label={t("Tile")} active={!expanded} shortcut={TOGGLE_SHORTCUT_LABEL} data-pane-arrange="tile" onPick={() => pickMode(false)} />
       </PickGroup>
       {onPopOut && (
         <>
           <SourceMenu.Separator />
           <button type="button" className="spc-open-window" data-pane-popout="" onClick={() => { onPopOut(); done(); }}>
             <Icon name="WindowNew" size={16} />
-            <span className="spc-open-window-label">Open in new window</span>
+            <span className="spc-open-window-label">{t("Open in new window")}</span>
           </button>
         </>
       )}
@@ -169,7 +170,7 @@ function ArrangeTrigger({ tileId, layout, expanded, onMoveToEdge, onToggleExpand
     return () => { popup.removeEventListener("pointerenter", enter); popup.removeEventListener("pointerleave", leave); over.current.popup = false; };
   }, [open, scheduleHoverClose]);
 
-  const label = expanded ? "Collapse" : "Expand";
+  const label = expanded ? t("Collapse") : t("Expand");
   const cancelPress = () => { clearTimer("press"); press.current.origin = null; };
   return (
     <>
@@ -276,7 +277,7 @@ export function PaneSettingsMenu({ paneName, sections = [], unroll = true }) {
     && typeof only.label === "string" && only.variant !== "danger";
   if (unroll && simple)
     return <GhostButton label={only.label} icon={only.icon} onClick={only.onSelect} disabled={only.disabled} data-pane-settings-unrolled="" />;
-  const label = `${paneName} settings`;
+  const label = t("{pane} settings", { pane: t(paneName) });
   return (
     <>
       <SourceTooltip content={label} side="bottom" hoverable={false} open={open ? false : undefined}>
@@ -344,7 +345,7 @@ export function SourcePaneControls({ tileId, paneName, layout, expanded = false,
 // while the window stays on top, label and bottom tooltip "Keep window on
 // top" / "Stop keeping window on top".
 export function SourcePopoutControls({ paneName, menuSections, leading = null, onDock, alwaysOnTop = false, onToggleAlwaysOnTop }) {
-  const pinLabel = alwaysOnTop ? "Stop keeping window on top" : "Keep window on top";
+  const pinLabel = alwaysOnTop ? t("Stop keeping window on top") : t("Keep window on top");
   return (
     <div className="spc-controls" data-pane-controls="popout">
       {leading}

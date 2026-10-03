@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { holdModalInert } from "./modal-inert.mjs";
 import { useModalPresence } from "./use-modal-presence";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
+import { t } from "../electron/i18n/index.mjs";
 import "./source-dialog.css";
 
 /*
@@ -72,7 +73,7 @@ export function SourceDialogFooter({ className = "", children }) {
   return <footer className={`sdlg-footer ${className}`.trim()}>{children}</footer>;
 }
 
-export function SourceDialogCloseButton({ flush = false, label = "Close", onClick }) {
+export function SourceDialogCloseButton({ flush = false, label = t("Close"), onClick }) {
   return <SourceSettingsButton variant="ghost" iconOnly icon="X" iconSize="auto" aria-label={label}
     className={`sdlg-close ${flush ? "sdlg-close-flush" : ""}`.trim()} onClick={onClick} />;
 }
@@ -209,7 +210,7 @@ function DialogPopup({
  * (default MODAL_LAYER) lifts a confirm opened from a surface above it, e.g. the z-500 Settings dialog.
  */
 export function SourceConfirmationDialog({
-  open = true, title, body, confirmLabel = "Confirm", cancelLabel = "Cancel", confirmVariant = "primary",
+  open = true, title, body, confirmLabel = t("Confirm"), cancelLabel = t("Cancel"), confirmVariant = "primary",
   pending = false, onConfirm, onCancel, onExited, className = "", descriptionClassName, layer, children,
 }) {
   const confirm = useRef(null);

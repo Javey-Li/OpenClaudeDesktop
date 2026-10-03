@@ -5,6 +5,13 @@
 // counterpart. Each click is a desktop event; main.cjs handles the window,
 // zoom and log events itself and forwards the rest to the renderer.
 const { ZOOM_STEP } = require("./window-chrome.cjs");
+// Labels are translated when a template is built (installAppMenu runs again
+// after the main process sets the locale or the language preference changes).
+const { t, getLocale } = require("./i18n/index.mjs");
+// Electron names label-less role items in English; other locales name them
+// explicitly (en-US keeps the native role labels).
+const roleLabel = (text, values) => getLocale() === "en-US" ? {} : { label: t(text, values) };
+const APP_NAME = "Code Desktop";
 const SEPARATOR = Object.freeze({ type: "separator" });
 // RZ(e, dispatch, "cmd"): when a menu item fires through its own accelerator
 // with ⌘ held, the chord reached the menu because the page did not take it
@@ -19,17 +26,17 @@ function appSubmenu(emit) {
   return {
     label: "Code Desktop",
     submenu: [
-      { role: "about" },
+      { role: "about", ...roleLabel("About {appName}", { appName: APP_NAME }) },
       SEPARATOR,
-      { label: "Settings…", accelerator: "CommandOrControl+,", click: (_item, window) => emit({ kind: "open-settings" }, window) },
+      { label: t("Settings…"), accelerator: "CommandOrControl+,", click: (_item, window) => emit({ kind: "open-settings" }, window) },
       SEPARATOR,
-      { role: "services" },
+      { role: "services", ...roleLabel("Services") },
       SEPARATOR,
-      { role: "hide" },
-      { role: "hideOthers" },
-      { role: "unhide" },
+      { role: "hide", ...roleLabel("Hide {appName}", { appName: APP_NAME }) },
+      { role: "hideOthers", ...roleLabel("Hide Others") },
+      { role: "unhide", ...roleLabel("Show All") },
       SEPARATOR,
-      { role: "quit" },
+      { role: "quit", ...roleLabel("Quit {appName}", { appName: APP_NAME }) },
     ],
   };
 }
@@ -46,21 +53,21 @@ function appSubmenu(emit) {
 // reached Close Session through its accelerator is marked and main.cjs does
 // not dispatch it again; a pane window's ⌘W closes that window.
 function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { available: false, enabled: false }, emit }) {
-  const closeWindow = (accelerator = "CmdOrCtrl+W") => ({ label: "Close Window", accelerator, role: "close" });
+  const closeWindow = (accelerator = "CmdOrCtrl+W") => ({ label: t("Close Window"), accelerator, role: "close" });
   const closeSession = (_item, window, event) => emit({ kind: "close-session", ...(rendererOwned(event) ? { accelerator: true } : {}) }, window);
   const close = session.open
-    ? [{ label: "Close Session", accelerator: "CmdOrCtrl+W", click: closeSession }, closeWindow("CmdOrCtrl+Shift+W")]
+    ? [{ label: t("Close Session"), accelerator: "CmdOrCtrl+W", click: closeSession }, closeWindow("CmdOrCtrl+Shift+W")]
     : closePane
-      ? [{ label: "Close Pane", accelerator: "CmdOrCtrl+W", click: (_item, window) => emit({ kind: "close-pane" }, window) }, closeWindow("CmdOrCtrl+Shift+W")]
+      ? [{ label: t("Close Pane"), accelerator: "CmdOrCtrl+W", click: (_item, window) => emit({ kind: "close-pane" }, window) }, closeWindow("CmdOrCtrl+Shift+W")]
       : [closeWindow(), { ...closeWindow("CmdOrCtrl+Shift+W"), visible: false, acceleratorWorksWhenHidden: true }];
   const reopen = reopenClosed.available
-    ? [{ label: "Reopen Closed Session", accelerator: "CmdOrCtrl+Shift+T", registerAccelerator: true, enabled: reopenClosed.enabled === true,
+    ? [{ label: t("Reopen Closed Session"), accelerator: "CmdOrCtrl+Shift+T", registerAccelerator: true, enabled: reopenClosed.enabled === true,
       click: dispatch(emit, { kind: "reopen-closed" }) }]
     : [];
   return [
-    { label: "New Session", accelerator: "CmdOrCtrl+N", click: (_item, window) => emit({ kind: "new-session" }, window) },
+    { label: t("New Session"), accelerator: "CmdOrCtrl+N", click: (_item, window) => emit({ kind: "new-session" }, window) },
     SEPARATOR,
-    { label: "Open Folder…", accelerator: "CmdOrCtrl+Shift+O", click: (_item, window) => emit({ kind: "open-folder" }, window) },
+    { label: t("Open Folder…"), accelerator: "CmdOrCtrl+Shift+O", click: (_item, window) => emit({ kind: "open-folder" }, window) },
     SEPARATOR,
     ...close,
     ...reopen,
@@ -73,11 +80,11 @@ function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { 
 // find-open / find-step. PSr's Find in Files… has no local counterpart.
 function findSubmenu(emit) {
   return {
-    label: "Find",
+    label: t("Find"),
     submenu: [
-      { label: "Find…", accelerator: "CmdOrCtrl+F", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-open" }, window) },
-      { label: "Find Next", accelerator: "CmdOrCtrl+G", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-step", forward: true }, window) },
-      { label: "Find Previous", accelerator: "CmdOrCtrl+Shift+G", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-step", forward: false }, window) },
+      { label: t("Find…"), accelerator: "CmdOrCtrl+F", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-open" }, window) },
+      { label: t("Find Next"), accelerator: "CmdOrCtrl+G", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-step", forward: true }, window) },
+      { label: t("Find Previous"), accelerator: "CmdOrCtrl+Shift+G", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-step", forward: false }, window) },
     ],
   };
 }
@@ -86,16 +93,16 @@ function findSubmenu(emit) {
 // Select All, then a separator and the Find submenu. FSr has no Speech submenu.
 function editMenuItems(emit = () => {}) {
   return [
-    { label: "Undo", accelerator: "CmdOrCtrl+Z", role: "undo" },
-    { label: "Redo", accelerator: "CmdOrCtrl+Shift+Z", role: "redo" },
+    { label: t("Undo"), accelerator: "CmdOrCtrl+Z", role: "undo" },
+    { label: t("Redo"), accelerator: "CmdOrCtrl+Shift+Z", role: "redo" },
     SEPARATOR,
-    { label: "Cut", accelerator: "CmdOrCtrl+X", role: "cut" },
-    { label: "Copy", accelerator: "CmdOrCtrl+C", role: "copy" },
-    { label: "Paste", accelerator: "CmdOrCtrl+V", role: "paste" },
-    { label: "Paste and Match Style", accelerator: "CmdOrCtrl+Alt+Shift+V", role: "pasteAndMatchStyle" },
-    { label: "Paste and Match Style", accelerator: "CmdOrCtrl+Shift+V", visible: false, acceleratorWorksWhenHidden: true, role: "pasteAndMatchStyle" },
-    { label: "Delete", role: "delete" },
-    { label: "Select All", accelerator: "CmdOrCtrl+A", role: "selectAll" },
+    { label: t("Cut"), accelerator: "CmdOrCtrl+X", role: "cut" },
+    { label: t("Copy"), accelerator: "CmdOrCtrl+C", role: "copy" },
+    { label: t("Paste"), accelerator: "CmdOrCtrl+V", role: "paste" },
+    { label: t("Paste and Match Style"), accelerator: "CmdOrCtrl+Alt+Shift+V", role: "pasteAndMatchStyle" },
+    { label: t("Paste and Match Style"), accelerator: "CmdOrCtrl+Shift+V", visible: false, acceleratorWorksWhenHidden: true, role: "pasteAndMatchStyle" },
+    { label: t("Delete"), role: "delete" },
+    { label: t("Select All"), accelerator: "CmdOrCtrl+A", role: "selectAll" },
     SEPARATOR,
     findSubmenu(emit),
   ];
@@ -114,18 +121,18 @@ function editMenuItems(emit = () => {}) {
 // (Command+Shift+K, RZ → dispatchOpenCommandPalette(true)). Cwr's area
 // checkboxes need at least two areas, so they never appear here.
 function goMenuItems({ canGoBack, canGoForward, emit }) {
-  const back = { label: "Back", accelerator: "Command+[", click: () => emit({ kind: "navigate", delta: -1 }) };
-  const forward = { label: "Forward", accelerator: "Command+]", click: () => emit({ kind: "navigate", delta: 1 }) };
+  const back = { label: t("Back"), accelerator: "Command+[", click: () => emit({ kind: "navigate", delta: -1 }) };
+  const forward = { label: t("Forward"), accelerator: "Command+]", click: () => emit({ kind: "navigate", delta: 1 }) };
   return [
     { ...back, visible: false },
     { ...back, id: "go-back", registerAccelerator: false, enabled: canGoBack === true },
     { ...forward, visible: false },
     { ...forward, id: "go-forward", registerAccelerator: false, enabled: canGoForward === true },
     SEPARATOR,
-    { label: "Previous Session", accelerator: "Command+Shift+[", click: dispatch(emit, { kind: "cycle-session", delta: -1 }) },
-    { label: "Next Session", accelerator: "Command+Shift+]", click: dispatch(emit, { kind: "cycle-session", delta: 1 }) },
+    { label: t("Previous Session"), accelerator: "Command+Shift+[", click: dispatch(emit, { kind: "cycle-session", delta: -1 }) },
+    { label: t("Next Session"), accelerator: "Command+Shift+]", click: dispatch(emit, { kind: "cycle-session", delta: 1 }) },
     SEPARATOR,
-    { label: "Search…", accelerator: "Command+Shift+K", click: dispatch(emit, { kind: "open-search" }) },
+    { label: t("Search…"), accelerator: "Command+Shift+K", click: dispatch(emit, { kind: "open-search" }) },
   ];
 }
 // index.chunk-ChZ67Jhw.js dNr replaces the zoom roles: Actual Size (id
@@ -140,10 +147,10 @@ function zoomMenuItems({ zoomed, emit }) {
   const zoomIn = () => emit({ kind: "zoom", delta: ZOOM_STEP }), zoomOut = () => emit({ kind: "zoom", delta: -ZOOM_STEP });
   const hidden = { visible: false, acceleratorWorksWhenHidden: true };
   return [
-    { id: "actual-size", label: "Actual Size", accelerator: "CmdOrCtrl+0", enabled: zoomed === true, click: reset },
-    { label: "Zoom In", accelerator: "CmdOrCtrl+Plus", click: zoomIn },
+    { id: "actual-size", label: t("Actual Size"), accelerator: "CmdOrCtrl+0", enabled: zoomed === true, click: reset },
+    { label: t("Zoom In"), accelerator: "CmdOrCtrl+Plus", click: zoomIn },
     { label: "Zoom In (indie cooler version)", accelerator: "CmdOrCtrl+=", ...hidden, click: zoomIn },
-    { label: "Zoom Out", accelerator: "CmdOrCtrl+-", click: zoomOut },
+    { label: t("Zoom Out"), accelerator: "CmdOrCtrl+-", click: zoomOut },
     { label: "Zoom In (numpad)", accelerator: "CmdOrCtrl+numadd", ...hidden, click: zoomIn },
     { label: "Zoom Out (numpad)", accelerator: "CmdOrCtrl+numsub", ...hidden, click: zoomOut },
     { id: "actual-size-numpad", label: "Actual Size (numpad)", accelerator: "CmdOrCtrl+num0", ...hidden, enabled: zoomed === true, click: reset },
@@ -160,9 +167,9 @@ function paneMenuItems({ panes, closePane }, emit) {
     return { label: enabled && open ? hide : show, accelerator, enabled, click: dispatch(emit, { kind: "toggle-pane", pane: kind }) };
   };
   return [
-    pane("changes", "Show Changes", "Hide Changes", "CmdOrCtrl+Shift+D"),
-    pane("files", "Show Files", "Hide Files", "CmdOrCtrl+Shift+F"),
-    { label: "Close Pane", accelerator: "CmdOrCtrl+\\", enabled: closePane.enabled, click: dispatch(emit, { kind: "close-pane" }) },
+    pane("changes", t("Show Changes"), t("Hide Changes"), "CmdOrCtrl+Shift+D"),
+    pane("files", t("Show Files"), t("Hide Files"), "CmdOrCtrl+Shift+F"),
+    { label: t("Close Pane"), accelerator: "CmdOrCtrl+\\", enabled: closePane.enabled, click: dispatch(emit, { kind: "close-pane" }) },
   ];
 }
 // pNr: _Nr opens the View submenu with the sidebar item built by gNr. On
@@ -177,30 +184,30 @@ function paneMenuItems({ panes, closePane }, emit) {
 // menu; locally Toggle Developer Tools stays in View for unpackaged builds.
 function viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, emit }) {
   return [
-    { label: sidebarOpen ? "Hide Sidebar" : "Show Sidebar", accelerator: "CmdOrCtrl+B", click: () => emit({ kind: "toggle-sidebar" }) },
+    { label: sidebarOpen ? t("Hide Sidebar") : t("Show Sidebar"), accelerator: "CmdOrCtrl+B", click: () => emit({ kind: "toggle-sidebar" }) },
     SEPARATOR,
     ...paneMenuItems(state, emit),
     SEPARATOR,
     ...zoomMenuItems({ zoomed, emit }),
     SEPARATOR,
-    { role: "reload" },
-    ...(allowDevTools ? [{ role: "toggleDevTools" }] : []),
+    { role: "reload", ...roleLabel("Reload") },
+    ...(allowDevTools ? [{ role: "toggleDevTools", ...roleLabel("Toggle Developer Tools") }] : []),
     SEPARATOR,
-    { label: fullScreen ? "Exit Full Screen" : "Enter Full Screen", accelerator: "Control+Command+F", click: (_item, window) => emit({ kind: "toggle-full-screen" }, window) },
+    { label: fullScreen ? t("Exit Full Screen") : t("Enter Full Screen"), accelerator: "Control+Command+F", click: (_item, window) => emit({ kind: "toggle-full-screen" }, window) },
   ];
 }
 // kNr: Minimize, Zoom, Show Main Window (KK), Bring All to Front.
 function windowMenu(emit) {
   return {
     role: "window",
-    label: "Window",
+    label: t("Window"),
     submenu: [
-      { role: "minimize", label: "Minimize" },
-      { role: "zoom", label: "Zoom" },
+      { role: "minimize", label: t("Minimize") },
+      { role: "zoom", label: t("Zoom") },
       SEPARATOR,
-      { label: "Show Main Window", click: () => emit({ kind: "show-main-window" }) },
+      { label: t("Show Main Window"), click: () => emit({ kind: "show-main-window" }) },
       SEPARATOR,
-      { role: "front", label: "Bring All to Front" },
+      { role: "front", label: t("Bring All to Front") },
     ],
   };
 }
@@ -211,21 +218,21 @@ function windowMenu(emit) {
 function helpMenu(emit) {
   return {
     role: "help",
-    label: "Help",
+    label: t("Help"),
     submenu: [
-      { label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", click: dispatch(emit, { kind: "open-shortcuts" }) },
+      { label: t("Keyboard Shortcuts"), accelerator: "CmdOrCtrl+/", click: dispatch(emit, { kind: "open-shortcuts" }) },
       SEPARATOR,
-      { label: "Troubleshooting", submenu: [{ label: "Show Logs in Finder", click: () => emit({ kind: "show-logs" }) }] },
+      { label: t("Troubleshooting"), submenu: [{ label: t("Show Logs in Finder"), click: () => emit({ kind: "show-logs" }) }] },
     ],
   };
 }
 function appMenuTemplate({ sidebarOpen, canGoBack = false, canGoForward = false, zoomed = false, fullScreen = false, allowDevTools = false, menuState: state = menuState(), emit }) {
   return [
     appSubmenu(emit),
-    { label: "File", submenu: fileMenuItems({ closePane: state.closePane.enabled, session: state.session, reopenClosed: state.reopenClosed, emit }) },
-    { label: "Edit", submenu: editMenuItems(emit) },
-    { label: "View", submenu: viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, emit }) },
-    { label: "Go", submenu: goMenuItems({ canGoBack, canGoForward, emit }) },
+    { label: t("File"), submenu: fileMenuItems({ closePane: state.closePane.enabled, session: state.session, reopenClosed: state.reopenClosed, emit }) },
+    { label: t("Edit"), submenu: editMenuItems(emit) },
+    { label: t("View"), submenu: viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, emit }) },
+    { label: t("Go"), submenu: goMenuItems({ canGoBack, canGoForward, emit }) },
     windowMenu(emit),
     helpMenu(emit),
   ];

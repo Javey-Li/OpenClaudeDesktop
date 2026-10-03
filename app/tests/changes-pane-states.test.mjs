@@ -132,7 +132,7 @@ test('header: ghost ListBullet "Show files" (aria-pressed, ⇧⌘Y) before the s
   assert.doesNotMatch(panel({ tab: 'plan', diff: twoFiles }), /aria-label="(?:Show|Hide) files"/);
   assert.match(header(panel({ loading: true })), /aria-label="Show files"/);
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-session.jsx'), 'utf8');
-  assert.match(src, /<SourceTooltip content=\{diffShowTree \? "Hide files" : "Show files"\} shortcut=\{treeToggleRef \? TREE_TOGGLE_SHORTCUT : undefined\}\s*side="top" align="start" hoverable=\{false\}>/);
+  assert.match(src, /<SourceTooltip content=\{diffShowTree \? t\("Hide files"\) : t\("Show files"\)\} shortcut=\{treeToggleRef \? TREE_TOGGLE_SHORTCUT : undefined\}\s*side="top" align="start" hoverable=\{false\}>/);
 });
 
 test('file list column: hidden by default with the "Show files" edge; shown with the Changed files tree and its resize handle', () => {

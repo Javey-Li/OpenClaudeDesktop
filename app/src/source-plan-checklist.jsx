@@ -3,6 +3,7 @@ import { Icon } from "./icons";
 import { SourceSpinner } from "./source-pane-states.jsx";
 import { SourceInlineRuns } from "./source-user-text.jsx";
 import "./source-plan-pane.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // The plan pane's task list (turn/plan/updated steps {step, status}), shared
 // with the todo_write tool row, which the source also renders as its todo
@@ -20,10 +21,10 @@ export function planStepStatus(status) {
 const BOX = "shrink-0 size-[calc(1rem*var(--cds-rem-scale,1))] mt-[1px] flex items-center justify-center";
 function PlanStepIcon({ status }) {
   if (status === "completed")
-    return <span className={`${BOX} text-primary`}><Icon name="Check" size={16} /><span className="sr-only select-none">done</span></span>;
+    return <span className={`${BOX} text-primary`}><Icon name="Check" size={16} /><span className="sr-only select-none">{t("done")}</span></span>;
   if (status === "in_progress")
-    return <span className={`${BOX} text-primary`}><SourceSpinner size="sm" /><span className="sr-only select-none">in progress</span></span>;
-  return <span className={BOX}><Icon name="Placeholder" size={16} className="text-muted" /><span className="sr-only select-none">not done</span></span>;
+    return <span className={`${BOX} text-primary`}><SourceSpinner size="sm" /><span className="sr-only select-none">{t("in progress")}</span></span>;
+  return <span className={BOX}><Icon name="Placeholder" size={16} className="text-muted" /><span className="sr-only select-none">{t("not done")}</span></span>;
 }
 
 export function SourcePlanChecklist({ plan, className = "" }) {

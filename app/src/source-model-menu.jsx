@@ -4,6 +4,7 @@ import { SourceSwitch as SettingSwitch } from "./source-switch.jsx";
 import { SourceMenu } from "./source-menu";
 import { modelMenuSections } from "./model-menu-model.mjs";
 import "./source-model-menu.css";
+import { t } from "../electron/i18n/index.mjs";
 
 const modelKey = (model) => model.model || model.id;
 const modelName = (model) => model.displayName || model.name || modelKey(model);
@@ -57,27 +58,27 @@ export function SourceModelMenu({
     </SourceMenu.Item>;
   };
 
-  return <SourceMenu.Popup anchor={anchor} side="top" align="end" label="Models" dataCds="ModelSelector"
+  return <SourceMenu.Popup anchor={anchor} side="top" align="end" label={t("Models")} dataCds="ModelSelector"
     className="sm-model-menu" onClose={onClose} initialHighlight={initialHighlight}>
     <SourceMenu.Group>{primary.map((model) => row(model, true))}</SourceMenu.Group>
-    {!primary.length && !overflow.length && <div className="sm-model-empty" role="status">No models available</div>}
+    {!primary.length && !overflow.length && <div className="sm-model-empty" role="status">{t("No models available")}</div>}
     {overflow.length > 0 && <>
       <SourceMenu.Separator />
       <SourceMenu.Submenu>
-        <SourceMenu.SubmenuTrigger className="sm-model-item" label="More models">More models</SourceMenu.SubmenuTrigger>
-        <SourceMenu.Popup label="More models" dataCds="ModelSelector" className="sm-model-menu sm-model-submenu">
+        <SourceMenu.SubmenuTrigger className="sm-model-item" label={t("More models")}>{t("More models")}</SourceMenu.SubmenuTrigger>
+        <SourceMenu.Popup label={t("More models")} dataCds="ModelSelector" className="sm-model-menu sm-model-submenu">
           <SourceMenu.Group>{overflow.map((model) => row(model, false))}</SourceMenu.Group>
         </SourceMenu.Popup>
       </SourceMenu.Submenu>
     </>}
     {showFast && onFastModeChange && <>
       <SourceMenu.Separator />
-      <SourceMenu.Header className="sm-model-header">Fast mode</SourceMenu.Header>
-      <SourceMenu.Item className="sm-model-item sm-model-fast" role="menuitemcheckbox" aria-checked={fastMode} label="Enable fast mode"
+      <SourceMenu.Header className="sm-model-header">{t("Fast mode")}</SourceMenu.Header>
+      <SourceMenu.Item className="sm-model-item sm-model-fast" role="menuitemcheckbox" aria-checked={fastMode} label={t("Enable fast mode")}
         keepOpen disabled={fastDisabled} aria-busy={fastSaving || undefined}
         trailing={<SettingSwitch checked={fastMode} decorative />} onClick={() => onFastModeChange(!fastMode)}>
         <span className="sm-fast-copy">
-          <span className="sm-fast-name"><span className="sm-fast-label">Enable fast mode</span></span>
+          <span className="sm-fast-name"><span className="sm-fast-label">{t("Enable fast mode")}</span></span>
           {typeof fastTier?.description === "string" && fastTier.description.trim() !== ""
             && <span className="sm-fast-description" data-fast-description="">{fastTier.description}</span>}
         </span>

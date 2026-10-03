@@ -8,6 +8,7 @@ import { Icon } from './icons';
 import { SourceSegments } from './source-segments.jsx';
 import { SourceCodeFontSetting } from './source-code-font-setting.jsx';
 import { SourceSelect } from './source-select.jsx';
+import { LOCALES, getLocale, t, tn } from '../electron/i18n/index.mjs';
 import { bypassAvailability } from '../electron/permission-policy.mjs';
 import { appearancePreferences, fastTierForModel } from '../electron/preferences.mjs';
 import { lightThemes, darkThemes } from './code-theme-catalog.mjs';
@@ -62,7 +63,7 @@ function FontLicenses() {
     return()=>{cancelAnimationFrame(frame);parent?.removeAttribute('data-nested-dialog-open');button.current?.focus({preventScroll:true});};
   },[open]);
   return <>
-    <button type="button" ref={button} className="ss-text-button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>Font licenses</button>
+    <button type="button" ref={button} className="ss-text-button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>{t('Font licenses')}</button>
     {open&&createPortal(<div className="ss-backdrop ss-backdrop-stacked" onMouseDown={e=>{if(e.target===e.currentTarget){e.stopPropagation();setOpen(false);}}}>
       <section className="ss-dialog ss-licenses" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
         onKeyDown={e=>{
@@ -72,9 +73,9 @@ function FontLicenses() {
           if(e.key==='Tab'){const items=[...e.currentTarget.querySelectorAll('button:not(:disabled),[tabindex="0"]')];const first=items[0],last=items.at(-1);
             if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}
         }}>
-        <header className="ss-licenses-header"><h2 id={titleId}>Font licenses</h2>
-          <button type="button" className="ss-close" aria-label="Close" onClick={()=>setOpen(false)}><Icon name="X" size={16}/></button></header>
-        <pre ref={body} role="region" aria-label="Font licenses" tabIndex={0} className="ss-licenses-body" aria-busy={text===null&&!failed||undefined}>{text??(failed?'The font licenses file could not be loaded.':'Loading…')}</pre>
+        <header className="ss-licenses-header"><h2 id={titleId}>{t('Font licenses')}</h2>
+          <button type="button" className="ss-close" aria-label={t('Close')} onClick={()=>setOpen(false)}><Icon name="X" size={16}/></button></header>
+        <pre ref={body} role="region" aria-label={t('Font licenses')} tabIndex={0} className="ss-licenses-body" aria-busy={text===null&&!failed||undefined}>{text??(failed?t('The font licenses file could not be loaded.'):t('Loading…'))}</pre>
       </section>
     </div>,document.body)}
   </>;
@@ -86,7 +87,7 @@ function CodeThemeGrid({ light, dark, onChange }) {
     <SourceSelect label={label} value={value} items={items} onChange={next=>onChange(mode==='light'?'codeThemeLight':'codeThemeDark',next)}/>
     <div className="ss-theme-preview-frame"><SourceCodeThemePreview mode={mode} theme={value}/></div>
   </div>;
-  return <div className="ss-theme-grid">{column('light',light,lightThemes(),'Light code theme')}{column('dark',dark,darkThemes(),'Dark code theme')}</div>;
+  return <div className="ss-theme-grid">{column('light',light,lightThemes(),t('Light code theme'))}{column('dark',dark,darkThemes(),t('Dark code theme'))}</div>;
 }
 
 export { SourceSwitch as SettingSwitch } from './source-switch.jsx';
@@ -103,7 +104,7 @@ const tabs = [
   {id:'code',label:'Code',icon:'Code',group:'Settings'},
   {id:'instructions',label:'Instructions',icon:'BookText',group:'Settings',keywords:['custom instructions','system prompt','agents.md','project instructions'],page:SourceInstructionsSettings},
   {id:'commands',label:'Commands',icon:'SlashShortcutCommand',group:'Settings',keywords:['slash commands','prompt templates','custom commands'],page:SourceCommandsSettings},
-  {id:'models',label:'Models',icon:'Lightning',group:'Settings',keywords:['max tokens','temperature','pricing','prices','cost'],page:SourceModelsSettings},
+  {id:'models',label:'Models',icon:'Lightning',group:'Settings',keywords:['api key','relay','base url','proxy','max tokens','temperature','pricing','prices','cost'],page:SourceModelsSettings},
   {id:'general',label:'General',icon:'Computer',group:'Desktop app'},
   {id:'developer',label:'Developer',icon:'Wrench',group:'Desktop app'},
   {id:'harness',label:'Harness',icon:'CommandLine',group:'Desktop app',keywords:['cordis','profile','bundles','hooks','harness plugins','overlay'],page:SourceHarnessSettings},
@@ -114,6 +115,8 @@ const tabs = [
 const navGroups = ['Settings','Desktop app','Customize'];
 export const SETTINGS_SECTIONS = tabs.map(t=>t.id);
 const navTabs = settingsNavSections(tabs);
+// Shown labels; tabs keep the English copy, which settingsSearch also matches.
+const navLabel = Object.fromEntries(tabs.map(section=>[section.id,t(section.label)]));
 export function SourceSettings({ open = true, ...props }) {
   const presence = useModalPresence(open);
   return presence.present ? <SettingsContent {...props} presence={presence}/> : null;
@@ -216,73 +219,76 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   const booleanRow=(id,label,description,{indent=false,checked=!!shownValue(id,config[id]),disabled=false}={})=>({...row(id,label,description,<SettingSwitch label={label} checked={checked} disabled={disabled} onChange={value=>save(id,value)}/>),indent});
   // c71860c77 Jr (:1455-1500) on the Code page only; unset reads as on (index.chunk-ChZ67Jhw.js tV).
   const awake=key=>keepAwakeEnabled(shownValue(key,config[key]));
-  const keepAwake=[booleanRow('keepAwake','Keep computer awake while DeepSeek works','Prevent your computer from sleeping while a Code session is running, so long tasks can finish. Your display can still turn off. Closing the laptop lid will still put it to sleep.',{checked:awake('keepAwake')}),...(awake('keepAwake')?[booleanRow('keepAwakeOnBattery','Keep awake on battery power','',{indent:true,checked:awake('keepAwakeOnBattery')})]:[])];
+  const keepAwake=[booleanRow('keepAwake',t('Keep computer awake while DeepSeek works'),t('Prevent your computer from sleeping while a Code session is running, so long tasks can finish. Your display can still turn off. Closing the laptop lid will still put it to sleep.'),{checked:awake('keepAwake')}),...(awake('keepAwake')?[booleanRow('keepAwakeOnBattery',t('Keep awake on battery power'),'',{indent:true,checked:awake('keepAwakeOnBattery')})]:[])];
   // c71860c77:2240-2275: per-type items, unset reads as Banners, no disabled item.
   const level=id=>notificationLevel(shownValue(id,config[id]));
-  const levelRow=(id,label,description)=>row(id,label,description,<SourceSelect label={label+' notification level'} value={level(id)} align="end" className="sselect-width-160" onChange={value=>save(id,value)} items={NOTIFICATION_LEVEL_ITEMS[id]}/>);
+  const levelRow=(id,label,description)=>row(id,label,description,<SourceSelect label={t('{setting} notification level',{setting:label})} value={level(id)} align="end" className="sselect-width-160" onChange={value=>save(id,value)} items={NOTIFICATION_LEVEL_ITEMS[id]}/>);
   const accountRows=useAccountSettings({snapshot:boot?.account,auth:boot?.auth,connected:boot?.connected,busy,engine,onLogin,onAccountAction,onRefreshAccount,onOpenExternal:url=>desktopCall('external',{url})});
   const groups=[
     {tab:'preferences',title:'Appearance',rows:[
-      row('theme','Theme','',segments('theme','Theme',[{value:'system',label:'System',icon:'Computer'},{value:'light',label:'Light',icon:'Sun'},{value:'dark',label:'Dark',icon:'Moon'}])),
-      row('motion','Motion','Reduce animation in streaming responses and other interface elements.',segments('motion','Motion',[{value:'system',label:'System'},{value:'reduce',label:'Reduced'}])),
+      row('theme',t('Theme'),'',segments('theme',t('Theme'),[{value:'system',label:t('System'),icon:'Computer'},{value:'light',label:t('Light'),icon:'Sun'},{value:'dark',label:t('Dark'),icon:'Moon'}])),
+      row('motion',t('Motion'),t('Reduce animation in streaming responses and other interface elements.'),segments('motion',t('Motion'),[{value:'system',label:t('System')},{value:'reduce',label:t('Reduced')}])),
+      // shared-21 user menu Language (y1Z3orIe9Z) / ca25db325 general › Language: here a select; changing it reloads the window.
+      row('locale',t('Language'),t('The language of menus, settings and other interface text.'),<SourceSelect label={t('Language')} value={getLocale()} align="end" className="sselect-width-160" items={LOCALES.map(entry=>({value:entry.locale,label:entry.localName}))}
+        onChange={value=>{if(value!==getLocale())void Promise.resolve(onSave({locale:value})).then(()=>globalThis.location?.reload(),()=>{});}}/>,'Language 语言'),
     ]},
-    {tab:'preferences',title:'Profile',rows:[{id:'name',label:'What should we call you?',description:'Used only in this app.',below:<SourceProfileSetting value={config.displayName || ''} onSave={value=>onSave({displayName:value})}/>}]},
+    {tab:'preferences',title:'Profile',rows:[{id:'name',label:t('What should we call you?'),description:t('Used only in this app.'),below:<SourceProfileSetting value={config.displayName || ''} onSave={value=>onSave({displayName:value})}/>}]},
     personaGroup({config,onSave,desktopCall}),
     {tab:'preferences',title:'DeepSeek account',rows:accountRows},
     // c71860c77 pa: appearance precedes local sessions. Codex-only controls stay below.
     {tab:'code',title:'Code appearance',rows:[
       // Searchable as "Code theme" (local index entry; the official search index lists only Code font here).
-      {id:'codeTheme',label:'Code theme',description:'Light and dark code themes',grid:<CodeThemeGrid light={shownValue('codeThemeLight',prefs.codeThemeLight)} dark={shownValue('codeThemeDark',prefs.codeThemeDark)} onChange={(key,value)=>save(key,value,'codeTheme')}/>},
-      row('codeFont','Code font','Set a custom monospace font for code and terminal.',<SourceCodeFontSetting value={prefs.codeFont} placeholder={prefs.interfaceFont==='dyslexic'?'e.g. OpenDyslexic Mono':'e.g. JetBrains Mono'} onSave={value=>onSave({codeFont:value})}/>),
+      {id:'codeTheme',label:t('Code theme'),description:t('Light and dark code themes'),grid:<CodeThemeGrid light={shownValue('codeThemeLight',prefs.codeThemeLight)} dark={shownValue('codeThemeDark',prefs.codeThemeDark)} onChange={(key,value)=>save(key,value,'codeTheme')}/>},
+      row('codeFont',t('Code font'),t('Set a custom monospace font for code and terminal.'),<SourceCodeFontSetting value={prefs.codeFont} placeholder={t('e.g. {font}',{font:prefs.interfaceFont==='dyslexic'?'OpenDyslexic Mono':'JetBrains Mono'})} onSave={value=>onSave({codeFont:value})}/>),
     ]},
     {tab:'code',title:'Appearance',rows:[
-      row('interfaceFont','Interface font',<>Font for the whole interface — menus, sidebars, and panels. <FontLicenses/></>,segments('interfaceFont','Interface font',[{value:'anthropic',label:'Anthropic Sans'},{value:'system',label:'System'},{value:'dyslexic',label:'OpenDyslexic'}]),'Font for the whole interface — menus, sidebars, and panels. Font licenses'),
-      row('transcriptSize','Transcript text size','Size of the conversation transcript text.',segments('transcriptSize','Transcript text size',[{value:'s',label:'Small'},{value:'m',label:'Medium'},{value:'l',label:'Large'}])),
-      row('transcriptWidth','Transcript width','Maximum width of the transcript and composer columns.',segments('transcriptWidth','Transcript width',[{value:'s',label:'Narrow'},{value:'m',label:'Medium'},{value:'l',label:'Wide'}])),
-      row('transcriptView','Default transcript view','The view sessions open in. Picking a view from a session’s Transcript view menu changes only that session.',segments('transcriptView','Default transcript view',['normal','thinking','verbose'].map(value=>({value,label:TRANSCRIPT_VIEW_LABELS[value]})))),
+      row('interfaceFont',t('Interface font'),<>{t('Font for the whole interface — menus, sidebars, and panels.')} <FontLicenses/></>,segments('interfaceFont',t('Interface font'),[{value:'anthropic',label:'Anthropic Sans'},{value:'system',label:t('System')},{value:'dyslexic',label:'OpenDyslexic'}]),`${t('Font for the whole interface — menus, sidebars, and panels.')} ${t('Font licenses')}`),
+      row('transcriptSize',t('Transcript text size'),t('Size of the conversation transcript text.'),segments('transcriptSize',t('Transcript text size'),[{value:'s',label:t('Small')},{value:'m',label:t('Medium')},{value:'l',label:t('Large')}])),
+      row('transcriptWidth',t('Transcript width'),t('Maximum width of the transcript and composer columns.'),segments('transcriptWidth',t('Transcript width'),[{value:'s',label:t('Narrow')},{value:'m',label:t('Medium')},{value:'l',label:t('Wide')}])),
+      row('transcriptView',t('Default transcript view'),t('The view sessions open in. Picking a view from a session’s Transcript view menu changes only that session.'),segments('transcriptView',t('Default transcript view'),['normal','thinking','verbose'].map(value=>({value,label:t(TRANSCRIPT_VIEW_LABELS[value])})))),
     ]},
     {tab:'code',title:'Local sessions',rows:[
       // c71860c77:2188-2212 YlYBASRBOt with DeepSeek substituted; the <link> to Anthropic's security page has no
       // DeepSeek counterpart, so the link element is dropped.
-      row('bypass','Allow bypass permissions mode',<>Bypass all permission checks and let DeepSeek work uninterrupted. This works well for workflows like fixing lint errors or generating boilerplate code. Letting DeepSeek run arbitrary commands is risky and can result in data loss, system corruption, or data exfiltration (e.g., via prompt injection attacks).{!bypass.allowed && <span className="ss-bypass-reason"> {bypass.reason}</span>}</>,<SettingSwitch label="Allow bypass permissions mode" checked={shownValue('allowBypassPermissions',config.allowBypassPermissions)===true} disabled={!config.allowBypassPermissions && (!boot?.connected || !bypass.allowed)} onChange={value=>save('allowBypassPermissions',value,'bypass')}/>,'Bypass all permission checks and let DeepSeek work uninterrupted.'),
-      booleanRow('dynamicWorkflows','Dynamic workflows','Let DeepSeek run multiple agents in parallel for complex tasks. Workflows can use a lot of your usage limit quickly.'),
-      levelRow('permissionNotifications','Permission requests','DeepSeek needs your approval to use a tool.'),
-      levelRow('questionNotifications','Questions','DeepSeek is asking you to choose between options.'),
-      levelRow('completeNotifications','Task complete','DeepSeek finished and is waiting for your input.'),
-      row('notificationSound','Notification sound','Played when an OS banner is shown.',<SourceSelect label="Notification sound" align="end" className="sselect-width-160" value={shownValue('notificationSound',config.notificationSound)||'system'} onChange={value=>save('notificationSound',value)} items={[{value:'system',label:'System sound'},{value:'none',label:'None'}]}/>),
-      booleanRow('drawAttention','Draw attention on notifications','Bounce the Dock icon when DeepSeek needs your attention and the app isn’t focused.',{disabled:drawAttentionDisabled({permissionNotifications:level('permissionNotifications'),questionNotifications:level('questionNotifications')})}),
+      row('bypass',t('Allow bypass permissions mode'),<>{t('Bypass all permission checks and let DeepSeek work uninterrupted. This works well for workflows like fixing lint errors or generating boilerplate code. Letting DeepSeek run arbitrary commands is risky and can result in data loss, system corruption, or data exfiltration (e.g., via prompt injection attacks).')}{!bypass.allowed && <span className="ss-bypass-reason"> {t(bypass.reason)}</span>}</>,<SettingSwitch label={t('Allow bypass permissions mode')} checked={shownValue('allowBypassPermissions',config.allowBypassPermissions)===true} disabled={!config.allowBypassPermissions && (!boot?.connected || !bypass.allowed)} onChange={value=>save('allowBypassPermissions',value,'bypass')}/>,t('Bypass all permission checks and let DeepSeek work uninterrupted.')),
+      booleanRow('dynamicWorkflows',t('Dynamic workflows'),t('Let DeepSeek run multiple agents in parallel for complex tasks. Workflows can use a lot of your usage limit quickly.')),
+      levelRow('permissionNotifications',t('Permission requests'),t('DeepSeek needs your approval to use a tool.')),
+      levelRow('questionNotifications',t('Questions'),t('DeepSeek is asking you to choose between options.')),
+      levelRow('completeNotifications',t('Task complete'),t('DeepSeek finished and is waiting for your input.')),
+      row('notificationSound',t('Notification sound'),t('Played when an OS banner is shown.'),<SourceSelect label={t('Notification sound')} align="end" className="sselect-width-160" value={shownValue('notificationSound',config.notificationSound)||'system'} onChange={value=>save('notificationSound',value)} items={[{value:'system',label:t('System sound')},{value:'none',label:t('None')}]}/>),
+      booleanRow('drawAttention',t('Draw attention on notifications'),t('Bounce the Dock icon when DeepSeek needs your attention and the app isn’t focused.'),{disabled:drawAttentionDisabled({permissionNotifications:level('permissionNotifications'),questionNotifications:level('questionNotifications')})}),
       ...keepAwake,
-      row('archiveInactiveDays','Archive inactive sessions','Automatically archive local sessions after a period of no activity. Sessions that are running or have background work are never archived, and a worktree with uncommitted changes is kept on disk.',<SourceSelect label="Archive inactive sessions" align="end" className="sselect-width-160" value={shownValue('archiveInactiveDays',config.archiveInactiveDays)||0} onChange={value=>save('archiveInactiveDays',Number(value))} items={[0,1,2,7,14,30].map(d=>({value:d,label:d?`${d} ${d===1?'day':'days'}`:'Never'}))}/>),
+      row('archiveInactiveDays',t('Archive inactive sessions'),t('Automatically archive local sessions after a period of no activity. Sessions that are running or have background work are never archived, and a worktree with uncommitted changes is kept on disk.'),<SourceSelect label={t('Archive inactive sessions')} align="end" className="sselect-width-160" value={shownValue('archiveInactiveDays',config.archiveInactiveDays)||0} onChange={value=>save('archiveInactiveDays',Number(value))} items={[0,1,2,7,14,30].map(d=>({value:d,label:d?tn(d,'{count} day','{count} days'):t('Never')}))}/>),
       // c71860c77:2376-2398 g: the custom choice goes through the folder picker; only the saved location shows.
-      row('worktreeLocation','Worktree location','Where to store Git worktrees for isolated coding sessions.',<div className="ss-worktree-control"><SourceSelect label="Worktree location" align="end" value={shownValue('worktreeLocation',config.worktreeLocation)||'project'} title={config.worktreeLocation==='custom'?config.worktreeDirectory:'.code/worktrees'} onChange={value=>value==='custom'?commit('worktreeLocation',{},async()=>{const c=await desktopCall('desktop-worktree-folder');if(c)await onSave({worktreeLocation:c.worktreeLocation});setDesktopRevision(n=>n+1);}):save('worktreeLocation','project')} items={[{value:'project',label:'Inside project',description:'.code/worktrees'},{value:'custom',label:'Custom…'}]}/>{config.worktreeLocation==='custom'&&config.worktreeDirectory&&<div className="ss-worktree-path" title={config.worktreeDirectory}>{config.worktreeDirectory}</div>}</div>),
-      row('sandbox','Sandbox mode',facts.reason,<span>{facts.mode||'Unavailable'}</span>),
+      row('worktreeLocation',t('Worktree location'),t('Where to store Git worktrees for isolated coding sessions.'),<div className="ss-worktree-control"><SourceSelect label={t('Worktree location')} align="end" value={shownValue('worktreeLocation',config.worktreeLocation)||'project'} title={config.worktreeLocation==='custom'?config.worktreeDirectory:'.code/worktrees'} onChange={value=>value==='custom'?commit('worktreeLocation',{},async()=>{const c=await desktopCall('desktop-worktree-folder');if(c)await onSave({worktreeLocation:c.worktreeLocation});setDesktopRevision(n=>n+1);}):save('worktreeLocation','project')} items={[{value:'project',label:t('Inside project'),description:'.code/worktrees'},{value:'custom',label:t('Custom…')}]}/>{config.worktreeLocation==='custom'&&config.worktreeDirectory&&<div className="ss-worktree-path" title={config.worktreeDirectory}>{config.worktreeDirectory}</div>}</div>),
+      row('sandbox',t('Sandbox mode'),t(facts.reason),<span>{facts.mode||t('Unavailable')}</span>),
     ]},
     {tab:'code',title:'Model and permissions',rows:[
       // Disabled only where the original disables: the model and effort pickers while a turn is busy.
-      row('model','Model','Used for your next message.',<SourceSelect label="Default model" value={shownValue('model',model)} disabled={busy||!boot?.connected} items={models.map(m=>({value:m.model,label:m.displayName||m.model}))} onChange={value=>{const next=models.find(m=>m.model===value);if(next)commit('model',{model:next.model,effort:next.defaultReasoningEffort});}}/>),
-      row('effort','Reasoning effort','Available levels come from the selected model.',<SourceSelect label="Default reasoning effort" value={shownValue('effort',effort)} disabled={busy||!chosen} items={((models.find(m=>m.model===shownValue('model',model))||chosen)?.supportedReasoningEfforts||[]).map(e=>({value:e.reasoningEffort,label:effortName(e.reasoningEffort)}))} onChange={value=>save('effort',value)}/>),
-      row('fast','Fast mode',fast ? `${fast.description || 'Uses the model’s Fast service tier'}. Applies to your next message.` : 'Not available for this model.',<SettingSwitch label="Enable fast mode" checked={!!fast&&!!shownValue('fastMode',config.fastMode)} disabled={!fast||!boot?.connected||busy} onChange={value=>save('fastMode',value,'fast')}/>),
-      row('permissions','Permission mode','Auto asks when needed. Manual always asks before making changes. Accept edits applies file edits without asking. Plan is read-only.',<SourceSelect label="Default permission mode" value={shownValue('permission',permission)} disabled={busy} onChange={value=>save('permission',value,'permissions')} items={[{value:'auto',label:'Auto'},{value:'ask',label:'Manual'},{value:'acceptEdits',label:'Accept edits'},{value:'plan',label:'Plan'}]}/>),
+      row('model',t('Model'),t('Used for your next message.'),<SourceSelect label={t('Default model')} value={shownValue('model',model)} disabled={busy||!boot?.connected} items={models.map(m=>({value:m.model,label:m.displayName||m.model}))} onChange={value=>{const next=models.find(m=>m.model===value);if(next)commit('model',{model:next.model,effort:next.defaultReasoningEffort});}}/>),
+      row('effort',t('Reasoning effort'),t('Available levels come from the selected model.'),<SourceSelect label={t('Default reasoning effort')} value={shownValue('effort',effort)} disabled={busy||!chosen} items={((models.find(m=>m.model===shownValue('model',model))||chosen)?.supportedReasoningEfforts||[]).map(e=>({value:e.reasoningEffort,label:effortName(e.reasoningEffort)}))} onChange={value=>save('effort',value)}/>),
+      row('fast',t('Fast mode'),fast ? t('{description}. Applies to your next message.',{description:fast.description || t('Uses the model’s Fast service tier')}) : t('Not available for this model.'),<SettingSwitch label={t('Enable fast mode')} checked={!!fast&&!!shownValue('fastMode',config.fastMode)} disabled={!fast||!boot?.connected||busy} onChange={value=>save('fastMode',value,'fast')}/>),
+      row('permissions',t('Permission mode'),t('Auto asks when needed. Manual always asks before making changes. Accept edits applies file edits without asking. Plan is read-only.'),<SourceSelect label={t('Default permission mode')} value={shownValue('permission',permission)} disabled={busy} onChange={value=>save('permission',value,'permissions')} items={[{value:'auto',label:t('Auto')},{value:'ask',label:t('Manual')},{value:'acceptEdits',label:t('Accept edits')},{value:'plan',label:t('Plan')}]}/>),
     ]},
     // c71860c77-B72Ova_w It: version (wt renders nothing until the version is known), Run on startup, Menu bar,
     // Storage. Its own 'Keep computer awake' (scheduled tasks while the app is open) has no local counterpart;
     // the Code page's keep-awake rows stay on the Code page. While the desktop snapshot loads, the fallback
     // branch draws three skeleton rows under the version row.
     {tab:'general',title:'General desktop settings',skeleton:desktop===null,rows:[
-      ...(build?.version?[row('version','Desktop app version','',<span className="ss-version">{build.version}</span>)]:[]),
-      row('startup','Run on startup','Automatically start Code Desktop when you log in to your computer.',<SettingSwitch label="Run on startup" checked={shownValue('runOnStartup',desktop?.desktop?.runOnStartup)===true} disabled={!desktop?.desktop} onChange={enabled=>commit('startup',{runOnStartup:enabled},async()=>{const value=await desktopCall('desktop-startup',{enabled});setDesktop(current=>current?.desktop?{...current,desktop:{...current.desktop,runOnStartup:value===true}}:current);setDesktopRevision(n=>n+1);})}/>),
-      booleanRow('menuBarEnabled','Menu bar','Show Code Desktop in the menu bar.'),
-      row('storage','Storage','See how much space Code Desktop uses on this computer.',<SourceSettingsButton size="sm" onClick={()=>setStorage(true)}>Manage</SourceSettingsButton>),
+      ...(build?.version?[row('version',t('Desktop app version'),'',<span className="ss-version">{build.version}</span>)]:[]),
+      row('startup',t('Run on startup'),t('Automatically start Code Desktop when you log in to your computer.'),<SettingSwitch label={t('Run on startup')} checked={shownValue('runOnStartup',desktop?.desktop?.runOnStartup)===true} disabled={!desktop?.desktop} onChange={enabled=>commit('startup',{runOnStartup:enabled},async()=>{const value=await desktopCall('desktop-startup',{enabled});setDesktop(current=>current?.desktop?{...current,desktop:{...current.desktop,runOnStartup:value===true}}:current);setDesktopRevision(n=>n+1);})}/>),
+      booleanRow('menuBarEnabled',t('Menu bar'),t('Show Code Desktop in the menu bar.')),
+      row('storage',t('Storage'),t('See how much space Code Desktop uses on this computer.'),<SourceSettingsButton size="sm" onClick={()=>setStorage(true)}>{t('Manage')}</SourceSettingsButton>),
     ]},
     {tab:'developer',title:'Local MCP servers',rows:[
-      row('mcp-config','Configuration','Local MCP servers from your DeepSeek Harness configuration.',<button disabled={!boot?.connected} onClick={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))}>Edit config</button>),
-      ...(desktop?.servers||[]).map(server=>row('mcp-'+server.name,server.name,server.toolsError||`${Object.keys(server.tools||{}).length} tools · ${server.authStatus}`,<span>{mcpStatus(server)}</span>)),
-      ...(desktop?.servers?.length===0?[row('mcp-empty','No servers added','',null)]:[]),
+      row('mcp-config',t('Configuration'),t('Local MCP servers from your DeepSeek Harness configuration.'),<button disabled={!boot?.connected} onClick={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))}>{t('Edit config')}</button>),
+      ...(desktop?.servers||[]).map(server=>row('mcp-'+server.name,server.name,server.toolsError||`${tn(Object.keys(server.tools||{}).length,'{count} tool','{count} tools')} · ${server.authStatus}`,<span>{t(mcpStatus(server))}</span>)),
+      ...(desktop?.servers?.length===0?[row('mcp-empty',t('No servers added'),'',null)]:[]),
     ]},
     {tab:'developer',title:'Local engine',rows:[
       // c71860c77-CCdfSDER F/I: the page's actions are CDS Buttons (shared-frame Ao); busy keeps the name 'Reconnect'.
-      row('connection','DeepSeek core',boot?.connected?'Connected':'Disconnected',<SourceSettingsButton variant="secondary" size="sm" busy={pending==='reconnect'} disabled={busy} onClick={()=>action('reconnect',onReconnect)}>Reconnect</SourceSettingsButton>),
-      row('engine','Engine','Uses DeepSeek Harness with the DeepSeek API key saved in ~/.dsh. Settings here do not rewrite your DeepSeek Harness configuration.',null),
+      row('connection',t('DeepSeek core'),boot?.connected?t('Connected'):t('Disconnected'),<SourceSettingsButton variant="secondary" size="sm" busy={pending==='reconnect'} disabled={busy} onClick={()=>action('reconnect',onReconnect)}>{t('Reconnect')}</SourceSettingsButton>),
+      row('engine',t('Engine'),t('Uses DeepSeek Harness with the DeepSeek API key saved in ~/.dsh. Settings here do not rewrite your DeepSeek Harness configuration.'),null),
     ]},
   ];
   // Profile belongs in Preferences, before Appearance (c0db37792:1391–1403).
@@ -305,7 +311,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   const closeSearch=()=>{setSearchOpen(false);setQuery('');setSearchIndex(0);};
   // cc011544b _t: the field (icon + input, no clear button; Escape clears) focuses its input when clicked.
   const searchField=<div className="ss-search" onClick={event=>{if(!event.target.closest?.('.ss-search-results'))search.current?.focus();}}><Icon name="Search" size={20}/>
-    <input ref={search} aria-label="Search settings" placeholder="Search" value={query} aria-expanded={searchOpen}
+    <input ref={search} aria-label={t('Search settings')} placeholder={t('Search')} value={query} aria-expanded={searchOpen}
       onBlur={closeSearch}
       onChange={event=>{setQuery(event.target.value);setSearchIndex(0);setSearchOpen(event.target.value.trim()!=='');}}
       onKeyDown={event=>{
@@ -322,25 +328,25 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   const usagePage = tab==='usage';
   const usageIdentity=JSON.stringify([boot?.connected,account?.type,account?.email,account?.planType]);
   // shared-22:4511-4515 ye and cc011544b's page header CloseButton: both are named 'Close'.
-  const closeButton = <button type="button" className="ss-close" aria-label="Close" onClick={onClose}><Icon name="X" size={16}/></button>;
+  const closeButton = <button type="button" className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button>;
   return createPortal(<div className="ss-backdrop ss-settings-backdrop" data-open={presence.visible} onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={root} className="ss-dialog ss-settings-dialog" data-usage={usagePage||undefined} data-open={presence.visible} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     onKeyDown={e=>{if(!usagePage&&!narrow&&!e.altKey&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();e.stopPropagation();search.current?.focus();search.current?.select();return;}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close.current();}if(e.key==='Tab'){const items=[...root.current.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter(el=>el.getClientRects().length&&el.tabIndex>=0);const first=items[0],last=items.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===root.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&(document.activeElement===last||document.activeElement===root.current)){e.preventDefault();first?.focus();}}}}>
-    <h2 id={titleId} className="sr-only">{usagePage?'Usage':'Settings'}</h2>
-    {usagePage?<header className="ss-usage-header"><h2 className="text-heading-semibold" aria-hidden="true">Usage</h2>{closeButton}</header>:narrow?<header className="ss-narrow"><div className="ss-narrow-heading"><strong aria-hidden="true">Settings</strong>{closeButton}</div><div role="tablist" aria-label="Settings" onKeyDown={event=>{
+    <h2 id={titleId} className="sr-only">{usagePage?t('Usage'):t('Settings')}</h2>
+    {usagePage?<header className="ss-usage-header"><h2 className="text-heading-semibold" aria-hidden="true">{t('Usage')}</h2>{closeButton}</header>:narrow?<header className="ss-narrow"><div className="ss-narrow-heading"><strong aria-hidden="true">{t('Settings')}</strong>{closeButton}</div><div role="tablist" aria-label={t('Settings')} onKeyDown={event=>{
       const controls=[...event.currentTarget.querySelectorAll('[role="tab"]')], index=controls.indexOf(document.activeElement);
       if(index<0||event.nativeEvent.isComposing||event.altKey||event.metaKey||event.ctrlKey)return;
       const next=settingsTabIndex(index,controls.length,event.key,getComputedStyle(event.currentTarget).direction==='rtl');
       if(next===null)return;event.preventDefault();event.stopPropagation();controls[next].focus();controls[next].scrollIntoView({block:'nearest',inline:'nearest'});
-    }}>{navTabs.map(t=><button role="tab" aria-selected={tab===t.id} tabIndex={tab===t.id?0:-1} key={t.id} onFocus={()=>selectTab(t.id)} onClick={()=>selectTab(t.id)}>{t.label}</button>)}</div></header>:<nav className="ss-nav" aria-label="Settings">{searchField}<div className="ss-nav-scroll scroll-fade-y scroll-fade-size-6">{navGroups.map(group=><div key={group}><p>{group}</p><ul>{navTabs.filter(t=>t.group===group).map(t=><li key={t.id}><button aria-current={tab===t.id?'page':undefined} onClick={()=>{setTab(t.id);setQuery('');setError('');setFocus(null);setHighlight(null);setSearchOpen(false);}}><Icon name={t.icon} size={20}/><span>{t.label}</span></button></li>)}</ul></div>)}</div></nav>}
+    }}>{navTabs.map(t=><button role="tab" aria-selected={tab===t.id} tabIndex={tab===t.id?0:-1} key={t.id} onFocus={()=>selectTab(t.id)} onClick={()=>selectTab(t.id)}>{navLabel[t.id]}</button>)}</div></header>:<nav className="ss-nav" aria-label={t('Settings')}>{searchField}<div className="ss-nav-scroll scroll-fade-y scroll-fade-size-6">{navGroups.map(group=><div key={group}><p>{t(group)}</p><ul>{navTabs.filter(t=>t.group===group).map(t=><li key={t.id}><button aria-current={tab===t.id?'page':undefined} onClick={()=>{setTab(t.id);setQuery('');setError('');setFocus(null);setHighlight(null);setSearchOpen(false);}}><Icon name={t.icon} size={20}/><span>{navLabel[t.id]}</span></button></li>)}</ul></div>)}</div></nav>}
     <div className="ss-pane" data-customize={!!activeTab?.customize}>
     {!usagePage&&!narrow&&<div className="ss-page-header">{closeButton}</div>}
-    <div className="ss-content" key={tab} data-page={tab}>{error&&<p className="ss-error" role="alert">{error}</p>}{['code','developer'].includes(tab)&&desktopErrors(desktop?.errors).map(notice=><p className="ss-connection-notice" role="status" key={notice.key}>{notice.message}</p>)}{tab==='developer'&&<DeveloperServers desktop={desktop} connected={boot?.connected} pending={!!pending} error={rowErrors['mcp-config']} onRemove={customize?.call&&mcpWritable ? removeServer : undefined} onEditConfig={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))} onDocs={()=>action('mcp-config',()=>desktopCall('external',{url:'https://modelcontextprotocol.io/quickstart'}))}/>} {customizePage}{activeTab?.page&&<activeTab.page {...pageProps}/>}{tab==='usage'&&<SourceUsage key={usageIdentity} readUsage={readUsage} engine={engine} onOpenLink={url=>Promise.resolve(desktopCall('external',{url})).catch(()=>{})}/>} {shown.map(group=><section className="ss-group" key={group.tab+group.title}><h3 tabIndex={-1} className="text-heading-semibold settings-row-title">{group.title}</h3><div className="settings-group-dividers">{(group.skeleton?group.rows.filter(row=>row.id==='version'):group.rows).map(row=><SettingRow key={row.id} row={row} error={rowErrors[row.id]}/>)}{group.skeleton&&[0,1,2].map(index=><SettingSkeletonRow key={index}/>)}</div></section>)}</div></div>
+    <div className="ss-content" key={tab} data-page={tab}>{error&&<p className="ss-error" role="alert">{error}</p>}{['code','developer'].includes(tab)&&desktopErrors(desktop?.errors).map(notice=><p className="ss-connection-notice" role="status" key={notice.key}>{notice.message}</p>)}{tab==='developer'&&<DeveloperServers desktop={desktop} connected={boot?.connected} pending={!!pending} error={rowErrors['mcp-config']} onRemove={customize?.call&&mcpWritable ? removeServer : undefined} onEditConfig={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))} onDocs={()=>action('mcp-config',()=>desktopCall('external',{url:'https://modelcontextprotocol.io/quickstart'}))}/>} {customizePage}{activeTab?.page&&<activeTab.page {...pageProps}/>}{tab==='usage'&&<SourceUsage key={usageIdentity} readUsage={readUsage} engine={engine} onOpenLink={url=>Promise.resolve(desktopCall('external',{url})).catch(()=>{})}/>} {shown.map(group=><section className="ss-group" key={group.tab+group.title}><h3 tabIndex={-1} className="text-heading-semibold settings-row-title">{t(group.title)}</h3><div className="settings-group-dividers">{(group.skeleton?group.rows.filter(row=>row.id==='version'):group.rows).map(row=><SettingRow key={row.id} row={row} error={rowErrors[row.id]}/>)}{group.skeleton&&[0,1,2].map(index=><SettingSkeletonRow key={index}/>)}</div></section>)}</div></div>
   </section>{storage&&<StorageDialog call={desktopCall} settingsRoot={root} onClose={()=>setStorage(false)}/>}</div>,document.body);
 }
 // c71860c77-B72Ova_w It fallback: a row of two text bars (h-5 w-36 / h-5 w-72) beside a 40×24 pill, drawn with
 // the shared-frame Skeleton classes from the loaded CDS stylesheet (role=status, sr-only "Loading").
 const SKELETON_BAR='relative max-w-full overflow-hidden bg-[var(--cds-skeleton-base)] after:absolute after:inset-0 after:animate-[cds-shimmer_2s_linear_infinite] after:bg-[linear-gradient(90deg,transparent,var(--cds-skeleton-sheen),transparent)] motion-reduce:after:hidden';
-const SkeletonBar=({className,radius='rounded'})=><div data-cds="Skeleton" role="status" className={`${SKELETON_BAR} ${radius} ${className}`}><span className="sr-only">Loading</span></div>;
+const SkeletonBar=({className,radius='rounded'})=><div data-cds="Skeleton" role="status" className={`${SKELETON_BAR} ${radius} ${className}`}><span className="sr-only">{t('Loading')}</span></div>;
 function SettingSkeletonRow() {
  return <div className="ss-skeleton-row flex items-center justify-between gap-lg" data-settings-skeleton="">
    <div className="flex min-w-0 flex-1 flex-col gap-1"><SkeletonBar className="h-5 w-36"/><SkeletonBar className="h-5 w-72"/></div>

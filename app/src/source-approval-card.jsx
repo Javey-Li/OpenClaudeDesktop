@@ -6,6 +6,7 @@ import { SourceShortcut } from "./source-shortcut.jsx";
 import { usePersona } from "./use-persona.js";
 import { assistantName } from "./persona-store.mjs";
 import "./source-approval-card.css";
+import { t } from "../electron/i18n/index.mjs";
 
 function useOverflowFocus(ref, contentKey) {
   const [overflow, setOverflow] = useState(false);
@@ -97,7 +98,7 @@ export function BusyAnnouncement() {
     const timer = setTimeout(() => setReady(true), 100);
     return () => clearTimeout(timer);
   }, []);
-  return <span className="sac-visually-hidden" role="status">{ready ? "Sending response" : ""}</span>;
+  return <span className="sac-visually-hidden" role="status">{ready ? t("Sending response") : ""}</span>;
 }
 
 // NM (approval-current.js:15959-16006): an sr-only role=status span. A new request
@@ -233,17 +234,17 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
   // The ev header around B is already text-primary (cf6ae6197 ev), so only the spans are added.
   // The plain title stays the aria-label.
   const title = model.heading
-    ? <>Allow {assistantName()} to <span className="sac-em">{model.heading.action}</span>{model.heading.meta
-      ? <> <span className="sac-em">{model.heading.meta}</span></> : null}?</>
+    ? <>{t("Allow {name} to", { name: assistantName() })} <span className="sac-em">{model.heading.action}</span>{model.heading.meta
+      ? <> <span className="sac-em">{model.heading.meta}</span></> : null}{t("?")}</>
     : model.title;
   const clamp = model.clampTitle && model.detail ? "" : undefined;
   return <section ref={root} className={`source-message sac-card ${className}`} data-approval-presentation="card"
     data-approval-instance={request?.bridgeApproval?.instanceId} data-approval-method={request?.method}
     data-approval-kind={model.kind}
-    role="group" aria-label={`Permission request: ${model.title}`} aria-busy={busy || undefined}
+    role="group" aria-label={t("Permission request: {title}", { title: model.title })} aria-busy={busy || undefined}
     tabIndex={0} onKeyDown={keyDown} onClick={event => event.stopPropagation()}>
     <div ref={body} className="sac-body" tabIndex={overflow ? 0 : undefined}
-      role={overflow ? "group" : undefined} aria-label={overflow ? "Request details" : undefined}>
+      role={overflow ? "group" : undefined} aria-label={overflow ? t("Request details") : undefined}>
       <div className="sac-description">
         {model.detail
           ? <button type="button" className="sac-heading" aria-expanded={expanded}
@@ -254,7 +255,7 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
               reason in a 3-line scroll clamp (wM) whose "Reason" label is its accessible name
               while it scrolls (cf6ae6197 bv); no visible label. */}
           {model.reason && <div ref={reason} className="sac-reason scroll-fade-y scroll-fade-size-[8px]"
-            {...scrollRegionProps("Reason", reasonOverflow)}>{model.reason}</div>}
+            {...scrollRegionProps(t("Reason"), reasonOverflow)}>{model.reason}</div>}
           {model.context.map(part => <p key={part.key} className="sac-context" data-context={part.key}>{part.text}</p>)}
           {model.detail && <div id={detailsId} className="sac-details" hidden={!expanded}>
             {renderDetails ? renderDetails(model.detail, model) : <pre className="sac-code">{model.detail.text}</pre>}

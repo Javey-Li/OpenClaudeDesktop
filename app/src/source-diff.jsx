@@ -17,6 +17,7 @@ import { hideWhitespaceChanges } from './diff-whitespace-model.mjs';
 import { useSourcePointerResize } from './use-pointer-resize.js';
 import { DIFF_FILE_LIST_LABELS, DIFF_FILE_LIST_WIDTH, clampDiffFileListWidth, diffFileEntries, diffFileList, diffFileListCanFit, diffFileListLimit,
   isLargeDiff, kindSectionOpen, openKindSections, orderDiffSections, revealCollapsed, toggleCollapsed, treeRowTarget } from './diff-file-list-model.mjs';
+import { t, tn } from '../electron/i18n/index.mjs';
 import "./source-diff.css";
 
 // Tn (panes-diff-view-current.js:377-401) with hideWhitespace: gn filters the
@@ -39,7 +40,7 @@ function RawPatch({ value, reason }) {
   const chunks = value.length <= 4 * 1024 * 1024 ? value.match(/[^\n]*\n|[^\n]+$/g) || [] : null;
   const lines = chunks?.length <= 50000 ? chunks : null;
   return <div className="sdiff-raw">
-    {reason && <div className="sdiff-notice">{reason}. Showing original patch.</div>}
+    {reason && <div className="sdiff-notice">{t('{reason}. Showing original patch.', { reason })}</div>}
     <pre className="sdiff-raw-code">{lines ? lines.map((line, index) => <code key={index}
       className={line.startsWith("+") && !line.startsWith("+++") ? "added" : line.startsWith("-") && !line.startsWith("---") ? "removed" : ""}>{line}</code>) : value}</pre>
   </div>;
@@ -49,17 +50,17 @@ function RawPatch({ value, reason }) {
 // c219730b0 W row labels from diff-file-header-model.mjs instead.
 function metadata(file) {
   const labels = [];
-  if (file.binary) labels.push("Binary file");
-  if (file.renamedFrom && file.renamedFrom !== file.path) labels.push(`Renamed from ${file.renamedFrom}`);
-  if (file.copiedFrom) labels.push(`Copied from ${file.copiedFrom}`);
-  if (file.status === "added") labels.push("New file");
-  if (file.status === "deleted") labels.push("Deleted file");
+  if (file.binary) labels.push(t("Binary file"));
+  if (file.renamedFrom && file.renamedFrom !== file.path) labels.push(t("Renamed from {path}", { path: file.renamedFrom }));
+  if (file.copiedFrom) labels.push(t("Copied from {path}", { path: file.copiedFrom }));
+  if (file.status === "added") labels.push(t("New file"));
+  if (file.status === "deleted") labels.push(t("Deleted file"));
   if (file.oldMode && file.newMode && file.oldMode !== file.newMode) {
-    labels.push(file.oldMode === "100644" && file.newMode === "100755" ? "Made executable"
-      : file.oldMode === "100755" && file.newMode === "100644" ? "No longer executable"
-      : `Mode ${file.oldMode} → ${file.newMode}`);
-  } else if (file.newMode && file.status === "added") labels.push(`Mode ${file.newMode}`);
-  else if (file.oldMode && file.status === "deleted") labels.push(`Mode ${file.oldMode}`);
+    labels.push(file.oldMode === "100644" && file.newMode === "100755" ? t("Made executable")
+      : file.oldMode === "100755" && file.newMode === "100644" ? t("No longer executable")
+      : t("Mode {from} → {to}", { from: file.oldMode, to: file.newMode }));
+  } else if (file.newMode && file.status === "added") labels.push(t("Mode {mode}", { mode: file.newMode }));
+  else if (file.oldMode && file.status === "deleted") labels.push(t("Mode {mode}", { mode: file.oldMode }));
   return labels;
 }
 
@@ -109,10 +110,10 @@ function ContextGap({ region, onExpand }) {
     data-separator-first={region.first || undefined} data-separator-last={region.last || undefined}>
     <div className="sdiff-separator-wrapper" data-multi-button={directions.length > 1 || undefined}>
       {directions.map(direction => <button key={direction} type="button" className="sdiff-expand" data-direction={direction}
-        aria-label={region.remaining <= 100 ? `Expand ${region.remaining} unmodified lines` : `Expand 100 lines ${direction === 'both' ? 'in both directions' : direction === 'up' ? 'below previous change' : 'above next change'}`}
+        aria-label={region.remaining <= 100 ? t('Expand {count} unmodified lines', { count: region.remaining }) : direction === 'both' ? t('Expand 100 lines in both directions') : direction === 'up' ? t('Expand 100 lines below previous change') : t('Expand 100 lines above next change')}
         onClick={event => onExpand(region, direction, event.currentTarget)}><ExpandIcon direction={direction}/></button>)}
-      <button type="button" className="sdiff-separator-content" title="Expand unmodified lines"
-        onClick={event => onExpand(region, 'both', event.currentTarget)}><span>{region.remaining} unmodified line{region.remaining === 1 ? '' : 's'}</span></button>
+      <button type="button" className="sdiff-separator-content" title={t("Expand unmodified lines")}
+        onClick={event => onExpand(region, 'both', event.currentTarget)}><span>{tn(region.remaining, '{count} unmodified line', '{count} unmodified lines')}</span></button>
     </div>
   </div>;
 }
@@ -165,7 +166,7 @@ function DiffPathLabel({ path }) {
 // the full previous path (the only native title the source header carries).
 function RenamedFrom({ path, previous }) {
   return <span className="sdiff-renamed flex min-w-0 shrink-[9999] items-baseline gap-1 overflow-hidden whitespace-nowrap text-body text-muted">
-    <span className="min-w-0 truncate">Renamed from </span>
+    <span className="min-w-0 truncate">{t('Renamed from')} </span>
     <span className="flex min-w-0 shrink-[9999]"><PathSegments path={renamedFromDisplay(path, previous)} title={previous} /></span>
   </span>;
 }
@@ -228,24 +229,24 @@ function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, ac
       {onOpenFile && <span aria-hidden="true" data-size="xs" className="w-control shrink-0" />}
     </button>
     {onOpenFile && <span className="sdiff-open-file absolute inset-y-0 right-0 flex items-center pr-md opacity-0 transition-opacity motion-reduce:transition-none group-hover/diff-file:opacity-100 group-focus-within/diff-file:opacity-100 pointer-coarse:opacity-100">
-      <SourceTooltip content="Open file" side="bottom" hoverable={false}>
-        <SourceSettingsButton size="xs" variant="ghost" icon="ArrowUpRight" iconSize="auto-sm" iconOnly aria-label="Open file" onClick={() => onOpenFile(file.path)} />
+      <SourceTooltip content={t("Open file")} side="bottom" hoverable={false}>
+        <SourceSettingsButton size="xs" variant="ghost" icon="ArrowUpRight" iconSize="auto-sm" iconOnly aria-label={t("Open file")} onClick={() => onOpenFile(file.path)} />
       </SourceTooltip>
     </span>}
     {menu && <SourceMenu.Popup anchor={headerRef.current} trigger={toggleRef.current} point={menu} side="bottom" align="start"
       sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
-      label={`${path} actions`} onClose={() => setMenu(null)}>
-      {onAttachFile && <SourceMenu.Item onClick={() => onAttachFile(file.path)}>Attach as context</SourceMenu.Item>}
+      label={t("{path} actions", { path })} onClose={() => setMenu(null)}>
+      {onAttachFile && <SourceMenu.Item onClick={() => onAttachFile(file.path)}>{t("Attach as context")}</SourceMenu.Item>}
       {/* c3e58cab4 p: SubmenuPopup side right, align start, sideOffset -4. */}
       <SourceMenu.Submenu>
-        <SourceMenu.SubmenuTrigger>Copy</SourceMenu.SubmenuTrigger>
-        <SourceMenu.Popup label="Copy" side="right" align="start" sideOffset={-4}>
-          {choices.absolute && <SourceMenu.Item onClick={() => copy(choices.absolute)}>Absolute path</SourceMenu.Item>}
-          <SourceMenu.Item onClick={() => copy(choices.relative)}>Relative path</SourceMenu.Item>
-          <SourceMenu.Item onClick={() => copy(choices.filename)}>Filename</SourceMenu.Item>
+        <SourceMenu.SubmenuTrigger>{t("Copy")}</SourceMenu.SubmenuTrigger>
+        <SourceMenu.Popup label={t("Copy")} side="right" align="start" sideOffset={-4}>
+          {choices.absolute && <SourceMenu.Item onClick={() => copy(choices.absolute)}>{t("Absolute path")}</SourceMenu.Item>}
+          <SourceMenu.Item onClick={() => copy(choices.relative)}>{t("Relative path")}</SourceMenu.Item>
+          <SourceMenu.Item onClick={() => copy(choices.filename)}>{t("Filename")}</SourceMenu.Item>
         </SourceMenu.Popup>
       </SourceMenu.Submenu>
-      {onOpenFile && <><SourceMenu.Separator /><SourceMenu.Item onClick={() => onOpenFile(file.path)}>Open file</SourceMenu.Item></>}
+      {onOpenFile && <><SourceMenu.Separator /><SourceMenu.Item onClick={() => onOpenFile(file.path)}>{t("Open file")}</SourceMenu.Item></>}
     </SourceMenu.Popup>}
   </div>;
 }
@@ -295,11 +296,11 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
   // (a Changes file without hunks has no body, see hasBody).
   const labels = changes ? [] : metadata(file);
   const separators = useMemo(() => diffSeparators(file.hunks), [file.hunks]);
-  const path = file.path || "Patch";
+  const path = file.path || t("Patch");
   const copy = async () => {
-    try { await navigator.clipboard.writeText(file.raw); setCopyState("Copied patch"); }
+    try { await navigator.clipboard.writeText(file.raw); setCopyState(t("Copied patch")); }
     // Catalog clipboard failure wording (en-US ugO0/irMRD), as the code-block copy.
-    catch { setCopyState("Couldn’t copy to the clipboard. Try again."); }
+    catch { setCopyState(t("Couldn’t copy to the clipboard. Try again.")); }
   };
   const maximum = file.hunks.reduce((highest, hunk) => Math.max(highest,
     hunk.oldStart + hunk.oldCount - 1, hunk.newStart + hunk.newCount - 1), 1);
@@ -312,13 +313,13 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
         <Icon name="File" size={12} className="sdiff-file-icon" />
         <div className="sdiff-path">{path}</div>
         {labels.length > 0 && <div className="sdiff-meta">{labels.join(" · ")}</div>}
-        {file.hunks.length > 0 && !file.fallbackReason && <div className="sdiff-counts" aria-label={`${file.added} additions, ${file.removed} deletions`}>
+        {file.hunks.length > 0 && !file.fallbackReason && <div className="sdiff-counts" aria-label={t("{added} additions, {removed} deletions", { added: file.added, removed: file.removed })}>
           <b className="sdiff-count-added">+{file.added}</b><b className="sdiff-count-removed">−{file.removed}</b>
         </div>}
       </button>
       {typeof navigator !== "undefined" && navigator.clipboard?.writeText && <button type="button" className="sdiff-copy"
-        aria-label={`Copy patch for ${path}`} title={copyState || "Copy patch"} onClick={copy}>
-        <Icon name={copyState === "Copied patch" ? "Check" : "Copy"} size={12} />
+        aria-label={t("Copy patch for {path}", { path })} title={copyState || t("Copy patch")} onClick={copy}>
+        <Icon name={copyState === t("Copied patch") ? "Check" : "Copy"} size={12} />
       </button>}
     </div>}
     {!changes && copyState && <div className="sdiff-copy-status" role="status">{copyState}</div>}
@@ -328,7 +329,7 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
           ? <ContextGap key={region.id} region={region} onExpand={expand}/>
           : <DiffHunk key={region.id} hunk={region} file={file} layout={layout} wordDiff={wordDiff} scopeKey={JSON.stringify([scopeKey, file.id, file.path, region.id])}/>)
         : file.hunks.length ? file.hunks.map((hunk, index) => <DiffHunk key={index} hunk={hunk} separator={separators[index]} file={file} layout={layout} wordDiff={wordDiff} scopeKey={JSON.stringify([scopeKey, file.id, file.path, index])}/>)
-          : <div className="sdiff-metadata-only">{labels.join(" · ") || "No text hunks in this patch"}</div>}
+          : <div className="sdiff-metadata-only">{labels.join(" · ") || t("No text hunks in this patch")}</div>}
     </div>}
   </section>;
 }
@@ -674,7 +675,7 @@ export function SourceDiff({ value = "", scopeKey = "standalone", layout = "unif
   }, [reveal]);
   const banner = changes && large && entries.length > 0
     ? <div className="sdiff-large-banner shrink-0 px-md py-1.25 text-body text-muted">{DIFF_FILE_LIST_LABELS.largeBanner}</div> : null;
-  const view = <div ref={root} key={scopeKey} data-layout={actualLayout} data-word-wrap={wordWrap} data-word-highlight={wordDiff} data-hide-whitespace={hideWhitespace || undefined} data-large-diff={large || undefined} className="source-diff diff sdiff-view" data-source-component="FileDiff" data-placement={placement} aria-label="File changes">
+  const view = <div ref={root} key={scopeKey} data-layout={actualLayout} data-word-wrap={wordWrap} data-word-highlight={wordDiff} data-hide-whitespace={hideWhitespace || undefined} data-large-diff={large || undefined} className="source-diff diff sdiff-view" data-source-component="FileDiff" data-placement={placement} aria-label={t("File changes")}>
     {!listed && banner}
     {sections.map((section) => section.type === "file"
       ? <FileDiff key={`${section.id}:${section.path}`} file={section} scopeKey={scopeKey} layout={actualLayout} completeContext={completeContext} foldAll={foldAll} placement={placement} fileActions={fileActions} wordDiff={wordDiff}

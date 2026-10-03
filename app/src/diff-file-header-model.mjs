@@ -1,3 +1,5 @@
+import { t } from '../electron/i18n/index.mjs';
+
 // Changes-pane file header facts, 2.2553.1 c219730b0-DMsvWaVJ.js (We/Ke/qe/W/Ue)
 // and c3e58cab4-BIx3-QB8.js (Copy submenu d/p). Pure: the parser file object in,
 // plain strings out. Only facts the local unified-diff parser actually knows are
@@ -6,11 +8,11 @@
 
 // c219730b0 W: the only row labels, each with its tooltip suffix template.
 export const DIFF_ROW_LABELS = Object.freeze({
-  binary: { row: 'Binary file', tooltip: '{path} (binary file)' },
-  tooLarge: { row: 'Too large to show', tooltip: '{path} (too large to show)' },
-  whitespaceOnly: { row: 'Whitespace only', tooltip: '{path} (whitespace only)' },
-  madeExecutable: { row: 'Made executable', tooltip: '{path} (made executable)' },
-  noLongerExecutable: { row: 'No longer executable', tooltip: '{path} (no longer executable)' },
+  binary: { row: t('Binary file'), tooltip: t('{path} (binary file)') },
+  tooLarge: { row: t('Too large to show'), tooltip: t('{path} (too large to show)') },
+  whitespaceOnly: { row: t('Whitespace only'), tooltip: t('{path} (whitespace only)') },
+  madeExecutable: { row: t('Made executable'), tooltip: t('{path} (made executable)') },
+  noLongerExecutable: { row: t('No longer executable'), tooltip: t('{path} (no longer executable)') },
 });
 
 // c219730b0 qe(modeChange): only 100644 <-> 100755 yields a label; every other

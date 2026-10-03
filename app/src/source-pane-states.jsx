@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { SourceEmptyState } from "./source-transcript-states.jsx";
 import "./source-pane-states.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Changes/Plan pane body states (2.2553.1). Class strings are the source strings;
 // every utility they name is in the loaded original /assets/v1/c6a992d55-Vcbdv79k.css.
@@ -45,9 +46,9 @@ export function SourceLoadingPane({ label, className = "h-full w-full", delay = 
 // .outline-none around EmptyState P — failed: role=alert, icon Warning and the
 // fixed retry copy (no error detail); else "No uncommitted changes" when
 // uncommittedOnly, "No changes to show" otherwise.
-export const CHANGES_LOADING_LABEL = "Loading changes";
-export const CHANGES_FAILED_TITLE = "Couldn’t load the changes. Close and reopen this pane to try again.";
-export function changesEmptyTitle(uncommittedOnly) { return uncommittedOnly ? "No uncommitted changes" : "No changes to show"; }
+export const CHANGES_LOADING_LABEL = t("Loading changes");
+export const CHANGES_FAILED_TITLE = t("Couldn’t load the changes. Close and reopen this pane to try again.");
+export function changesEmptyTitle(uncommittedOnly) { return uncommittedOnly ? t("No uncommitted changes") : t("No changes to show"); }
 export function SourceChangesState({ state, uncommittedOnly = false }) {
   if (state === "loading") return <SourceLoadingPane label={CHANGES_LOADING_LABEL} />;
   const failed = state === "failed";
@@ -60,8 +61,8 @@ export function SourceChangesState({ state, uncommittedOnly = false }) {
 // kp (readable/panes-tile-current.js:1751-1766): no content and no todos ->
 // EmptyState {icon Checklist, "No plan yet", body}. Honest local adaptation of
 // the body: Codex, not Claude, writes the plan (turn/plan/updated) while it works.
-export const PLAN_EMPTY_TITLE = "No plan yet";
-export const PLAN_EMPTY_BODY = "DeepSeek writes the plan here as it works. Keep chatting.";
+export const PLAN_EMPTY_TITLE = t("No plan yet");
+export const PLAN_EMPTY_BODY = t("DeepSeek writes the plan here as it works. Keep chatting.");
 export function SourcePlanEmpty() {
   return <SourceEmptyState icon="Checklist" title={PLAN_EMPTY_TITLE} body={PLAN_EMPTY_BODY} />;
 }
@@ -72,12 +73,12 @@ export function SourcePlanEmpty() {
 // data -> fixed copy (never the raw error), no rows -> "Folder is empty".
 // Local addition: the loading box is role=status with an sr-only "Loading" name
 // (Yg's spinner is aria-hidden and unlabelled), so the state is announced.
-export const FILES_FOLDER_ERROR = "Couldn’t read this folder.";
-export const FILES_FOLDER_EMPTY = "Folder is empty";
-export const FILES_TREE_LOADING_LABEL = "Loading";
+export const FILES_FOLDER_ERROR = t("Couldn’t read this folder.");
+export const FILES_FOLDER_EMPTY = t("Folder is empty");
+export const FILES_TREE_LOADING_LABEL = t("Loading");
 // Jg with "No working directory for this session" (panes-tile-current.js:4780-4786),
 // the tree body of a pane without a working directory.
-export const FILES_NO_WORKING_DIRECTORY = "No working directory for this session";
+export const FILES_NO_WORKING_DIRECTORY = t("No working directory for this session");
 const FILES_TREE_STATE_CLASS = "flex items-center justify-center px-lg py-2.5 text-body text-muted";
 export function SourceFilesTreeState({ state }) {
   if (state === "loading") return <div role="status" className={`${FILES_TREE_STATE_CLASS} source-files-tree-state`} data-tree-state="loading">
@@ -107,10 +108,10 @@ export function SourceTreeErrorRow({ depth }) {
 // Clicking a file path in the transcript opens the Files pane locally too.
 export function filesEmptyPreviewCopy({ tabs, treeShown }) {
   return tabs > 0
-    ? { title: "No file selected", body: "Pick an open file above, or click a file path in the conversation." }
-    : { title: "Open files appear here", body: treeShown
-      ? "Pick a file in the tree, or click a file path in the conversation."
-      : "Click a file path in the conversation to open it." };
+    ? { title: t("No file selected"), body: t("Pick an open file above, or click a file path in the conversation.") }
+    : { title: t("Open files appear here"), body: treeShown
+      ? t("Pick a file in the tree, or click a file path in the conversation.")
+      : t("Click a file path in the conversation to open it.") };
 }
 export function SourceFilesEmptyPreview({ tabs, treeShown }) {
   const { title, body } = filesEmptyPreviewCopy({ tabs, treeShown });

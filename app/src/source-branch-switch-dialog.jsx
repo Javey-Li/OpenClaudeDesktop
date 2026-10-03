@@ -4,14 +4,17 @@ import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { SourceMenu } from "./source-menu";
 import { BRANCH_SWITCH_LABELS, BRANCH_SWITCH_MODES } from "./branch-picker-model.mjs";
 import "./source-branch-switch-dialog.css";
+import { t, tn } from "../electron/i18n/index.mjs";
 
 // WR (cc43287c9-BMbiZYzF.js:15913-15918): a branch name inside the copy is <code class="text-code-regular text-primary">.
 const BranchName = ({ children }) => <code className="sbs-branch">{children}</code>;
+// A translated sentence with the branch name element where its {branch} placeholder is.
+const withBranch = (text, branch) => text.split("{branch}").flatMap((part, index) => index ? [<BranchName key={index}>{branch}</BranchName>, part] : [part]);
 
 // KR (:16123-16138): '+a −d' in font-mono-ui text-caption, labelled '{additions} additions, {deletions} deletions'.
 function ChangeCounts({ additions, deletions }) {
   return (
-    <span className="sbs-counts" aria-label={`${additions} additions, ${deletions} deletions`}>
+    <span className="sbs-counts" aria-label={t("{additions} additions, {deletions} deletions", { additions, deletions })}>
       <span className="sbs-additions">{`+${additions}`}</span>{" "}<span className="sbs-deletions">{`−${deletions}`}</span>
     </span>
   );
@@ -26,10 +29,10 @@ function SplitDropdownButton({ label, busy, disabled, onPrimaryClick, items }) {
     <div className="sbs-split" role="group" data-cds="SplitDropdownButton" aria-label={label}
       data-popup-open={anchor ? "" : undefined} data-disabled={disabled || undefined}>
       <SourceSettingsButton variant="secondary" className="sbs-split-primary" busy={busy} disabled={disabled} onClick={onPrimaryClick}>{label}</SourceSettingsButton>
-      <SourceSettingsButton variant="secondary" className="sbs-split-caret" iconOnly icon="CaretDown" iconSize={16} aria-label="More options"
+      <SourceSettingsButton variant="secondary" className="sbs-split-caret" iconOnly icon="CaretDown" iconSize={16} aria-label={t("More options")}
         aria-haspopup="menu" aria-expanded={!!anchor} disabled={disabled} onClick={(event) => setAnchor(event.currentTarget)} />
     </div>
-    {anchor && <SourceMenu.Popup anchor={anchor} side="top" align="end" label="More options" layerBase={MODAL_LAYER.base} onClose={() => setAnchor(null)}>
+    {anchor && <SourceMenu.Popup anchor={anchor} side="top" align="end" label={t("More options")} layerBase={MODAL_LAYER.base} onClose={() => setAnchor(null)}>
       {items.map((item) => <SourceMenu.Item key={item.label} checked={item.checked} checkedRole="radio" onClick={item.onSelect}>{item.label}</SourceMenu.Item>)}
     </SourceMenu.Popup>}
   </>;
@@ -83,25 +86,25 @@ export function SourceBranchSwitchDialog({ open = true, onExited, currentBranch,
   return (
     <SourceDialog open={open} onExited={onExited} alert size="sm" showClose={false} className="sbs-dialog" descriptionClassName="sbs-description"
       initialFocusRef={cancelRef} onClose={close}
-      title={confirmDiscard ? "Discard uncommitted changes?" : <>Uncommitted changes on <BranchName>{currentBranch}</BranchName></>}
+      title={confirmDiscard ? t("Discard uncommitted changes?") : <>{withBranch(t("Uncommitted changes on {branch}"), currentBranch)}</>}
       description={confirmDiscard
-        ? <>All uncommitted changes on <BranchName>{currentBranch}</BranchName> will be permanently lost.</>
-        : <>Handle them before switching to <BranchName>{targetBranch}</BranchName>.</>}>
+        ? <>{withBranch(t("All uncommitted changes on {branch} will be permanently lost."), currentBranch)}</>
+        : <>{withBranch(t("Handle them before switching to {branch}."), targetBranch)}</>}>
       {!confirmDiscard && files > 0 && <p className="sbs-files">
-        {files === 1 ? "1 file changed" : `${files} files changed`}
+        {tn(files, "{count} file changed", "{count} files changed")}
         {(additions > 0 || deletions > 0) && <ChangeCounts additions={additions} deletions={deletions} />}
       </p>}
       <SourceDialogFooter className="sbs-footer">
         <div className="sbs-footer-group">
           {confirmDiscard
-            ? <SourceSettingsButton ref={backRef} variant="secondary" disabled={busy !== null} onClick={() => setConfirmDiscard(false)}>Back</SourceSettingsButton>
-            : <SourceSettingsButton ref={cancelRef} variant="secondary" disabled={busy !== null} onClick={() => onCancel?.()}>Cancel</SourceSettingsButton>}
+            ? <SourceSettingsButton ref={backRef} variant="secondary" disabled={busy !== null} onClick={() => setConfirmDiscard(false)}>{t("Back")}</SourceSettingsButton>
+            : <SourceSettingsButton ref={cancelRef} variant="secondary" disabled={busy !== null} onClick={() => onCancel?.()}>{t("Cancel")}</SourceSettingsButton>}
         </div>
         <div className="sbs-footer-group">
           {confirmDiscard
-            ? <SourceSettingsButton variant="danger" busy={busy === "discard"} disabled={busy !== null} onClick={() => resolve("discard")}>Discard</SourceSettingsButton>
-            : <SplitDropdownButton label={BRANCH_SWITCH_LABELS[mode]} busy={busy !== null} disabled={busy !== null} onPrimaryClick={primary}
-              items={BRANCH_SWITCH_MODES.map((option) => ({ label: BRANCH_SWITCH_LABELS[option], checked: option === mode, onSelect: () => setMode(option) }))} />}
+            ? <SourceSettingsButton variant="danger" busy={busy === "discard"} disabled={busy !== null} onClick={() => resolve("discard")}>{t("Discard")}</SourceSettingsButton>
+            : <SplitDropdownButton label={t(BRANCH_SWITCH_LABELS[mode])} busy={busy !== null} disabled={busy !== null} onPrimaryClick={primary}
+              items={BRANCH_SWITCH_MODES.map((option) => ({ label: t(BRANCH_SWITCH_LABELS[option]), checked: option === mode, onSelect: () => setMode(option) }))} />}
         </div>
       </SourceDialogFooter>
     </SourceDialog>

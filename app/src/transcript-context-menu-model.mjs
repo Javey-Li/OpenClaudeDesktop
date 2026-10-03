@@ -1,3 +1,4 @@
+import { t } from "../electron/i18n/index.mjs";
 // Transcript right-click menus. Pure: the caller resolves the DOM target.
 //
 // messageMenu: scroll-messages-current.js:33652-33818 CY. Items in order —
@@ -40,34 +41,34 @@ export function messageMenu({ selectionText = null, codeTarget = null, linkHref 
   const hasText = typeof messageText === "string";
   const attach = canAttach && hasText;
   const entries = [];
-  if (selection !== null) entries.push(item("copy-selection", "Copy", { shortcut: "cmd+c" }));
-  if (code) entries.push(item("copy-code", code.isBlock ? "Copy code block" : code.isPath ? "Copy path" : "Copy code"));
+  if (selection !== null) entries.push(item("copy-selection", t("Copy"), { shortcut: "cmd+c" }));
+  if (code) entries.push(item("copy-code", code.isBlock ? t("Copy code block") : code.isPath ? t("Copy path") : t("Copy code")));
   if (link) {
-    if (canOpenInBrowser) entries.push(item("open-link", "Open in default browser"));
-    entries.push(item("copy-link", "Copy link"));
+    if (canOpenInBrowser) entries.push(item("open-link", t("Open in default browser")));
+    entries.push(item("copy-link", t("Copy link")));
   }
   const before = entries.length > 0;
   if (before && hasText) entries.push(separator);
-  if (hasText) entries.push(item("copy-message", "Copy message"), item("copy-markdown", "Copy message as Markdown"));
+  if (hasText) entries.push(item("copy-message", t("Copy message")), item("copy-markdown", t("Copy message as Markdown")));
   if ((before || hasText) && attach) entries.push(separator);
   if (attach) entries.push(attachableSelection(selection)
-    ? item("attach", "Attach selection as context", { shortcut: "cmd+shift+l" })
-    : item("attach", "Attach message as context"));
+    ? item("attach", t("Attach selection as context"), { shortcut: "cmd+shift+l" })
+    : item("attach", t("Attach message as context")));
   return entries;
 }
 
 export function fileRefMenu({ absolute = null, relative = null, filename, canAttach = false, canOpen = true, canReveal = false } = {}) {
   const entries = [];
-  if (canAttach && absolute) entries.push(item("attach-file", "Attach as context"));
-  entries.push(item("copy", "Copy", { submenu: [
-    ...(absolute ? [item("copy-absolute", "Absolute path")] : []),
-    ...(relative ? [item("copy-relative", "Relative path")] : []),
-    item("copy-filename", "Filename"),
+  if (canAttach && absolute) entries.push(item("attach-file", t("Attach as context")));
+  entries.push(item("copy", t("Copy"), { submenu: [
+    ...(absolute ? [item("copy-absolute", t("Absolute path"))] : []),
+    ...(relative ? [item("copy-relative", t("Relative path"))] : []),
+    item("copy-filename", t("Filename")),
   ] }));
-  if (canOpen) entries.push(separator, item("open-in", "Open in", { submenu: [item("open-files-pane", "Files pane")] }));
+  if (canOpen) entries.push(separator, item("open-in", t("Open in"), { submenu: [item("open-files-pane", t("Files pane"))] }));
   if (canReveal && absolute) {
     if (!canOpen) entries.push(separator);
-    entries.push(item("reveal", "Show in Finder"));
+    entries.push(item("reveal", t("Show in Finder")));
   }
   return entries;
 }

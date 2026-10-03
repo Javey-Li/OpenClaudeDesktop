@@ -2,6 +2,7 @@
 // estimated CNY at DeepSeek's official peak/off-peak prices) as tiles, a cost breakdown, models and days.
 // Absent or malformed (the Codex core, fixtures) -> null, and SourceUsage keeps the Codex layout.
 import { compactTokens, formatDayKey } from "./home-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 
 export const COST_DAILY_DAYS = 30;
 export const COST_FOOTNOTE = "按 DeepSeek 官方价格估算（峰谷分时），实际以 DeepSeek 平台账单为准";
@@ -56,14 +57,14 @@ export function deepseekCostPresentation(data, { todayKey, locale } = {}) {
   const all = totals(source.allTime), recent = totals(source.last30Days), today = totals(source.today);
   if (!all || !recent || !today) return null;
   const tile = (key, label, value) => ({ key, label, tokens: value.tokens, cost: value.costCny, partial: value.unpricedTokens > 0 && value.costCny !== null });
-  const tiles = [tile("all", "Total tokens", all), tile("30d", "Last 30 days", recent), tile("today", "Today", today)];
+  const tiles = [tile("all", t("Total tokens"), all), tile("30d", t("Last 30 days"), recent), tile("today", t("Today"), today)];
   // Where the cost goes (all time): cache writes are billed as cache-miss input, so they join Input.
   const pricedTotal = all.costCny ?? 0;
   const categoryBasis = pricedTotal > 0 ? "cost" : "tokens";
   const categories = [
-    { key: "input", label: "Input", tokens: all.inputTokens + all.cacheWriteTokens, cost: all.inputCostCny },
-    { key: "cached", label: "Cached input", tokens: all.cacheReadTokens, cost: all.cacheReadCostCny },
-    { key: "output", label: "Output", tokens: all.outputTokens, cost: all.outputCostCny },
+    { key: "input", label: t("Input"), tokens: all.inputTokens + all.cacheWriteTokens, cost: all.inputCostCny },
+    { key: "cached", label: t("Cached input"), tokens: all.cacheReadTokens, cost: all.cacheReadCostCny },
+    { key: "output", label: t("Output"), tokens: all.outputTokens, cost: all.outputCostCny },
   ].map((entry) => ({ ...entry, share: categoryBasis === "cost" ? share(entry.cost ?? 0, pricedTotal) : share(entry.tokens, all.tokens) }));
   const models = (Array.isArray(source.models) ? source.models : [])
     .filter((entry) => isRecord(entry) && typeof entry.model === "string" && count(entry.tokens) > 0)

@@ -5,6 +5,7 @@ import { SourceTooltip } from "./source-tooltip.jsx";
 import { fileKindIcon } from "./file-kind-icon.mjs";
 import { optionHighlights, mentionPopupGeometry, mentionWidth } from "./mention-model.mjs";
 import "./source-mention-dropdown.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // 2.2553.1 mention dropdown (shared-frame :13107-13300 Vx/Bx; c099c328d
 // :6233 Ap widths, :6286-6330 Ip leading icons, :6246-6265 Pp matches):
@@ -45,7 +46,7 @@ export function SourceMentionDropdown({ options = [], highlighted = 0, caret, on
   const popup = (
     <div className="cds-root smd-positioner" role="presentation" data-testid="mention-dropdown"
       style={{ left: box.left, bottom: box.bottom, width: box.width, maxHeight: box.maxHeight }}>
-      <div ref={list} data-cds="MentionDropdown" role="listbox" aria-label="Mention suggestions" tabIndex={-1} className="smd-list"
+      <div ref={list} data-cds="MentionDropdown" role="listbox" aria-label={t("Mention suggestions")} tabIndex={-1} className="smd-list"
         onMouseLeave={() => onHover?.(null)}>
         {options.map((option, index) => {
           const lit = optionHighlights(option);

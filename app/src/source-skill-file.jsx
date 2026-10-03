@@ -6,6 +6,7 @@ import { SourceTooltip } from './source-tooltip';
 import { skillFilePreview, skillFileIsLarge, skillFieldLabel, skillSourceLines } from './skill-file-model.mjs';
 import { responseLinkTarget } from './response-link-model.mjs';
 import { DocumentPre } from './source-document-code.jsx';
+import { t } from '../electron/i18n/index.mjs';
 import './source-skill-file.css';
 
 function FileLink({ href, children }) {
@@ -29,7 +30,7 @@ export function SkillMarkdown({ content }) {
 export function SkillSource({ content }) {
   const lines = useMemo(() => skillSourceLines(content), [content]);
   const digits = Math.max(3, String(lines.length).length);
-  return <div className="skf-source" tabIndex={0} aria-label="SKILL.md source" style={{ '--skf-number-width': `${digits * .6 + .5}rem` }}>
+  return <div className="skf-source" tabIndex={0} aria-label={t("SKILL.md source")} style={{ '--skf-number-width': `${digits * .6 + .5}rem` }}>
     {lines.map((line, index) => <div className="skf-source-line" key={index}>
       <span className="skf-line-number" aria-hidden="true">{index + 1}</span>
       <span className="skf-line-sign" aria-hidden="true"> </span>
@@ -44,7 +45,7 @@ export function SourceSkillFile({ content }) {
   const preview = useMemo(() => skillFilePreview(content), [content]);
   return <section className="skf-card" data-skill-file="" data-file-mode={mode}>
     <div className="skf-toolbar">
-      <div className="skf-modes" role="radiogroup" aria-label="File view mode" data-cds="SegmentedControl" data-size="sm"
+      <div className="skf-modes" role="radiogroup" aria-label={t("File view mode")} data-cds="SegmentedControl" data-size="sm"
         onKeyDown={event => {
           if (event.altKey || event.ctrlKey || event.metaKey) return;
           let next;
@@ -57,7 +58,7 @@ export function SourceSkillFile({ content }) {
           event.currentTarget.querySelector(`[data-mode-value="${next}"]`)?.focus();
         }}>
         <span className="skf-thumb" aria-hidden="true" data-raw={mode === 'raw' || undefined} />
-        {[['normal', 'Preview', 'Eye'], ['raw', 'Code', 'Code']].map(([value, label, icon]) =>
+        {[['normal', t('Preview'), 'Eye'], ['raw', t('Code'), 'Code']].map(([value, label, icon]) =>
           <SourceTooltip key={value} content={label} hoverable={false}>
             <button type="button" role="radio" aria-label={label} aria-checked={mode === value}
               tabIndex={mode === value ? 0 : -1} data-mode-value={value}
@@ -67,8 +68,8 @@ export function SourceSkillFile({ content }) {
     </div>
     <div className="skf-scroll scroll-fade-y scroll-fade-size-6">
       {large ? <div className="skf-large">
-        <p className="skf-large-note">Showing this large file as plain text to keep the page responsive. The full content is still here.</p>
-        <pre tabIndex={0} aria-label="SKILL.md source">{content}</pre>
+        <p className="skf-large-note">{t("Showing this large file as plain text to keep the page responsive. The full content is still here.")}</p>
+        <pre tabIndex={0} aria-label={t("SKILL.md source")}>{content}</pre>
       </div> : mode === 'raw' ? <SkillSource content={content} /> :
         <div className="skf-preview" tabIndex={preview.structured ? undefined : 0}>
           {preview.fields.length > 0 && <div className="skf-metadata">{preview.fields.map((field, index) =>

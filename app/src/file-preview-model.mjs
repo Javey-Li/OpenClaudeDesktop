@@ -1,5 +1,6 @@
 import { HIGHLIGHT_LIMITS, isPlainLanguage, normalizeLanguage } from './highlight-model.mjs';
 import { FILE_EXTENSION_LANGUAGES, LOCKFILE_LANGUAGES } from './highlight-languages.mjs';
+import { t, tn } from '../electron/i18n/index.mjs';
 
 // Highlight tokens describe complete fragments; split without dropping empty
 // lines, CRs, or a token that spans multiple lines. No HTML is interpreted.
@@ -189,12 +190,12 @@ export function parseCsvPreview(contents, delimiter) {
 // cd5fd9055 l: the truncation caption above the table (ICU plural/number
 // messages rendered for en-US).
 export function csvTruncationCaption({ rowCount, columnCount, rowsTruncated, colsTruncated, cellsTruncated }) {
-  const cells = cellsTruncated ? ' Long cells are shortened.' : '';
-  const rowsText = `${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`;
-  if (rowsTruncated && colsTruncated) return `Showing the first ${rowsText} and ${columnCount.toLocaleString('en-US')} columns.${cells} Switch to Source to see more.`;
-  if (rowsTruncated) return `Showing the first ${rowsText}.${cells} Switch to Source to see more.`;
-  if (colsTruncated) return `Showing the first ${columnCount} ${columnCount === 1 ? 'column' : 'columns'}.${cells} Switch to Source to see more.`;
-  return 'Long cells are shortened. Switch to Source to see more.';
+  const cells = cellsTruncated ? t(' Long cells are shortened.') : '';
+  const rowsText = tn(rowCount, '{count} row', '{count} rows');
+  if (rowsTruncated && colsTruncated) return t('Showing the first {rows} and {columns} columns.{cells} Switch to Source to see more.', { rows: rowsText, columns: columnCount.toLocaleString('en-US'), cells });
+  if (rowsTruncated) return t('Showing the first {rows}.{cells} Switch to Source to see more.', { rows: rowsText, cells });
+  if (colsTruncated) return tn(columnCount, 'Showing the first {count} column.{cells} Switch to Source to see more.', 'Showing the first {count} columns.{cells} Switch to Source to see more.', { cells });
+  return t('Long cells are shortened. Switch to Source to see more.');
 }
 
 // Files pane viewer (source-file-viewer.jsx). The rows of a file: a terminal LF

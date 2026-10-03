@@ -1,5 +1,6 @@
 // Main-issued approval identity and memory-only pending drafts.
 // Source and integration evidence: analysis/batch-20260920/approval-question-implementation.md.
+import { t } from "../electron/i18n/index.mjs";
 const QUESTION = "item/tool/requestUserInput";
 const PERMISSION = "item/permissions/requestApproval";
 const DECISION_METHODS = new Set([
@@ -46,42 +47,42 @@ function questionSchema(request) {
   const invalid = (schemaError) => ({ questions: freeze([]), schemaError });
   const supplied = request.params.questions;
   if (!Array.isArray(supplied))
-    return invalid("This request must include a list of questions.");
+    return invalid(t("This request must include a list of questions."));
   if (!supplied.length)
-    return invalid("This request did not include any questions.");
+    return invalid(t("This request did not include any questions."));
   const ids = new Set();
   const questions = [];
   for (const question of supplied) {
     if (!question || typeof question !== "object" || Array.isArray(question))
-      return invalid("This request contains an invalid question.");
+      return invalid(t("This request contains an invalid question."));
     if (typeof question.id !== "string" || !question.id || ids.has(question.id))
-      return invalid("Questions need distinct nonempty IDs.");
+      return invalid(t("Questions need distinct nonempty IDs."));
     ids.add(question.id);
     if (typeof question.question !== "string" || !question.question.trim())
-      return invalid("Question text must be a nonempty string.");
+      return invalid(t("Question text must be a nonempty string."));
     if (question.header !== undefined && typeof question.header !== "string")
-      return invalid("Question headers must be text.");
+      return invalid(t("Question headers must be text."));
     if (
       ["isOther", "isSecret", "multiSelect"].some(
         (field) =>
           question[field] !== undefined && typeof question[field] !== "boolean",
       )
     )
-      return invalid("Question input settings must be boolean values.");
+      return invalid(t("Question input settings must be boolean values."));
     const suppliedOptions = question.options ?? [];
     if (!Array.isArray(suppliedOptions))
-      return invalid("Question options must be a list.");
+      return invalid(t("Question options must be a list."));
     const options = [];
     for (const option of suppliedOptions) {
       if (!option || typeof option !== "object" || Array.isArray(option))
-        return invalid("This request contains an invalid question option.");
+        return invalid(t("This request contains an invalid question option."));
       if (typeof option.label !== "string" || !option.label.trim())
-        return invalid("Question option labels must be nonempty strings.");
+        return invalid(t("Question option labels must be nonempty strings."));
       if (
         option.description !== undefined &&
         typeof option.description !== "string"
       )
-        return invalid("Question option descriptions must be text.");
+        return invalid(t("Question option descriptions must be text."));
       options.push(
         freeze({
           label: option.label,
@@ -164,7 +165,7 @@ function answerPayload(questions, draft) {
       isAnswered(question, draft.answers[question.id]),
     )
   )
-    throw new Error("Answer every question before submitting.");
+    throw new Error(t("Answer every question before submitting."));
   // Skipped questions are OMITTED from `answers` — a deliberate local deviation. The source
   // submit R (approval-current.js:7903-7907: `if (s.selected.length===0) { (r||s.skipped) &&
   // i.push([o, Hi]); return; }`) DOES send a skipped question, with Hi = shared-11 Tr → sO
@@ -216,7 +217,7 @@ function responsePayload(entry, action, response) {
   // draft's answers; electron/respond-approval.cjs validates it like any answer.
   if (response !== undefined) {
     if (method !== QUESTION || !response?.answers || typeof response.answers !== "object")
-      throw new Error("Unsupported approval decision.");
+      throw new Error(t("Unsupported approval decision."));
     return {
       id,
       expected,
@@ -232,14 +233,14 @@ function responsePayload(entry, action, response) {
     };
   if (method === PERMISSION) {
     if (action !== "allow" && action !== "deny")
-      throw new Error("Permissions allow or deny the current turn only.");
+      throw new Error(t("Permissions allow or deny the current turn only."));
     return { id, expected, allow: action === "allow" };
   }
   if (
     !DECISION_METHODS.has(method) ||
     !["accept", "decline", "acceptForSession"].includes(action)
   )
-    throw new Error("Unsupported approval decision.");
+    throw new Error(t("Unsupported approval decision."));
   return { id, expected, decision: action };
 }
 
@@ -302,7 +303,7 @@ export function planReviewResponse(action, { feedback = "", target = "auto" } = 
       answers: answer([PLAN_APPROVE]),
       codeDesktop: { afterPlan: action === "accept" ? "ask" : PLAN_TARGETS.includes(target) ? target : "auto" },
     };
-  throw new Error("Unsupported plan review decision.");
+  throw new Error(t("Unsupported plan review decision."));
 }
 
 // lO (ion-dist/assets/v1/shared-11-CDihEvbJ.js), sent by yk re (approval-current.js
@@ -505,7 +506,7 @@ export function createApprovalDraftRuntime() {
     selectOther(ticket, questionId, { toggle = true } = {}) {
       return modifyAnswer(ticket, questionId, (previous, question) => {
         if (question.options.length && !question.isOther)
-          throw new Error("This question does not allow a custom answer.");
+          throw new Error(t("This question does not allow a custom answer."));
         if (question.multiSelect)
           return { ...previous, otherSelected: toggle ? !previous.otherSelected : true };
         return {
@@ -519,7 +520,7 @@ export function createApprovalDraftRuntime() {
         throw new TypeError("An answer must be text.");
       return modifyAnswer(ticket, questionId, (previous, question) => {
         if (question.options.length && !question.isOther)
-          throw new Error("This question does not allow a custom answer.");
+          throw new Error(t("This question does not allow a custom answer."));
         if (question.multiSelect)
           return { ...previous, otherSelected: true, customText: text };
         return {
@@ -620,7 +621,7 @@ export function createApprovalDraftRuntime() {
           }
           if (code === "already_sending") return { status: "busy", ticket };
           throw new Error(
-            result.error?.message || "Could not send the approval response.",
+            result.error?.message || t("Could not send the approval response."),
           );
         }
         if (
@@ -628,7 +629,7 @@ export function createApprovalDraftRuntime() {
           !matchesReply(result.identity, ticket.bridgeApproval)
         )
           throw new Error(
-            "The approval transport returned an invalid request identity.",
+            t("The approval transport returned an invalid request identity."),
           );
         // Keep a cleared tombstone until root removes the pending request.
         // Renders before the resolved event must not re-enable submission.

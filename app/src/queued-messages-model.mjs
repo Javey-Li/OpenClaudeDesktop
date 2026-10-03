@@ -1,3 +1,4 @@
+import { t, tn } from "../electron/i18n/index.mjs";
 // Queued / steered messages (2.2553.1 cc43287c9 :28296-28345, :28980-29000;
 // cf74bc599 :3889-4240) over the real Codex 0.155.1 app-server queue:
 // thread/queue/add|list|update|delete|reorder|start, thread/queue/changed and
@@ -36,13 +37,13 @@ export function previewText(input = []) {
     if (!item || typeof item !== "object") continue;
     if (item.type === "text" && typeof item.text === "string") parts.push(item.text);
     else if (item.type === "mention" || item.type === "skill") parts.push(`@${item.name ?? item.path ?? ""}`);
-    else if (item.type === "image" || item.type === "localImage") parts.push("[Image]");
+    else if (item.type === "image" || item.type === "localImage") parts.push(t("[Image]"));
   }
   return parts.join(" ").replace(/\s+/g, " ").trim() || "…";
 }
 
 export function queuedCountLabel(count) {
-  return `${count} ${count === 1 ? "message queued" : "messages queued"}`;
+  return tn(count, "{count} message queued", "{count} messages queued");
 }
 
 export function lockEntry(queue, id) {

@@ -8,6 +8,7 @@
 //                                     a completed plugin change re-lists plugins
 // Every dependency (call, timers) is injected so the logic is unit-testable.
 import { SKILLS_CHANGED_DEBOUNCE_MS, appendPluginLog, applySkillEnabled, mcpRows, patchMcpRow, pluginChangeOutcome, pluginRows, skillRows } from "./customize-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 
 const IDLE = Object.freeze({ status: "idle", error: "", at: 0 });
 
@@ -108,7 +109,7 @@ export function createCustomizeStore({ call, setTimeout: schedule = globalThis.s
   // response, and a failure restores the previous flag for the caller to announce.
   async function setSkillEnabled(path, enabled) {
     const previous = state.skills.skills.find((row) => row.path === path);
-    if (!previous) throw new Error("Unknown skill.");
+    if (!previous) throw new Error(t("Unknown skill."));
     patch("skills", { skills: applySkillEnabled(state.skills.skills, path, enabled) });
     try {
       const result = await call("customize", { operation: "skill-toggle", path, enabled });
@@ -130,12 +131,12 @@ export function createCustomizeStore({ call, setTimeout: schedule = globalThis.s
   }
   const inspectPlugin = (spec) => pluginCall("plugin-inspect", { spec });
   async function installPlugin(spec, { approvedBuilds } = {}) {
-    if (state.pluginOps.install?.status === "running") throw new Error("Another plugin is being installed.");
+    if (state.pluginOps.install?.status === "running") throw new Error(t("Another plugin is being installed."));
     const requestId = newId();
     patch("pluginOps", { install: { requestId, spec, status: "running", phase: "installing", attempt: null, log: "", outcome: null } });
     let outcome;
     try { outcome = settleChange(await pluginCall("plugin-install", { spec, requestId, ...(approvedBuilds ? { approvedBuilds } : {}) })); }
-    catch (error) { outcome = { ok: false, message: error?.message || "The plugin could not be installed." }; }
+    catch (error) { outcome = { ok: false, message: error?.message || t("The plugin could not be installed.") }; }
     if (state.pluginOps.install?.requestId === requestId)
       patch("pluginOps", { install: { ...state.pluginOps.install, status: outcome.ok ? "done" : "failed", outcome } });
     return outcome;

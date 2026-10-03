@@ -5,6 +5,7 @@ import { Icon } from './icons.jsx';
 import { coalesceFileRuns, fileAction, fileGroupPresentation, fileRunCounts, fileRunState, fileToolSummary } from './file-tool-model.mjs';
 import { commandRowLabel } from './command-row-model.mjs';
 import './source-tool-group.css';
+import { t } from '../electron/i18n/index.mjs';
 import {SourceMorphText} from './source-morph-text.jsx';
 import { groupExpansionKey, toolGroupExpansion } from './tool-group-expansion.mjs';
 
@@ -58,17 +59,17 @@ function ToolGroupBody({ item, renderItem, pendingApprovalItemIds, transcriptVie
   const live = !held ? null : (fileAction(held)||held.type==='fileChange') ? fileToolSummary([held],'busy')
     : held.type==='commandExecution' ? commandRowLabel(held.command,'busy',held.description)
     : isGenericTool(held) ? genericToolLabel(held,'busy')
-    : held.type==='collabAgentToolCall'&&agentContext ? {label:'Running agent',meta:agentView(agentContext.state,held).name} : null;
+    : held.type==='collabAgentToolCall'&&agentContext ? {label:t('Running agent'),meta:agentView(agentContext.state,held).name} : null;
   const toggle = () => { if(!forcedOpen)toolGroupExpansion.set(expansionKey,!open); };
   return <div className="source-message stg" data-tool-group={item.id} data-group-state={state} data-summary-state={live?'busy':isAwaiting?'blocked':'settled'}>
-    <button type="button" className="stg-trigger" aria-expanded={open} aria-controls={id} aria-label={!live && shownSummary.segments.some(segment=>segment.isError) ? [shownSummary.label,(shownCounts.added||shownCounts.removed)?`+${shownCounts.added} -${shownCounts.removed}`:null,isAwaiting?'Needs approval':state==='unknown'?'Status unavailable':null].filter(Boolean).join(' ') : undefined} onClick={toggle}>
+    <button type="button" className="stg-trigger" aria-expanded={open} aria-controls={id} aria-label={!live && shownSummary.segments.some(segment=>segment.isError) ? [shownSummary.label,(shownCounts.added||shownCounts.removed)?`+${shownCounts.added} -${shownCounts.removed}`:null,isAwaiting?t('Needs approval'):state==='unknown'?t('Status unavailable'):null].filter(Boolean).join(' ') : undefined} onClick={toggle}>
       <SourceMorphText morphKey={live?heldKey:'settled'} live={mountedLive} className="stg-label" slotClassName="stg-morph">
-      <span className={live ? 'source-shimmer stg-summary' : 'stg-summary'}>{live ? [live.label, live.meta].filter(Boolean).join(' ') : shownSummary.segments.map((segment,index)=><React.Fragment key={index}>{index>0?', ':null}<span data-summary-error={segment.isError||undefined}>{segment.verb}</span>{segment.meta?' '+segment.meta:null}</React.Fragment>)}</span>
+      <span className={live ? 'source-shimmer stg-summary' : 'stg-summary'}>{live ? [live.label, live.meta].filter(Boolean).join(' ') : shownSummary.segments.map((segment,index)=><React.Fragment key={index}>{index>0?t(', '):null}<span data-summary-error={segment.isError||undefined}>{segment.verb}</span>{segment.meta?' '+segment.meta:null}</React.Fragment>)}</span>
       {!live && (shownCounts.added || shownCounts.removed) ? <span className="stg-counts"><span className="stg-add">+{shownCounts.added}</span><span className="stg-remove">-{shownCounts.removed}</span></span> : null}
-      {isAwaiting && !live && <span className="stg-warning">Needs approval</span>}
-      {state === 'unknown' && !live && <span>Status unavailable</span>}
+      {isAwaiting && !live && <span className="stg-warning">{t("Needs approval")}</span>}
+      {state === 'unknown' && !live && <span>{t("Status unavailable")}</span>}
       </SourceMorphText>
-      {state === 'busy' && <span className="source-sr-only">running</span>}
+      {state === 'busy' && <span className="source-sr-only">{t("running")}</span>}
       <Icon name="CaretRight" size={14} style={{fontSize:"calc(.875rem * var(--cds-rem-scale, 1))"}} className="stg-caret" />
     </button>
     {mounted && <div id={id} hidden={!open} className="stg-body"><div className="stg-list">

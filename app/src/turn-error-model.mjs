@@ -1,3 +1,4 @@
+import { t } from "../electron/i18n/index.mjs";
 // Failed-turn presentation for Codex TurnError (work/codex-schema-0.155.1/ts/v2/
 // TurnError.ts {message, codexErrorInfo, additionalDetails, misalignment};
 // CodexErrorInfo.ts). Copy is the 2.2553.1 source category table
@@ -20,7 +21,7 @@ export const TURN_ERROR_CATEGORIES = Object.freeze([
 // DeepSeek key from a ChatGPT sign-in.
 const DEEPSEEK_BILLING_CODES = ["QUOTA", "ACCOUNT_QUOTA"];
 const DEEPSEEK_AUTH_CODES = ["AUTH", "INVALID_CREDENTIAL", "MISSING_CREDENTIAL"];
-export const DEEPSEEK_AUTH_HINT = "Check your DeepSeek API key in DeepSeek Harness settings.";
+export const DEEPSEEK_AUTH_HINT = t("Check your DeepSeek API key in DeepSeek Harness settings.");
 
 const NETWORK_VARIANTS = ["httpConnectionFailed", "responseStreamConnectionFailed", "responseStreamDisconnected", "responseTooManyFailedAttempts"];
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -64,32 +65,32 @@ export const TURN_ERROR_ICONS = Object.freeze({
 // (the card's Compact session action does not change the hint). Documented
 // adaptations are marked inline.
 const TABLE = Object.freeze({
-  rate_limit: { headline: "Usage limit reached", // shared-9 Q.generic
+  rate_limit: { headline: t("Usage limit reached"), // shared-9 Q.generic
     // $.generic: no reset time, TurnError carries no resetsAt.
-    hint: "You’ve reached your usage limit. Try again after your limit resets.", retryHelps: true },
-  server_rate_limit: { headline: "Server is temporarily limiting requests", markerLabel: "Server was temporarily limiting requests",
-    hint: "Too many requests right now — try again in a moment.", retryHelps: true },
-  overloaded: { headline: "Service is busy", markerLabel: "Service was busy",
-    hint: "Try again in a moment, or switch to a different model.", retryHelps: true },
+    hint: t("You’ve reached your usage limit. Try again after your limit resets."), retryHelps: true },
+  server_rate_limit: { headline: t("Server is temporarily limiting requests"), markerLabel: t("Server was temporarily limiting requests"),
+    hint: t("Too many requests right now — try again in a moment."), retryHelps: true },
+  overloaded: { headline: t("Service is busy"), markerLabel: t("Service was busy"),
+    hint: t("Try again in a moment, or switch to a different model."), retryHelps: true },
   // Sr.serverError continues "If it keeps happening, check {statusUrl}." — the
   // Anthropic status page says nothing about the Codex backend, so it is cut.
-  server_error: { headline: "Server error",
-    hint: "The server returned an error while handling this message. It’s usually temporary.", retryHelps: true },
-  network: { headline: "Connection problem", hint: "Check your internet connection, VPN, or proxy and try again.", retryHelps: true },
-  auth: { headline: "Authentication failed", hint: "Sign in again to continue.", retryHelps: false },
+  server_error: { headline: t("Server error"),
+    hint: t("The server returned an error while handling this message. It’s usually temporary."), retryHelps: true },
+  network: { headline: t("Connection problem"), hint: t("Check your internet connection, VPN, or proxy and try again."), retryHelps: true },
+  auth: { headline: t("Authentication failed"), hint: t("Sign in again to continue."), retryHelps: false },
   // X.contextLengthNoRewind: the Compact/Rewind hint names card actions this app lacks.
-  context_length: { headline: "Your context window is full", markerLabel: "Context window was full",
-    hint: "This chat is too long to continue. Start a new chat.", retryHelps: false },
-  invalid_request: { headline: "Invalid request", hint: "The request couldn’t be completed.", retryHelps: false },
+  context_length: { headline: t("Your context window is full"), markerLabel: t("Context window was full"),
+    hint: t("This chat is too long to continue. Start a new chat."), retryHelps: false },
+  invalid_request: { headline: t("Invalid request"), hint: t("The request couldn’t be completed."), retryHelps: false },
   // Source billing (shared-18 _r.billing, c1298 X.billing "Add credits or
   // update billing to continue."): the hint names the DeepSeek balance, the
   // only billing a DeepSeek failure can mean.
-  billing: { headline: "Billing issue", hint: "Add credits to your DeepSeek balance to continue.", retryHelps: false },
+  billing: { headline: t("Billing issue"), hint: t("Add credits to your DeepSeek balance to continue."), retryHelps: false },
   // Z.output_token_limit (shared-18 _r.outputTokenLimit, c1298 X.outputTokenLimit
   // "Ask Claude to continue, …"): the hint names DeepSeek.
-  output_token_limit: { headline: "Response exceeded the output limit",
-    hint: "Ask DeepSeek to continue, or break the task into smaller steps.", retryHelps: true },
-  unknown: { headline: "An API error occurred", hint: "Try sending your message again.", retryHelps: true },
+  output_token_limit: { headline: t("Response exceeded the output limit"),
+    hint: t("Ask DeepSeek to continue, or break the task into smaller steps."), retryHelps: true },
+  unknown: { headline: t("An API error occurred"), hint: t("Try sending your message again."), retryHelps: true },
 });
 
 // shared-9 AF: an HTTP status named in the message text.
@@ -157,15 +158,15 @@ export function turnErrorDetails(error) {
 // c4a9ee384 sn(error, intl, "short") for the apiRetry status row. The table is
 // keyed by the API error type; Codex's closest identities are mapped here.
 export function retryShortLabel(info) {
-  if (info === "unauthorized") return "Authentication failed";
-  if (info === "rateLimitExceeded" || info === "usageLimitExceeded" || info === "sessionBudgetExceeded") return "Rate limited";
-  if (info === "serverOverloaded") return "Model overloaded";
-  return "Request failed";
+  if (info === "unauthorized") return t("Authentication failed");
+  if (info === "rateLimitExceeded" || info === "usageLimitExceeded" || info === "sessionBudgetExceeded") return t("Rate limited");
+  if (info === "serverOverloaded") return t("Model overloaded");
+  return t("Request failed");
 }
 
 export function normalizeTurnError(error) {
   if (!error || typeof error !== "object") return null;
-  const message = typeof error.message === "string" && error.message ? error.message : "DeepSeek reported an error.";
+  const message = typeof error.message === "string" && error.message ? error.message : t("DeepSeek reported an error.");
   return {
     message,
     codexErrorInfo: error.codexErrorInfo ?? null,

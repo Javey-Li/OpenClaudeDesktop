@@ -22,13 +22,14 @@ import { BRANCH_EMPTY_MESSAGE, BRANCH_SEARCH_PLACEHOLDER, BRANCH_TOOLTIP, branch
 import { SourcePopover, SourcePopoverClose, SourcePopoverTitle } from "./source-popover";
 import "./source-composer.css";
 import { permissionLabel } from "./source-permission-menu.jsx";
+import { t } from "../electron/i18n/index.mjs";
 
 // lH (cc43287c9-BMbiZYzF.js:21699): the folder chip reads the basename, or 'Select folder…' with none chosen.
-const basename = (path) => path?.split("/").filter(Boolean).pop() || "Select folder\u2026";
+const basename = (path) => path?.split("/").filter(Boolean).pop() || t("Select folder\u2026");
 // dH (cc43287c9 :20979-20985, :22047-22050, :22076-22081): the env pill, worktree label and Add folder
 // tooltips are hoverable:false with collisionPadding {top:48, right:8, bottom:8, left:8}.
 const ENV_TOOLTIP = { hoverable: false, collisionPadding: { top: 48, right: 8, bottom: 8, left: 8 } };
-export const WORKTREE_TOOLTIP = "Work in an isolated copy of the repository";
+export const WORKTREE_TOOLTIP = t("Work in an isolated copy of the repository");
 
 // c360a9e1c-GPs-MV9u.js:4544-4575 Ud: Zt{content: tooltip ?? header, shortcut: triggerKey, open: !o && undefined}
 // with triggerKey = ve("openModeMenu") (:4924-4945 → chin-shortcuts.mjs "cmd+shift+m"), the raw key spec that the
@@ -40,7 +41,7 @@ export const WORKTREE_TOOLTIP = "Work in an isolated copy of the repository";
 // The visible caps (⇧⌘M) of that spec.
 export const MODE_MENU_SHORTCUT = shortcutCaps(MODE_MENU_KEYS, true).map(cap => cap.label).join("");
 export const modeTooltip = ({ permission, menuKind }) => ({
-  content: permission === "bypass" ? "DeepSeek can modify or delete files without asking" : "Mode",
+  content: permission === "bypass" ? t("DeepSeek can modify or delete files without asking") : t("Mode"),
   shortcut: MODE_MENU_KEYS, open: menuKind ? false : undefined,
 });
 
@@ -56,7 +57,7 @@ function ComposerButton({ icon, iconSize = 16, label, children, className = "", 
       {children}
     </button>
   );
-  return tooltip ? <SourceTooltip {...tooltip}>{button}</SourceTooltip> : button;
+  return tooltip ? <SourceTooltip {...tooltip} content={t(tooltip.content)}>{button}</SourceTooltip> : button;
 }
 
 // c099c328d-CbkcmYSW.js sm({showStop,stop,send}) (2.2553.1; readable batch2 :8349-8383): active key
@@ -388,9 +389,9 @@ export function SourceComposer({
       {showContext && <div className="sc-context-row">
         {/* cc43287c9-BMbiZYzF.js:20979-20985: the env pill sits in ko{content 'Where Claude runs'} (here the
             agent is DeepSeek); Z.Root/Popup side top, align start. */}
-        <ComposerButton className="sc-context-chip" icon="Laptop" iconSize={16} label="Local environment"
+        <ComposerButton className="sc-context-chip" icon="Laptop" iconSize={16} label={t("Local environment")}
           tooltip={{ content: "Where DeepSeek runs", ...ENV_TOOLTIP }} onClick={open("local")}
-          {...menuTriggerProps({ open: menuKind === "local", onOpen: (entry, event) => onMenu("local", event.currentTarget, undefined, entry) })}>Local</ComposerButton>
+          {...menuTriggerProps({ open: menuKind === "local", onOpen: (entry, event) => onMenu("local", event.currentTarget, undefined, entry) })}>{t("Local")}</ComposerButton>
         {/* lH (:21638-21850): ko{content 'Working directory', detail: the path in a block, RTL-ellipsised
             <bdi>}; the trigger is named by its basename. With no folder and nothing recent (b) the chip is a
             plain button that browses directly; otherwise it opens the Recent menu (main.jsx 'home-folder'). */}
@@ -401,7 +402,7 @@ export function SourceComposer({
         {workspaceInfo?.isRepo && (
           <div className="sc-branch-worktree">
             {/* hT (:22009-22035): tooltip 'Branch to start from', triggerLabel c ?? '—'; the searchable list is main.jsx 'branch'. */}
-            <ComposerButton className="sc-branch-chip" icon="GitBranch" iconSize={16} label="Branch"
+            <ComposerButton className="sc-branch-chip" icon="GitBranch" iconSize={16} label={t("Branch")}
               tooltip={{ content: BRANCH_TOOLTIP }} onClick={open("branch")}
               {...menuTriggerProps({ open: menuKind === "branch", disabled: running || sending, onOpen: (entry, event) => onMenu("branch", event.currentTarget, undefined, entry) })}
               disabled={running || sending}><span>{branchTriggerLabel(workspaceInfo.branch)}</span></ComposerButton>
@@ -427,21 +428,21 @@ export function SourceComposer({
           <span className="sc-context-chip sc-extra-folder" key={path} title={path}>
             <Icon name="Folder" size={16} />
             <span>{basename(path)}</span>
-            {onRemoveFolder && <button type="button" aria-label={`Remove ${basename(path)}`}
+            {onRemoveFolder && <button type="button" aria-label={t("Remove {name}", { name: basename(path) })}
               disabled={running || sending} onClick={() => onRemoveFolder(path)}>
               <Icon name="X" size={12} />
             </button>}
           </span>
         ))}
         {/* :22076-22093: ko{content 'Add another folder', hoverable:false, collisionPadding}. */}
-        {workdir && onAddFolder && <ComposerButton className="sc-context-chip sc-add-folder" label="Add another folder" icon="FolderPlus" iconSize={16}
+        {workdir && onAddFolder && <ComposerButton className="sc-context-chip sc-add-folder" label={t("Add another folder")} icon="FolderPlus" iconSize={16}
           tooltip={{ content: "Add another folder", ...ENV_TOOLTIP }} onClick={onAddFolder} />}
       </div>}
       {beforeComposer}
       {warning && (
         <div className="sc-warning-row" role="status" data-cds-composer-warning="">
           <span className="sc-warning-text">{warning}</span>
-          {onReconnect && <button type="button" className="sc-warning-action" onClick={onReconnect}>Retry</button>}
+          {onReconnect && <button type="button" className="sc-warning-action" onClick={onReconnect}>{t("Retry")}</button>}
         </div>
       )}
       {showPet && <SourcePet />}
@@ -452,17 +453,17 @@ export function SourceComposer({
         onDragLeave={() => setDragOver(false)} onDrop={drop}
         onSubmit={(event) => { event.preventDefault(); submit(running ? "next" : undefined); }}>
         {showCommands && <SourceSlashMenu commands={suggestions} selected={selected} onSelect={chooseCommand} onHover={setCommandIndex} id={commandId} query={query||''} caret={commandCaret} editorRef={editor} onDismiss={()=>setDismissed(true)} preSession={!commandContext.current}/>}
-        {showCommands&&query===''&&<SlashHint editorRef={editor} getCaret={caretViewportRect} caret={hintCaret} text="Type to filter"/>}
+        {showCommands&&query===''&&<SlashHint editorRef={editor} getCaret={caretViewportRect} caret={hintCaret} text={t("Type to filter")}/>}
         {/* Em :8938-8966: sr-only live status next to the card (search state is out of scope). */}
         <span className="sc-sr-only" role="status" data-history-status="">{promptHistoryStatus(historyNav)}</span>
         <div className="sc-surface">
           {historyNav && <div className="sc-history-header-grid">
             <div className="sc-history-header-clip">
               <div className="sc-history-header" data-cds="ChatComposerHeader" aria-hidden="true">
-                <span className="sc-history-count">History {historyNav.index}/{historyNav.total}</span>
+                <span className="sc-history-count">{t("History {index}/{total}", { index: historyNav.index, total: historyNav.total })}</span>
                 {historyNav.hasDraft && <>
                   <span aria-hidden="true">·</span>
-                  <span className="sc-history-draft"><kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↓</kbd> to restore your draft</span>
+                  <span className="sc-history-draft"><kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↓</kbd> {t("to restore your draft")}</span>
                 </>}
               </div>
             </div>
@@ -470,7 +471,7 @@ export function SourceComposer({
           <SourceComposerAttachments entries={attachments} onRemove={onRemoveAttachment} onOpenFile={onOpenAttachmentFile} disabled={sending} />
           <div className="sc-input-row">
             <SourceComposerEditor className="sc-input epitaxy-prompt-input" data-cds="ChatComposerEditor"
-              inputRef={assignEditor} scope={commandScope} aria-label="Message DeepSeek" rows={1} disabled={disabled}
+              inputRef={assignEditor} scope={commandScope} aria-label={t("Message DeepSeek")} rows={1} disabled={disabled}
               mentions={mentions} chips={chipCatalog} mentionActions={mentionActions}
               aria-autocomplete="list" aria-controls={showCommands ? commandId : undefined} aria-expanded={showCommands || mentionOpen} aria-activedescendant={showCommands && suggestions[selected] ? `${commandId}-${selected}` : undefined}
               placeholder={placeholder ?? composerPlaceholder({ mode })}
@@ -485,9 +486,9 @@ export function SourceComposer({
                 // c099c328d stop: hn{content 'Stop', shortcut Vt?void 0:'escape', hoverable:!1, lazy, open Ki?void 0:!1}
                 // around Ut{ghost iconOnly icon Ih, aria-keyshortcuts Vt?void 0:nn('escape') → 'Escape', className jh}.
                 // Vt (Escape claimed elsewhere) ↔ local menuKind or escapeClaimed. Accessible name stays 'Stop response' (HANDOFF 0.2.112).
-                <SourceTooltip content="Stop" shortcut={menuKind || escapeClaimed ? undefined : "escape"} hoverable={false} open={menuKind || !showStop ? false : undefined}>
+                <SourceTooltip content={t("Stop")} shortcut={menuKind || escapeClaimed ? undefined : "escape"} hoverable={false} open={menuKind || !showStop ? false : undefined}>
                   <div className="sc-submit-slot">
-                    <ComposerButton className="sc-submit" label="Stop response" tooltip={false} icon="Stop"
+                    <ComposerButton className="sc-submit" label={t("Stop response")} tooltip={false} icon="Stop"
                       aria-keyshortcuts={menuKind || escapeClaimed ? undefined : "Escape"} onClick={() => onStop?.({ trigger: "button" })}
                       onMouseDown={(event) => event.preventDefault()} />
                   </div>
@@ -497,16 +498,16 @@ export function SourceComposer({
                 // c099c328d ga: Ut{ghost iconOnly icon Nh (ArrowReturn sm text-secondary group-disabled/btn:text-disabled),
                 // aria-keyshortcuts nn('enter') → 'Enter', busy/busyLabel 'Sending', className `${jh} ${Fh}`};
                 // send tooltip open:!Ki&&void 0 → closed while Stop is the active control.
-                <SourceTooltip content="Send" shortcut="enter" open={menuKind || showStop ? false : undefined}
+                <SourceTooltip content={t("Send")} shortcut="enter" open={menuKind || showStop ? false : undefined}
                   // c099c328d :8870-8895: the second row is 'Queue for later' while busy, else 'Send and stay here' (de) on the
                   // Home draft. No ⌘⌥⏎ fork row (q): thread/fork is unsupported on the DeepSeek core.
-                  secondaryHint={stopAvailable && queueEnabled ? { label: "Queue for later", shortcut: "cmd+enter" }
-                    : stayOnDraft && !running ? { label: "Send and stay here", shortcut: "cmd+enter" } : undefined}>
+                  secondaryHint={stopAvailable && queueEnabled ? { label: t("Queue for later"), shortcut: "cmd+enter" }
+                    : stayOnDraft && !running ? { label: t("Send and stay here"), shortcut: "cmd+enter" } : undefined}>
                   <div className="sc-submit-slot">
                     <button className="sc-button sc-icon-button sc-submit" data-cds="Button" type="submit"
-                      aria-label="Send message" aria-keyshortcuts="Enter" disabled={!canSend} aria-busy={sending || undefined}
+                      aria-label={t("Send message")} aria-keyshortcuts="Enter" disabled={!canSend} aria-busy={sending || undefined}
                       onMouseDown={(event) => event.preventDefault()}>
-                      {sending ? <><span className="sc-spinner" aria-hidden="true" /><span className="sc-sr-only">Sending</span></> : <Icon name="ArrowReturn" size={16} />}
+                      {sending ? <><span className="sc-spinner" aria-hidden="true" /><span className="sc-sr-only">{t("Sending")}</span></> : <Icon name="ArrowReturn" size={16} />}
                     </button>
                   </div>
                 </SourceTooltip>
@@ -519,7 +520,7 @@ export function SourceComposer({
         onClose={closeMention} />}
       <div className="composer-footer sc-chin" data-cds="ChatComposerChin" data-size="xs">
         <div className="sc-chin-leading">
-          <ComposerButton className="sc-add" label="Add" icon="Add" onClick={open("add")} disabled={sending}
+          <ComposerButton className="sc-add" label={t("Add")} icon="Add" onClick={open("add")} disabled={sending}
             tooltip={{content:"Add", open:menuKind ? false : undefined}} />
           {/* No dictation slot: c360a9e1c-GPs-MV9u.js:4892-4907 renders bH{squareSeam, 'flex shrink-0 items-center
               empty:hidden gap-xs', children:[P ? null : (ce ?? nf{…}), null]} and nf (:5067-5095) returns null when
@@ -530,7 +531,7 @@ export function SourceComposer({
               rn = !r || lt > 0: Mode, Model and Effort stay usable while a turn runs; the choice is saved at once and goes
               out with the next turn/start (and, on the DeepSeek core, to the running agent — main.jsx). `sending` still
               gates them: a turn/start in flight was built from the previous choice. */}
-          <ComposerButton className="sc-permission" label="Permission mode" onClick={open("permission")}
+          <ComposerButton className="sc-permission" label={t("Permission mode")} onClick={open("permission")}
             {...menuTriggerProps({ open: permissionOpen, onOpen: (entry, event) => onMenu("permission", event.currentTarget, undefined, entry) })}
             tooltip={modeTooltip({ permission, menuKind })}
             disabled={sending}>{/* cf6ae6197 `ht = triggerLabel ?? label`: the full item label. */}{permissionLabel(permission)}</ComposerButton>
@@ -539,17 +540,17 @@ export function SourceComposer({
           {/* shared-14 kS: while the catalog loads the trigger is disabled and shows a
               spinner with the loading label; an empty catalog shows the empty label. */}
           {/* shared-14 :7160-7226: the Model pill has no tooltip unless a warning exists (none locally) → tooltip={false}. */}
-          <ComposerButton className="sc-model-trigger" label="Model" onClick={open("model")} tooltip={false}
+          <ComposerButton className="sc-model-trigger" label={t("Model")} onClick={open("model")} tooltip={false}
             {...menuTriggerProps({ open: modelOpen, onOpen: (entry, event) => onMenu("model", event.currentTarget, undefined, entry), disabled: sending || !model || modelsLoading })}
             disabled={sending || !model || modelsLoading} aria-busy={modelsLoading || undefined}>
             {modelsLoading
-              ? <><span className="sc-spinner" aria-hidden="true" /><span>Loading models…</span></>
-              : <span>{model?.displayName || model?.model || "Default model"}{fastMode && <span className="sc-fast-label"> Fast</span>}</span>}
+              ? <><span className="sc-spinner" aria-hidden="true" /><span>{t("Loading models…")}</span></>
+              : <span>{model?.displayName || model?.model || t("Default model")}{fastMode && <span className="sc-fast-label"> {t("Fast")}</span>}</span>}
           </ComposerButton>
           {/* c8e04f916 (prettier :236-262): the effort trigger sits in f{content: effortLabel, detail: warning text
               (only for a warning badge — none locally), open: !popoverOpen && undefined}; its accessible name is
               effortSelectorTrigger 'Effort: {name}'. */}
-          {effort && <ComposerButton className="sc-effort-trigger" label={`Effort: ${effortName(effort)}`} aria-haspopup="dialog" aria-expanded={menuKind === "effort"}
+          {effort && <ComposerButton className="sc-effort-trigger" label={t("Effort: {name}", { name: effortName(effort) })} aria-haspopup="dialog" aria-expanded={menuKind === "effort"}
             tooltip={{content:"Effort", open:menuKind === "effort" ? false : undefined}}
             disabled={sending || !effortAvailable} onClick={open("effort")}>{effortName(effort)}</ComposerButton>}
           {/* c360a9e1c _d: ghost iconOnly Button (tooltip:false) with icon Xr ring, wrapped in
@@ -560,7 +561,7 @@ export function SourceComposer({
           {/* c360a9e1c :4840-4848 + :4972-4980: sr-only role=status live region (ze, last in the trailing Ve after the usage trigger) 'Fast mode on'/'Fast mode off'.
               The source renders it unconditionally; here it is rendered only when the model has a Fast tier
               (no fast state exists otherwise). */}
-          {fastAvailable && <span role="status" aria-live="polite" className="sr-only">{fastMode ? "Fast mode on" : "Fast mode off"}</span>}
+          {fastAvailable && <span role="status" aria-live="polite" className="sr-only">{fastMode ? t("Fast mode on") : t("Fast mode off")}</span>}
         </div>
       </div>
     </div>
@@ -575,12 +576,12 @@ export function SourceRecentFolderMenu({ rows = [], onSelect, onDismiss, onBrows
   return <>
     {rows.length > 0 && <>
       <SourceMenu.Group>
-        <SourceMenu.GroupLabel>Recent</SourceMenu.GroupLabel>
+        <SourceMenu.GroupLabel>{t("Recent")}</SourceMenu.GroupLabel>
         {rows.map((row) => <RecentFolderItem key={row.path} row={row} onSelect={onSelect} onDismiss={onDismiss} />)}
       </SourceMenu.Group>
       <SourceMenu.Separator />
     </>}
-    <SourceMenu.Item onClick={() => onBrowse?.()}>Open folder…</SourceMenu.Item>
+    <SourceMenu.Item onClick={() => onBrowse?.()}>{t("Open folder…")}</SourceMenu.Item>
   </>;
 }
 
@@ -602,7 +603,7 @@ function RecentFolderItem({ row, onSelect, onDismiss }) {
       }}
       onKeyDown={dismiss ? (event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); dismiss(event.currentTarget); } } : undefined}
       trailing={dismiss ? <span className="sc-recent-dismiss-slot">
-        <span data-dismiss-recent="" aria-hidden="true" title="Remove from recent" className="sc-recent-dismiss"><Icon name="X" size={12} /></span>
+        <span data-dismiss-recent="" aria-hidden="true" title={t("Remove from recent")} className="sc-recent-dismiss"><Icon name="X" size={12} /></span>
       </span> : undefined}>{row.label}</SourceMenu.Item>
   );
 }
@@ -654,7 +655,7 @@ export function SourceBranchPickerMenu({ branches = [], current = "", onSelect }
 export function SourceEffortPopover({ anchor, levels, value, onChange, onClose }) {
   const popup = useRef(null);
   return (
-    <SourcePopover anchor={anchor} side="top" align="end" dataCds="ModelSelectorEffort" className="sc-effort-popover" label="Effort"
+    <SourcePopover anchor={anchor} side="top" align="end" dataCds="ModelSelectorEffort" className="sc-effort-popover" label={t("Effort")}
       onClose={onClose} initialFocus={(type) => type === "keyboard" ? popup.current?.querySelector('input[type="range"]:not(:disabled)') : null}>
       <EffortControl levels={levels} value={value} onChange={onChange} rootRef={popup} />
     </SourcePopover>
@@ -667,7 +668,7 @@ export function SourceEffortPopover({ anchor, levels, value, onChange, onClose }
 // (first tabbable), a pointer → the popup.
 export function SourceUsagePopover({ anchor, usage, fresh = false, onSeeDetails, onCompact, compactState, onClose }) {
   return (
-    <SourcePopover anchor={anchor} side="top" align="end" sideOffset={8} padding="none" className="epitaxy-root sc-usage-popover" label="Usage"
+    <SourcePopover anchor={anchor} side="top" align="end" sideOffset={8} padding="none" className="epitaxy-root sc-usage-popover" label={t("Usage")}
       onClose={onClose} initialFocus={(type) => type === "keyboard" || null}>
       <SourcePopoverTitle className="sp-sr-only">Usage</SourcePopoverTitle>
       <div className="sc-usage-body"><SourceUsagePanel usage={usage} fresh={fresh} onSeeDetails={onSeeDetails} onCompact={onCompact} compactState={compactState} /></div>
@@ -687,7 +688,7 @@ export function SourceUsagePanel({ usage, fresh = false, onSeeDetails, onCompact
   return <>
     {panel.contextMode && <div className="sc-usage-context">
       <button type="button" className="sc-usage-row sc-usage-context-header" disabled>
-        <span className="sc-usage-muted">Context window</span>
+        <span className="sc-usage-muted">{t("Context window")}</span>
         <span className="sc-usage-muted sc-usage-summary">{panel.summary}</span>
       </button>
       <div className="sc-usage-context-body">
@@ -700,7 +701,7 @@ export function SourceUsagePanel({ usage, fresh = false, onSeeDetails, onCompact
     </div>}
     {onSeeDetails && <>
       {panel.contextMode && <div className="sc-usage-separator" aria-hidden="true" />}
-      <SourcePopoverClose className="sc-usage-row sc-usage-link" onClick={onSeeDetails}>See detailed breakdown</SourcePopoverClose>
+      <SourcePopoverClose className="sc-usage-row sc-usage-link" onClick={onSeeDetails}>{t("See detailed breakdown")}</SourcePopoverClose>
     </>}
   </>;
 }
@@ -716,7 +717,7 @@ function UsageCompactRow({ onCompact, disabledReason }) {
       <span className="sc-usage-compact-hint" />
       <SourceTooltip disabledReason={disabledReason}>
         <button type="button" data-cds="TextLink" className="sc-usage-compact" disabled={disabled} data-disabled={disabled || undefined}
-          onClick={() => { if (!disabled) onCompact?.(); }}>Compact session</button>
+          onClick={() => { if (!disabled) onCompact?.(); }}>{t("Compact session")}</button>
       </SourceTooltip>
     </div>
   );
@@ -749,13 +750,13 @@ export function EffortControl({ levels = [], value, onChange, disabled = false, 
   };
 
   return (
-    <section ref={rootRef} className="sc-effort-control" aria-label="Effort settings">
+    <section ref={rootRef} className="sc-effort-control" aria-label={t("Effort settings")}>
       <div className="sc-effort-heading">
         {/* p.Title 'shrink-0 text-muted' names the popover dialog. */}
-        <div className="sc-effort-title"><SourcePopoverTitle className="sc-effort-label">Effort</SourcePopoverTitle><span key={selected?.id} className="sc-effort-value">{selected?.name || "Unavailable"}</span></div>
+        <div className="sc-effort-title"><SourcePopoverTitle className="sc-effort-label">{t("Effort")}</SourcePopoverTitle><span key={selected?.id} className="sc-effort-value">{selected?.name || t("Unavailable")}</span></div>
         {selected?.description && (
           <div className="sc-effort-help-wrap">
-            <button className="sc-effort-help" aria-label="About effort" type="button"
+            <button className="sc-effort-help" aria-label={t("About effort")} type="button"
               aria-describedby={help ? helpId : undefined} aria-expanded={help}
               onPointerEnter={() => setHelp(true)} onPointerLeave={() => setHelp(false)}
               onFocus={() => setHelp(true)} onBlur={() => setHelp(false)} onClick={() => setHelp((open) => !open)}>
@@ -768,7 +769,7 @@ export function EffortControl({ levels = [], value, onChange, disabled = false, 
         )}
       </div>
       <div className="sc-effort-slider-group">
-        <div className="sc-effort-scale" aria-hidden="true"><span>Faster</span><span>Smarter</span></div>
+        <div className="sc-effort-scale" aria-hidden="true"><span>{t("Faster")}</span><span>{t("Smarter")}</span></div>
         <div className="sc-slider" data-cds="Slider" data-dragging={dragging || undefined} data-disabled={unavailable || undefined}
           style={{ "--sc-slider-position": maximum > 0 ? index / maximum : 0 }}>
           <div className="sc-slider-track" aria-hidden="true"><div className="sc-slider-fill" /></div>
@@ -777,7 +778,7 @@ export function EffortControl({ levels = [], value, onChange, disabled = false, 
           </div>
           <div className="sc-slider-carriage" aria-hidden="true"><span className="sc-slider-handle" /></div>
           <input type="range" min={0} max={maximum} step={1} value={index} disabled={unavailable}
-            aria-label="Effort" aria-valuetext={selected?.name || "Unavailable"}
+            aria-label={t("Effort")} aria-valuetext={selected?.name || t("Unavailable")}
             onChange={(event) => setPreview(Number(event.target.value))}
             onPointerDown={() => setDragging(true)} onPointerUp={(event) => commit(event.currentTarget.value)}
             onPointerCancel={() => { setPreview(null); setDragging(false); }}

@@ -1,12 +1,14 @@
 // Model menu decisions (current 2.2553.1 shared-14 FS → AS/kS), kept pure so
 // they can be tested without the portal-based SourceMenu.Popup.
 
+import { t } from "../electron/i18n/index.mjs";
+
 const modelKey = (model) => model?.model || model?.id;
 
 // Effort display name: Codex/Harness report ids (low, high, max…); the menu,
 // the composer trigger ('Effort: High', c8e04f916 effortSelectorTrigger) and
-// Settings capitalize them.
-export const effortName = (value = "") => String(value).charAt(0).toUpperCase() + String(value).slice(1);
+// Settings capitalize them. Display-only, so the capitalized name is the dictionary key.
+export const effortName = (value = "") => t(String(value).charAt(0).toUpperCase() + String(value).slice(1));
 
 // Codex has no main/overflow catalog section, so the returned order is kept
 // with the first-four convention; explicit catalog sections take precedence.

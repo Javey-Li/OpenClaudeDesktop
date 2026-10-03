@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { settingsPatch } from '../electron/preferences.mjs';
 import { createImmediateTextSave } from './immediate-text-save.mjs';
+import { t } from '../electron/i18n/index.mjs';
 import './source-code-font-setting.css';
 
 // c71860c77 _i → shared-frame Bh: w-56, no Save button, change-driven value.
@@ -25,7 +26,7 @@ export function SourceCodeFontSetting({ value, placeholder, onSave }) {
   }, [value]);
   const commit = text => { setDraft(text); void controller.current?.submit(text, latest.current.value); };
   return <div className="ss-code-font-setting">
-    <input data-cds="TextInput" className="cds-input cds-reset" aria-label="Code font family"
+    <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t('Code font family')}
       value={draft} placeholder={placeholder} maxLength={120} spellCheck={false}
       aria-busy={status.saving || undefined} aria-invalid={status.error ? true : undefined}
       data-invalid={status.error ? '' : undefined} aria-describedby={status.error ? errorId : undefined}

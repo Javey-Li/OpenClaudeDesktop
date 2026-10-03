@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // "Changes settings" sections, fh (2.2553.1 readable/panes-tile-current.js:3692-3868).
 // Source order, divider-separated: [diff-file-list] | [diff-fold] | [diff-display] |
 // [diff-refresh]; with an empty diff body (diffBodyEmpty) only [diff-refresh] is
@@ -16,18 +18,18 @@
 // default off, the client-side gn port in diff-whitespace-model.mjs),
 // panes-tile-current.js:3805-3835.
 export const CHANGES_MENU_LABELS = Object.freeze({
-  showFiles: "Show files",
-  groupByFolder: "Group files by folder",
-  groupByKind: "Separate test, build, and generated files",
-  collapseAll: "Collapse all files",
-  expandAll: "Expand all files",
-  sideBySide: "Side by side",
-  wordWrap: "Word wrap",
-  wordDiff: "Highlight changed words",
-  hideWhitespace: "Hide whitespace changes",
-  refresh: "Refresh",
+  showFiles: t("Show files"),
+  groupByFolder: t("Group files by folder"),
+  groupByKind: t("Separate test, build, and generated files"),
+  collapseAll: t("Collapse all files"),
+  expandAll: t("Expand all files"),
+  sideBySide: t("Side by side"),
+  wordWrap: t("Word wrap"),
+  wordDiff: t("Highlight changed words"),
+  hideWhitespace: t("Hide whitespace changes"),
+  refresh: t("Refresh"),
 });
-export const EXPAND_ALL_TOO_LARGE = "This diff is too large to expand at once. Select a file to expand it.";
+export const EXPAND_ALL_TOO_LARGE = t("This diff is too large to expand at once. Select a file to expand it.");
 const noop = () => {};
 export function changesMenuSections({ hasPatch = false, layoutSplit = false, canFitSplit = true, wordWrap = true, wordDiff = true, hideWhitespace = false,
   isLarge = false, fileList = null,
@@ -54,7 +56,7 @@ export function changesMenuSections({ hasPatch = false, layoutSplit = false, can
     ] },
     { key: "diff-display", items: [
       { value: "diff-side-by-side", label: CHANGES_MENU_LABELS.sideBySide, checked: layoutSplit, checkedRole: "checkbox", keepOpen: true,
-        hint: layoutSplit && !canFitSplit ? "Needs a wider pane" : undefined,
+        hint: layoutSplit && !canFitSplit ? t("Needs a wider pane") : undefined,
         onSelect: () => onLayoutChange(layoutSplit ? "unified" : "split") },
       { value: "diff-word-wrap", label: CHANGES_MENU_LABELS.wordWrap, checked: wordWrap, checkedRole: "checkbox", keepOpen: true,
         onSelect: () => onWordWrapChange(!wordWrap) },

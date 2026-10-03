@@ -3,13 +3,14 @@
 // (or orgPrimary alone); the footer pw shows `identity · orgPrimary`. Code
 // Desktop has one organisation, the DeepSeek API, and the account kind is
 // the secondary part (never "DeepSeek · DeepSeek").
+import { t } from "../electron/i18n/index.mjs";
 
 /**
  * @param {object | null | undefined} accountRead - account/read (boot.account)
  * @returns {{orgPrimary: string, orgSecondary: string | null}}
  */
 export function accountMenuLines(accountRead) {
-  return { orgPrimary: "DeepSeek API", orgSecondary: accountRead?.account?.type === "apiKey" ? "API key" : null };
+  return { orgPrimary: "DeepSeek API", orgSecondary: accountRead?.account?.type === "apiKey" ? t("API key") : null };
 }
 
 /** The header's org line text. */
@@ -34,5 +35,6 @@ export function accountIdentity(displayName, accountRead) {
 
 /** The footer 'Connection settings' menu header (a retained local control) names the running core. */
 export function connectionMenuHeader(engine, connected) {
-  return `${engine === "deepseek" ? "DeepSeek Harness" : "Codex"} ${connected ? "connected" : "disconnected"}`;
+  const name = engine === "deepseek" ? "DeepSeek Harness" : "Codex";
+  return connected ? t("{name} connected", { name }) : t("{name} disconnected", { name });
 }

@@ -4,6 +4,7 @@
 // Pure apart from applyCustomTheme, which only touches the document it is given.
 import { THEME_DEFAULT, normalizeTheme, validateTheme, isDefaultTheme, isFontFamily } from '../electron/prefs/theme.mjs';
 import { DEFAULT_CODE_THEMES, isTheme, themeLabel } from './code-theme-catalog.mjs';
+import { t } from '../electron/i18n/index.mjs';
 
 export const THEME_FILE_FORMAT = 'code-desktop-theme';
 export const THEME_FILE_VERSION = 1;
@@ -169,13 +170,13 @@ export function exportThemeFile(config, name) {
 export function importThemeFile(input) {
   let file = input;
   if (typeof input === 'string') {
-    if (input.length > THEME_FILE_LIMIT) throw new Error('This theme file is too large.');
-    try { file = JSON.parse(input); } catch { throw new Error('This file isn’t valid JSON.'); }
+    if (input.length > THEME_FILE_LIMIT) throw new Error(t('This theme file is too large.'));
+    try { file = JSON.parse(input); } catch { throw new Error(t('This file isn’t valid JSON.')); }
   }
   if (!file || typeof file !== 'object' || Array.isArray(file) || file.format !== THEME_FILE_FORMAT)
-    throw new Error('This isn’t a Code Desktop theme file.');
+    throw new Error(t('This isn’t a Code Desktop theme file.'));
   if (file.version !== THEME_FILE_VERSION)
-    throw new Error(typeof file.version === 'number' && file.version > THEME_FILE_VERSION ? 'This theme file needs a newer version of Code Desktop.' : 'Unsupported theme file version.');
+    throw new Error(typeof file.version === 'number' && file.version > THEME_FILE_VERSION ? t('This theme file needs a newer version of Code Desktop.') : t('Unsupported theme file version.'));
   const fields = {};
   for (const key of ['accent', 'uiFont', 'fontScale', 'density', 'radiusScale']) if (key in file) fields[key] = file[key];
   if (typeof fields.accent === 'string') fields.accent = fields.accent.trim();
@@ -184,14 +185,14 @@ export function importThemeFile(input) {
   const patch = { customTheme };
   if ('codeFont' in file) {
     if (codeFontOk(file.codeFont)) patch.codeFont = file.codeFont;
-    else { patch.codeFont = ''; warnings.push('The code font in this file isn’t valid; using the default.'); }
+    else { patch.codeFont = ''; warnings.push(t('The code font in this file isn’t valid; using the default.')); }
   }
   for (const [key, mode] of [['codeThemeLight', 'light'], ['codeThemeDark', 'dark']]) {
     if (!(key in file)) continue;
     if (isTheme(file[key], mode)) patch[key] = file[key];
     else {
       patch[key] = DEFAULT_CODE_THEMES[mode];
-      warnings.push(`Unknown ${mode} code theme “${String(file[key]).slice(0, 60)}”; using ${themeLabel(DEFAULT_CODE_THEMES[mode])}.`);
+      warnings.push(t(mode === 'light' ? 'Unknown light code theme “{name}”; using {fallback}.' : 'Unknown dark code theme “{name}”; using {fallback}.', { name: String(file[key]).slice(0, 60), fallback: themeLabel(DEFAULT_CODE_THEMES[mode]) }));
     }
   }
   const name = typeof file.name === 'string' ? file.name.trim().slice(0, 80) : '';

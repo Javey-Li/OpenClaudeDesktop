@@ -1,12 +1,13 @@
 import React from 'react';
 import { Icon } from './icons';
+import { t } from '../electron/i18n/index.mjs';
 
 // markdown-current Dc/Oc: read-only Code task markers, not interactive inputs.
 export function ResponseTaskInput({ type, checked, disabled }) {
   if (type !== 'checkbox' || !disabled) return <input type={type} checked={checked} disabled={disabled} readOnly/>;
   return <span className="smd-task-marker" data-done={checked || undefined}>
     {checked ? <Icon name="Check" size={16}/> : <span className="smd-task-circle" aria-hidden="true"/>}
-    <span className="sr-only">{checked ? 'done' : 'not done'}</span>
+    <span className="sr-only">{checked ? t('done') : t('not done')}</span>
   </span>;
 }
 

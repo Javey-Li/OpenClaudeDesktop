@@ -6,6 +6,7 @@ import { GitCounts } from "./source-git-counts.jsx";
 import { buildGitRailModel } from "./git-rail-model.mjs";
 import "./source-git-status.css";
 import "./source-git-rail.css";
+import { t } from "../electron/i18n/index.mjs";
 
 /** Rail layout of the repository row (git-status-card.js Ii rail branch
  * 1128-1200 → Zi 1633-1760, fact primitives cf6ae6197 eS/nS/iS/aS, placeholder
@@ -43,7 +44,7 @@ export function SourceGitRail({
     return () => observer.disconnect();
   }, [visible, onMeasured]);
   const pending = status === null || status === undefined;
-  return <nav ref={nav} className="sgr-nav" aria-label="Repository and pull request controls" data-layout="rail">
+  return <nav ref={nav} className="sgr-nav" aria-label={t("Repository and pull request controls")} data-layout="rail">
     {pending && reservation?.heightPx > 0 && <RailPlaceholder key="session-rail-pr-rows" heightPx={reservation.heightPx} rows={reservation.rows} />}
     {visible && <RailRow model={model} status={status} expanded={expanded} onExpandedChange={onExpandedChange}
       onOpenChanges={onOpenChanges} onAction={onAction} busy={busy} onDismiss={onDismiss} order={order} />}
@@ -95,7 +96,7 @@ function RailRow({ model, status, expanded, onExpandedChange, onOpenChanges, onA
       ? <div className="sgr-group">
         {trigger}
         <span className="sgr-dismiss-slot">
-          <button type="button" className="sg-button sg-dismiss sgr-dismiss" aria-label="Dismiss"
+          <button type="button" className="sg-button sg-dismiss sgr-dismiss" aria-label={t("Dismiss")}
             onMouseDown={(event) => event.preventDefault()} onClick={() => onDismiss(status)}><Icon name="X" size={16} /></button>
         </span>
       </div>

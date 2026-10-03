@@ -49,7 +49,7 @@ test("LocalReleaseNotes announce the DeepSeek core and never mention Codex", asy
   const dialog = source.slice(source.indexOf("export function LocalReleaseNotes"));
   assert.doesNotMatch(dialog, /Codex/i);
   // B is the shared Dialog: bleed, size md, 'What’s new'; no hand-rolled backdrop, Tab trap or Escape listener.
-  assert.match(dialog, /<SourceDialog open=\{open\} onExited=\{onExited\} onClose=\{onClose\} bleed size="md" title="What’s new"/);
+  assert.match(dialog, /<SourceDialog open=\{open\} onExited=\{onExited\} onClose=\{onClose\} bleed size="md" title=\{t\("What’s new"\)\}/);
   assert.doesNotMatch(source, /modal-backdrop|st-release-backdrop|Close release notes|addEventListener\("keydown"/);
   // The bump re-arms the nudge for users who saw the previous notes, while 0.2.130 has an entry.
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));

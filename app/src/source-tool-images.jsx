@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { SourceImageViewer } from "./source-image-viewer.jsx";
 import "./source-generic-tool.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // QO (approval-current.js:7398-7445): a tool's output images as a "flex flex-col items-start
 // gap-1 pt-md" column of buttons ('View screenshot', cursor-zoom-in, rounded-sm, focus shadow),
@@ -17,12 +18,12 @@ export function SourceToolImages({ images, itemId }) {
     <div className="stimg" data-tool-images-for={itemId}>
       {images.map((url, index) => (
         <button key={index} ref={(node) => { buttons.current[index] = node; }} type="button" className="stimg-button"
-          aria-label="View screenshot" onClick={() => setOpen(index)}>
+          aria-label={t("View screenshot")} onClick={() => setOpen(index)}>
           <img src={url} alt="" className="stimg-img" draggable={false} />
         </button>
       ))}
       {open !== null && images[open] ? (
-        <SourceImageViewer src={images[open]} alt="Screenshot" originRef={{ current: buttons.current[open] }} onClose={() => setOpen(null)} />
+        <SourceImageViewer src={images[open]} alt={t("Screenshot")} originRef={{ current: buttons.current[open] }} onClose={() => setOpen(null)} />
       ) : null}
     </div>
   );

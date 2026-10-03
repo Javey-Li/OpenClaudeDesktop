@@ -31,7 +31,7 @@ test("every replacement string is the exact catalog entry and is used where it b
   }
   // K5b1jjmNX7 "Couldn’t remove {serverName}." with the server name interpolated.
   assert.equal(catalog.K5b1jjmNX7, "Couldn’t remove {serverName}.");
-  assert.ok(source("source-settings-pages.jsx").includes("`Couldn’t remove ${selectedName}.`"));
+  assert.ok(source("source-settings-pages.jsx").includes("t('Couldn’t remove {serverName}.', { serverName: selectedName })"));
   // RlffS0HJJO lag note: the first sentence (the changelog link has no local counterpart).
   assert.ok(catalog.RlffS0HJJO.startsWith("These release notes are included with this version of the app and may be one release behind."));
   assert.ok(source("source-titlebar.jsx").includes("These release notes are included with this version of the app and may be one release behind."));

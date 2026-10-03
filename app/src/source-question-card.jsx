@@ -9,6 +9,7 @@ import {
 import { SourceTooltip } from "./source-tooltip.jsx";
 import { SourceShortcut } from "./source-shortcut.jsx";
 import "./source-question-card.css";
+import { t } from "../electron/i18n/index.mjs";
 
 function hasSelectedText(event) {
   const selection = event.currentTarget.ownerDocument.getSelection();
@@ -91,7 +92,7 @@ export function SourceQuestionCard({
         ref={root}
         className="source-message source-question-card sq-card"
         role="group"
-        aria-label="Question request"
+        aria-label={t("Question request")}
         data-approval-instance={ticket.bridgeApproval.instanceId}
         data-approval-connection={ticket.bridgeApproval.connectionId}
         data-approval-request-id={String(ticket.requestId)}
@@ -101,7 +102,7 @@ export function SourceQuestionCard({
         data-skip-approval-enter={skipEnter ? "" : undefined}
       >
         <p className="sq-error" role="alert">
-          {view.schemaError || "This request did not include any questions."}
+          {view.schemaError || t("This request did not include any questions.")}
         </p>
       </section>
     );
@@ -128,10 +129,10 @@ export function SourceQuestionCard({
     canAdvance || view.busy
       ? undefined
       : last && unanswered >= 0 && isQuestionAnswered(question, answer)
-        ? `Question ${unanswered + 1} is unanswered`
+        ? t("Question {number} is unanswered", { number: unanswered + 1 })
         : !isActive || menuOpen
-          ? "This request is not currently active"
-          : "Choose an option or skip this question";
+          ? t("This request is not currently active")
+          : t("Choose an option or skip this question");
   const navigate = (next) => {
     if (unavailable || menuOpen) return;
     const active = root.current?.ownerDocument.activeElement;
@@ -181,9 +182,9 @@ export function SourceQuestionCard({
     disabled: unavailable,
     tabIndex: !hasOptions || custom ? 0 : -1,
     "aria-label": hasOptions
-      ? "Other option"
+      ? t("Other option")
       : question.header || question.question,
-    placeholder: hasOptions ? "Type your own answer here" : "Write your answer",
+    placeholder: hasOptions ? t("Type your own answer here") : t("Write your answer"),
     autoComplete: "off",
     spellCheck: !question.isSecret,
     onFocus: () => { if (!custom) runtime.selectOther(ticket, question.id, { toggle: false }); },
@@ -245,7 +246,7 @@ export function SourceQuestionCard({
               type="button"
               className="sq-nav"
               data-size="sm"
-              aria-label="Show previous question"
+              aria-label={t("Show previous question")}
               disabled={unavailable || menuOpen || page === 0}
               onMouseDown={preserveFocus}
               onClick={() => navigate(page - 1)}
@@ -253,13 +254,13 @@ export function SourceQuestionCard({
               <Icon name="CaretLeft" size={12} />
             </button>
             <span aria-live="polite">
-              {page + 1} of {view.questions.length}
+              {t("{current} of {total}", { current: page + 1, total: view.questions.length })}
             </span>
             <button
               type="button"
               className="sq-nav"
               data-size="sm"
-              aria-label="Show next question"
+              aria-label={t("Show next question")}
               disabled={unavailable || menuOpen || last}
               onMouseDown={preserveFocus}
               onClick={() => navigate(page + 1)}
@@ -302,7 +303,7 @@ export function SourceQuestionCard({
                 <button
                   type="button"
                   className="sq-custom-select"
-                  aria-label="Other"
+                  aria-label={t("Other")}
                   aria-pressed={custom}
                   disabled={unavailable}
                   onClick={(event) => {
@@ -312,7 +313,7 @@ export function SourceQuestionCard({
                 />
                 <span className="sq-custom-label" aria-hidden="true">
                   <Mark checked={custom} />
-                  <span>Other</span>
+                  <span>{t("Other")}</span>
                 </span>
               </>
             )}
@@ -341,7 +342,7 @@ export function SourceQuestionCard({
           onMouseDown={preserveFocus}
           onClick={() => void skip()}
         >
-          Skip
+          {t("Skip")}
         </button>
         <SourceTooltip disabledReason={disabledReason}>
           <button
@@ -371,7 +372,7 @@ export function SourceQuestionCard({
               className="sq-submit-label"
               aria-hidden={view.busy || undefined}
             >
-              {last ? "Submit" : "Next"}
+              {last ? t("Submit") : t("Next")}
               {/* approval-current.js:8249-8256 `shortcut: a ? "cmd+enter"`; the CDS Button
                   (shared-frame :2886, :2936-2944) keeps it in the busy-faded content span. */}
               {isActive && !menuOpen && (
@@ -385,7 +386,7 @@ export function SourceQuestionCard({
             {view.busy && (
               <span className="sq-submit-busy">
                 <BusySpinner />
-                <span className="sq-visually-hidden">Submitting answer</span>
+                <span className="sq-visually-hidden">{t("Submitting answer")}</span>
               </span>
             )}
           </button>

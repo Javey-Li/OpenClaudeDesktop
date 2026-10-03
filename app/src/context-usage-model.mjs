@@ -1,3 +1,4 @@
+import { t, getLocale } from "../electron/i18n/index.mjs";
 // Composer usage trigger copy and context ring (2.2553.1).
 // shared-14-BOJVa-jT.js:9700-9793: iT/oT/sT compact token format, dT thresholds
 // (lT 75 / uT 90), pT fill vars, xT ring (yT 12, bT 2), ST summary.
@@ -60,12 +61,12 @@ export function contextSummary(used, max, allowOver = false) {
 export function usageTriggerCopy(usage, { fresh = false } = {}) {
   const used = usage?.last?.totalTokens;
   const hasUsage = Number.isFinite(used);
-  if (!hasUsage && !fresh) return { tooltip: "Usage", ariaLabel: "Usage", ringPct: 0, contextPct: null, detail: null };
+  if (!hasUsage && !fresh) return { tooltip: t("Usage"), ariaLabel: t("Usage"), ringPct: 0, contextPct: null, detail: null };
   const max = hasUsage && usage.modelContextWindow > 0 ? usage.modelContextWindow : null;
   const { summary, contextPct } = contextSummary(hasUsage ? used : 0, max);
-  const tooltip = `Context ${summary}`, details = [];
-  const parts = new Intl.ListFormat("en", { type: "unit" }).format([tooltip, ...details]);
-  return { tooltip, ariaLabel: `Usage: ${parts}`, ringPct: contextPct ?? 0, contextPct, detail: details.length ? details.join(" · ") : null };
+  const tooltip = t("Context {summary}", { summary }), details = [];
+  const parts = new Intl.ListFormat(getLocale(), { type: "unit" }).format([tooltip, ...details]);
+  return { tooltip, ariaLabel: t("Usage: {parts}", { parts }), ringPct: contextPct ?? 0, contextPct, detail: details.length ? details.join(" · ") : null };
 }
 
 // Usage popover panel (c2d611398-m3q28S31.js I/V over c360a9e1c hd :4065-4232): contextMode = ie || re || c
@@ -86,8 +87,8 @@ export function usagePanelCopy(usage, { fresh = false } = {}) {
 // 'Available when Claude finishes this turn' (the agent here is DeepSeek); otherwise the action is enabled. The
 // 'Compacts automatically at {pct}%' hint (Cw) needs the core's auto-compact threshold, which is unknown locally.
 export const COMPACT_MIN_PCT = 50;
-export const COMPACT_REPLYING_REASON = "Available when DeepSeek finishes this turn";
-export const COMPACT_RECONNECT_REASON = "Available when reconnected";
+export const COMPACT_REPLYING_REASON = t("Available when DeepSeek finishes this turn");
+export const COMPACT_RECONNECT_REASON = t("Available when reconnected");
 export function compactAction({ contextPct = null, running = false, connected = true, compacting = false, minPct = COMPACT_MIN_PCT } = {}) {
   if (contextPct === null || contextPct === undefined || !Number.isFinite(contextPct) || contextPct < minPct || compacting) return { kind: "hidden" };
   if (!connected) return { kind: "disabled", reason: COMPACT_RECONNECT_REASON };

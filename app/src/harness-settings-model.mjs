@@ -2,6 +2,7 @@
 // merged with the app overlay's desired state, so a change shows at once and
 // says "Applies after restart" until the core restarts.
 import { MCP_CLIENT, SKILL_ROW, toggleSafe } from '../electron/prefs/harness-profile.mjs';
+import { t } from '../electron/i18n/index.mjs';
 
 const kindOf = module => module === MCP_CLIENT ? 'mcp' : /dsh-hooks?-/.test(module) ? 'hook' : /dsh-(skill|tool-skill)(-|$|\/)/.test(module) ? 'skill' : /dsh-tool-/.test(module) ? 'tool' : 'core';
 const strings = value => Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
@@ -35,7 +36,7 @@ export function harnessView(state) {
     if (rows.length) bundles.push({ name: bundle.name, version: bundle.version, entries: rows, switchable: rows.filter(toggleSafe).length });
   }
   const others = entries.filter(entry => !claimed.has(entry.id));
-  if (others.length) bundles.push({ name: 'Other plugins', entries: others, switchable: others.filter(entry => toggleSafe(entry) || entry.added).length });
+  if (others.length) bundles.push({ name: t('Other plugins'), entries: others, switchable: others.filter(entry => toggleSafe(entry) || entry.added).length });
   const skillRow = overlay.rows[SKILL_ROW];
   const runningSkill = running.find(entry => entry.id === SKILL_ROW);
   const skillDirs = skillRow?.config ? strings(skillRow.config.customSkillDirs) : strings(runningSkill?.customSkillDirs);

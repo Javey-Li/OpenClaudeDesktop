@@ -1,6 +1,7 @@
 // customTheme preference (C4). Shared by the renderer and the main process:
 // pure, no node:* imports. Code font and code themes stay in the existing
 // top-level codeFont / codeThemeLight / codeThemeDark keys.
+import { t } from '../i18n/index.mjs';
 export const THEME_DENSITIES = Object.freeze(['compact', 'comfortable']);
 export const THEME_DEFAULT = Object.freeze({ preset: 'default', accent: '', uiFont: '', fontScale: 1, density: 'compact', radiusScale: 1 });
 export const DEFAULT = THEME_DEFAULT;
@@ -37,21 +38,21 @@ export function normalizeTheme(value) {
 /** Strict write check: throws a user-facing Error; null means "reset to default". */
 export function validateTheme(value) {
   if (value === null) return null;
-  if (!isObject(value)) throw new Error('Invalid theme setting.');
+  if (!isObject(value)) throw new Error(t('Invalid theme setting.'));
   if ('preset' in value && (typeof value.preset !== 'string' || !value.preset || value.preset.length > 40 || BAD_PRESET.test(value.preset)))
-    throw new Error('Invalid theme preset.');
+    throw new Error(t('Invalid theme preset.'));
   if ('accent' in value && (typeof value.accent !== 'string' || (value.accent !== '' && !HEX.test(value.accent))))
-    throw new Error('Enter an accent color like #4d6bfe.');
-  if ('uiFont' in value && !isFontFamily(value.uiFont)) throw new Error('Enter a font family name.');
+    throw new Error(t('Enter an accent color like #4d6bfe.'));
+  if ('uiFont' in value && !isFontFamily(value.uiFont)) throw new Error(t('Enter a font family name.'));
   const range = (key, limits, label) => {
     if (!(key in value)) return;
     const raw = value[key];
     if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < limits.min - 1e-9 || raw > limits.max + 1e-9)
-      throw new Error(`${label} must be between ${limits.min} and ${limits.max}.`);
+      throw new Error(t(label, { min: limits.min, max: limits.max }));
   };
-  range('fontScale', FONT_SCALE, 'Font size');
-  range('radiusScale', RADIUS_SCALE, 'Corner radius');
-  if ('density' in value && !THEME_DENSITIES.includes(value.density)) throw new Error('Invalid density setting.');
+  range('fontScale', FONT_SCALE, 'Font size must be between {min} and {max}.');
+  range('radiusScale', RADIUS_SCALE, 'Corner radius must be between {min} and {max}.');
+  if ('density' in value && !THEME_DENSITIES.includes(value.density)) throw new Error(t('Invalid density setting.'));
   return normalizeTheme(value);
 }
 

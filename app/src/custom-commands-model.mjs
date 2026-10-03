@@ -1,4 +1,5 @@
 import { parseDocument } from 'yaml';
+import { t } from '../electron/i18n/index.mjs';
 
 // Custom slash commands (C3): Markdown prompt templates with optional frontmatter
 //   ---
@@ -82,8 +83,8 @@ export function expandCommand(body, args = '') {
 }
 
 export function validateCommandName(name) {
-  if (typeof name !== 'string' || !name) return 'Enter a command name.';
-  if (!COMMAND_NAME.test(name)) return 'Use letters, numbers, - or _ (up to 64 characters), starting with a letter or number.';
+  if (typeof name !== 'string' || !name) return t('Enter a command name.');
+  if (!COMMAND_NAME.test(name)) return t('Use letters, numbers, - or _ (up to 64 characters), starting with a letter or number.');
   return '';
 }
 

@@ -10,6 +10,7 @@ import "./highlight-tokens.css";
 import "./source-user-text.css";
 import {SourceTooltip} from "./source-tooltip";
 import {sessionCommands} from "./session-command-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 
 // Selected code theme surfaces (main.jsx exposes --code-theme-* from the
 // preference); the shipped Claude theme data remains the fallback.
@@ -22,7 +23,7 @@ const codeTheme = Object.freeze({
 
 const desktopCall = (action, params) =>
   window.desktop?.call(action, params) ??
-  Promise.reject(new Error("Open Code Desktop to connect to DeepSeek."));
+  Promise.reject(new Error(t("Open Code Desktop to connect to DeepSeek.")));
 
 // The fence body takes the Rr triple-click (code-block-current.js:1244-1266)
 // and carries data-code-text for the transcript context menu's Copy code block.

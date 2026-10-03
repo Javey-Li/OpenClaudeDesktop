@@ -5,6 +5,7 @@ import { SourceSettingsButton } from "./source-settings-button.jsx";
 import {
   DIFF_SCOPE_LABELS, diffScopeParam, diffScopeSections, diffScopeTrigger, filterSearchItems, resolveDiffScope,
 } from "./diff-scope-model.mjs";
+import { t } from "../electron/i18n/index.mjs";
 import "./source-diff-scope.css";
 
 // Changes-pane diff scope dropdown, 2.2553.1 readable/panes-tile-current.js:2949-3110 zm:
@@ -89,7 +90,7 @@ export function SourceDiffScope({ trigger, sections = [] }) {
         : <span className="sds-part">{trigger.label}</span>}
     </SourceSettingsButton>
     {open && <SourceMenu.Popup key={open.token} anchor={button.current} trigger={button.current} side="bottom" align="start"
-      label="Diff scope" onClose={() => setOpen(null)} initialHighlight={open.entry}>
+      label={t("Diff scope")} onClose={() => setOpen(null)} initialHighlight={open.entry}>
       {filled.map((section, index) => <React.Fragment key={section.key ?? index}>
         {index > 0 && <SourceMenu.Separator />}
         <SourceMenu.Group>{section.items.map((item, itemIndex) => <ScopeItem key={item.value ?? itemIndex} item={item} />)}</SourceMenu.Group>

@@ -2,6 +2,7 @@ import React from "react";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { Icon } from "./icons";
 import "./source-transcript-states.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Transcript pane states of approval-entry-current.js (2.2553.1):
 // _d :1141-1190 pending -> gd -> Zw skeleton, :4211-4217 xu load failure and
@@ -40,7 +41,7 @@ export function SourceTranscriptSkeleton({ hasEarlier = false, holdReason = "rou
     <div className="w-full [--msg-gap:0px]">
       <div data-cds="SkeletonGroup" data-motion="wave" data-hold="none" data-hold-reason={holdReason} data-shown="" role="status"
         className="text-prose flex flex-col fade-out-bottom h-[calc(100vh-12.5rem)]">
-        <span className="sr-only" data-skeleton-label="true">Loading</span>
+        <span className="sr-only" data-skeleton-label="true">{t("Loading")}</span>
         <div aria-hidden="true" className="contents">
           <div data-testid="chat-message-skeleton" className="contents">
             <div className="mt-[var(--msg-gap,1.5rem)] flex shrink-0 justify-end"><Bar className={BUBBLE_CLASS} index={index++} /></div>
@@ -75,15 +76,15 @@ export function SourceEmptyState({ icon, title, body, actions, role }) {
 // xu = V (ion-dist c4ea84cb3-BrWqBPlP.js) default branch: role=alert EmptyState,
 // "Couldn’t load this session", B's default body (Codex reports no load-failure
 // kind, so the kind-specific bodies never apply) and a primary CDS Button "Retry".
-export const LOAD_FAILURE_TITLE = "Couldn’t load this session";
-export const LOAD_FAILURE_BODY = "Something went wrong while loading earlier messages.";
+export const LOAD_FAILURE_TITLE = t("Couldn’t load this session");
+export const LOAD_FAILURE_BODY = t("Something went wrong while loading earlier messages.");
 export function SourceTranscriptLoadFailure({ onRetry }) {
   return <SourceEmptyState role="alert" title={LOAD_FAILURE_TITLE} body={LOAD_FAILURE_BODY}
-    actions={<SourceSettingsButton variant="primary" onClick={onRetry}>Retry</SourceSettingsButton>} />;
+    actions={<SourceSettingsButton variant="primary" onClick={onRetry}>{t("Retry")}</SourceSettingsButton>} />;
 }
 
 // approval-entry-current.js:4224-4233 Cl with only the title.
-export const EMPTY_TRANSCRIPT_TITLE = "No messages yet";
+export const EMPTY_TRANSCRIPT_TITLE = t("No messages yet");
 export function SourceTranscriptEmpty() {
   return <SourceEmptyState title={EMPTY_TRANSCRIPT_TITLE} />;
 }

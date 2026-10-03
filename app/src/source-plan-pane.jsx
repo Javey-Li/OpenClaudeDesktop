@@ -4,6 +4,7 @@ import { SourceTooltip } from "./source-tooltip";
 import { createClipboardFeedback } from "./clipboard-feedback.mjs";
 import { SourcePlanChecklist } from "./source-plan-checklist.jsx";
 import "./source-plan-pane.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // kp (panes-tile-current.js:1751-1790) over plan {content, todos}. The plan
 // document is the latest proposed plan (state.planDocs: the Codex `plan` item,
@@ -20,7 +21,7 @@ const SCROLLER = "h-full select-text overflow-y-auto [contain:strict] [scrollbar
 function SourcePlanTasks({ plan }) {
   return (
     <section className="mt-pad-lg source-plan-tasks">
-      <h2 className="text-caption-medium uppercase tracking-wide text-muted mb-1.25">Tasks</h2>
+      <h2 className="text-caption-medium uppercase tracking-wide text-muted mb-1.25">{t("Tasks")}</h2>
       <SourcePlanChecklist plan={plan} />
     </section>
   );
@@ -45,7 +46,7 @@ export function SourcePlanPane({ plan, document = null, renderMarkdown = null })
 // Mp (:1830-1866): with plan content, a ghost icon-only base Button, Copy →
 // Check, labelled "Copy plan" → "Copied" while the copy is fresh (the
 // aria-label is its CDS tooltip); onMouseDown keeps the focus where it was.
-export const PLAN_COPY_LABELS = Object.freeze({ copy: "Copy plan", copied: "Copied" });
+export const PLAN_COPY_LABELS = Object.freeze({ copy: t("Copy plan"), copied: t("Copied") });
 export function SourcePlanCopyButton({ document }) {
   const [state, setState] = useState("idle");
   const controller = useRef(null);

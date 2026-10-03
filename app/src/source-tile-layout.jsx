@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SourceTooltip } from "./source-tooltip";
+import { t } from "../electron/i18n/index.mjs";
 import {
   TILE_CONFIG, adjustFlexes, cloneNode, distributeFlex, findStack, findTilePath, layoutsEqual, minSize, moveTile, nodeKey,
   orderedTileIds, parentAtPath, resolveLayout,
@@ -16,12 +17,12 @@ import "./source-tile-layout.css";
 const KEY_STEP = 24;
 const KEY_STEP_LARGE = 120;
 const NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
-const SIDE_LABEL = { left: "Move left", right: "Move right", up: "Move up", down: "Move down" };
+const SIDE_LABEL = { left: t("Move left"), right: t("Move right"), up: t("Move up"), down: t("Move down") };
 const SIDE_STATUS = {
-  left: "Press Enter to move left, or Escape to cancel.",
-  right: "Press Enter to move right, or Escape to cancel.",
-  up: "Press Enter to move up, or Escape to cancel.",
-  down: "Press Enter to move down, or Escape to cancel.",
+  left: t("Press Enter to move left, or Escape to cancel."),
+  right: t("Press Enter to move right, or Escape to cancel."),
+  up: t("Press Enter to move up, or Escape to cancel."),
+  down: t("Press Enter to move down, or Escape to cancel."),
 };
 const NO_HANDLES = Object.freeze({ left: null, right: null, top: null, bottom: null });
 const isPlainKey = (event) => !event.ctrlKey && !event.metaKey && !event.altKey;
@@ -49,7 +50,7 @@ function DropIndicator({ edge, outset }) {
 
 function DragHandle({ tileId, isActive, isDragging, previewSide, describedById, onPointerDown, onKeyDown, onBlur }) {
   const [hovered, setHovered] = useState(false);
-  const label = previewSide ? SIDE_LABEL[previewSide] : "Move";
+  const label = previewSide ? SIDE_LABEL[previewSide] : t("Move");
   return (
     <SourceTooltip content={label} shortcut={previewSide ? "enter" : undefined} side="bottom" open={previewSide !== null || hovered}
       onOpenChange={setHovered} hoverable={false}>
@@ -75,7 +76,7 @@ function Separator({ direction, isActive, isDropTarget, isDisabled, size, depth,
   const row = direction === "row";
   const [hovered, setHovered] = useState(false);
   return (
-    <SourceTooltip content="Resize" open={hovered && !isDisabled} onOpenChange={setHovered} hoverable={false}>
+    <SourceTooltip content={t("Resize")} open={hovered && !isDisabled} onOpenChange={setHovered} hoverable={false}>
       <div
         role="separator"
         tabIndex={isDisabled ? -1 : 0}
@@ -182,7 +183,7 @@ function Stack({ node, depth, config, engine, resolved, tileById, hosts, parentD
               size={config.gap}
               depth={depth}
               valueNow={Math.round((flexes[index] / (flexes[index] + flexes[index + 1])) * 100)}
-              ariaLabel={`Resize ${index + 1} and ${index + 2}`}
+              ariaLabel={t("Resize {first} and {second}", { first: index + 1, second: index + 2 })}
               cornerStart={cornerStart ? engine.getCornerProps({ stackId: node.id, boundaryIndex: index }, cornerStart) : undefined}
               cornerEnd={cornerEnd ? engine.getCornerProps({ stackId: node.id, boundaryIndex: index }, cornerEnd) : undefined}
               {...engine.getHandleProps(node.id, index)}
@@ -651,12 +652,12 @@ export function SourceTileLayout({ layout, onLayoutChange, tiles, renderTile, co
         tile.id,
       ))}
       <span id={instructionsId} className="source-sr-only">
-        Arrow keys move the tile. Perpendicular arrows preview a split; press Enter to commit or Escape to cancel.
+        {t("Arrow keys move the tile. Perpendicular arrows preview a split; press Enter to commit or Escape to cancel.")}
       </span>
       <span role="status" className="source-sr-only" data-tiles-status="">
         {keyboardPreview
           ? SIDE_STATUS[keyboardPreview.side]
-          : lastKeyboardMove && <span key={lastKeyboardMove.seq}>{`Tile moved to position ${lastKeyboardMove.position} of ${lastKeyboardMove.total}`}</span>}
+          : lastKeyboardMove && <span key={lastKeyboardMove.seq}>{t("Tile moved to position {position} of {total}", { position: lastKeyboardMove.position, total: lastKeyboardMove.total })}</span>}
       </span>
     </div>
   );

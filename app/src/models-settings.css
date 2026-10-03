@@ -56,3 +56,21 @@
 .msx-form :is(input[data-cds], textarea):hover:not(:focus) { box-shadow:inset 0 0 0 1px var(--cds-border-strong); }
 .msx-form :is(input[data-cds], textarea):focus-visible { outline:none;box-shadow:var(--cds-focus-shadow); }
 .msx-form .sselect { align-self:flex-start;min-width:220px; }
+
+/* API connection (top of the page) and the Advanced disclosure below it. */
+.msx-wide { width:280px;max-width:100%; }
+.msx-link { padding:0;border:0;background:none;color:var(--cds-text-accent);font:inherit;text-decoration:underline;text-underline-offset:2px; }
+.msx-link:hover { color:var(--cds-text-primary); }
+.msx-link:focus-visible { outline:none;border-radius:2px;box-shadow:var(--cds-focus-shadow); }
+.msx-connection { display:contents; }
+.msx-connection-footer { display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--cds-gap-sm,8px);padding:var(--cds-pad-md,8px) 0;border-top:1px solid var(--cds-alpha-1); }
+.msx-connection-status { margin-inline-end:auto;min-width:0;color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote);overflow-wrap:anywhere; }
+.msx-advanced { display:flex;flex-direction:column;margin-top:var(--cds-gap-sm,8px); }
+.msx-advanced-trigger { align-items:center;padding:var(--cds-pad-sm,6px) 0;color:var(--cds-text-primary); }
+.msx-advanced-label { display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:var(--cds-gap-sm,8px); }
+.msx-advanced-hint { color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote); }
+.msx-advanced-body { padding-top:var(--cds-gap-md,12px); }
+.msx-page textarea.msx-relay-models { box-sizing:border-box;width:100%;min-height:88px;max-height:40vh;margin-top:var(--cds-gap-sm,8px);padding:8px var(--cds-pad-md);border:0;border-radius:var(--cds-radius);background:var(--cds-fill-field);box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring);color:var(--cds-text-primary);font:400 var(--cds-font-size-footnote,12px)/1.5 var(--cds-font-mono);resize:vertical;outline:none; }
+.msx-page textarea.msx-relay-models::placeholder { color:var(--cds-text-muted); }
+.msx-page textarea.msx-relay-models:focus-visible { box-shadow:var(--cds-focus-shadow); }
+.msx-page textarea.msx-relay-models:disabled { opacity:.5; }

@@ -8,6 +8,7 @@
 // which is valid YAML) in the loader patch grammar the Harness applies after
 // the app-owned profile (harness/profile/cordis.patch.yml).
 
+import { t } from '../i18n/index.mjs';
 export const HARNESS_PROFILE_DEFAULT = Object.freeze({ overlayEnabled: true });
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -17,9 +18,9 @@ export function normalizeHarnessProfile(value) {
 
 export function validateHarnessProfile(value) {
   if (value === null) return null;
-  if (!object(value)) throw new Error('Invalid Harness profile setting.');
+  if (!object(value)) throw new Error(t('Invalid Harness profile setting.'));
   const { overlayEnabled = true } = value;
-  if (typeof overlayEnabled !== 'boolean') throw new Error('Invalid Harness overlay setting.');
+  if (typeof overlayEnabled !== 'boolean') throw new Error(t('Invalid Harness overlay setting.'));
   return { overlayEnabled };
 }
 
@@ -98,14 +99,14 @@ export function renderOverlay(state) {
  */
 export function setRowEnabled(state, { id, enabled }, entries = []) {
   const current = normalizeOverlay(state);
-  if (typeof enabled !== 'boolean') throw new Error('Choose on or off.');
+  if (typeof enabled !== 'boolean') throw new Error(t('Choose on or off.'));
   const insert = current.inserts.find(item => item.id === id);
   if (insert) {
-    if (!toggleSafe({ id, module: insert.name })) throw new Error('This plugin can’t be turned off here.');
+    if (!toggleSafe({ id, module: insert.name })) throw new Error(t('This plugin can’t be turned off here.'));
     return { ...current, inserts: current.inserts.map(item => item.id !== id ? item : enabled ? (({ disabled, ...rest }) => rest)(item) : { ...item, disabled: true }) };
   }
   const entry = entries.find(candidate => candidate?.id === id);
-  if (!entry || !toggleSafe(entry)) throw new Error('This plugin can’t be turned off here.');
+  if (!entry || !toggleSafe(entry)) throw new Error(t('This plugin can’t be turned off here.'));
   // An explicit `disabled: false` also turns on a row an earlier layer disabled.
   return { ...current, rows: { ...current.rows, [id]: { ...current.rows[id], disabled: !enabled } } };
 }
@@ -114,32 +115,32 @@ export function setRowEnabled(state, { id, enabled }, entries = []) {
 export function mcpInsert(params, state) {
   const current = normalizeOverlay(state);
   const serverName = typeof params?.serverName === 'string' ? params.serverName.trim() : '';
-  if (!SERVER_NAME.test(serverName)) throw new Error('Use 1–32 letters, digits, - or _ for the server name.');
+  if (!SERVER_NAME.test(serverName)) throw new Error(t('Use 1–32 letters, digits, - or _ for the server name.'));
   const id = MCP_ROW_PREFIX + serverName;
-  if (current.inserts.some(item => item.id === id) || (params?.existingNames ?? []).includes(serverName)) throw new Error(`A server named ${serverName} already exists.`);
+  if (current.inserts.some(item => item.id === id) || (params?.existingNames ?? []).includes(serverName)) throw new Error(t('A server named {name} already exists.', { name: serverName }));
   let config;
   if (params?.transport === 'stdio') {
     const command = typeof params.command === 'string' ? params.command.trim() : '';
-    if (!command || command.length > 1024 || command.includes('\0')) throw new Error('Enter the command that starts the server.');
+    if (!command || command.length > 1024 || command.includes('\0')) throw new Error(t('Enter the command that starts the server.'));
     const args = Array.isArray(params.args) ? params.args : [];
-    if (args.length > 64 || args.some(arg => typeof arg !== 'string' || arg.length > 4096 || arg.includes('\0'))) throw new Error('Check the server arguments.');
+    if (args.length > 64 || args.some(arg => typeof arg !== 'string' || arg.length > 4096 || arg.includes('\0'))) throw new Error(t('Check the server arguments.'));
     const env = object(params.env) ? params.env : {};
     const entries = Object.entries(env);
-    if (entries.length > 64 || entries.some(([key, value]) => !ENV_NAME.test(key) || typeof value !== 'string' || value.length > 8192)) throw new Error('Environment variables need NAME=value lines.');
+    if (entries.length > 64 || entries.some(([key, value]) => !ENV_NAME.test(key) || typeof value !== 'string' || value.length > 8192)) throw new Error(t('Environment variables need NAME=value lines.'));
     config = { transport: 'stdio', serverName, command, args: [...args], env: Object.fromEntries(entries) };
   } else if (params?.transport === 'streamable-http') {
     let url;
-    try { url = new URL(String(params.url ?? '').trim()); } catch { throw new Error('Enter an http or https URL.'); }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Enter an http or https URL.');
+    try { url = new URL(String(params.url ?? '').trim()); } catch { throw new Error(t('Enter an http or https URL.')); }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(t('Enter an http or https URL.'));
     config = { transport: 'streamable-http', serverName, url: url.href };
-  } else throw new Error('Choose stdio or HTTP.');
+  } else throw new Error(t('Choose stdio or HTTP.'));
   return { ...current, inserts: [...current.inserts, { id, name: MCP_CLIENT, config }] };
 }
 
 /** Remove one row the overlay inserted (MCP servers, hook configs). */
 export function removeInsert(state, id) {
   const current = normalizeOverlay(state);
-  if (!current.inserts.some(item => item.id === id)) throw new Error('Only items added in Code Desktop can be removed here.');
+  if (!current.inserts.some(item => item.id === id)) throw new Error(t('Only items added in Code Desktop can be removed here.'));
   return { ...current, inserts: current.inserts.filter(item => item.id !== id) };
 }
 
@@ -158,8 +159,8 @@ function pathHash(text) {
 export function hooksInsert(state, { format, configPath } = {}) {
   const current = normalizeOverlay(state);
   const name = HOOK_MODULES[format];
-  if (!name) throw new Error('Choose Claude Code or Codex hooks.');
-  if (!absolute(configPath) || !/\.json$/i.test(configPath)) throw new Error('Choose a hooks .json file.');
+  if (!name) throw new Error(t('Choose Claude Code or Codex hooks.'));
+  if (!absolute(configPath) || !/\.json$/i.test(configPath)) throw new Error(t('Choose a hooks .json file.'));
   const id = `${HOOK_ROW_PREFIX}${format}-${pathHash(configPath)}`;
   return { ...current, inserts: [...current.inserts.filter(item => item.id !== id), { id, name, config: { configPath } }] };
 }
@@ -171,7 +172,7 @@ export function hooksInsert(state, { format, configPath } = {}) {
  */
 export function setSkillDirs(state, dirs) {
   const current = normalizeOverlay(state);
-  if (!Array.isArray(dirs) || dirs.length > MAX_DIRS || dirs.some(dir => !absolute(dir))) throw new Error('Choose absolute skill folders.');
+  if (!Array.isArray(dirs) || dirs.length > MAX_DIRS || dirs.some(dir => !absolute(dir))) throw new Error(t('Choose absolute skill folders.'));
   const unique = [...new Set(dirs.map(dir => dir.replace(/\/+$/, '') || '/'))];
   const rows = { ...current.rows };
   const { config, ...rest } = rows[SKILL_ROW] ?? {};
@@ -190,8 +191,8 @@ export function setSkillDirs(state, dirs) {
  */
 export function setManagedRow(state, id, row) {
   const current = normalizeOverlay(state);
-  if (!ROW_ID.test(id ?? '')) throw new Error('Invalid profile row id.');
-  if (APP_BUNDLE_IDS.includes(id)) throw new Error('This row belongs to Code Desktop.');
+  if (!ROW_ID.test(id ?? '')) throw new Error(t('Invalid profile row id.'));
+  if (APP_BUNDLE_IDS.includes(id)) throw new Error(t('This row belongs to Code Desktop.'));
   const rows = { ...current.rows };
   if (row === null || row === undefined) delete rows[id];
   else rows[id] = normalizeOverlay({ rows: { [id]: row } }).rows[id] ?? {};
@@ -206,7 +207,7 @@ export function parseEnvLines(text) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
     const at = line.indexOf('=');
-    if (at <= 0) throw new Error(`Use NAME=value: ${line.slice(0, 40)}`);
+    if (at <= 0) throw new Error(t('Use NAME=value: {line}', { line: line.slice(0, 40) }));
     env[line.slice(0, at).trim()] = line.slice(at + 1);
   }
   return env;
@@ -222,7 +223,7 @@ export function splitArgs(text) {
     if (/\s/.test(char)) { if (started) { args.push(current); current = ''; started = false; } continue; }
     current += char; started = true;
   }
-  if (quote) throw new Error('Close the quote in the arguments.');
+  if (quote) throw new Error(t('Close the quote in the arguments.'));
   if (started) args.push(current);
   return args;
 }

@@ -6,6 +6,7 @@ import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { GitCounts } from "./source-git-counts.jsx";
 import { gitRepoMenuItems } from "./git-rail-model.mjs";
 import "./source-git-status.css";
+import { t } from "../electron/i18n/index.mjs";
 
 const basename = (path = "") => path.split("/").filter(Boolean).pop() || path;
 
@@ -86,7 +87,7 @@ export function SourceGitStatus({
   const branchTooltip = () => (textOverflows(branchHead.current) || textOverflows(branchTail.current) ? branch : undefined);
   // Ii 1296-1318: OV with `contents text-body-medium` inside the counts Button, `contents` in the static span.
   const counts = (className) => <GitCounts added={added} removed={removed} className={className} />;
-  return <nav ref={nav} className="sg-status" aria-label="Repository and pull request controls">
+  return <nav ref={nav} className="sg-status" aria-label={t("Repository and pull request controls")}>
     <div className="sg-row" data-source-component="GitStatusCard">
       <div className="sg-leading">
         <div className="sg-checkout">
@@ -115,7 +116,7 @@ export function SourceGitStatus({
         </span>
       </SourceTooltip>}
       {counted && (onOpenChanges
-        ? <SourceTooltip content="View changes">
+        ? <SourceTooltip content={t("View changes")}>
           <SourceSettingsButton variant="secondary" className="sg-diff"
             onMouseDown={(event) => event.preventDefault()} onClick={() => onOpenChanges(status)}>{counts("contents text-body-medium")}</SourceSettingsButton>
         </SourceTooltip>
@@ -125,18 +126,18 @@ export function SourceGitStatus({
         <SourceSettingsButton variant="secondary" className="sg-action" disabled={actionDisabled || busy} busy={busy}
           onMouseDown={(event) => event.preventDefault()} onClick={() => onAction(status)}>{actionLabel}</SourceSettingsButton>
       </SourceTooltip>}
-      {onDismiss && <button type="button" className="sg-button sg-dismiss" aria-label="Dismiss"
+      {onDismiss && <button type="button" className="sg-button sg-dismiss" aria-label={t("Dismiss")}
         onMouseDown={(event) => event.preventDefault()} onClick={() => onDismiss(status)}><Icon name="X" size={16} /></button>}
       {!onDismiss && dismissReserved && <span aria-hidden="true" className="sg-dismiss-reserved" />}
     </div>
     {/* git-chips D/M: Menu.Popup side bottom, align start (menuAlign default "start", 48/83, 109/200). */}
     {menu && <SourceMenu.Popup anchor={menu.anchor} side="bottom" align="start" layer="menu" dataCds="Menu"
-      label={menu.kind === "folder" ? "Repository options" : "Branch options"} onClose={() => setMenu(null)}>
+      label={menu.kind === "folder" ? t("Repository options") : t("Branch options")} onClose={() => setMenu(null)}>
       {menu.kind === "folder" && repoMenu.map((item) => <React.Fragment key={item.label}>
         {item.separatorBefore && <SourceMenu.Separator />}
-        <SourceMenu.Item onClick={repoActions[item.label]}>{item.label}</SourceMenu.Item>
+        <SourceMenu.Item onClick={repoActions[item.label]}>{t(item.label)}</SourceMenu.Item>
       </React.Fragment>)}
-      {menu.kind === "branch" && onCopyBranch && <SourceMenu.Item onClick={() => run(onCopyBranch, branch)}>Copy branch name</SourceMenu.Item>}
+      {menu.kind === "branch" && onCopyBranch && <SourceMenu.Item onClick={() => run(onCopyBranch, branch)}>{t("Copy branch name")}</SourceMenu.Item>}
     </SourceMenu.Popup>}
   </nav>;
 }
@@ -147,7 +148,7 @@ export function SourceGitStatus({
  * counts in an Aa fill-secondary/shadow-field span and the action label in an
  * Aa px-md span of the Commit button's width (Ma). No menus, tooltips or actions. */
 export function SourceGitStatusStale({ repoName, branch, localOnly = true, counts = null, actionLabel, heightPx }) {
-  return <nav className="sg-status" aria-label="Repository and pull request controls"
+  return <nav className="sg-status" aria-label={t("Repository and pull request controls")}
     style={Number.isFinite(heightPx) && heightPx > 0 ? { minHeight: heightPx } : undefined}>
     <div className="sg-row sg-row-stale" data-source-component="GitStatusCard" data-prbar-stale="" aria-hidden="true" inert>
       <div className="sg-leading">

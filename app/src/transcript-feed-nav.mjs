@@ -7,16 +7,17 @@
 // article props, :56941-56953 x5 'Claude responded: {summary}', :39513-39521
 // 'You said: {prompt}', and the af summary (c2fb08a02-DWV0GyaQ.js L/N).
 
-export const FEED_LABEL = "Chat messages"; // :63471 SCYmnElliz
-export const FEED_INSTRUCTIONS = "Use the up and down arrow keys to move between messages."; // :61282 ps3R1JlOBy
-export const STREAMING_LABEL = "Currently streaming message"; // :61239 QU+nmAt+Zt
+export const FEED_LABEL = t("Chat messages"); // :63471 SCYmnElliz
+export const FEED_INSTRUCTIONS = t("Use the up and down arrow keys to move between messages."); // :61282 ps3R1JlOBy
+export const STREAMING_LABEL = t("Currently streaming message"); // :61239 QU+nmAt+Zt
 // The transcript copy names the assistant DeepSeek wherever the source says
 // Claude ("Stop DeepSeek’s response", "Where DeepSeek runs").
 export const ASSISTANT_NAME = "DeepSeek";
 // C2 persona: the visible copy reads the live assistant name (default "DeepSeek").
 import { assistantName } from "./persona-store.mjs";
+import { t } from "../electron/i18n/index.mjs";
 export function messageLabel(position) {
-  return `Message ${position}`; // :61228 I6ViGOLib6
+  return t("Message {position}", { position }); // :61228 I6ViGOLib6
 }
 export function articleLabel({ position, streaming = false }) {
   return streaming ? STREAMING_LABEL : messageLabel(position);
@@ -122,10 +123,10 @@ export function messageSummary(text) {
 // a summary, and none on the answer that is still streaming (ahe).
 export function promptHeading(text) {
   const summary = messageSummary(text);
-  return summary ? `You said: ${summary}` : null;
+  return summary ? t("You said: {summary}", { summary }) : null;
 }
 export function responseHeading(text, { streaming = false } = {}) {
   if (streaming || typeof text !== "string") return null;
   const summary = messageSummary(text.slice(0, 600));
-  return summary ? `${assistantName()} responded: ${summary}` : null;
+  return summary ? t("{name} responded: {summary}", { name: assistantName(), summary }) : null;
 }

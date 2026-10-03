@@ -1,3 +1,5 @@
+import { t } from "../electron/i18n/index.mjs";
+
 // Transcript find (⌘F) model: the pure half of the renderer find provider.
 // Claude 2.2553.1 sidebar-main.js:17787-18130 ZB is the bar; ion-dist
 // shared-18-CzkFx3Pc.js holds the provider registry it drives: vo (text walk
@@ -21,11 +23,11 @@ export const FIND_INPUT_DEBOUNCE_MS = 120; // sidebar-main.js:17776 qB
 export const FIND_MUTATION_DEBOUNCE_MS = 60; // shared-18 Es repaint timer
 // sidebar-main.js:18040-18110 strings.
 export const FIND_LABELS = Object.freeze({
-  input: "Find",
-  placeholder: "Find…",
-  previous: "Go to previous match",
-  next: "Go to next match",
-  close: "Close find bar",
+  input: t("Find"),
+  placeholder: t("Find…"),
+  previous: t("Go to previous match"),
+  next: t("Go to next match"),
+  close: t("Close find bar"),
 });
 
 // shared-18 po: block-level tags end a run of text, so a match never spans two

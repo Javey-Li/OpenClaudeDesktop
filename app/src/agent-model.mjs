@@ -1,6 +1,7 @@
 // Independent adapter: scroll-messages-current:16884–16909/17118–17151;
 // panes-tile-current:15894–16155. No synthetic child transcript entries.
 import { describeVerb } from './description-verb-model.mjs';
+import { t } from '../electron/i18n/index.mjs';
 const TOOL_TYPES = new Set(['commandExecution','fileChange','mcpToolCall','dynamicToolCall','collabAgentToolCall','webSearch','imageView','imageGeneration']);
 const TERMINAL = new Set(['completed','failed','stopped']);
 export function agentStatus(status) {
@@ -48,14 +49,14 @@ export const agentTargets = item => [...new Set([...(item?.receiverThreadIds || 
 export function agentName(thread, item) {
   const name=[thread?.agentNickname,thread?.agentRole].filter(Boolean).join(' · ');
   // item.description: the DeepSeek core's delegation label, before the child thread is known.
-  return name || (typeof item?.description==='string' && item.description.trim()) || item?.prompt?.split(/\r?\n/)[0]?.slice(0,80) || 'Agent';
+  return name || (typeof item?.description==='string' && item.description.trim()) || item?.prompt?.split(/\r?\n/)[0]?.slice(0,80) || t('Agent');
 }
 function toolName(item) {
   if (item.type === 'commandExecution') {
     const action=item.commandActions?.length===1 && item.commandActions[0];
-    return ({read:'Read',search:'Grep',listFiles:'List files'})[action?.type] || 'Run command';
+    return ({read:'Read',search:'Grep',listFiles:t('List files')})[action?.type] || t('Run command');
   }
-  return ({fileChange:'Edit',webSearch:'Web search',collabAgentToolCall:'Agent',imageView:'View image',imageGeneration:'Image generation'})[item.type] || [item.server,item.tool || item.name].filter(Boolean).join(' · ') || 'Tool';
+  return ({fileChange:'Edit',webSearch:t('Web search'),collabAgentToolCall:t('Agent'),imageView:t('View image'),imageGeneration:t('Image generation')})[item.type] || [item.server,item.tool || item.name].filter(Boolean).join(' · ') || t('Tool');
 }
 export function agentView(state, item, id = agentTargets(item)[0]) {
   const thread=state.threads?.[id], items=state.items?.[id] || [];
@@ -77,7 +78,7 @@ export function agentPromptNeeded(items, prompt) {
 }
 export function agentOperationLabel(item) {
   const words={sendInput:['Sending input to agent','Sent input to agent'],resumeAgent:['Resuming agent','Resumed agent'],wait:['Waiting for agent','Waited for agent'],closeAgent:['Closing agent','Closed agent'],sendMessage:['Sending message to agent','Sent message to agent'],followupTask:['Sending follow-up to agent','Sent follow-up to agent'],interruptAgent:['Stopping agent','Stopped agent'],listAgents:['Listing agents','Listed agents']};
-  return (words[item.tool] || ['Using agent tool','Used agent tool'])[item.status==='inProgress'?0:1];
+  return t((words[item.tool] || ['Using agent tool','Used agent tool'])[item.status==='inProgress'?0:1]);
 }
 // Task/Agent row label (approval-current.js:4271-4296 oO, :16921-16934 Ie, :17112-17126):
 // a description that opens with a verb is the label in the row's tense ("Saying hello"
@@ -91,8 +92,8 @@ export function agentOperationLabel(item) {
 export function agentRowLabel(item, name, status) {
   const description = typeof item?.description === 'string' && item.description.trim() ? item.description.trim() : null;
   const tenses = description ? describeVerb(description) : null, meta = description ?? name ?? null;
-  if (status === 'running') return description ? { label: tenses?.running ?? description, name: null, described: true } : { label: 'Running agent', name: meta, described: false };
-  if (status === 'failed') return tenses ? { label: `Failed to ${tenses.infinitive}`, name: null, described: true } : { label: 'Failed to run agent', name: meta, described: false };
+  if (status === 'running') return description ? { label: tenses?.running ?? description, name: null, described: true } : { label: t('Running agent'), name: meta, described: false };
+  if (status === 'failed') return tenses ? { label: `Failed to ${tenses.infinitive}`, name: null, described: true } : { label: t('Failed to run agent'), name: meta, described: false };
   if (status === 'completed' && description) return { label: tenses?.done ?? description, name: null, described: true };
-  return { label: 'Ran agent', name: meta, described: false };
+  return { label: t('Ran agent'), name: meta, described: false };
 }

@@ -4,9 +4,10 @@ import { fileKindIcon } from "./file-kind-icon.mjs";
 import { createFileSearchController, emptySearchState, isPlainSearchKey,
   pathSegments, rangePaths, resultNavigation, searchLimitMessage } from "./files-search-model.mjs";
 import "./source-files-search.css";
+import { t } from "../electron/i18n/index.mjs";
 
 const desktopCall = (action, params) => window.desktop?.call(action, params) ??
-  Promise.reject(new Error("Open Code Desktop to search local filenames."));
+  Promise.reject(new Error(t("Open Code Desktop to search local filenames.")));
 
 function LitPath({ text, positions, offset = 0 }) {
   return pathSegments(text, positions, offset).map((segment, index) => segment.lit
@@ -21,7 +22,7 @@ function SearchingFiles() {
   }, []);
   return <span role="status" className="sfs-loading-status">
     <span data-cds="Spinner" className="sfs-spinner" aria-hidden="true"><span /><span /></span>
-    {announce && <span className="sfs-sr-only">Searching files</span>}
+    {announce && <span className="sfs-sr-only">{t("Searching files")}</span>}
   </span>;
 }
 
@@ -180,15 +181,15 @@ export function SourceFilesSearch({ sessionId = null, searchPane = "main", cwd, 
           {busy ? <SearchingFiles /> : <Icon name="Search" size={16} />}
         </span>
         <input ref={input} type="text" value={query} maxLength={64}
-          aria-label="Filter files" placeholder="Filter files…" spellCheck={false} autoComplete="off"
+          aria-label={t("Filter files")} placeholder={t("Filter files…")} spellCheck={false} autoComplete="off"
           aria-controls={hasQuery ? resultId : treeId}
           aria-describedby={`${hintId}${hasQuery && state.phase === "success" && state.truncated ? ` ${limitId}` : ""}`}
           disabled={!cwd} onChange={event => change(event.target.value)} onKeyDown={inputKey}
           onBlur={() => controller.current?.cancelEnter()} />
-        {query && <span className="sfs-clear-slot"><button type="button" aria-label="Clear filter"
+        {query && <span className="sfs-clear-slot"><button type="button" aria-label={t("Clear filter")}
           onMouseDown={event => event.preventDefault()} onClick={clear}><Icon name="X" size={12} /></button></span>}
       </div>
-      <p id={hintId} className="sfs-sr-only">Results update as you type. Press Down Arrow to go to results, and Up Arrow on the first result to return here.</p>
+      <p id={hintId} className="sfs-sr-only">{t("Results update as you type. Press Down Arrow to go to results, and Up Arrow on the first result to return here.")}</p>
     </div>
     <div ref={keptTree} id={treeId} className="sfs-kept-tree" hidden={hasQuery} inert={hasQuery ? true : undefined}
       onKeyDown={event => {
@@ -196,7 +197,7 @@ export function SourceFilesSearch({ sessionId = null, searchPane = "main", cwd, 
         const rows = keptTree.current.querySelectorAll("[data-tree-row], .source-tree-row");
         if (rows[0] === event.target || rows[0]?.contains(event.target)) { event.preventDefault(); input.current?.focus(); }
       }}>{typeof children === "function" ? children({ filtered: hasQuery }) : children}</div>
-    <div ref={results} id={resultId} className="sfs-results" role="tree" aria-label="Project files"
+    <div ref={results} id={resultId} className="sfs-results" role="tree" aria-label={t("Project files")}
       aria-multiselectable="true" aria-busy={busy || undefined} hidden={!hasQuery} inert={!hasQuery ? true : undefined}
       data-stale={stale || undefined} tabIndex={0} onKeyDown={resultKey}
       onPointerDown={() => controller.current?.cancelEnter()}
@@ -228,10 +229,10 @@ export function SourceFilesSearch({ sessionId = null, searchPane = "main", cwd, 
         </div>;
       })}
       {state.phase === "error" && <div className="sfs-notice sfs-error" role="alert">
-        <span>{state.error?.message || "Couldn’t search filenames."}</span>
-        <button type="button" onClick={() => controller.current?.refresh()}>Retry</button>
+        <span>{state.error?.message || t("Couldn’t search filenames.")}</span>
+        <button type="button" onClick={() => controller.current?.refresh()}>{t("Retry")}</button>
       </div>}
-      {state.phase === "success" && !state.matches.length && <div className="sfs-notice">No matching files</div>}
+      {state.phase === "success" && !state.matches.length && <div className="sfs-notice">{t("No matching files")}</div>}
       {state.phase === "success" && state.truncated && <p id={limitId} className="sfs-limit">
         {searchLimitMessage(state)}
       </p>}

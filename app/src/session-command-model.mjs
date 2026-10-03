@@ -1,34 +1,37 @@
+import {t} from '../electron/i18n/index.mjs';
 // Host actions mapped to real Codex 0.155.1 capabilities. Claude 2.2553.1
 // cc183b3ab supplies names/aliases; there is no app-server CLI command catalog.
 export const sessionCommands = [
-  {id:'compact',label:'Compact conversation',description:'Summarize earlier context in this session',session:true,idle:true,icon:'Archive'},
-  {id:'clear',aliases:['reset','new'],label:'New session',description:'Clear conversation history and free up context'},
-  {id:'review',label:'Review code',description:'Review changes, a branch, commit, or instructions',argumentHint:'[instructions]',session:true,idle:true,icon:'Search'},
-  {id:'fork',label:'Fork session',description:'Fork this session into a new one',argumentHint:'[prompt]',session:true,idle:true,icon:'GitBranch'},
-  {id:'rename',aliases:['name'],label:'Rename session',description:'Rename this session',argumentHint:'[new title]',session:true},
-  {id:'model',label:'Choose model',description:'Set the model for this session',argumentHint:'[model-id]',connected:true,idle:true},
-  {id:'effort',label:'Reasoning effort',description:'Set the effort level for this session',argumentHint:'[level]',connected:true,idle:true},
-  {id:'fast',label:'Fast mode',description:'Turn fast mode on or off',argumentHint:'[on|off]',connected:true,idle:true},
-  {id:'plan',label:'Plan mode',description:'Switch to plan mode or view this session’s plan',argumentHint:'[open|<description>]',idle:true},
-  {id:'permissions',aliases:['allowed-tools'],label:'Permission mode',description:'Change the permission mode',idle:true},
-  {id:'resume',aliases:['continue'],label:'Find a session',description:'Search and continue a DeepSeek session from this computer',argumentHint:'[search]'},
-  {id:'status',label:'Session status',description:'Show this session’s version, model, environment, and account',session:true,idle:true,icon:'UsageGaugeMiddle'},
-  {id:'usage',aliases:['stats','cost'],label:'Usage',description:'Show plan usage and rate limits'},
-  {id:'diff',label:'Show changes',description:'Show or hide this session’s changes',session:true},
-  {id:'workflow',label:'Run workflow',description:'Run a local dynamic workflow',argumentHint:'[path] [--plan] [--resume run-id] [--args JSON]',session:true},
-  {id:'workflows',label:'Workflows',description:'Show workflows in background tasks',session:true},
-  {id:'tasks',aliases:['bashes'],label:'Background tasks',description:'Show this session’s background tasks',session:true},
-  {id:'config',aliases:['settings'],label:'Settings',description:'Open Code settings'},
-  {id:'theme',label:'Appearance',description:'Set the appearance (system, light, or dark)',argumentHint:'[system|light|dark]'},
-  {id:'sandbox',label:'Sandbox',description:'Open Code sandbox settings'},
-  {id:'add-dir',label:'Add directory',description:'Add another folder to this session',argumentHint:'[path]'},
-  {id:'export',label:'Export conversation',description:'Export this session’s transcript',session:true,idle:true},
-  {id:'rewind',label:'Rewind conversation',description:'Rewind the session to an earlier message',session:true,idle:true},
-  {id:'skills',label:'Skills',description:'Browse and manage your skills'},
-  {id:'mcp',label:'Connectors',description:'Manage MCP connectors'},
+  {id:'compact',label:t('Compact conversation'),description:t('Summarize earlier context in this session'),session:true,idle:true,icon:'Archive'},
+  {id:'clear',aliases:['reset','new'],label:t('New session'),description:t('Clear conversation history and free up context')},
+  // /btw (cc183b3ab btw, 4Iu0xDY9v4): not idle-only, a side question never interrupts the running turn.
+  {id:'btw',label:t('Side question'),description:t('Ask a quick side question without adding to the session'),argumentHint:'[question]',session:true,icon:'Chat'},
+  {id:'review',label:t('Review code'),description:t('Review changes, a branch, commit, or instructions'),argumentHint:'[instructions]',session:true,idle:true,icon:'Search'},
+  {id:'fork',label:t('Fork session'),description:t('Fork this session into a new one'),argumentHint:'[prompt]',session:true,idle:true,icon:'GitBranch'},
+  {id:'rename',aliases:['name'],label:t('Rename session'),description:t('Rename this session'),argumentHint:'[new title]',session:true},
+  {id:'model',label:t('Choose model'),description:t('Set the model for this session'),argumentHint:'[model-id]',connected:true,idle:true},
+  {id:'effort',label:t('Reasoning effort'),description:t('Set the effort level for this session'),argumentHint:'[level]',connected:true,idle:true},
+  {id:'fast',label:t('Fast mode'),description:t('Turn fast mode on or off'),argumentHint:'[on|off]',connected:true,idle:true},
+  {id:'plan',label:t('Plan mode'),description:t('Switch to plan mode or view this session’s plan'),argumentHint:'[open|<description>]',idle:true},
+  {id:'permissions',aliases:['allowed-tools'],label:t('Permission mode'),description:t('Change the permission mode'),idle:true},
+  {id:'resume',aliases:['continue'],label:t('Find a session'),description:t('Search and continue a DeepSeek session from this computer'),argumentHint:'[search]'},
+  {id:'status',label:t('Session status'),description:t('Show this session’s version, model, environment, and account'),session:true,idle:true,icon:'UsageGaugeMiddle'},
+  {id:'usage',aliases:['stats','cost'],label:t('Usage'),description:t('Show plan usage and rate limits')},
+  {id:'diff',label:t('Show changes'),description:t('Show or hide this session’s changes'),session:true},
+  {id:'workflow',label:t('Run workflow'),description:t('Run a local dynamic workflow'),argumentHint:'[path] [--plan] [--resume run-id] [--args JSON]',session:true},
+  {id:'workflows',label:t('Workflows'),description:t('Show workflows in background tasks'),session:true},
+  {id:'tasks',aliases:['bashes'],label:t('Background tasks'),description:t('Show this session’s background tasks'),session:true},
+  {id:'config',aliases:['settings'],label:t('Settings'),description:t('Open Code settings')},
+  {id:'theme',label:t('Appearance'),description:t('Set the appearance (system, light, or dark)'),argumentHint:'[system|light|dark]'},
+  {id:'sandbox',label:t('Sandbox'),description:t('Open Code sandbox settings')},
+  {id:'add-dir',label:t('Add directory'),description:t('Add another folder to this session'),argumentHint:'[path]'},
+  {id:'export',label:t('Export conversation'),description:t('Export this session’s transcript'),session:true,idle:true},
+  {id:'rewind',label:t('Rewind conversation'),description:t('Rewind the session to an earlier message'),session:true,idle:true},
+  {id:'skills',label:t('Skills'),description:t('Browse and manage your skills')},
+  {id:'mcp',label:t('Connectors'),description:t('Manage MCP connectors')},
   // Existing local plugin management is real; unsupported /plugin install is not advertised.
-  {id:'plugin',aliases:['plugins','marketplace'],label:'Plugins',description:'Manage plugins'},
-  {id:'help',label:'Help',description:'Get help and support'},
+  {id:'plugin',aliases:['plugins','marketplace'],label:t('Plugins'),description:t('Manage plugins')},
+  {id:'help',label:t('Help'),description:t('Get help and support')},
 ];
 const findCommand = name => sessionCommands.find(c => c.id === name || c.aliases?.includes(name));
 export function commandSuggestion(name) {
@@ -77,30 +80,30 @@ export function parseSessionCommand(text, context={}) {
   const requested=match[1].toLowerCase(),command=findCommand(requested),id=command?.id||requested,args=value.slice(match[0].length).trim();
   const suggestion=command?null:commandSuggestion(requested);
   let error=null;
-  if(!command)error=requested==='cd'?'Changing the directory isn’t available for this session.':['feedback','bug','share','login','logout','ultrareview','usage-credits','extra-usage'].includes(requested)?`/${requested} isn’t available in the app.`:`/${requested} isn’t a command here.`;
-  else if(/[\r\n]/.test(value))error=`/${requested} only works on a single line. Remove the extra lines and try again.`;
-  else if(args&&!command.argumentHint)error=`/${requested} doesn’t take arguments here. Remove the text after the command and try again.`;
+  if(!command)error=requested==='cd'?t('Changing the directory isn’t available for this session.'):['feedback','bug','share','login','logout','ultrareview','usage-credits','extra-usage'].includes(requested)?t('/{command} isn’t available in the app.',{command:requested}):t('/{command} isn’t a command here.',{command:requested});
+  else if(/[\r\n]/.test(value))error=t('/{command} only works on a single line. Remove the extra lines and try again.',{command:requested});
+  else if(args&&!command.argumentHint)error=t('/{command} doesn’t take arguments here. Remove the text after the command and try again.',{command:requested});
   return {id,args,requested,command,suggestion,error};
 }
 // The core request behind each session action. A core lists the ones it
 // cannot serve in initialize capabilities.unsupportedMethods (boot.core).
 const COMMAND_METHODS={fork:'thread/fork',review:'review/start',rewind:'thread/revert'};
 export function unsupportedCommand(id, context={}) {
-  return context.unsupportedMethods?.includes(COMMAND_METHODS[id])?'Not available with the DeepSeek core yet':'';
+  return context.unsupportedMethods?.includes(COMMAND_METHODS[id])?t('Not available with the DeepSeek core yet'):'';
 }
 export function commandUnavailable(command, context={}) {
   const unsupported=unsupportedCommand(command.id,context);
   if(unsupported)return unsupported;
-  if(command.id==='workflow'&&context.dynamicWorkflows!==true)return 'Enable Dynamic workflows in Code settings first';
-  if(command.id==='status'&&context.running)return 'Session info is available when DeepSeek finishes this turn.';
-  if(command.id==='fast'&&context.fastAvailable===false)return 'Fast mode is not available for this model';
-  if(command.id==='effort'&&context.effortAvailable===false)return 'Reasoning effort is not available for this model';
-  if(command.session&&!context.current)return 'Open a session first';
-  if(command.session&&context.archived)return 'Restore this archived session first';
-  if((command.session||command.connected)&&!context.connected)return 'Reconnect to DeepSeek first';
-  if((command.session||command.idle)&&context.loading)return 'Wait for the session to load';
-  if(command.idle&&(context.running||context.sending||context.pending))return 'Wait for the current task to finish or stop it';
-  if(['compact','fork','review','rewind'].includes(command.id)&&!context.hasHistory)return 'Send a message first';
+  if(command.id==='workflow'&&context.dynamicWorkflows!==true)return t('Enable Dynamic workflows in Code settings first');
+  if(command.id==='status'&&context.running)return t('Session info is available when DeepSeek finishes this turn.');
+  if(command.id==='fast'&&context.fastAvailable===false)return t('Fast mode is not available for this model');
+  if(command.id==='effort'&&context.effortAvailable===false)return t('Reasoning effort is not available for this model');
+  if(command.session&&!context.current)return t('Open a session first');
+  if(command.session&&context.archived)return t('Restore this archived session first');
+  if((command.session||command.connected)&&!context.connected)return t('Reconnect to DeepSeek first');
+  if((command.session||command.idle)&&context.loading)return t('Wait for the session to load');
+  if(command.idle&&(context.running||context.sending||context.pending))return t('Wait for the current task to finish or stop it');
+  if(['compact','fork','review','rewind'].includes(command.id)&&!context.hasHistory)return t('Send a message first');
   return '';
 }
 export function slashQuery(text) {
@@ -145,6 +148,6 @@ export function rateLimitRows(result) {
   return entries.flatMap(([key,limits])=>['primary','secondary'].flatMap(window=>{
     const data=limits?.[window];if(!data||!Number.isFinite(data.usedPercent))return [];
     const minutes=data.windowDurationMins;
-    return [{key:`${key}:${window}`,label:`${limits.limitName||key} · ${Number.isFinite(minutes)&&minutes>0?minutes%1440===0?`${minutes/1440} days`:minutes%60===0?`${minutes/60} hours`:`${minutes} minutes`:window}`,remaining:Math.max(0,Math.min(100,100-data.usedPercent)),resetsAt:Number.isFinite(data.resetsAt)?data.resetsAt:null}];
+    return [{key:`${key}:${window}`,label:`${limits.limitName||key} · ${Number.isFinite(minutes)&&minutes>0?minutes%1440===0?t('{count} days',{count:minutes/1440}):minutes%60===0?t('{count} hours',{count:minutes/60}):t('{count} minutes',{count:minutes}):window}`,remaining:Math.max(0,Math.min(100,100-data.usedPercent)),resetsAt:Number.isFinite(data.resetsAt)?data.resetsAt:null}];
   }));
 }

@@ -3,6 +3,7 @@ import { ActionDialog } from './source-session-actions.jsx';
 import { SourceSettingsButton } from './source-settings-button.jsx';
 import { SourceDialogFooter } from './source-dialog.jsx';
 import './source-bypass-permission.css';
+import { t } from '../electron/i18n/index.mjs';
 
 // The opt-in is a local preference; mode selection is scoped to a session and
 // connection. It never becomes a default for unrelated sessions or accounts.
@@ -48,10 +49,10 @@ export function useBypassPermission({ permission, enabled, mode, sessionKey, cwd
 // SourceDialog; the warning body, workspace and note are its own children, and Cancel takes the
 // initial focus (initialFocus "cancel").
 export function SourceBypassDialog({ cwd, onConfirm, onClose, open, onExited }) {
-  return <ActionDialog open={open} onExited={onExited} alert size="sm" title="Bypass all permissions?" className="source-bypass-dialog" showClose={false} onClose={onClose}>
-    <p>DeepSeek will read, edit, and execute files without asking — including potentially destructive commands. Only use this in isolated or disposable environments.</p>
+  return <ActionDialog open={open} onExited={onExited} alert size="sm" title={t("Bypass all permissions?")} className="source-bypass-dialog" showClose={false} onClose={onClose}>
+    <p>{t("DeepSeek will read, edit, and execute files without asking — including potentially destructive commands. Only use this in isolated or disposable environments.")}</p>
     {cwd && <div className="source-bypass-workspace">{cwd}</div>}
-    <p className="source-bypass-note">Applies to this session’s next messages. You can change the mode at any time.</p>
-    <SourceDialogFooter><SourceSettingsButton data-autofocus onClick={onClose}>Cancel</SourceSettingsButton><SourceSettingsButton variant="primary" onClick={onConfirm}>Bypass permissions</SourceSettingsButton></SourceDialogFooter>
+    <p className="source-bypass-note">{t("Applies to this session’s next messages. You can change the mode at any time.")}</p>
+    <SourceDialogFooter><SourceSettingsButton data-autofocus onClick={onClose}>{t("Cancel")}</SourceSettingsButton><SourceSettingsButton variant="primary" onClick={onConfirm}>{t("Bypass permissions")}</SourceSettingsButton></SourceDialogFooter>
   </ActionDialog>;
 }

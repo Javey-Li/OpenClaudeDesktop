@@ -1,5 +1,6 @@
 import {commandRowState} from './command-row-model.mjs';
 import {stripAnsi} from './ansi-model.mjs';
+import {t,tn} from '../electron/i18n/index.mjs';
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const string=value=>typeof value==='string'?value:'';
 export const isGenericTool=item=>['webSearch','mcpToolCall','dynamicToolCall','functionCallOutput'].includes(item?.type);
@@ -24,27 +25,27 @@ function valueText(value,pretty=false) {
 // failed verb the classic row keeps the done verb (`Re ?? o ?? S.verb`).
 const todosOf=item=>Array.isArray(item.arguments?.todos)?item.arguments.todos:[];
 const HARNESS_TOOLS={
- todo_write:item=>({verbs:['Updating todos',todosOf(item).length?'Updated todos':'Cleared todos'],meta:null}),
- skill:item=>({verbs:['Running skill','Ran skill','Failed to run skill'],meta:string(item.arguments?.name)?`/${item.arguments.name}`:null}),
- exit_plan_mode:()=>({verbs:['Proposing plan','Proposed plan','Failed to propose plan'],meta:null}),
+ todo_write:item=>({verbs:[t('Updating todos'),todosOf(item).length?t('Updated todos'):t('Cleared todos')],meta:null}),
+ skill:item=>({verbs:[t('Running skill'),t('Ran skill'),t('Failed to run skill')],meta:string(item.arguments?.name)?`/${item.arguments.name}`:null}),
+ exit_plan_mode:()=>({verbs:[t('Proposing plan'),t('Proposed plan'),t('Failed to propose plan')],meta:null}),
  ask_user_question:item=>{
   const questions=Array.isArray(item.arguments?.questions)?item.arguments.questions:[];
-  return {verbs:['Asking','Asked'],meta:string(questions[0]?.header).trim()||(questions.length>1?`${questions.length} questions`:null)};
+  return {verbs:[t('Asking'),t('Asked')],meta:string(questions[0]?.header).trim()||(questions.length>1?tn(questions.length,'{count} question','{count} questions'):null)};
  },
- job_output:()=>({verbs:['Reading task output','Read task output','Failed to read task output'],meta:null}),
- job_list:()=>({verbs:['Listing tasks','Listed tasks','Failed to list tasks'],meta:null}),
- job_kill:()=>({verbs:['Stopping task','Stopped task','Failed to stop task'],meta:null}),
- run_code:item=>({verbs:['Running','Ran','Failed to run'],meta:string(item.arguments?.description)||null}),
+ job_output:()=>({verbs:[t('Reading task output'),t('Read task output'),t('Failed to read task output')],meta:null}),
+ job_list:()=>({verbs:[t('Listing tasks'),t('Listed tasks'),t('Failed to list tasks')],meta:null}),
+ job_kill:()=>({verbs:[t('Stopping task'),t('Stopped task'),t('Failed to stop task')],meta:null}),
+ run_code:item=>({verbs:[t('Running'),t('Ran'),t('Failed to run')],meta:string(item.arguments?.description)||null}),
 };
 const harnessTool=item=>item?.type==='dynamicToolCall'&&item.namespace==null&&typeof item.tool==='string'?item.tool:null;
 export function genericToolLabel(item,state=commandRowState(item)) {
  const busy=state==='busy'||state==='blocked',failed=state==='failed';
  if(item.type==='webSearch') {
   const action=item.action;
-  if(action?.type==='openPage')return {label:busy?'Fetching':failed?'Failed to fetch':'Fetched',meta:string(action.url)||null};
-  if(action?.type==='findInPage')return {label:busy?'Searching':failed?'Failed to search':'Searched',meta:string(action.pattern)||null};
+  if(action?.type==='openPage')return {label:busy?t('Fetching'):failed?t('Failed to fetch'):t('Fetched'),meta:string(action.url)||null};
+  if(action?.type==='findInPage')return {label:busy?t('Searching'):failed?t('Failed to search'):t('Searched'),meta:string(action.pattern)||null};
   const query=string(item.query)||string(action?.query)||(Array.isArray(action?.queries)?action.queries.filter(q=>typeof q==='string').join(', '):'');
-  return {label:busy?'Searching web':failed?'Failed to search web':'Searched web',meta:query||null};
+  return {label:busy?t('Searching web'):failed?t('Failed to search web'):t('Searched web'),meta:query||null};
  }
  const harness=harnessTool(item);
  if(harness!==null&&Object.hasOwn(HARNESS_TOOLS,harness)) {
@@ -53,11 +54,11 @@ export function genericToolLabel(item,state=commandRowState(item)) {
  }
  // Any other Harness tool: its presenter title ("Create goal") when the bridge sent one.
  if(harness!==null&&string(item.title).trim())return {label:item.title,meta:null};
- const tool=string(item.tool)||string(item.name)||'Tool';
+ const tool=string(item.tool)||string(item.name)||t('Tool');
  const scope=string(item.server)||string(item.namespace);
  const name=item.type==='mcpToolCall'?tool.replaceAll('_',' '):tool;
  // PN's generic fallback has Used/Using, without an invented failedVerb.
- return {label:`${busy?'Using':'Used'} ${scope?`${scope}: `:''}${name}`,meta:null};
+ return {label:t(busy?'Using {tool}':'Used {tool}',{tool:`${scope?`${scope}: `:''}${name}`}),meta:null};
 }
 function inputs(item) {
  if(item.type!=='webSearch')return record(item.arguments)?Object.entries(item.arguments):item.arguments!==undefined&&item.arguments!==null?[['arguments',item.arguments]]:[];
@@ -139,7 +140,7 @@ function answerPairs(item,state) {
  const questions=(Array.isArray(item.arguments?.questions)?item.arguments.questions:[]).filter(entry=>record(entry)&&string(entry.question).trim());
  if(!questions.length)return null;
  if(state==='busy'||state==='blocked')return questions.map(entry=>({question:entry.question,answer:null}));
- if(state==='stopped')return questions.map(entry=>({question:entry.question,answer:'Not answered',unanswered:'dismissed'}));
+ if(state==='stopped')return questions.map(entry=>({question:entry.question,answer:t('Not answered'),unanswered:'dismissed'}));
  let parsed;
  try{parsed=JSON.parse(output(item));}catch{return null;}
  if(!record(parsed)||!Array.isArray(parsed.answers))return null;
@@ -149,7 +150,7 @@ function answerPairs(item,state) {
   if(!answer)return {question:entry.question,answer:null};
   const selected=Array.isArray(answer.selected)?answer.selected.filter(label=>typeof label==='string'&&label.trim()):[];
   const text=[...selected,string(answer.custom).trim()].filter(Boolean).join(', ');
-  return text?{question:entry.question,answer:text}:{question:entry.question,answer:'Skipped',unanswered:'skipped'};
+  return text?{question:entry.question,answer:text}:{question:entry.question,answer:t('Skipped'),unanswered:'skipped'};
  });
 }
 export function questionAnswers(item,state=commandRowState(item)) {
@@ -171,7 +172,7 @@ export function questionReceipt(item,state=commandRowState(item)) {
 export function questionOutcome(item,state=commandRowState(item)) {
  if(state!=='done'||item?.status!=='completed'||questionReceipt(item,state))return null;
  const pairs=answerPairs(item,state);
- return pairs?.length&&pairs.every(entry=>entry.unanswered==='skipped')?'Skipped':null;
+ return pairs?.length&&pairs.every(entry=>entry.unanswered==='skipped')?t('Skipped'):null;
 }
 // The expanded body: KO (:6966-6977) shows a TodoWrite as its checklist (none
 // for an empty list) and an ExitPlanMode as the plan, which the proposed-plan

@@ -92,7 +92,12 @@ test('Settings › Models server-renders per-model rows, the price table and the
   assert.doesNotMatch(reset.slice(0, reset.indexOf('>')), /disabled/, 'custom prices can be reset');
   assert.equal(html.includes('apply with the DeepSeek core'), false);
   const codex = page('codex');
-  assert.ok(codex.includes('Model parameters and pricing apply with the DeepSeek core.'));
+  assert.ok(codex.includes('The API connection, model parameters and pricing apply with the DeepSeek core.'));
+  assert.ok(html.includes('API connection') && html.includes('aria-label="API provider"'), 'the connection group renders first');
+  assert.match(html, /aria-label="DeepSeek API key"/);
+  const plain = render(React.createElement(SourceModelsSettings, { config: {}, boot: { connected: true, models }, engine: 'deepseek', desktopCall: async () => ({ unsupported: true }), onSave: async () => {} }));
+  assert.ok(plain.includes('Advanced'));
+  assert.equal(plain.includes('aria-label="4.1 Flash max output tokens"'), false, 'Advanced starts closed when nothing in it was changed');
   assert.match(codex, /<input type="number"[^>]*aria-label="4.1 Flash max output tokens"[^>]*disabled=""/);
 });
 
@@ -127,4 +132,89 @@ test('custom providers: definitions on disk, keys encrypted, one managed overlay
   const bare = createModelSettings({ getConfig: () => ({}), getClient: () => deepseek(), safeStorage, dir });
   assert.equal((await bare.run({ op: 'providers-read' })).available, false);
   await assert.rejects(bare.run({ op: 'provider-save', provider: { route: 'gw', baseURL: 'https://gw.example.com/v1', models: ['m1'] }, apiKey: 'k' }), /Harness/);
+});
+
+test('API connection: official or relay, keys encrypted, exported as DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL', async (t) => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-connection-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const saved = { key: process.env.DEEPSEEK_API_KEY, url: process.env.DEEPSEEK_BASE_URL };
+  delete process.env.DEEPSEEK_API_KEY; delete process.env.DEEPSEEK_BASE_URL;
+  t.after(() => { if (saved.key !== undefined) process.env.DEEPSEEK_API_KEY = saved.key; if (saved.url !== undefined) process.env.DEEPSEEK_BASE_URL = saved.url; });
+  const safeStorage = { isEncryptionAvailable: () => true, encryptString: text => Buffer.from(`enc:${Buffer.from(text).toString('base64')}`), decryptString: buffer => Buffer.from(String(buffer).slice(4), 'base64').toString() };
+  const env = new Map();
+  const profile = { setManagedRow: async () => {}, removeManagedRow: async () => {}, setCoreEnv: (key, value) => { if (value == null) env.delete(key); else env.set(key, value); } };
+  const forwarder = { calls: [], async start(url) { this.calls.push(['start', url]); return 'http://127.0.0.1:4321/anthropic'; }, async stop() { this.calls.push(['stop']); } };
+  const settings = createModelSettings({ getConfig: () => ({}), getClient: () => deepseek(), getHarnessProfile: () => profile, safeStorage, dir, relayProxy: forwarder });
+  assert.deepEqual(await settings.run({ op: 'connection-read' }), { available: true, mode: 'official', relayBaseURL: '', relayModels: [], officialKey: false, relayKey: false, inheritedKey: false });
+  let view = await settings.run({ op: 'connection-save', connection: { mode: 'official' }, officialKey: 'sk-official' });
+  assert.equal(view.officialKey, true);
+  assert.equal(JSON.stringify(view).includes('sk-official'), false);
+  assert.equal(env.get('DEEPSEEK_API_KEY'), 'sk-official');
+  assert.equal(env.has('DEEPSEEK_BASE_URL'), false);
+  await assert.rejects(settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'https://relay.test/anthropic' } }), /relay’s API key/);
+  await assert.rejects(settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'mailto:x' }, relayKey: 'k' }), /https/);
+  view = await settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'https://relay.test/anthropic/' }, relayKey: 'sk-relay' });
+  assert.deepEqual(view, { available: true, mode: 'relay', relayBaseURL: 'https://relay.test/anthropic', relayModels: [], officialKey: true, relayKey: true, inheritedKey: false });
+  assert.equal(env.get('DEEPSEEK_API_KEY'), 'sk-relay');
+  assert.equal(env.get('DEEPSEEK_BASE_URL'), 'http://127.0.0.1:4321/anthropic', 'the core talks to the loopback forwarder');
+  assert.deepEqual(forwarder.calls.at(-1), ['start', 'https://relay.test/anthropic']);
+  assert.equal(fs.readFileSync(path.join(dir, 'provider-keys.bin'), 'utf8').includes('sk-'), false);
+  // Back to official keeps both keys; removing the official key falls back to ~/.dsh.
+  await settings.run({ op: 'connection-save', connection: { mode: 'official' } });
+  assert.equal(env.get('DEEPSEEK_API_KEY'), 'sk-official');
+  assert.equal(env.has('DEEPSEEK_BASE_URL'), false);
+  view = await settings.run({ op: 'connection-save', officialKey: null });
+  assert.equal(view.officialKey, false);
+  assert.equal(view.relayKey, true);
+  assert.equal(env.has('DEEPSEEK_API_KEY'), false);
+  // Provider routes never see the reserved key names.
+  assert.deepEqual((await settings.run({ op: 'providers-read' })).providers, []);
+});
+
+test('relay models replace the llm-deepseek catalog; connection-models reads the relay /v1/models', async (t) => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-relay-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const safeStorage = { isEncryptionAvailable: () => true, encryptString: text => Buffer.from(`enc:${Buffer.from(text).toString('base64')}`), decryptString: buffer => Buffer.from(String(buffer).slice(4), 'base64').toString() };
+  const rows = new Map();
+  const profile = { setManagedRow: async (id, row) => { rows.set(id, row); }, removeManagedRow: async id => { rows.delete(id); }, setCoreEnv: () => {} };
+  const forwarder = { async start() { return 'http://127.0.0.1:4321'; }, async stop() {} };
+  const settings = createModelSettings({ getConfig: () => ({}), getClient: () => deepseek(), getHarnessProfile: () => profile, safeStorage, dir, relayProxy: forwarder });
+  const view = await settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'https://relay.test', relayModels: 'deepseek-v4.1-flash\nglm-5.2, glm-5.2' }, relayKey: 'sk-relay' });
+  assert.deepEqual(view.relayModels, ['deepseek-v4.1-flash', 'glm-5.2']);
+  assert.deepEqual(rows.get('llm-deepseek'), { config: { models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }, { id: 'glm-5.2', name: 'glm-5.2' }] } });
+  await settings.run({ op: 'connection-save', connection: { mode: 'official' } });
+  assert.equal(rows.has('llm-deepseek'), false, 'the official API keeps the built-in catalog');
+  await assert.rejects(settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'https://relay.test', relayModels: 'bad id!' } }), /Invalid model id/);
+  const realFetch = globalThis.fetch, calls = [];
+  t.after(() => { globalThis.fetch = realFetch; });
+  globalThis.fetch = async (url, init) => { calls.push([url, init.headers.authorization]); return { ok: true, json: async () => ({ data: [{ id: 'glm-5.2' }, { id: 'deepseek-v4-pro' }] }) }; };
+  assert.deepEqual(await settings.run({ op: 'connection-models', relayBaseURL: 'https://relay.test/' }), { models: ['glm-5.2', 'deepseek-v4-pro'] });
+  assert.deepEqual(calls, [['https://relay.test/v1/models', 'Bearer sk-relay']], 'the saved relay key, /v1 added once');
+  globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+  await assert.rejects(settings.run({ op: 'connection-models', relayBaseURL: 'https://relay.test/v1', relayKey: 'typed' }), /401/);
+});
+
+test('relay forwarder renames <system-reminder> in request bodies and streams the reply back', async (t) => {
+  const http = await import('node:http');
+  const { createRelayProxy, rewriteBody } = require('../electron/relay-proxy.cjs');
+  assert.equal(rewriteBody('a<system-reminder>x</system-reminder>b'), 'a<system_reminder>x</system_reminder>b');
+  const seen = [];
+  const relay = http.createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    seen.push({ url: req.url, key: req.headers['x-api-key'], body: Buffer.concat(chunks).toString() });
+    res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: one\n\n'); setTimeout(() => res.end('data: two\n\n'), 20);
+  });
+  await new Promise(resolve => relay.listen(0, '127.0.0.1', resolve));
+  const proxy = createRelayProxy();
+  t.after(async () => { await proxy.stop(); relay.close(); });
+  const base = await proxy.start(`http://127.0.0.1:${relay.address().port}/anthropic/`);
+  assert.match(base, /^http:\/\/127\.0\.0\.1:\d+\/anthropic$/);
+  const response = await fetch(`${base}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k' }, body: JSON.stringify({ messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }, { type: 'text', text: '<system-reminder>skills</system-reminder>' }] }] }) });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'data: one\n\ndata: two\n\n');
+  assert.equal(seen[0].url, '/anthropic/v1/messages');
+  assert.equal(seen[0].key, 'k');
+  assert.ok(seen[0].body.includes('<system_reminder>skills</system_reminder>') && !seen[0].body.includes('<system-reminder>'));
 });

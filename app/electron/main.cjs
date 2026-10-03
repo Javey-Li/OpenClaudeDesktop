@@ -149,6 +149,9 @@ const allowed = new Set([
   "codeDesktop/thread/permissions",
   // DeepSeek bridge extension (capabilities.modelWorkflows): stop a run of the model's `workflow` tool.
   "codeDesktop/workflow/stop",
+  // DeepSeek bridge extension: the /btw side chat (side-question.js), read-only, plus its cancel.
+  "codeDesktop/sideQuestion",
+  "codeDesktop/sideQuestion/cancel",
 ]);
 // Deprecated in 0.155.1 and deliberately unreachable from the renderer:
 // thread/rollback (thread_processor.rs:810-826, replaced by thread/revert)
@@ -307,9 +310,11 @@ function watchZoom(window) {
 // resolved mode, so the renderer never starts from a light frame. Windows are
 // created only after preferences.mjs has loaded and set themePreference.
 let themePreference = null;
+// The UI language (electron/i18n), set from preferences.json once it is read.
+let i18n = null;
 ipcMain.on("desktop:appearance", (e) => {
   const theme = themePreference ? themePreference(config?.theme) : "system";
-  e.returnValue = { theme, mode: nativeTheme.shouldUseDarkColors ? "dark" : "light" };
+  e.returnValue = { theme, mode: nativeTheme.shouldUseDarkColors ? "dark" : "light", locale: i18n ? i18n.localePreference(config?.locale) : "en-US" };
 });
 function setNavigationState(payload) {
   navState = navigationState(payload);
@@ -389,6 +394,8 @@ async function connect() {
   if (connecting?.owner === owner) return connecting.promise;
   const attempt = { owner, promise: null };
   attempt.promise = (async () => {
+    // The API connection's env (and relay forwarder port) is in place before the core spawns.
+    await modelSettings.ready?.();
     await owner.start();
     const [account, models] = await Promise.allSettled([
       accountOperations.refresh(owner),
@@ -629,6 +636,7 @@ app.whenReady().then(async () => {
   const preferences = await import("./preferences.mjs");
   const { settingsPatch, validateServiceTier, DEFAULT_THEME } = preferences;
   themePreference = preferences.themePreference;
+  i18n = await import("./i18n/index.mjs");
   const { validateBypassRequest } = await import("./permission-policy.mjs");
   configPath = path.join(app.getPath("userData"), "preferences.json");
   try {
@@ -682,6 +690,7 @@ app.whenReady().then(async () => {
   // before any window exists: native menus, dialogs, the window background and
   // every renderer's prefers-color-scheme follow the app's choice.
   nativeTheme.themeSource = themePreference(config.theme);
+  i18n.setLocale(config.locale);
   // jP / nativeTheme.on("updated"): every live window repaints its native
   // background with the resolved appearance (main and pane windows alike).
   nativeTheme.on("updated", () => {
@@ -809,6 +818,7 @@ app.whenReady().then(async () => {
           params.codeDesktop = { ...params.codeDesktop, dynamicWorkflows: config.dynamicWorkflows === true };
         }
         if (p.method === "codeDesktop/workflow/stop" && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");
+        if (p.method === "codeDesktop/sideQuestion" && (typeof params.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId))) throw new Error("Unknown session.");
         modelSettings.decorate(p.method, params);
         if (p.method === "turn/start") {
           config.stats[params.threadId] ??= { messages: 0, ids: [] };
@@ -898,6 +908,7 @@ app.whenReady().then(async () => {
         }
         const previous = config;
         config = {...settingsPatch(config, p, initial?.models || []),...desktopPatch(p)};
+        if (config.locale !== previous.locale) { i18n.setLocale(config.locale); installAppMenu(); }
         if(typeof p.dynamicWorkflows === "boolean")config.dynamicWorkflows=p.dynamicWorkflows;
         // shared-2-C6aD8DvJ.js Km {MIN:200, MAX:420} / qm (src/sidebar-width-model.mjs).
         if (typeof p.sidebarWidth === "number" && Number.isFinite(p.sidebarWidth))
@@ -1117,7 +1128,7 @@ app.whenReady().then(async () => {
         return dest;
       }
       case "workflow-list": return workflowService.list(p.threadId);
-      case "workflow-pick": { const picked=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Workflow JavaScript',extensions:['js','mjs','cjs']}]});return picked.canceled?null:picked.filePaths[0]; }
+      case "workflow-pick": { const picked=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:i18n.t('Workflow JavaScript'),extensions:['js','mjs','cjs']}]});return picked.canceled?null:picked.filePaths[0]; }
       case "workflow-start": {
         if(!p.plan&&!initial?.models?.some(model=>(model.id===p.model||model.model===p.model)))throw Error('Choose an available DeepSeek model.');
         if(p.effort&&!initial?.models?.find(model=>(model.id===p.model||model.model===p.model))?.supportedReasoningEfforts?.some(e=>e.reasoningEffort===p.effort))throw Error('Choose an available reasoning effort.');
@@ -1205,7 +1216,7 @@ app.whenReady().then(async () => {
       }
       case "slash-export": {
         if (!config.threadIds.includes(p.threadId) || typeof p.markdown !== "string") throw new Error("Unknown session export.");
-        const chosen = await dialog.showSaveDialog(win, { title: "Export conversation", defaultPath: "conversation.md", filters: [{name:"Markdown",extensions:["md"]}] });
+        const chosen = await dialog.showSaveDialog(win, { title: i18n.t("Export conversation"), defaultPath: "conversation.md", filters: [{name:"Markdown",extensions:["md"]}] });
         if (chosen.canceled || !chosen.filePath) return null;
         await fs.promises.writeFile(chosen.filePath, p.markdown, "utf8");
         return chosen.filePath;
@@ -1233,7 +1244,7 @@ app.whenReady().then(async () => {
         }
         // cc43287c9-BMbiZYzF.js:21955-21962 / :21983-21990 (ta(title)): 'Select folder for local session' for
         // the session folder, 'Add folder to session' for an additional one; macOS shows the message line.
-        const title = p.additional ? "Add folder to session" : "Select folder for local session";
+        const title = p.additional ? i18n.t("Add folder to session") : i18n.t("Select folder for local session");
         const r = await dialog.showOpenDialog(win, {
           title,
           message: title,

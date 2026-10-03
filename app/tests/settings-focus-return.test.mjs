@@ -66,7 +66,7 @@ test('settings saves are per row: no page-wide disabled lock, no focus-restore w
   // c71860c77:1820-1840: muted below-slot copy with a typographic apostrophe, raw reason only in the title.
   // C1 moved SettingRow into source-settings-kit.jsx (shared by the customization pages); the copy lives there now.
   const kit = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-settings-kit.jsx'), 'utf8');
-  assert.match(kit, /<span className="ss-row-error" title=\{error\}>Couldn’t save the setting\. Try again\.<\/span>/);
+  assert.match(kit, /<span className="ss-row-error" title=\{error\}>\{t\('Couldn’t save the setting\. Try again\.'\)\}<\/span>/);
   assert.equal(text.includes("Couldn't save"), false);
   assert.equal(text.includes("isn't focused"), false);
 });

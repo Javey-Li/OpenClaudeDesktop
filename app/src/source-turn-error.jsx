@@ -5,6 +5,7 @@ import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { createClipboardFeedback } from "./clipboard-feedback.mjs";
 import { describeTurnError, TURN_ERROR_ICONS, turnErrorDetails, turnErrorStatus } from "./turn-error-model.mjs";
 import "./source-turn-error.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // approval-shared-current.js:4069-4083 Lp: ghost sm, flush start, Copy/Check.
 function CopyDetails({ details }) {
@@ -23,7 +24,7 @@ function CopyDetails({ details }) {
   const copied = state === "copied";
   return <SourceSettingsButton variant="ghost" size="sm" icon={copied ? "Check" : "Copy"} iconSize={16}
     className="ste-copy" style={{ "--cds-outset-x": "var(--cds-pad-md)" }}
-    onClick={() => { void controller.current?.copy(); }}>{copied ? "Copied" : "Copy details"}</SourceSettingsButton>;
+    onClick={() => { void controller.current?.copy(); }}>{copied ? t("Copied") : t("Copy details")}</SourceSettingsButton>;
 }
 
 // approval-shared-current.js:4084-4199 Rp/zp: "View details" disclosure whose
@@ -33,11 +34,11 @@ function TurnErrorDetails({ details, status, actions }) {
   if (!details && !actions) return null;
   const after = actions ? <div className="ste-actions">{actions}</div> : null;
   if (!details) return <div className="ste-details">{after}</div>;
-  return <SourceDisclosure className="ste-details" triggerClassName="ste-details-trigger" caret="end" label="View details" after={after}>
+  return <SourceDisclosure className="ste-details" triggerClassName="ste-details-trigger" caret="end" label={t("View details")} after={after}>
     <div className="ste-details-panel">
       <div className="ste-details-box">
         <span className="ste-details-text">{details}</span>
-        {status !== undefined && <div className="ste-details-facts"><span>{`Status: ${status}`}</span></div>}
+        {status !== undefined && <div className="ste-details-facts"><span>{t("Status: {status}", { status })}</span></div>}
         <div className="ste-details-copy"><CopyDetails details={details}/></div>
       </div>
     </div>
@@ -66,9 +67,9 @@ export function SourceTurnError({ error, turnId, variant = "card", onRetry, onCo
   // CS ue (compactHelps && !N && onCompact) without rewind: a plain secondary sm
   // 'Compact session' (ce660512f Ec.compactSession), drawn before Try again (pe).
   const compact = view.compactHelps && onCompact && !latched
-    ? <SourceSettingsButton variant="secondary" size="sm" onClick={latch(onCompact)}>Compact session</SourceSettingsButton> : null;
+    ? <SourceSettingsButton variant="secondary" size="sm" onClick={latch(onCompact)}>{t("Compact session")}</SourceSettingsButton> : null;
   const retry = view.retryHelps && onRetry && !latched
-    ? <SourceSettingsButton variant="secondary" size="sm" onClick={latch(onRetry)}>Try again</SourceSettingsButton> : null;
+    ? <SourceSettingsButton variant="secondary" size="sm" onClick={latch(onRetry)}>{t("Try again")}</SourceSettingsButton> : null;
   const actions = compact || retry ? <>{compact}{retry}</> : null;
   return <div className="source-message ste-card" data-turn-error="card" data-turn-id={turnId} data-error-category={view.category}>
     <div className="ste-body">

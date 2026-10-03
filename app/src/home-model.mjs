@@ -2,10 +2,11 @@
 // attention classification, row limits, stats range math, the compact token
 // formatter, chart ticks, heatmap window and the book footnote. No DOM, no
 // dates from thread.updatedAt: every aggregate reads the per-day stats only.
+import { t } from "../electron/i18n/index.mjs";
 
 export const ATTENTION_KINDS = Object.freeze({
-  blocked: { label: "Needs input" },
-  unread: { label: "Unread" },
+  blocked: { label: t("Needs input") },
+  unread: { label: t("Unread") },
 });
 
 const number = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
@@ -19,8 +20,8 @@ export function greetingName(preferred) {
 
 /** Jk copy: landing clear asks "What’s up next"; otherwise "Welcome back". */
 export function greetingText(name, landingClear) {
-  if (landingClear) return name ? `What’s up next, ${name}?` : "What’s up next?";
-  return name ? `Welcome back, ${name}` : "Welcome back";
+  if (landingClear) return name ? t("What’s up next, {name}?", { name }) : t("What’s up next?");
+  return name ? t("Welcome back, {name}", { name }) : t("Welcome back");
 }
 
 /**
@@ -243,8 +244,8 @@ export function bookSentence(totalTokens, seed) {
   const pick = eligible[Math.min(eligible.length - 1, Math.max(0, Math.floor(number(seed) * eligible.length)))];
   const times = Math.floor(total / pick.tokens);
   return times >= 2
-    ? `You’ve used ~${times}× more tokens than ${pick.name}.`
-    : `You’ve used about as many tokens as ${pick.name}.`;
+    ? t("You’ve used ~{times}× more tokens than {book}.", { times, book: t(pick.name) })
+    : t("You’ve used about as many tokens as {book}.", { book: t(pick.name) });
 }
 
 /** Fw: a YYYY-MM-DD key formatted as "Sep 30" in UTC so the key's day is kept. */

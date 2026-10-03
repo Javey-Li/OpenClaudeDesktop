@@ -1,18 +1,30 @@
 // Independent settings search, cc011544b ft/Z:535–711. Only index rendered
 // capabilities. Ranking normalization is distinct from literal visual marks.
+import { t, dictionary } from '../electron/i18n/index.mjs';
+// Search matches both languages: section labels and keywords hold the English
+// copy (their translation is also tried); row labels hold the shown (translated)
+// text, so its English sources are tried as well. In en-US both are the label.
+let sourceIndex=null;
+function englishSources(text){
+ const table=dictionary();if(!table||typeof text!=='string')return [];
+ if(sourceIndex?.table!==table){const map=new Map();for(const [source,shown] of Object.entries(table)){const list=map.get(shown);if(list)list.push(source);else map.set(shown,[source]);}sourceIndex={table,map};}
+ return sourceIndex.map.get(text)||[];
+}
+const searchTexts=text=>{if(typeof text!=='string')return [text];const shown=t(text);return [...new Set([text,shown,...englishSources(text)])];};
 export function normalizeSettingsQuery(value) {
  return String(value).normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[‘’‛]/g, "'").replace(/[“”]/g, '"').replace(/[\s_-]+/g, ' ').trim();
 }
 function searchSettingsRows(sections, groups, query) {
  const normalized=normalizeSettingsQuery(query),terms=normalized.split(' '),needle=normalized.replaceAll(' ','');
- const rank=value=>{
+ const rankOne=value=>{
   const words=normalizeSettingsQuery(value).split(' '),flat=words.join('');
   if(flat===needle)return 0;
   if(flat.startsWith(needle))return 1;
   if(!terms.every(term=>flat.includes(term)))return -1;
   return terms.every(term=>words.some((_,index)=>words.slice(index).join('').startsWith(term)))?2:3;
  };
- const result=(section,kind='hit',row=null,extra={})=>({tab:section.id,section:section.label,icon:section.icon,kind,key:JSON.stringify([section.id,kind,row?.id||null]),label:row?.label||section.label,...(row?{id:row.id,via:row.label,subpathId:row.subpathId,focus:row.focus,targetSection:row.targetSection}:{}),...extra});
+ const rank=value=>searchTexts(value).reduce((best,text)=>{const score=rankOne(text);return score>=0&&(best<0||score<best)?score:best;},-1);
+ const result=(section,kind='hit',row=null,extra={})=>({tab:section.id,section:t(section.label),icon:section.icon,kind,key:JSON.stringify([section.id,kind,row?.id||null]),label:row?.label||section.label,...(row?{id:row.id,via:row.label,subpathId:row.subpathId,focus:row.focus,targetSection:row.targetSection}:{}),...extra});
  if(!needle)return sections.map(section=>result(section));
  const ranked=sections.flatMap(section=>{
   const seen=new Set();
@@ -21,7 +33,7 @@ function searchSettingsRows(sections, groups, query) {
   const nameRank=rank(section.label);
   if(nameRank>=0)return [{section,score:nameRank,nameMatched:true,rows}];
   if(rows.length)return [{section,score:4+rows[0].score,nameMatched:false,rows}];
-  const keyword=(section.keywords||[]).find(word=>normalizeSettingsQuery(word).replaceAll(' ','').includes(needle));
+  const keyword=(section.keywords||[]).flatMap(searchTexts).find(word=>normalizeSettingsQuery(word).replaceAll(' ','').includes(needle));
   return keyword?[{section,score:8,keyword,rows:[]}]:[];
  }).sort((a,b)=>a.score-b.score);
  const usedLabels=new Set(),hits=[];
@@ -76,6 +88,6 @@ export function sandboxFacts(configResult,requirementsResult,{engine='codex'}={}
 // core lacks, a refused read) never becomes a page alert: the affected rows
 // already read as unavailable. Only losing the core gets one short notice.
 export function desktopErrors(errors) {
- return errors?.connection?[{key:'connection',message:'Couldn’t load settings from the DeepSeek core. Reconnect and try again.'}]:[];
+ return errors?.connection?[{key:'connection',message:t('Couldn’t load settings from the DeepSeek core. Reconnect and try again.')}]:[];
 }
 export function mcpStatus(server){const state=server.runtimeStatus?.status||server.runtimeStatus?.type||server.runtimeStatus;return server.toolsError?'Failed':state==='connected'?'Running':state==='starting'?'Starting':state==='failed'?'Failed':state==='disabled'?'Disabled':state==='cancelled'?'Cancelled':state==='authenticationRequired'?'Sign in required':state==='notStarted'?'Not started':'Status unavailable';}

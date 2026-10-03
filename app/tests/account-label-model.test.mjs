@@ -65,13 +65,13 @@ test("account menu: 17rem popup, DeepSeek key row, View changelog, Learn more ho
   assert.ok(css.indexOf(".smenu-popup.account-menu {") < css.indexOf(".smenu-popup.smenu-sheet {"), "the coarse sheet keeps its full width");
   const main = await fs.readFile(path.join(root, "src/main.jsx"), "utf8");
   const account = main.slice(main.indexOf('case "account":'), main.indexOf('case "connection":'));
-  const order = ["Settings</SourceMenu.Item>", "Usage</SourceMenu.Item>", "appearance\"}", "DeepSeek API key</SourceMenu.Item>", "<SourceMenu.Separator />",
-    "View changelog</SourceMenu.Item>", '<SourceMenu.SubmenuTrigger icon="Info">Learn more', "Keyboard shortcuts</SourceMenu.Item>"].map((needle) => account.indexOf(needle));
+  const order = ['t("Settings")}</SourceMenu.Item>', 't("Usage")}</SourceMenu.Item>', 'appearance")}', 't("DeepSeek API key")}</SourceMenu.Item>', "<SourceMenu.Separator />",
+    't("View changelog")}</SourceMenu.Item>', '<SourceMenu.SubmenuTrigger icon="Info">{t("Learn more")', 't("Keyboard shortcuts")}</SourceMenu.Item>'].map((needle) => account.indexOf(needle));
   assert.ok(order.every((index) => index > 0), `every item present: ${order}`);
   assert.deepEqual([...order].sort((a, b) => a - b), order, "Settings, Usage, appearance, key row, separator, View changelog, Learn more › Keyboard shortcuts");
-  assert.match(account, /\{boot\?\.account\?\.deepseek && <SourceMenu\.Item icon="Key" data-testid="user-menu-deepseek-key" onClick=\{\(\) => setSettings\("preferences"\)\}>DeepSeek API key/);
-  assert.match(account, /<SourceMenu\.Item icon="Scroll" onClick=\{\(\) => setWhatsNew\(true\)\}>View changelog/);
-  assert.match(account, /<SourceMenu\.Popup label="Learn more" className="account-learn-more">[\s\S]*<SourceMenu\.Item shortcut=\{SHORTCUTS_DIALOG_KEYS\} onClick=\{\(\)=>setActionDialog\(\{kind:"shortcuts"\}\)\}>Keyboard shortcuts/);
+  assert.match(account, /\{boot\?\.account\?\.deepseek && <SourceMenu\.Item icon="Key" data-testid="user-menu-deepseek-key" onClick=\{\(\) => setSettings\("preferences"\)\}>\{t\("DeepSeek API key"\)/);
+  assert.match(account, /<SourceMenu\.Item icon="Scroll" onClick=\{\(\) => setWhatsNew\(true\)\}>\{t\("View changelog"\)/);
+  assert.match(account, /<SourceMenu\.Popup label=\{t\("Learn more"\)\} className="account-learn-more">[\s\S]*<SourceMenu\.Item shortcut=\{SHORTCUTS_DIALOG_KEYS\} onClick=\{\(\)=>setActionDialog\(\{kind:"shortcuts"\}\)\}>\{t\("Keyboard shortcuts"\)/);
   assert.doesNotMatch(account, /icon="Keyboard"/, "Keyboard shortcuts left the top level");
   assert.doesNotMatch(account, /https?:\/\//, "no invented Learn more URLs");
 });

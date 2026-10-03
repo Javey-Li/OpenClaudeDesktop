@@ -4,9 +4,10 @@
 // alternate and ht a caller override the app has no source for, so only the
 // default draft copy is kept. Chat mode is not this Code-composer branch and
 // keeps the app's own 'How can I help you today?'.
-export const SESSION_PLACEHOLDER = "Type / for commands";
-export const DRAFT_PLACEHOLDER = "Describe a task or ask a question";
-export const CHAT_PLACEHOLDER = "How can I help you today?";
+import { t } from "../electron/i18n/index.mjs";
+export const SESSION_PLACEHOLDER = t("Type / for commands");
+export const DRAFT_PLACEHOLDER = t("Describe a task or ask a question");
+export const CHAT_PLACEHOLDER = t("How can I help you today?");
 export function composerPlaceholder({ sessionId = null, mode = "code" } = {}) {
   if (mode !== "code") return CHAT_PLACEHOLDER;
   return sessionId ? SESSION_PLACEHOLDER : DRAFT_PLACEHOLDER;

@@ -4,10 +4,11 @@
 // focusable, so it never joins the MessageActions roving order.
 import React, { useSyncExternalStore } from 'react';
 import { SourceTooltip } from './source-tooltip.jsx';
-import { DEFAULT_LOCALE, relativeClock, timestampView } from './relative-time-model.mjs';
+import { relativeClock, timestampView } from './relative-time-model.mjs';
+import { getLocale } from '../electron/i18n/index.mjs';
 import './source-timestamp.css';
 
-export function SourceTimestamp({ dateMs, locale = DEFAULT_LOCALE, clock = relativeClock, className = '' }) {
+export function SourceTimestamp({ dateMs, locale = getLocale(), clock = relativeClock, className = '' }) {
   const snapshot = useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getServerSnapshot);
   const view = timestampView(dateMs, snapshot, locale);
   const time = <time data-cds="RelativeTime" dateTime={view.iso} className={`source-timestamp ${className}`.trim()}>{view.text}</time>;

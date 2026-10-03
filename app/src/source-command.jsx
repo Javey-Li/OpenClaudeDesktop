@@ -12,6 +12,7 @@ import {
 } from "./command-row-model.mjs";
 import "./source-command.css";
 import "./highlight-tokens.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // Official Bash / Run-a-command body (Uoe, approval-current.js:6874-6941).
 // Two branches, chosen by inCard (KO :7006 passes it through gN :16622-16645
@@ -83,7 +84,7 @@ export function CommandCopyButton({ text, compact = false, alwaysVisible = false
       data-compact={compact ? "" : undefined}
       data-always-visible={alwaysVisible ? "" : undefined}
       title={title}
-      aria-label={copied ? "Copied" : "Copy"}
+      aria-label={copied ? t("Copied") : t("Copy")}
       aria-busy={state === "pending" || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => {
@@ -131,7 +132,7 @@ export function CommandOutput({ text, isError }) {
     <div
       role="group"
       tabIndex={0}
-      aria-label="Tool output"
+      aria-label={t("Tool output")}
       className="src-cmd-output"
       data-error={isError ? "" : undefined}
     >

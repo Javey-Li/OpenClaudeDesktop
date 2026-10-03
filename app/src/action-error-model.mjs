@@ -15,6 +15,7 @@
 // - save-preference / dismiss-recent  7a1I3aH5Fd "Couldn’t save that change. Try again." (cf400e6a4:6611);
 //   the source keeps both (sidebar view prefs, ccd-dismissed-recent-folders-v1) in local storage, so no
 //   original failure copy exists for them.
+import { t } from "../electron/i18n/index.mjs";
 export const ACTION_ERROR_COPY = Object.freeze({
   rename: "Couldn’t rename this task. Try again.",
   archive: "Couldn’t archive this session. Try again.",
@@ -42,7 +43,7 @@ export function sessionActionErrorKind(action) {
 
 /** The catalog message for a failed action kind; null when the original stays silent. */
 export function actionErrorMessage(kind) {
-  return Object.hasOwn(ACTION_ERROR_COPY, kind) ? ACTION_ERROR_COPY[kind] : ACTION_ERROR_FALLBACK;
+  return t(Object.hasOwn(ACTION_ERROR_COPY, kind) ? ACTION_ERROR_COPY[kind] : ACTION_ERROR_FALLBACK);
 }
 
 // Electron's ipcRenderer.invoke rejection prefix (the same transport wrapper source-usage.jsx omits).

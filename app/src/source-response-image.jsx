@@ -3,6 +3,7 @@ import {SourceMenu} from './source-menu.jsx';
 import {responseImageTarget,imagePng} from './response-image-model.mjs';
 import {useSourceToasts} from './source-toast.jsx';
 import './source-response-image.css';
+import {t} from '../electron/i18n/index.mjs';
 
 export function SourceResponseImage({src,alt='',cwd,call,fallback}) {
   const toasts=useSourceToasts();
@@ -26,11 +27,11 @@ export function SourceResponseImage({src,alt='',cwd,call,fallback}) {
     try {
       const result=await call(`image:${kind}`,{dataUrl:kind==='copy'?imagePng(ref.current):image.dataUrl,name:image.name});
       if(active.current && (kind==='copy'?result?.copied:result?.saved)){
-        const text=kind==='copy'?'Image copied to clipboard.':'Image saved.';
+        const text=kind==='copy'?t('Image copied to clipboard.'):t('Image saved.');
         if(toasts)toasts.add(text);else setNotice({error:false,text});
       }
     // cfc63964b O: addError("Couldn’t copy image." mpiKUCMipZ / "Couldn’t save image." Bb7iLWtweK, {error}); the reason is logged.
-    } catch(error) {if(active.current){const text=kind==='copy'?'Couldn’t copy image.':'Couldn’t save image.';console.warn(text,error);if(toasts)toasts.add(text,{variant:'danger'});else setNotice({error:true,text});}}
+    } catch(error) {if(active.current){const text=kind==='copy'?t('Couldn’t copy image.'):t('Couldn’t save image.');console.warn(text,error);if(toasts)toasts.add(text,{variant:'danger'});else setNotice({error:true,text});}}
   };
   if(target.kind==='empty')return null;
   if(failed || !['data','file'].includes(target.kind))return fallback;
@@ -44,9 +45,9 @@ export function SourceResponseImage({src,alt='',cwd,call,fallback}) {
       {!ready && <span className="sri-placeholder" aria-hidden="true" />}
       {!ready && alt && <span className="source-sr-only">{alt}</span>}
     </span>
-    {menu && <SourceMenu.Popup anchor={ref.current} trigger={ref.current} point={menu} dataCds="ContextMenu" layer="contextmenu" label="Image actions" onClose={()=>setMenu(null)}>
-      <SourceMenu.Item onClick={()=>{void run('copy');}}>Copy image</SourceMenu.Item>
-      <SourceMenu.Item onClick={()=>{void run('save');}}>Save image</SourceMenu.Item>
+    {menu && <SourceMenu.Popup anchor={ref.current} trigger={ref.current} point={menu} dataCds="ContextMenu" layer="contextmenu" label={t("Image actions")} onClose={()=>setMenu(null)}>
+      <SourceMenu.Item onClick={()=>{void run('copy');}}>{t('Copy image')}</SourceMenu.Item>
+      <SourceMenu.Item onClick={()=>{void run('save');}}>{t('Save image')}</SourceMenu.Item>
     </SourceMenu.Popup>}
     {notice && <span role={notice.error?'alert':'status'} className={notice.error?'source-tool-error':'source-sr-only'}>{notice.text}</span>}
   </>;

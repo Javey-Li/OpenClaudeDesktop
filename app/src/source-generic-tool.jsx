@@ -5,6 +5,7 @@ import {genericToolBody,genericToolDetails,questionAnswers,todoChecklist} from '
 import {SourcePlanChecklist} from './source-plan-checklist.jsx';
 import {chipPathOpenable} from './user-inline-model.mjs';
 import './source-generic-tool.css';
+import {t} from '../electron/i18n/index.mjs';
 const codeKeys=new Set(['command','cmd','script','shell','code','pattern','regex','glob']);
 function InputValue({entry,cwd,onOpenFileRef}) {
  const {key,value,text}=entry;
@@ -32,7 +33,7 @@ export function SourceGenericToolBody({item,state,cwd,onOpenFileRef,inCard=false
  const result=<>{detail.error&&<div className="sgt-error"><SourceAnsiText text={detail.error}/></div>}{detail.text&&<div className={failed?'sgt-error':undefined}><SourceAnsiText text={detail.text}/></div>}</>;
  const args=detail.entries.length?<div className="sgt-inputs">{detail.entries.map(entry=><div className="sgt-input" key={entry.key}><span className="sgt-input-key">{entry.key}:</span>{' '}<InputValue entry={entry} cwd={cwd} onOpenFileRef={onOpenFileRef}/></div>)}</div>:null;
  return <div className="sgt-body" data-standalone={standalone||undefined}><div className="sgt-body-inner">
-  <div className="sgt-details" role="group" aria-label="Tool call details" tabIndex={0}>
+  <div className="sgt-details" role="group" aria-label={t("Tool call details")} tabIndex={0}>
    {failed?result:args}{failed?args:result}
   </div><CommandCopyButton text={detail.copyText}/>
  </div></div>;

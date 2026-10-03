@@ -12,6 +12,7 @@ import { toolOutputImages } from './generic-tool-model.mjs';
 import { SourceToolImages } from './source-tool-images.jsx';
 import './highlight-tokens.css';
 import './source-file-tool.css';
+import { t } from '../electron/i18n/index.mjs';
 
 // gy/Bn, c856385e2:1316–1330,1425–1470. Nested activation never toggles
 // the containing tool row. No inferred editor or composer capabilities.
@@ -36,14 +37,14 @@ export function ToolPath({ path, cwd, sessionKey, onOpenFileRef, onOpenChanges, 
       }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setMenu({ x: event.clientX, y: event.clientY }); }}>
       {full && directory && <span className="sft-directory">{directory}</span>}<span className="sft-basename">{name}</span>
     </span>
-    {menu && <SourceMenu.Popup anchor={ref.current} point={menu} dataCds="ContextMenu" layer="contextmenu" label="File actions" onClose={() => setMenu(null)}>
-      <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>Copy</SourceMenu.SubmenuTrigger><SourceMenu.Popup label="Copy">
-        {choices?.absolute && <SourceMenu.Item onClick={() => run(() => navigator.clipboard.writeText(choices.absolute))}>Absolute path</SourceMenu.Item>}
-        {choices?.relative && <SourceMenu.Item onClick={() => run(() => navigator.clipboard.writeText(choices.relative))}>Relative path</SourceMenu.Item>}
-        <SourceMenu.Item onClick={() => run(() => navigator.clipboard.writeText(name))}>Filename</SourceMenu.Item>
+    {menu && <SourceMenu.Popup anchor={ref.current} point={menu} dataCds="ContextMenu" layer="contextmenu" label={t("File actions")} onClose={() => setMenu(null)}>
+      <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>{t("Copy")}</SourceMenu.SubmenuTrigger><SourceMenu.Popup label={t("Copy")}>
+        {choices?.absolute && <SourceMenu.Item onClick={() => run(() => navigator.clipboard.writeText(choices.absolute))}>{t("Absolute path")}</SourceMenu.Item>}
+        {choices?.relative && <SourceMenu.Item onClick={() => run(() => navigator.clipboard.writeText(choices.relative))}>{t("Relative path")}</SourceMenu.Item>}
+        <SourceMenu.Item onClick={() => run(() => navigator.clipboard.writeText(name))}>{t("Filename")}</SourceMenu.Item>
       </SourceMenu.Popup></SourceMenu.Submenu>
-      <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>Open in</SourceMenu.SubmenuTrigger><SourceMenu.Popup label="Open in"><SourceMenu.Item onClick={() => onOpenFileRef?.({ path: choices?.absolute || path })}>Files pane</SourceMenu.Item></SourceMenu.Popup></SourceMenu.Submenu>
-      {choices?.relative && sessionKey && <SourceMenu.Item onClick={() => run(() => window.desktop.call('reveal-tool-file', { sessionId: sessionKey, path: choices.absolute }))}>Reveal in Finder</SourceMenu.Item>}
+      <SourceMenu.Submenu><SourceMenu.SubmenuTrigger>{t("Open in")}</SourceMenu.SubmenuTrigger><SourceMenu.Popup label={t("Open in")}><SourceMenu.Item onClick={() => onOpenFileRef?.({ path: choices?.absolute || path })}>{t("Files pane")}</SourceMenu.Item></SourceMenu.Popup></SourceMenu.Submenu>
+      {choices?.relative && sessionKey && <SourceMenu.Item onClick={() => run(() => window.desktop.call('reveal-tool-file', { sessionId: sessionKey, path: choices.absolute }))}>{t("Reveal in Finder")}</SourceMenu.Item>}
     </SourceMenu.Popup>}
     {error && <span role="alert" className="source-tool-error">{error}</span>}
   </>;
@@ -60,9 +61,9 @@ export function ToolPath({ path, cwd, sessionKey, onOpenFileRef, onOpenChanges, 
 // with style {background: Tv, minHeight: reservePx} and no outline layer.
 function ToolCard({ path, copyText, copyDiff, lines, inCard = false, children, ...props }) {
   const header = <header className="sft-header" data-find-omitted=""><ToolPath path={path} full {...props} />
-    <CommandCopyButton text={copyText} title={copyDiff ? 'Copy diff' : undefined} />
+    <CommandCopyButton text={copyText} title={copyDiff ? t('Copy diff') : undefined} />
   </header>;
-  const code = <div className="sft-code" role="group" aria-label="Code" tabIndex={0} style={{ minHeight: Math.min(400, Math.max(1, lines) * 16) }}>
+  const code = <div className="sft-code" role="group" aria-label={t("Code")} tabIndex={0} style={{ minHeight: Math.min(400, Math.max(1, lines) * 16) }}>
     {children}
   </div>;
   if (inCard) return <div className="sft-outer" data-in-card="">{header}{code}</div>;
@@ -100,7 +101,7 @@ function DiffHunk({ hunk, path, scopeKey, isFrontier, pureSide = null }) {
 }
 function DiffBody({ change, scopeKey, isFrontier, ...props }) {
   const preview = changePreview(change), path = changePath(change);
-  return <ToolCard path={path} title={path !== change.path ? `${path} (from ${change.path})` : path} copyText={preview.raw} copyDiff lines={preview.rows.length || preview.raw.split('\n').length} {...props}>
+  return <ToolCard path={path} title={path !== change.path ? t('{path} (from {from})', { path, from: change.path }) : path} copyText={preview.raw} copyDiff lines={preview.rows.length || preview.raw.split('\n').length} {...props}>
     {preview.fallback ? <pre className="sft-read">{preview.raw}</pre> : <div className="sft-diff" data-pure-side={preview.pureSide || undefined}>
       {previewHunks(preview.rows).map((hunk, index) => <DiffHunk key={index} hunk={hunk} path={path} isFrontier={isFrontier} pureSide={preview.pureSide} scopeKey={JSON.stringify([scopeKey, path, index])}/>)}
     </div>}
@@ -130,7 +131,7 @@ function detailFacts(item, action) {
 function DetailsBody({ item, action, state }) {
   const facts = detailFacts(item, action);
   const output = commandOutput(item, state), input = facts.map(([key, value]) => `${key}: ${factText(value)}`).join('\n');
-  return <div className="sft-details"><div role="group" aria-label="Tool call details" tabIndex={0}>
+  return <div className="sft-details"><div role="group" aria-label={t("Tool call details")} tabIndex={0}>
     {facts.map(([key, value]) => <div key={key}><span className="sft-key">{key}:</span>{' '}<span className={CODE_KEYS.has(key) || typeof value !== 'string' ? 'sft-command' : undefined}>{factText(value)}</span></div>)}
     {output.text && <CommandOutput text={output.text} isError={output.isError} />}
     </div><CommandCopyButton text={[input, stripAnsi(output.text)].filter(Boolean).join('\n\n')} />
@@ -144,7 +145,7 @@ export function FileToolMessage({ item, Step, pendingApprovalItemIds, defaultOpe
   return <Step item={item} classic caretSize={14} defaultOpen={defaultOpen} forcedOpen={forcedOpen} sessionKey={props.sessionKey} label={summary.label} state={state} className="sft-step" after={after}
     metaTitle={summary.path} meta={summary.meta && <ToolPath path={summary.path} preferDiff={preferDiff} {...props} />}
     trailing={settled && (counts.added || counts.removed) ? <span className="sft-counts">
-      <span className="source-sr-only">{counts.added} added, {counts.removed} removed</span>
+      <span className="source-sr-only">{t("{added} added, {removed} removed", { added: counts.added, removed: counts.removed })}</span>
       <span aria-hidden="true" className="sft-added">+{counts.added}</span><span aria-hidden="true" className="sft-removed">-{counts.removed}</span>
     </span> : null}>
     {items.map(member => {

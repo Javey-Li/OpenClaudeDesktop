@@ -80,10 +80,10 @@ test('ListBullet: CDS tooltip with ⌘⇧Y, aria-keyshortcuts, no native title; 
   // Without main.jsx's handle (popout, artifacts) there is no shortcut to announce.
   assert.doesNotMatch(panel({}).match(/<button[^>]*aria-label="(?:Show|Hide) file tree"[^>]*>/)[0], /aria-keyshortcuts|title=/);
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-session.jsx'), 'utf8');
-  assert.match(src, /<SourceTooltip content=\{treeVisible \? "Hide file tree" : "Show file tree"\} shortcut=\{treeToggleRef \? TREE_TOGGLE_SHORTCUT : undefined\}\s*side="top" align="start" hoverable=\{false\}>/);
+  assert.match(src, /<SourceTooltip content=\{treeVisible \? t\("Hide file tree"\) : t\("Show file tree"\)\} shortcut=\{treeToggleRef \? TREE_TOGGLE_SHORTCUT : undefined\}\s*side="top" align="start" hoverable=\{false\}>/);
   assert.match(src, /const TREE_TOGGLE_SHORTCUT = "cmd\+shift\+y";/);
   assert.match(src, /shortcut: treeToggleRef \? TREE_TOGGLE_SHORTCUT : undefined, onSelect: \(\) => setVisibleTree\(!treeVisible\)/);
-  assert.match(src, /aria-label="Project files"/);
+  assert.match(src, /aria-label=\{t\("Project files"\)\}/);
   assert.doesNotMatch(src, /Workspace files/);
   const main = fs.readFileSync(path.resolve(import.meta.dirname, '../src/main.jsx'), 'utf8');
   // R10: ⌘⇧Y goes through fileListRoute; the Files route still calls the Files pane's handle.
@@ -172,7 +172,7 @@ test('Search files focuses "Filter files" after showing the tree the same way "S
   assert.match(fn, /if \(treeHiddenWhileEmpty\) setTreeHiddenWhileEmpty\(false\);/);
   assert.match(fn, /if \(!treeVisible\) setVisibleTree\(true\);/);
   assert.match(fn, /input\.focus\(\{ preventScroll: true \}\);\s*input\.select\(\);/);
-  assert.match(fn, /'\.source-files-tree input\[aria-label="Filter files"\]'/);
+  assert.match(fn, /`\.source-files-tree input\[aria-label="\$\{t\("Filter files"\)\}"\]`/);
 });
 
 // R09: a pressed CDS Button paints bg-accent + text-accent, hovered or not (shared-frame-C_2npUJq.js:2697 cs,

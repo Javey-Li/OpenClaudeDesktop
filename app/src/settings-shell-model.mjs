@@ -1,4 +1,5 @@
 // Fidelity F14: pure pieces of the Settings shell and Local sessions rows, ported from the original.
+import { t } from '../electron/i18n/index.mjs';
 
 // shared-22-Cz3C_T8d.js:3915-3918 zC: nav-hidden sections leave the nav and the narrow tabs only.
 export function settingsNavSections(sections) {
@@ -14,7 +15,7 @@ export function settingsInitialFocus({ narrow, section }) {
 
 // c71860c77-yvGrrWO9.js:2004-2029 D: permission and question offer Off / Badge only / Banners; Task complete
 // (idle) offers Off / Banners. No item is disabled (:2240-2275).
-const OFF = { value: 'off', label: 'Off' }, BADGE = { value: 'badge', label: 'Badge only' }, BANNER = { value: 'banner', label: 'Banners' };
+const OFF = { value: 'off', label: t('Off') }, BADGE = { value: 'badge', label: t('Badge only') }, BANNER = { value: 'banner', label: t('Banners') };
 export const NOTIFICATION_LEVEL_ITEMS = Object.freeze({
   permissionNotifications: Object.freeze([OFF, BADGE, BANNER]),
   questionNotifications: Object.freeze([OFF, BADGE, BANNER]),

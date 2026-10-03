@@ -11,6 +11,7 @@ import { SourceAnsiText } from "./source-ansi-text.jsx";
 import { useTripleClickSelect } from "./use-triple-click-select.js";
 import "./source-code-block.css";
 import "./highlight-tokens.css";
+import { t, tn } from "../electron/i18n/index.mjs";
 
 // code-block-current.js:1317 Wr: a growing ANSI fence is styled only up to 20000 code units.
 const ANSI_STREAM_LIMIT = 20_000;
@@ -29,9 +30,8 @@ function PlainCodeText({text,isFrontier,ansi=false}) {
 // code-block-current.js:1185-1215 Pr: the fence's ghost Eye/EyeSlash toggle,
 // pressed while revealed (Nr: fill-control background, primary text).
 function SecretToggle({ revealed, count, onToggle }) {
-  const noun = count === 1 ? "secret" : "secrets";
   return <button type="button" className="scb-copy scb-reveal" aria-pressed={revealed}
-    aria-label={`${revealed ? "Hide" : "Reveal"} ${noun}`}
+    aria-label={revealed ? tn(count, "Hide secret", "Hide secrets") : tn(count, "Reveal secret", "Reveal secrets")}
     onMouseDown={(event) => event.preventDefault()} onClick={onToggle}>
     <Icon name={revealed ? "EyeSlash" : "Eye"} size={16} />
   </button>;
@@ -83,7 +83,7 @@ export function SourceCodeBlock({ text = "", language = "text", isFrontier = fal
   const copied = copyState === "copied";
   const failed = copyState === "error";
   const singleLine = !/[\r\n]/.test(text.trimEnd()); // Geometry only; never the copy payload.
-  const message = copied ? "Copied" : failed ? "Couldn’t copy to the clipboard. Try again." : "";
+  const message = copied ? t("Copied") : failed ? t("Couldn’t copy to the clipboard. Try again.") : "";
   return <div className="scb-flow" data-not-prose="">
     {!languageSettled ? <pre className="scb-language-placeholder" aria-hidden="true" /> :
       <div className="scb-block" data-language={language} data-frontier={isFrontier || undefined}
@@ -96,8 +96,8 @@ export function SourceCodeBlock({ text = "", language = "text", isFrontier = fal
         {!isFrontier && <div className="scb-actions-track">
           <div className={`scb-actions${singleLine ? " scb-single-line" : ""}`}>
             {secrets && <SecretToggle revealed={revealed} count={secrets.length} onToggle={() => setRevealed((value) => !value)} />}
-            <SourceTooltip content={message || "Copy code"} automatic={true} hoverable={false}>
-            <button type="button" className="scb-copy" aria-label={copied ? "Copied" : "Copy code"}
+            <SourceTooltip content={message || t("Copy code")} automatic={true} hoverable={false}>
+            <button type="button" className="scb-copy" aria-label={copied ? t("Copied") : t("Copy code")}
               aria-busy={copyState === "pending" || undefined} aria-describedby={failed ? statusId : undefined}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => { void controller.current?.copy(); }}>

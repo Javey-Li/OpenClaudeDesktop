@@ -4,6 +4,7 @@ import { SourceTooltip } from "./source-tooltip";
 import { attachmentOpenAction, attachmentViewerState, extensionOf } from "./composer-attachments-model.mjs";
 import { SourceImageViewer } from "./source-image-viewer.jsx";
 import "./source-composer-attachments.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // 2.2553.1 CDS Attachments slot (shared-11 :1625-1633) hosting the epitaxy
 // pills (c099c328d :2200-2330 Al, :2947-2975 Kl/ql, :2896-2912 strip). Image
@@ -27,7 +28,7 @@ function AttachmentPill({ entry, onRemove, onOpen, disabled }) {
           {entry.status === "loading" && (
             <span role="status" className="sca-loading">
               <span className="sc-spinner" aria-hidden="true" />
-              <span className="sca-sr-only">Processing image</span>
+              <span className="sca-sr-only">{t("Processing image")}</span>
             </span>
           )}
         </span>
@@ -41,7 +42,7 @@ function AttachmentPill({ entry, onRemove, onOpen, disabled }) {
   return (
     <div data-cds-attachment="" className="sca-pill" data-kind={entry.kind} data-status={entry.status}>
       <SourceTooltip content={name}>{body}</SourceTooltip>
-      <button type="button" tabIndex={-1} aria-label={`Remove ${name}`} className="epitaxy-pill-remove sca-remove"
+      <button type="button" tabIndex={-1} aria-label={t("Remove {name}", { name })} className="epitaxy-pill-remove sca-remove"
         disabled={disabled} onMouseDown={(event) => event.preventDefault()}
         onClick={(event) => { event.stopPropagation(); event.preventDefault(); onRemove(entry.id); }}>
         <Icon name="X" size={12} />

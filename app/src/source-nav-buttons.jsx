@@ -1,5 +1,6 @@
 import React from "react";
 import { ToolButton } from "./code-ui";
+import { t } from "../electron/i18n/index.mjs";
 import "./source-nav-buttons.css";
 // sidebar-session.js:10732-10800 qM: two ghost icon-only CDS Buttons (G),
 // ArrowLeft "Back" / ArrowRight "Forward", tooltipSide bottom, shortcut
@@ -12,8 +13,8 @@ import "./source-nav-buttons.css";
 // from webContents navigationHistory (Vt); locally the same flags come from
 // main.jsx history/historyAt (travel()).
 export const NAV_TOOLTIPS = {
-  back: { content: "Back", shortcut: "cmd+[", side: "bottom", hoverable: false },
-  forward: { content: "Forward", shortcut: "cmd+]", side: "bottom", hoverable: false },
+  back: { content: t("Back"), shortcut: "cmd+[", side: "bottom", hoverable: false },
+  forward: { content: t("Forward"), shortcut: "cmd+]", side: "bottom", hoverable: false },
 };
 export function navAvailability(historyAt = 0, historyLength = 1) {
   return { canGoBack: historyAt > 0, canGoForward: historyAt < historyLength - 1 };
@@ -24,9 +25,9 @@ export function SourceNavButtons({ placement, historyAt = 0, historyLength = 1, 
   const { canGoBack, canGoForward } = navAvailability(historyAt, historyLength);
   return (
     <div className="source-nav-buttons" data-placement={placement}>
-      <ToolButton label="Back" icon="ArrowLeft" tooltip={NAV_TOOLTIPS.back} aria-keyshortcuts="Meta+["
+      <ToolButton label={t("Back")} icon="ArrowLeft" tooltip={NAV_TOOLTIPS.back} aria-keyshortcuts="Meta+["
         aria-disabled={!canGoBack || undefined} onClick={canGoBack ? () => travel?.(-1) : undefined} />
-      <ToolButton label="Forward" icon="ArrowRight" tooltip={NAV_TOOLTIPS.forward} aria-keyshortcuts="Meta+]"
+      <ToolButton label={t("Forward")} icon="ArrowRight" tooltip={NAV_TOOLTIPS.forward} aria-keyshortcuts="Meta+]"
         aria-disabled={!canGoForward || undefined} onClick={canGoForward ? () => travel?.(1) : undefined} />
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useId } from "react";
 import { SourceMenu } from "./source-menu";
 import "./source-permission-menu.css";
+import { t } from "../electron/i18n/index.mjs";
 
 // These are the existing Codex wire values, not Claude's permission-mode enum.
 // Order and copy: shared-14-BOJVa-jT.js:10259-10273 nE/rE for a local session
@@ -9,15 +10,15 @@ import "./source-permission-menu.css";
 // The nn item builder (ion-dist cf6ae6197) passes no icon, so no item draws one.
 export const PERMISSION_OPTIONS = Object.freeze([
   // Auto: aE local branch (shared-14 :10346-10356) 'Claude handles permission decisions', no period.
-  Object.freeze({ value: "auto", label: "Auto", description: "DeepSeek handles permission decisions" }),
-  Object.freeze({ value: "ask", label: "Manual", description: "Always ask before making changes" }),
-  Object.freeze({ value: "acceptEdits", label: "Accept edits", description: "Automatically accept all file edits" }),
-  Object.freeze({ value: "plan", label: "Plan", description: "Create a plan before making changes" }),
-  Object.freeze({ value: "bypass", label: "Bypass permissions", description: "Accepts all permissions" }),
+  Object.freeze({ value: "auto", label: t("Auto"), description: t("DeepSeek handles permission decisions") }),
+  Object.freeze({ value: "ask", label: t("Manual"), description: t("Always ask before making changes") }),
+  Object.freeze({ value: "acceptEdits", label: t("Accept edits"), description: t("Automatically accept all file edits") }),
+  Object.freeze({ value: "plan", label: t("Plan"), description: t("Create a plan before making changes") }),
+  Object.freeze({ value: "bypass", label: t("Bypass permissions"), description: t("Accepts all permissions") }),
 ]);
 /** The chin trigger reads the item's full label (`ht = triggerLabel ?? label`;
  * the compact 'Accept'/'Bypass' trigger labels belong to the compact composer). */
-export const permissionLabel = value => PERMISSION_OPTIONS.find(option => option.value === value)?.label ?? "Manual";
+export const permissionLabel = value => PERMISSION_OPTIONS.find(option => option.value === value)?.label ?? t("Manual");
 
 /** Current 2.2553.1 chin: c360 Ud → Wr.Popup (side top, align start, one
  * GroupLabel "Mode") → cfca6870a item mapper, on the shared SourceMenu.
@@ -34,7 +35,7 @@ export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, on
       finalFocus={onSelectComplete ? () => { onSelectComplete(); return null; } : undefined}
       initialHighlight={initialHighlight}>
       <SourceMenu.Group aria-labelledby={headingId}>
-        <SourceMenu.GroupLabel id={headingId} className="sp-permission-heading">Mode</SourceMenu.GroupLabel>
+        <SourceMenu.GroupLabel id={headingId} className="sp-permission-heading">{t("Mode")}</SourceMenu.GroupLabel>
         {PERMISSION_OPTIONS.filter(option => option.value !== "bypass" || bypassEnabled).map((option, index) => {
           const selected = option.value === value, labelId = `${prefix}-${option.value}-label`;
           const descriptionId = `${prefix}-${option.value}-description`, digit = index + 1;
@@ -43,7 +44,7 @@ export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, on
             aria-labelledby={labelId} aria-describedby={descriptionId} shortcut={String(digit)} digit={digit}
             trailing={option.value === defaultValue
               ? <span className="sp-permission-badge-slot"><span className="sp-permission-badge" data-cds="Badge" data-variant="neutral" data-step="1">
-                  <span className="sp-permission-badge-text">Default</span></span></span>
+                  <span className="sp-permission-badge-text">{t("Default")}</span></span></span>
               : undefined}
             data-permission-value={option.value} onClick={() => { if (option.value !== value) onChange?.(option.value); }}>
             {option.label}

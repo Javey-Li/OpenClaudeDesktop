@@ -1,11 +1,13 @@
+import { t, tn } from "../electron/i18n/index.mjs";
+
 // Pure model for the rail layout of the repository row (git-status-card.js Ii
 // rail branch 1128-1200, Zi 1633-1760, $i/ea 1762-1865, na 1867-2075, rs
 // 4051-4058, prMode 4711/4912). No DOM, no git: it only decides which facts a
 // local session may honestly show.
 
 export const COMMIT_TURN_TEXT = "Commit the working tree changes with a sensible message.";
-export const COMMIT_CLEAN_REASON = "No changes to commit";
-export const COMMIT_RESPONDING_REASON = "Claude is working \u2014 wait for the turn to finish";
+export const COMMIT_CLEAN_REASON = t("No changes to commit");
+export const COMMIT_RESPONDING_REASON = t("Claude is working \u2014 wait for the turn to finish");
 
 /** cc/lc (5590-5600) + reasons 4930-4960 for a local commit-mode session: the
  * action is disabled while the session responds or when the working tree is
@@ -16,7 +18,7 @@ export function commitAction(status, { responding = false } = {}) {
   const dirty = status?.workingTreeDirty === true;
   const disabled = !dirty || responding;
   const disabledReason = !dirty ? COMMIT_CLEAN_REASON : responding ? COMMIT_RESPONDING_REASON : undefined;
-  return { label: "Commit", text: COMMIT_TURN_TEXT, disabled, disabledReason };
+  return { label: t("Commit"), text: COMMIT_TURN_TEXT, disabled, disabledReason };
 }
 
 /** cc70f2bdf-CILU7c4u.js Ko 2270-2385 + qo 2387-2394: the repo chip menu is
@@ -48,7 +50,7 @@ export function railSignal(status) {
   if (!status?.isRepo) return null;
   const counted = isCount(status.added) && isCount(status.removed) && (status.added > 0 || status.removed > 0);
   if (counted) return { kind: "changes", added: status.added, removed: status.removed };
-  return status.hasChanges ? { kind: "uncounted", text: "Changes" } : { kind: "clean", text: "No changes" };
+  return status.hasChanges ? { kind: "uncounted", text: t("Changes") } : { kind: "clean", text: t("No changes") };
 }
 
 /** rs(): behind is only meaningful for a live checkout on a branch other than
@@ -59,7 +61,7 @@ export function behindIndicator(comparison, branch) {
   if (!branch || branch === comparison.base) return null;
   if (!isCount(comparison.behind) || comparison.behind <= 0) return null;
   const count = comparison.behind;
-  return { count, base: comparison.base, tooltip: `${count} ${count === 1 ? "commit" : "commits"} behind ${comparison.base}` };
+  return { count, base: comparison.base, tooltip: tn(count, "{count} commit behind {base}", "{count} commits behind {base}", { base: comparison.base }) };
 }
 
 /** Ii rail branch: `baseBranch: Oe || (c === undefined && A === j) ? undefined : A`. */
@@ -80,20 +82,20 @@ export function buildGitRailModel({ status, comparison = null, prMode = "commit"
   const behind = behindIndicator(comparison, status.detached ? null : status.branch);
   const baseBranch = visibleBaseBranch({ prMode, prState, baseBranch: comparison?.base, branch: status.branch });
   const facts = [];
-  if (prLink && !hideRepo) facts.push({ key: "repository", label: "Repository", value: repoName });
+  if (prLink && !hideRepo) facts.push({ key: "repository", label: t("Repository"), value: repoName });
   if (baseBranch) {
-    facts.push({ key: "base", label: "Base branch", hint: `A pull request from this branch merges into ${baseBranch}.`,
-      hintDetail: behind?.tooltip, value: behind ? `${baseBranch} · ${behind.count} behind` : baseBranch });
+    facts.push({ key: "base", label: t("Base branch"), hint: t("A pull request from this branch merges into {branch}.", { branch: baseBranch }),
+      hintDetail: behind?.tooltip, value: behind ? t("{branch} · {count} behind", { branch: baseBranch, count: behind.count }) : baseBranch });
   }
   if (signal?.kind === "changes") {
-    facts.push({ key: "changes", label: "Changes", added: signal.added, removed: signal.removed, action: "View changes",
-      hint: "View changes", hintDetail: baseBranch ? `Lines added and removed compared with ${baseBranch}.` : "Lines added and removed on this branch." });
+    facts.push({ key: "changes", label: t("Changes"), added: signal.added, removed: signal.removed, action: t("View changes"),
+      hint: t("View changes"), hintDetail: baseBranch ? t("Lines added and removed compared with {branch}.", { branch: baseBranch }) : t("Lines added and removed on this branch.") });
   }
   const action = prMode === "commit" ? commitAction(status, { responding }) : null;
   return {
     visible: status.hasChanges === true,
     title: hideRepo ? branch : `${repoName} · ${branch}`,
-    glyphLabel: "Branch",
+    glyphLabel: t("Branch"),
     signal, behind, baseBranch, facts, gates: [], automation: [], action,
   };
 }

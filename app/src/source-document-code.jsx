@@ -8,6 +8,7 @@ import { useSettledHighlight } from './use-settled-highlight.mjs';
 import { tokenCSS } from './highlight-model.mjs';
 import './source-document-code.css';
 import './highlight-tokens.css';
+import { t } from '../electron/i18n/index.mjs';
 
 export function SourceDocumentCode({ text, className }) {
   const code = documentCode(text, className);
@@ -25,15 +26,15 @@ export function SourceDocumentCode({ text, className }) {
     return () => { controller.current = null; feedback.dispose(); };
   }, []);
   useLayoutEffect(() => { controller.current?.setText(code.text); }, [code.text]);
-  return <div className="sdc-block" role="group" aria-label={code.language ? `${code.language} code` : 'Code'} tabIndex={0}>
+  return <div className="sdc-block" role="group" aria-label={code.language ? t('{language} code', { language: code.language }) : t('Code')} tabIndex={0}>
     <div className="sdc-track"><div className="sdc-actions">
-      <SourceTooltip content="Copy" side="bottom" hoverable={false}>
-        <button type="button" className="sdc-copy" aria-label="Copy to clipboard" aria-busy={state === 'pending' || undefined}
+      <SourceTooltip content={t("Copy")} side="bottom" hoverable={false}>
+        <button type="button" className="sdc-copy" aria-label={t("Copy to clipboard")} aria-busy={state === 'pending' || undefined}
           onClick={() => { void controller.current?.copy(); }}>
           <Icon name={state === 'copied' ? 'Check' : 'Copy'} size={16} aria-hidden="true" />
         </button>
       </SourceTooltip>
-      <span className="sdc-status" role="status">{state === 'copied' ? 'Copied' : ''}</span>
+      <span className="sdc-status" role="status">{state === 'copied' ? t('Copied') : ''}</span>
     </div></div>
     {code.label && <div className="sdc-label">{code.label}</div>}
     <div className="sdc-scroll"><pre className="sdc-pre" data-wrap={code.wrap || undefined}>

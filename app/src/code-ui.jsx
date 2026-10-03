@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { Icon } from "./icons";
 import { SourceTooltip } from "./source-tooltip";
+import { t } from "../electron/i18n/index.mjs";
 // sidebar-groups.js hw (5320) / Nb (2685): Kl tooltip content + cmd+b, not hoverable.
 export const SIDEBAR_TOGGLE_TOOLTIP = {
-  hide: { content: "Hide sidebar", shortcut: "cmd+b", hoverable: false },
-  show: { content: "Show sidebar", shortcut: "cmd+b", hoverable: false },
+  hide: { content: t("Hide sidebar"), shortcut: "cmd+b", hoverable: false },
+  show: { content: t("Show sidebar"), shortcut: "cmd+b", hoverable: false },
 };
 export const basename = (p) =>
   p?.split("/").filter(Boolean).pop() || "Select folder";
@@ -20,6 +21,8 @@ export function ToolButton({
 }) {
   // Existing callers retain their native title. Only an explicit tooltip opts
   // into CDS behavior; false suppresses both forms for an external wrapper.
+  // String copy is looked up here too, so literal labels are localized.
+  label = t(label);
   const customTooltip = tooltip != null && tooltip !== false;
   const tooltipProps = tooltip && typeof tooltip === "object" ? tooltip : {};
   const button = (
@@ -42,9 +45,9 @@ export function ToolButton({
       {...tooltipProps}
       content={
         typeof tooltip === "string"
-          ? tooltip
+          ? t(tooltip)
           : Object.hasOwn(tooltipProps, "content")
-            ? tooltipProps.content
+            ? t(tooltipProps.content)
             : label
       }
     >

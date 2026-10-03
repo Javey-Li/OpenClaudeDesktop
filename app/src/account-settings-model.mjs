@@ -3,6 +3,7 @@
 // account.js) describing the API key without its value; that core has no
 // ChatGPT sign-in, sign-out or device code, so those rows never appear there.
 // Every other snapshot (the Codex core) keeps the legacy ChatGPT rows.
+import { t } from "../electron/i18n/index.mjs";
 
 export const DEEPSEEK_KEYS_URL = "https://platform.deepseek.com/api_keys";
 
@@ -10,14 +11,14 @@ export const DEEPSEEK_KEYS_URL = "https://platform.deepseek.com/api_keys";
 export function deepseekKeyDescription(deepseek, account) {
   const key = deepseek?.apiKey;
   if (key?.configured === true) {
-    if (key.source === "file") return "Saved in DeepSeek Harness (~/.dsh)";
-    if (key.source === "env") return "From the DEEPSEEK_API_KEY environment variable";
-    return "Configured in DeepSeek Harness";
+    if (key.source === "file") return t("Saved in DeepSeek Harness (~/.dsh)");
+    if (key.source === "env") return t("From the DEEPSEEK_API_KEY environment variable");
+    return t("Configured in DeepSeek Harness");
   }
-  if (deepseek?.platform === "credential-stored") return "Signed in to the DeepSeek Platform";
+  if (deepseek?.platform === "credential-stored") return t("Signed in to the DeepSeek Platform");
   // A DeepSeek core answering without the extension: only the account itself is known.
-  if (!deepseek && account) return "Configured in DeepSeek Harness";
-  return "No API key. Add one in DeepSeek Harness or set DEEPSEEK_API_KEY.";
+  if (!deepseek && account) return t("Configured in DeepSeek Harness");
+  return t("No API key. Add one in DeepSeek Harness or set DEEPSEEK_API_KEY.");
 }
 
 /**
@@ -30,8 +31,8 @@ export function accountSettingsPlan(snapshot, { engine } = {}) {
   if (!deepseek && engine !== "deepseek") return { kind: "legacy" };
   return {
     kind: "deepseek",
-    label: "DeepSeek API key",
-    description: snapshot == null ? "Account unavailable" : deepseekKeyDescription(deepseek, snapshot.account),
+    label: t("DeepSeek API key"),
+    description: snapshot == null ? t("Account unavailable") : deepseekKeyDescription(deepseek, snapshot.account),
     showSignOut: false,
     showSignIn: false,
     manageUrl: DEEPSEEK_KEYS_URL,

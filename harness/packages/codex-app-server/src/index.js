@@ -45,8 +45,8 @@
 
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'
-import { isAbsolute } from 'node:path'
-import { realpath } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
+import { realpath, readdir, lstat, rm } from 'node:fs/promises'
 import z from '@deepseek-ai/schemastery'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import { assembleContextFor, installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -73,6 +73,7 @@ import { createCustomRef, applyCustomization, installCustomization } from './cus
 import { normalizeInstructions as normalizeCustomInstructions } from './instructions.js'
 import { previewCustom, systemPromptPreview } from './system-prompt.js'
 import { profileReadResponse } from './profile.js'
+import { runSideQuestion, sessionTranscript, sideQuestionPrompt } from './side-question.js'
 import { ALIASES as PRICE_ALIASES, DEEPSEEK_PRICES, PEAK_WINDOWS, PRICING_URL } from './pricing.js'
 
 export const name = 'codex-app-server'
@@ -140,6 +141,8 @@ export function apply(ctx, config) {
     log: (message) => logger.warn(message),
   })
   const notify = (method, params) => transport.notify(method, params)
+  // codeDesktop/sideQuestion runs by requestId, cancellable.
+  const sideQuestions = new Map()
   // A user image block's stored file (attachment-local: the normalized copy under DSH_HOME).
   const imagePath = (ref) => ctx.get('attachments')?.imageHostPath(ref)
 
@@ -904,6 +907,44 @@ export function apply(ctx, config) {
 
   // ------------------------------------------------------------ projections
 
+  // ------------------------------------------------------------ deletion
+
+  // dsh-session-persistence-jsonl encodeSegment: the session directory's name.
+  function sessionSegment(id) {
+    if (id === '.') return '~002E'
+    if (id === '..') return '~002E~002E'
+    let out = ''
+    for (let i = 0; i < id.length; i++) {
+      const ch = id[i]
+      out += ch !== '~' && /^[A-Za-z0-9._-]$/.test(ch) ? ch : '~' + id.charCodeAt(i).toString(16).toUpperCase().padStart(4, '0')
+    }
+    return out
+  }
+
+  /**
+   * Remove one session's directory from every project directory under the
+   * Harness sessions root (the persistence backend has no delete operation).
+   * Only a real directory named exactly after the encoded id, one level below a
+   * project directory, is removed. Returns how many were removed.
+   */
+  async function deleteSessionFiles(id) {
+    const root = typeof ctx.sessionPersistence?.root === 'string' ? ctx.sessionPersistence.root : config.sessionsRoot || join(resolveDshHome(), 'sessions')
+    const segment = sessionSegment(id)
+    let projects
+    try { projects = await readdir(root, { withFileTypes: true }) } catch (error) { if (error?.code === 'ENOENT') return 0; throw error }
+    let removed = 0
+    for (const project of projects) {
+      if (!project.isDirectory()) continue
+      const dir = join(root, project.name, segment)
+      let info
+      try { info = await lstat(dir) } catch (error) { if (error?.code === 'ENOENT') continue; throw error }
+      if (!info.isDirectory()) continue
+      await rm(dir, { recursive: true, force: true })
+      removed++
+    }
+    return removed
+  }
+
   async function historyFor(threadId) {
     const live = threads.get(threadId)
     if (live && !live.closing) return { projector: live.projector, header: live.agent.session.header, live }
@@ -1234,6 +1275,40 @@ export function apply(ctx, config) {
         const result = await systemPromptPreview({ systemPrompt, assembleContextFor }, { agent: thread?.agent, cwd, route, custom: previewCustom(params, normalizeCustomInstructions) })
         return { ...result, cwd, threadId: thread?.id ?? null }
       }
+      case 'codeDesktop/sideQuestion': {
+        // The app's /btw side chat: one auxiliary call that sees the session read-only
+        // (side-question.js); deltas arrive as codeDesktop/sideQuestion/delta.
+        const id = requireId(params.threadId)
+        const question = typeof params.question === 'string' ? params.question.trim() : ''
+        if (!question) throw invalidParams('question is required')
+        const requestId = typeof params.requestId === 'string' && params.requestId ? params.requestId : randomUUID()
+        const history = await historyFor(id)
+        await catalog.load().catch(() => undefined)
+        const route = routeOf(history.live, history.events)
+        if (!route?.provider || !route?.model) throw new RpcError(-32000, 'No model is available for a side question.')
+        const transcript = sessionTranscript(history.projector.turns)
+        const controller = new AbortController()
+        sideQuestions.get(requestId)?.abort()
+        sideQuestions.set(requestId, controller)
+        try {
+          const result = await runSideQuestion({
+            llm: ctx.llm, route, createUserMessage, signal: controller.signal,
+            prompt: sideQuestionPrompt({ transcript: transcript.text, history: Array.isArray(params.history) ? params.history.slice(-20) : [], question }),
+            onDelta: (text) => notify('codeDesktop/sideQuestion/delta', { threadId: id, requestId, text }),
+          })
+          return { requestId, text: result.text, finish: result.finish ?? null, model: route.model, contextMessages: transcript.messages, truncated: transcript.truncated }
+        } catch (error) {
+          if (controller.signal.aborted) return { requestId, text: '', finish: 'cancelled', model: route.model, contextMessages: transcript.messages, truncated: transcript.truncated }
+          throw new RpcError(-32000, errorChain?.(error) || error?.message || String(error))
+        } finally {
+          if (sideQuestions.get(requestId) === controller) sideQuestions.delete(requestId)
+        }
+      }
+      case 'codeDesktop/sideQuestion/cancel': {
+        const controller = typeof params?.requestId === 'string' ? sideQuestions.get(params.requestId) : undefined
+        controller?.abort()
+        return { cancelled: !!controller }
+      }
       case 'codeDesktop/stats/read':
         // The home stats card (cc43287c9-BMbiZYzF.js:3987-4004 getCodeStats → code-home.js Iw/Xw/eT/cT).
         return codeStats(await readUsageSummaries())
@@ -1364,6 +1439,8 @@ export function apply(ctx, config) {
           await live.close('Session deleted.')
         }
         store.update(id, { deleted: true })
+        // Also delete the Harness history (<sessions root>/<project>/<id>/), once closed.
+        await deleteSessionFiles(id)
         grantsById.delete(id)
         notify('thread/deleted', { threadId: id })
         return {}
