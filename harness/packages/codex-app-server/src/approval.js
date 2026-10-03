@@ -310,11 +310,13 @@ export function syncPlanMode(thread, planMode, warn = () => {}) {
  */
 export async function applyPreset(thread, presets, warn = () => {}) {
   const target = presetFor(thread.permission, thread.sessionGrants)
-  if (!target || !presets) return
+  if (!target) return
+  if (!presets) throw new Error('Harness permission presets are unavailable')
   try {
     if (presets.current(thread.agent.session) !== target) await presets.set(thread.agent.session, target)
   } catch (error) {
     warn(`permission preset ${target} failed`, error)
+    throw error
   }
 }
 
@@ -355,7 +357,7 @@ export async function livePermissions(live, params, apply) {
  */
 export async function approvalDecision({ request, askedCalls, permission, item, args, cwd, grants }, resolveReal = realpath) {
   const origin = askedCalls.delete(request.callId) ? 'ask' : 'escalation'
-  if (permission.mode === 'plan') return { kind: 'reject', origin }
+  if (permission.mode === 'plan' || permission.approvalPolicy === 'never') return { kind: 'reject', origin }
   const mode = origin === 'escalation' ? escalationModeOf(request) : null
   // A folder the client declared writable needs no card for a file write
   // (Harness workspace-write only knows cwd). Only a recognised sandbox

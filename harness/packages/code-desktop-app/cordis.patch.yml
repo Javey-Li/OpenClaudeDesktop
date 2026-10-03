@@ -1,6 +1,21 @@
 # Code Desktop over dsh-base: a Codex app-server compatible JSON-RPC endpoint on
 # stdio. Stdout belongs to the protocol; diagnostics go to stderr.
 
+# Code Desktop owns its confinement contract; shared DSH Purge stays as-is.
+- id: fs-sandbox
+  disabled: true
+
+- id: sandbox
+  disabled: true
+
+- id: approval
+  disabled: true
+
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.cwd()
+
 - id: system-prompt
   config:
     personaSuffix: Your working directory is {{cwd}}.
@@ -13,6 +28,17 @@
   disabled: true
 
 - insert:
+    - id: code-desktop-fs-sandbox
+      name: '@code-desktop/dsh-codex-app-server/sandbox-fs'
+
+    - id: code-desktop-sandbox
+      name: '@code-desktop/dsh-codex-app-server/sandbox-shell'
+
+    - id: code-desktop-approval
+      name: '@code-desktop/dsh-codex-app-server/sandbox-approval'
+      config:
+        policy: ask
+
     # ask_user_question (legacy: blocks the tool call until answered). The
     # bridge answers 'user-questions/request' with the Codex question card,
     # which also carries exit_plan_mode's plan review.

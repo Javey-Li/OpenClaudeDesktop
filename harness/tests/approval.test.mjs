@@ -454,11 +454,12 @@ test('codeDesktop/thread/permissions applies a running Mode change to loaded thr
   calls.length = 0
   await livePermissions(thread, turnParams('on-request', workspace, 'auto'), apply)
   assert.deepEqual(calls, [['planMode', true, false], ['preset', true, 'workspace-write']])
-  // A failing service is a warning, not a failed request.
+  // A failed restriction must fail the request instead of retaining wider access.
   calls.length = 0
   const failing = { ...services, presets: { current: () => 'workspace-write', set: async () => { throw new Error('busy') } } }
-  assert.deepEqual(await livePermissions(thread, turnParams('on-request', { type: 'readOnly' }, 'plan'), (live, params) => applyPermissions(live, params, failing, resolveReal)), { applied: true })
+  await assert.rejects(livePermissions(thread, turnParams('on-request', { type: 'readOnly' }, 'plan'), (live, params) => applyPermissions(live, params, failing, resolveReal)), /busy/)
   assert.deepEqual(calls.at(-1), ['warn', 'permission preset read-only failed'])
+  await assert.rejects(applyPermissions(thread, {}, {}, resolveReal), /permission presets are unavailable/)
 
   // Not loaded, or unloading: nothing is applied; the next turn/start or thread/resume carries the mode.
   let applied = 0
@@ -475,4 +476,15 @@ test('codeDesktop/thread/permissions applies a running Mode change to loaded thr
   assert.match(body, /return livePermissions\(threads\.get\(requireId\(params\.threadId\)\), params, applyPermissions\)/)
   assert.doesNotMatch(body, /openThread/)
   assert.match(source, /const CAPABILITIES = \{[^}]*livePermissions: true/)
+})
+
+test('never rejects escalations before extra roots and remembered grants', async () => {
+  const grants = new SessionGrants()
+  grants.add('escalate:danger-full-access:file:/extra/a')
+  const result = await approvalDecision({
+    request: { callId: 'write', toolName: 'write', reason: 'escalate sandbox to danger-full-access: write a file' },
+    askedCalls: new Set(), permission: { approvalPolicy: 'never', sandbox: 'read-only', extraRoots: ['/extra'] },
+    item: { type: 'fileChange', changes: [{ path: '/extra/a' }] }, args: { file_path: '/extra/a' }, cwd: '/w', grants,
+  })
+  assert.deepEqual(result, { kind: 'reject', origin: 'escalation' })
 })

@@ -74,6 +74,15 @@ function reply(body) {
   if (tools.includes('structured_output') && !hasToolResult(body, 'structured_output')) return { tool: { name: 'structured_output', input: { answer: 'forty-two', count: 42 } } }
   const write = /WRITE_FILE (\S+)/.exec(user)
   if (write && !hasToolResult(body, 'write')) return { tool: { name: 'write', input: { file_path: write[1], content: 'written by an agent\n' } } }
+  const sandboxCall = /^SANDBOX_(write|edit|bash)(_ESCALATE)? (\S+)/.exec(firstUser)
+  if (sandboxCall) {
+    const [, name, escalate, target] = sandboxCall
+    if (name === 'edit' && !hasToolResult(body, 'read')) return { tool: { name: 'read', input: { file_path: target } } }
+    const input = name === 'bash' ? { command: `printf 'after\\n' > '${target.replace(/'/g, "'\\''")}'`, description: 'Test sandbox write' }
+      : name === 'edit' ? { file_path: target, old_string: 'before', new_string: 'after' } : { file_path: target, content: 'after\n' }
+    if (escalate) Object.assign(input, { sandbox_permissions: 'danger-full-access', justification: 'Exercise the never-approval sandbox boundary.' })
+    if (!hasToolResult(body, name)) return { tool: { name, input } }
+  }
   if (/RUN_WORKFLOW/.test(user) && !hasToolResult(body, 'workflow')) {
     return { tool: { name: 'workflow', input: { meta: { name: 'fake-audit', description: 'Fake audit workflow', phases: [{ title: 'Scan' }, { title: 'Write' }, { title: 'Unused' }] }, script: WORKFLOW_SCRIPT } } }
   }
@@ -238,7 +247,7 @@ try {
   // Mode → access (app permission-policy.mjs workflowAccess): Plan/Ask read-only, Auto/Accept edits
   // workspace-write, Bypass danger-full-access (which also reaches outside the workspace).
   // Not under the temp dir: workspace-write also allows platform temporary areas.
-  const outside = await fs.mkdtemp(path.join(os.homedir(), '.cd-fake-model-outside-'))
+  const outside = await fs.mkdtemp(path.join(root, '..', 'work', '.cd-fake-model-outside-'))
   cleanup.push(outside)
   for (const [sandbox, target, expected] of [['read-only', path.join(workspace, 'ro.txt'), false], ['workspace-write', path.join(workspace, 'rw.txt'), true],
     ['workspace-write', path.join(outside, 'ww-outside.txt'), false], ['danger-full-access', path.join(outside, 'bypass.txt'), true]]) {
@@ -252,6 +261,29 @@ try {
       assert.equal(exists, expected)
       assert.ok(!events.slice(from).some((event) => event.kind === 'request'), 'an approval was asked')
     })
+  }
+
+  // Exercise both enforcement seams, existing-file edits and explicit escalations.
+  // The test client accepts every card, so an accidental ask under never also fails.
+  for (const tool of ['write', 'edit', 'bash']) {
+    for (const [sandbox, dir, expected, escalate = false] of [
+      ['read-only', workspace, false], ['workspace-write', workspace, true],
+      ['workspace-write', outside, false], ['danger-full-access', outside, true],
+      ['read-only', workspace, false, true], ['workspace-write', outside, false, true],
+    ]) {
+      const target = path.join(dir, `${tool}-${sandbox}-${escalate}.txt`)
+      if (tool === 'edit') await fs.writeFile(target, 'before\n')
+      const agent = (await client.request('thread/start', { cwd: workspace, model, approvalPolicy: 'never', sandbox })).thread.id
+      from = events.length
+      await client.request('turn/start', { threadId: agent, input: [{ type: 'text', text: `SANDBOX_${tool}${escalate ? '_ESCALATE' : ''} ${target}` }] })
+      await turnDone(agent, from)
+      const contents = await fs.readFile(target, 'utf8').catch((error) => { if (error.code === 'ENOENT') return null; throw error })
+      check(`${tool}: ${sandbox} ${dir === workspace ? 'inside' : 'outside'}${escalate ? ' escalation' : ''} honors never approval`, () => {
+        assert.equal(contents, expected ? 'after\n' : tool === 'edit' ? 'before\n' : null, JSON.stringify(events.slice(from).filter((event) => event.method === 'item/completed').map((event) => event.params.item)))
+        assert.ok(events.slice(from).some((event) => event.method === 'item/completed' && ['fileChange', 'commandExecution'].includes(event.params?.item?.type)), 'the tool was actually attempted')
+        assert.ok(!events.slice(from).some((event) => event.kind === 'request'), 'an approval was asked')
+      })
+    }
   }
 
   // 2. The model's `workflow` tool → item.workflowRun.

@@ -77,7 +77,7 @@ import { runSideQuestion, sessionTranscript, sideQuestionPrompt } from './side-q
 import { ALIASES as PRICE_ALIASES, DEEPSEEK_PRICES, PEAK_WINDOWS, PRICING_URL } from './pricing.js'
 
 export const name = 'codex-app-server'
-export const inject = ['codeDesktopStartup', 'agents', 'llm', 'sessionPersistence', 'sessions']
+export const inject = ['codeDesktopStartup', 'agents', 'llm', 'sessionPersistence', 'sessions', 'permissionPresets']
 
 export const Config = z.object({
   provider: z.string().default('deepseek-official'),

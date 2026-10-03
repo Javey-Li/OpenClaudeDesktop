@@ -8,6 +8,9 @@
   "exports": {
     ".": "./src/index.js",
     "./startup": "./src/startup.js",
+    "./sandbox-fs": "./src/sandbox-fs.js",
+    "./sandbox-shell": "./src/sandbox-shell.js",
+    "./sandbox-approval": "./src/sandbox-approval.js",
     "./package.json": "./package.json"
   },
   "peerDependencies": {
