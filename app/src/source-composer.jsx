@@ -5,7 +5,7 @@ import { SourceTooltip } from "./source-tooltip";
 import { SourceMenu, menuTriggerProps, useMenuPopup } from "./source-menu";
 import { SourceComposerEditor } from "./source-composer-editor";
 import { SourceSlashMenu, SlashHint } from "./source-slash-menu";
-import { matchCommands, parseSessionCommand, slashQuery, sessionCommands, slashSkills } from "./session-command-model.mjs";
+import { matchCommands, parseSessionCommand, slashQuery, sessionCommands, slashSkills, slashCustomCommands } from "./session-command-model.mjs";
 import { SourceComposerAttachments } from "./source-composer-attachments";
 import { SourceMentionDropdown } from "./source-mention-dropdown";
 import { mentionToken, insertMention, mentionOptions, nextHighlight, MENTION_SEARCH_DELAY, MENTION_RESULT_LIMIT } from "./mention-model.mjs";
@@ -173,9 +173,10 @@ export function SourceComposer({
   // A chosen skill row inserts the chip marked kind 'skill' (command.kind from matchCommands).
   const chooseCommand=id=>{setDismissed(true);const command=suggestions.find(value=>value.id===id);if(command)editor.current?.insertCommand(command);};
   // c099c328d-CbkcmYSW.js:10637-10673 li/di: the names a draft restored from text turns back into chips.
-  const commandSkills=commandContext?.skills;
+  const commandSkills=commandContext?.skills,commandCustom=commandContext?.customCommands;
   const chipCatalog=useMemo(()=>[...sessionCommands.map(entry=>({id:entry.id,description:entry.description,argumentHint:entry.argumentHint||'',kind:'command'})),
-    ...slashSkills(commandSkills).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill'}))],[commandSkills]);
+    ...slashCustomCommands(commandCustom).map(command=>({id:command.name,description:command.description,argumentHint:command.argumentHint,kind:'custom'})),
+    ...slashSkills(commandSkills,commandCustom).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill'}))],[commandSkills,commandCustom]);
   const assignEditor = useCallback((element) => {
     editor.current = element;
     if (typeof textarea === "function") textarea(element);
@@ -257,7 +258,7 @@ export function SourceComposer({
 
   // A known skill parses without error and is sent as a message (session-command-model.mjs).
   const command = parseSessionCommand(draft, commandContext);
-  const hostCommand = !!command && !command.skill;
+  const hostCommand = !!command && !command.skill && !command.custom;
   const disabled = !editable;
   const hasContent = !!draft.trim() || attachments.length > 0;
   const attachmentsReady = attachments.every((entry) => entry.status === "ready");

@@ -13,6 +13,8 @@ export const STREAMING_LABEL = "Currently streaming message"; // :61239 QU+nmAt+
 // The transcript copy names the assistant DeepSeek wherever the source says
 // Claude ("Stop DeepSeek’s response", "Where DeepSeek runs").
 export const ASSISTANT_NAME = "DeepSeek";
+// C2 persona: the visible copy reads the live assistant name (default "DeepSeek").
+import { assistantName } from "./persona-store.mjs";
 export function messageLabel(position) {
   return `Message ${position}`; // :61228 I6ViGOLib6
 }
@@ -125,5 +127,5 @@ export function promptHeading(text) {
 export function responseHeading(text, { streaming = false } = {}) {
   if (streaming || typeof text !== "string") return null;
   const summary = messageSummary(text.slice(0, 600));
-  return summary ? `${ASSISTANT_NAME} responded: ${summary}` : null;
+  return summary ? `${assistantName()} responded: ${summary}` : null;
 }

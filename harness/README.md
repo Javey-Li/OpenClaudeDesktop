@@ -48,6 +48,87 @@ Code Desktop 默认使用本内核（`app/electron/codex.cjs` 的 `resolveCore()
 
 DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置一次即可，本内核直接读同一个 `~/.dsh`（也可以设 `DEEPSEEK_API_KEY` 环境变量）。没有 key 时首页显示 "Add your DeepSeek API key" 卡片（Refresh / Get an API key），保存 key 后内核发 `account/updated`，app 自动重读。
 
+## 在 Code Desktop profile 里加自己的 Cordis 插件
+
+内核的 profile 分层组装，后写的层按 `id` 覆盖前面的行（loader 的 patch 语义：`config` 整体替换，不做深合并）：
+
+```text
+profile/cordis.yml ([])
+ → dsh-base 的 cordis.patch.yml                     (bundle)
+ → packages/code-desktop-app/cordis.patch.yml       (bundle：本桥、启动行、ask-user)
+ → profile/cordis.patch.yml                         (app 自带的本地补丁，随仓库走)
+ → <userData>/harness/overlay.patch.yml             (Settings › Harness 里做的改动，app 管理)
+ → <userData>/harness/user.patch.yml                (你自己的补丁，最后生效)
+```
+
+`<userData>` 在 macOS 上是 `~/Library/Application Support/Code Desktop`（`CODE_DESKTOP_DATA` 可改）。
+所有改动都在**下次内核启动**时生效：Settings › Harness › Restart core（或 Developer › Reconnect）。
+
+### 1. 随 app 发布：写进 `profile/cordis.patch.yml`
+
+```yaml
+- insert:
+    - id: my-plugin                 # 行 id，全 profile 唯一
+      name: '@me/dsh-my-plugin'     # 插件模块（包名或路径）
+      config:
+        greeting: hello
+```
+
+`name:` 两种写法都实测可用（`dsh-app-boot` 的 `anchorInsertedPluginNames`）：
+
+- **包名**：把包加进 `harness/package.json` 的 `dependencies`（本地包用 `"@me/dsh-my-plugin": "file:./packages/my-plugin"`，
+  和 `@code-desktop/*` 两个包一样），然后在 `harness/` 里 `npm install`。解析从 `harness/package.json` 出发。
+- **路径**：绝对路径，或以 `./` / `../` 开头的相对路径，**相对于写它的那个 patch 文件**所在目录，
+  被转成 `file://` URL 加载。插件文件里 `import` 的依赖照常按 Node 规则从它自己的位置解析。
+
+### 2. 只给自己用：`user.patch.yml` 和环境变量
+
+Settings › Harness › **Edit profile patch** 会创建 `<userData>/harness/user.patch.yml`（带注释示例）并用默认编辑器打开。
+文件必须是 YAML 列表（JSON 也行）；示例里的 `[]` 在加内容时删掉。同一页上的开关、Add server、Skill folders、Hooks
+写的是 `overlay.json` → `overlay.patch.yml`，不要手改后者，会被覆盖。
+
+| 环境变量 | 作用 |
+|---|---|
+| `CODE_DESKTOP_CORE_PATCHES` | 额外 overlay 文件，按 `:` 分隔、按顺序应用；只认绝对路径且文件存在的。app 启动时保留你在环境里给的值，并在其后追加 `overlay.patch.yml`、`user.patch.yml` |
+| `CODE_DESKTOP_CORE_SAFE_MODE=1` | 跳过全部 overlay，只用随 app 发布的 profile 启动 |
+
+内核在 stderr 打印 `code-desktop-core: profile overlays applied: …`。overlay 解析失败会让内核起不来：
+Settings › Harness 会出现 **Reset overlay** / **Restart without overlay**（后者把偏好 `harnessProfile.overlayEnabled`
+设为 false，overlay 和 user patch 都不再传给内核）。
+
+### 3. 最小插件骨架
+
+```js
+// my-plugin/index.js  （package.json 里 "type": "module"）
+import z from '@deepseek-ai/schemastery'
+
+export const name = 'my-plugin'           // loader 诊断里显示的名字
+export const inject = ['tools']           // 需要的服务，到齐后才 apply；不需要就写 []
+export const Config = z.object({ greeting: z.string().default('hello') })
+
+export function apply(ctx, config) {
+  ctx.logger('my-plugin').info('loaded: %s', config.greeting)
+  // ctx.on('agent/request', …) / ctx.get('systemPrompt') / ctx.tools … 用法见
+  // node_modules/@deepseek-ai/*/lib/types/*.d.ts 与 ../vendor/deepseek-harness
+  ctx.on('dispose', () => {})            // 内核重启或行被禁用时清理
+}
+```
+
+放在 `harness/` 之外的路径插件解析不到 `@deepseek-ai/schemastery`：要么自己装依赖，要么去掉 `Config` 导出（config 原样传给 `apply`）。
+stdout 属于协议，插件只能往 stderr 写诊断。改完 Restart core；在 Settings › Harness › Plugins and bundles 的
+“Other plugins” 里能看到这一行和它的状态（`Failed to start` 表示 apply 抛错）。
+
+### 4. 禁用一行
+
+```yaml
+- id: tool-web
+  disabled: true
+```
+
+`disabled: false` 可以重新打开前面某层禁用的行。Settings › Harness 只给安全的行显示开关（工具、MCP client、技能、web search、
+hooks、experimental 等）；`codex-app-server`、`code-desktop-startup`、`system-prompt`、`llm-*`、`credentials`、`session-*`、
+agent、审批 / 权限行和 app bundle 插入的行显示 “Required”，要动只能写 `user.patch.yml`，后果自负。
+
 ## 协议映射
 
 | Codex | DeepSeek Harness |
@@ -100,6 +181,14 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 | Dynamic workflows 开关 | 每个线程默认对模型隐藏 `workflow` 工具（作用域内 `tools.restrict({deny:['workflow']})`，并用空段遮住它的 `tool:workflow` 提示），只有请求带 `codeDesktop.dynamicWorkflows: true` 才放出、带 false 再收回（structured.js `workflowsAllowedBy` / `hideWorkflowTool`）。main.cjs 在 DeepSeek 模式的 thread/start、thread/resume、turn/start、`codeDesktop/thread/permissions` 上按设置盖这个值；workflow runner 自己的线程不带，所以不会嵌套工作流 |
 | 未知 thread id | `thread/read`、`thread/resume`、`turn/start` 等遇到 Harness 不认识的会话（`SESSION_QUERY_SESSION_NOT_FOUND` / `SessionPersistenceNotFoundError`，含 cause 链，或 stat 无 header）→ `-32602`，`data: {codexErrorInfo:'threadNotFound', threadId}`（errors.js；`threadNotFound` 是本桥接层的扩展值，Codex 的 CodexErrorInfo 没有它）。RpcError 不打 stderr 堆栈；`thread/unarchive` 对未知 id 也返回该错误，app 不会把它挪回活动列表 |
 
+### 自定义指令（Custom instructions）
+
+Settings → Instructions（C1）。偏好键 `customInstructions = {enabled, global, projects: {[绝对路径]: {text, useFile}}}`（app/electron/prefs/instructions.mjs，单段 ≤20000 字符，≤64 个项目）。
+
+- **组合**（app/electron/instructions-service.cjs `composeInstructions`）：`# Custom instructions\n<全局>`，再接 `# Project instructions (<项目根>)\n<文件>\n\n<设置里的项目覆盖>`；空段省略，总长上限 40000（超出以 `[truncated]` 行结尾），`enabled:false` → 空。项目条目取 cwd 本身或其最近父目录中路径最长的键；项目文件是从 cwd 向上（≤8 层，不读 `$HOME` 与 `/`）最近的 `.code-desktop/instructions.md`，每次请求现读、上限 32 KB，HTML 注释（新建文件的模板）不计入。设置页的 Preview 就是这段文本的原样。
+- **DeepSeek 内核**：main.cjs 在 `thread/start`、`thread/resume`、`turn/start` 上写 `params.codeDesktop.customization.instructions`（字符串或 null）。桥接（customization.js `applyCustomization` → instructions.js `installInstructions`）在每个 Agent 的 setup 里注册 agent 作用域的系统提示段 `code-desktop:custom-instructions`（order = `DEPLOYMENT_PERSONA_SUFFIX + 50`，`interpolate: false`，`{{…}}` 原样保留），文本在每次组装时从线程的 ref 读取，所以修改从下一条消息（下一个模型步）起生效，已打开与重新打开的会话都适用；键缺省时保留旧值，null 清除。`developerInstructions` 由 structured.js 实现（给 workflow agent 用）；renderer 只在 Codex 内核上发送它的固定 "Do not claim to be Claude" 文案，所以它不进入 DeepSeek 提示。子代理（subagent）的子 Agent 有自己的作用域，**不继承**自定义指令。
+- **Codex 内核**：只把组合文本追加到 `thread/start` 与 `thread/resume` 的 `developerInstructions`（0.155.1 两者都有该字段），新会话与重启后重新打开的会话生效。
+
 ## 已知限制（诚实列出）
 
 - 未实现：`thread/fork`、`review/start`、`thread/revert`（经 `capabilities.unsupportedMethods` 告知 app：/fork、/review、/rewind 不出现在斜杠菜单，标题栏菜单与侧栏 Fork 置灰并提示 "Not available with the DeepSeek core yet"）、MCP 配置写入（`config/batchWrite`；在 `profile/cordis.patch.yml` 手动加 `@deepseek-ai/dsh-mcp-client` 条目后 Reconnect）、MCP OAuth 登录、逐技能开关（`skills/config/write`；用 SKILL.md 的 `disable-model-invocation: true`）、账户余额（`account/rateLimits/read` 的 credits；Harness 只有登录 DeepSeek Platform 后才有钱包余额）、app 内保存 API key（`account/login/start`）。技能列表、config/read、MCP 状态、插件（bundle）列表与账户 token 用量（来自本机会话日志）已实现。
@@ -120,6 +209,15 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 - 离开或归档会话才释放写锁；仍在运行、有排队或待处理卡片、有后台 job 的会话保持加载（不会在空闲后自动释放），直到下次离开它或退出 Code Desktop。`thread/backgroundTerminals/list` 仍返回空，Tasks 面板与自动归档看不到 Harness 的后台 job：自动归档可能给一个 job 还在跑的空闲会话打上归档标记（job 不受影响，线程保持加载）。在 DeepSeek App 里打开着的会话，Code Desktop 打开时报 `sessionBusyElsewhere`，转录区显示通用的加载失败状态（Retry），已有内容时横幅显示这句说明。
 - Dynamic workflows 现在跑在 DeepSeek 内核上：`main.cjs` 按 `resolveCore()` 给 workflow runner 传 `{command: node, args: [本脚本, 'app-server', '--stdio']}`（workflow-service.cjs `workflowCoreCommand`；`CODE_DESKTOP_WORKFLOW_BINARY` 仍可覆盖，`CODE_DESKTOP_CORE=codex` 时仍用 Codex CLI）。runner 的 `developerInstructions`（agentType 的 system prompt）与 `outputSchema`（`agent(prompt, {schema})`）都由上面的 structured.js 实现。runner agent 的权限跟随启动时会话的 Mode（app `permission-policy.mjs workflowAccess`，主进程推出）：Auto / Accept edits → workspace-write，Bypass → danger-full-access，Plan / Ask / chat → read-only；一律 `approvalPolicy: never`（不询问），脚本的 `sandbox` 选项不能提高它。注意 workspace-write 下 DSH 文件策略也允许写平台临时目录。
 - 子代理：只投影持久事件，不转发子代理的 token 级流式增量（Tasks 面板里的回答按步出现，不逐字出现）；子代理的审批卡片显示在父会话上（按命令 / diff，没有子代理条目的 "run <description>" 标题）；前台运行与可续运行之外的后台 job 形式（`started background subagent job`）不跟踪结束状态；内核重启前没有收到结束通知的可续子代理，回放时委派行仍是 running。本批次之前创建的子代理没有记下 label，`thread/list` 里 `agentNickname` 为空（app 回退到委派行的 description，`thread/read` 从子会话的 descriptor 读到 label）。
+
+### 模型参数与价格
+
+Settings → Models（C5，只对 DeepSeek 内核生效；Codex 内核下页面显示提示、控件禁用，main 不发送任何额外字段）。偏好键 `modelSettings = {params: {[模型 id]: {maxTokens?, temperature?, effort?}}, prices: null | {[模型 id]: {displayName?, offPeak, peak}}}`（app/electron/prefs/model-settings.mjs；maxTokens 为 256–1,000,000 的整数，temperature 0–2 保留两位小数，价格为每 1M token 的人民币 0–10000，每张表 ≤50 项；`prices: null` 表示官方价）。
+
+- **请求参数**：main.cjs（app/electron/model-settings.cjs `decorate`）在 `thread/start`、`thread/resume`、`turn/start` 上写 `params.codeDesktop.customization.modelParams = {[wire 模型 id]: {maxTokens?, temperature?}} | null`。桥接（customization.js → model-params.js `installModelParams`）在 agent 作用域注册 `agent/request` 瀑布：每次请求按 `catalog.wireId(provider, model)` 取条目，设 temperature / maxTokens；没有条目时去掉 temperature（回到适配器默认），并去掉自己上次设的 maxTokens（日志里的请求头会把它带进下一次提案），别处来的 maxTokens 保留。修改从下一次请求生效。**top_p 不支持**：dsh-llm 的 `LlmCallConfig` 只有 maxTokens / temperature / stop，没有 top_p 字段。
+- **默认推理强度**：`params[id].effort` 只在 app 内生效：`withEffortDefaults` 把它写进 `boot.models` 条目的 `defaultReasoningEffort`（必须在 `supportedReasoningEfforts` 内），模型菜单、/model 与 Settings 的模型行在选中该模型时都会把强度设成它；之后手动调过的强度照常保留。
+- **价格表**：`account/usage/read` 带上 `params.codeDesktop.prices`；桥接 pricing.js `normalizePrices`（与偏好相同的校验）→ `priceTable` = 官方表 + 覆盖项，usage.js `deepseekUsage(summaries, today, table)` 用它估算费用（折叠缓存只存 token 数，换价格不需要重新折叠；响应的 `deepseek.customPrices` 为 true 表示用了自定义价格）。旧 Flash id（deepseek-v4-flash 等）只有在表里没有自己的条目时才按 deepseek-flash 计价。新 RPC `codeDesktop/pricing/read` 返回 `{official, aliases, pricingUrl, peakWindows}`，设置页用它预填表格；第一次编辑会把官方表整份复制进 `prices`，"Reset to official prices" 写回 null。旧内核没有这个方法时（METHOD_NOT_FOUND）页面按"无官方表"处理。
+- **自定义 OpenAI 兼容服务商**：不需要新的 Harness 代码。dsh-base 里本来就挂着休眠的 `llm-pi-ai` 行，给它 `providers: {[路由]: {displayName, api, baseURL, apiKeyEnv, models}}` 就会注册路由（`api` 取 `openai-completions` / `openai-responses` / `anthropic-messages`，即 dsh-llm-pi-ai `supportedProtocols()`）。Settings → Models → Custom providers 把服务商定义写在 `<userData>/harness/providers.json`，密钥用 Electron safeStorage 加密存在 `<userData>/harness/provider-keys.bin`，再通过 Settings › Harness 的托管覆盖层（harness-profile.cjs `setManagedRow('llm-pi-ai', …)`）写入这一行，并把每个密钥作为环境变量 `CODE_DESKTOP_PROVIDER_KEY_<路由>` 交给内核进程（credentials-local 从继承的环境读取 `apiKeyEnv`）。重启内核后这些模型出现在模型菜单里。密钥不会写进 preferences.json、覆盖层文件或 `~/.dsh`，也不会回传给渲染进程。路由 `deepseek` 保留给内置服务商。关闭 Settings › Harness 的 "Use app overlay" 或 Reset overlay 会让服务商失效（providers.json 仍在，再保存一次即可恢复）。
 
 ## 文件
 
@@ -151,3 +249,18 @@ DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置�
 | `packages/codex-app-server/src/transport.js` | 换行 JSON-RPC 传输 |
 | `tests/live-smoke.mjs` | 真机端到端测试 |
 | `tests/fake-model-smoke.mjs` | 脚本化模型的端到端测试（本地 Messages 服务，无需 key） |
+
+## 自定义斜杠命令（C3，仅 UI 侧，两种内核都可用）
+
+- 文件：全局 `<userData>/commands/*.md`（可在 Settings › Commands 改到任意绝对路径，偏好键 `customCommands.globalDir`），
+  项目 `<cwd>/.code-desktop/commands/*.md`（`customCommands.projectEnabled` 控制）。文件名即命令名（`[A-Za-z0-9][A-Za-z0-9_-]{0,63}`），单文件 ≤64 KB，每目录 ≤200 个。
+- 可选 frontmatter：`description`、`argument-hint`。正文里的 `$ARGUMENTS` / `{{args}}` 换成 `/name` 后面的文字；没有占位符时把参数追加到末尾。
+- 在 `/` 菜单的 “Custom” 分组出现；优先级：内置命令 > 项目 > 全局 > 技能（同名技能会被隐藏）。发送时展开成普通消息文本，内核无需改动；会话标题仍是用户输入的 `/name args`。
+- 主进程 `app/electron/custom-commands.cjs`（`desktop:call "custom-commands"`：list/save/delete→废纸篓/reveal/pick-dir）监视两个目录并推送 `custom-commands-changed`；渲染侧 `custom-commands-model.mjs` / `custom-commands-store.mjs`，设置页 `source-settings-commands.jsx`。
+
+## 主题（C4，仅 UI 侧，两种内核都可用）
+
+- Settings › Theme。偏好键 `customTheme = {preset, accent ('' 或 #rrggbb), uiFont, fontScale 0.85–1.25, density 'compact'|'comfortable', radiusScale 0–2}`（app/electron/prefs/theme.mjs，`null` = 恢复默认）；代码字体与代码主题仍用原有的 `codeFont` / `codeThemeLight` / `codeThemeDark`。
+- 实现只覆盖设计系统已有的 CSS 自定义属性，不改组件 CSS（app/src/theme-custom-model.mjs）：`<html>` 内联 `--cds-rem-scale`（字号）与 `--cds-role-accent-{50…850,fill,fill-hover,on}`（由强调色用 `color-mix(in oklab, …)` 派生，on 色按 WCAG 亮度选黑/白）；`<style id="code-desktop-custom-theme">` 在 `:root[data-custom-theme]` 下覆盖 `--font-ui` / `--cds-font-sans` 与圆角 token（`--cds-radius*`、`--cds-radius-composer`、Tailwind `--radius-*`，基准值取自 c6a992d55 CSS 的 compact/comfortable 两套）。默认主题不留任何内联属性、属性或样式元素。密度切换主窗口 App 根元素的 `data-density`。
+- 内置预设：Default、DeepSeek blue、Clay、Forest、Grape、Sharp、Rounded。导入/导出走主进程文件对话框（app/electron/theme-files.cjs，`desktop:call "theme-file"` `{op:'import'|'export'}`，≤256 KB），文件格式 `{"format":"code-desktop-theme","version":1,"name",accent,uiFont,fontScale,density,radiusScale,codeFont,codeThemeLight,codeThemeDark}`；导入合成一次设置补丁，未知代码主题回落默认并给出提示。
+- 已知缺口：弹出窗口（popout）保持默认主题。

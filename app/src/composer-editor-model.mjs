@@ -31,7 +31,7 @@ export function composerText(doc){return textRuns(doc).map(run=>run.value).join(
 const MENTION_BOUNDARY=/\s/;
 function lineContent(line,{mentions=[],chip=null}={}){
  const nodes=[];let rest=line;
- if(chip){nodes.push(composerSchema.node('command_chip',{id:chip.id,label:chip.id,description:chip.description||'',argumentHint:chip.argumentHint||'',kind:chip.kind==='skill'?'skill':'command'}));rest=line.slice(chip.id.length+1);}
+ if(chip){nodes.push(composerSchema.node('command_chip',{id:chip.id,label:chip.id,description:chip.description||'',argumentHint:chip.argumentHint||'',kind:chip.kind==='skill'||chip.kind==='custom'?chip.kind:'command'}));rest=line.slice(chip.id.length+1);}
  const paths=[...new Set(mentions.map(entry=>typeof entry==='string'?entry:entry?.path).filter(Boolean))].sort((a,b)=>b.length-a.length);
  let at=0;const taken=[];
  for(const path of paths){const needle='@'+path;let from=0;for(;;){const index=rest.indexOf(needle,from);if(index<0)break;const end=index+needle.length;
@@ -62,7 +62,7 @@ export function composerSelection(doc,start,end=start,direction='forward'){
 // Backspace right after a chip or a mention selects it first; the next Backspace deletes it whole
 // (shared-13 Aw atom: the mention is removed as one unit).
 export function selectCommandBefore(state,dispatch){const {$from,empty}=state.selection,node=$from.nodeBefore;if(!empty||!ATOM_NODES.includes(node?.type.name))return false;dispatch?.(state.tr.setSelection(NodeSelection.create(state.doc,$from.pos-node.nodeSize)));return true;}
-export function commandTransaction(state,command){const atom=composerSchema.node('command_chip',{id:command.id,label:command.id,description:command.description||'',argumentHint:command.argumentHint||'',kind:command.kind==='skill'?'skill':'command'});const paragraph=composerSchema.node('paragraph',null,[atom,composerSchema.text(' ')]),tr=state.tr.replaceWith(0,state.doc.content.size,paragraph);return tr.setSelection(TextSelection.create(tr.doc,3));}
+export function commandTransaction(state,command){const atom=composerSchema.node('command_chip',{id:command.id,label:command.id,description:command.description||'',argumentHint:command.argumentHint||'',kind:command.kind==='skill'||command.kind==='custom'?command.kind:'command'});const paragraph=composerSchema.node('paragraph',null,[atom,composerSchema.text(' ')]),tr=state.tr.replaceWith(0,state.doc.content.size,paragraph);return tr.setSelection(TextSelection.create(tr.doc,3));}
 // '@' pick: the token's text range becomes the mention node plus a space; the caret lands after the space.
 export function mentionTransaction(state,token,option){const doc=state.doc,from=composerPosition(doc,token.start,1),to=composerPosition(doc,token.end,-1);
  const atom=composerSchema.node('mention',{path:option.path,label:option.label||mentionLabel(option.path)});

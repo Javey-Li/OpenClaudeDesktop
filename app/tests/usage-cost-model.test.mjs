@@ -42,3 +42,12 @@ test('no deepseek field (Codex core, fixtures) or a malformed one keeps the Code
  const junk=deepseekCostPresentation({tokenUsage:{deepseek:{allTime:{tokens:5},last30Days:{},today:{},models:[null,{model:'m',tokens:-1}],daily:[{date:'bad',tokens:5},{date:'2026-09-30',tokens:'5'}]}}},{todayKey:'2026-09-30'});
  assert.deepEqual([junk.models,junk.daily],[[],[]]);assert.equal(junk.tiles[0].cost,null);
 });
+test('custom prices from Settings › Models switch the footnote source (C5 review)',async()=>{
+ const {CUSTOM_COST_FOOTNOTE}=await import('../src/usage-cost-model.mjs');
+ const sessions=[foldSession([reply(at(30,10),'deepseek-v4-flash',{inputTokens:1000,outputTokens:1000})])];
+ const official=deepseekCostPresentation({tokenUsage:accountTokenUsage(sessions,'2026-09-30')},{todayKey:'2026-09-30'});
+ assert.equal(official.customPrices,false);
+ const custom=deepseekCostPresentation({tokenUsage:{deepseek:{...accountTokenUsage(sessions,'2026-09-30').deepseek,customPrices:true}}},{todayKey:'2026-09-30'});
+ assert.equal(custom.customPrices,true);
+ assert.match(CUSTOM_COST_FOOTNOTE,/Settings › Models/);assert.doesNotMatch(CUSTOM_COST_FOOTNOTE,/官方/);
+});

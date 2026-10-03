@@ -1,5 +1,40 @@
 # 接手说明：Code UI 源码优先还原
 
+## 2026-10 自定义功能（C1–C6）
+
+六项自定义功能已落地，详细过程见 `work/customization/LOG.md`（每项一节，末尾是 Final regression），协议与文件格式见 `harness/README.md` 对应小节。`<userData>` = `~/Library/Application Support/Code Desktop`（`CODE_DESKTOP_DATA` 可改）。
+
+| # | 功能 | UI 位置 | 文件/偏好 | 内核 |
+|---|---|---|---|---|
+| C1 | 自定义系统提示：全局 + 按项目，附加到 agent 系统提示 | Settings › Instructions | 偏好 `customInstructions`；项目文件 `<项目>/.code-desktop/instructions.md`（从 cwd 向上找，≤8 层）；主进程 `electron/instructions-service.cjs`，桥 `customization.js`/`instructions.js` | DeepSeek 每次请求生效；Codex 只追加到 `developerInstructions`（新建/重开会话） |
+| C2 | 助手名字、首页问候语、图标（spark/star/lightning/chat/自定义图片） | Settings › Preferences › Persona | 偏好 `persona`；`electron/persona-image.cjs`，`src/persona-store.mjs` | 仅 UI，两种内核都可用 |
+| C3 | 自定义斜杠命令（`.md` 模板，`$ARGUMENTS`） | Settings › Commands；`/` 菜单的 “Custom” 分组 | 全局 `<userData>/commands/*.md`（可改目录，`customCommands.globalDir`）；项目 `<cwd>/.code-desktop/commands/*.md` | 仅 UI，两种内核都可用 |
+| C4 | 主题：预设、强调色、界面字体、字号 85–125%、密度、圆角，可导入/导出 | Settings › Theme | 偏好 `customTheme`；主题 JSON `{"format":"code-desktop-theme","version":1,…}`，通过 Import…/Export… 用文件对话框读写 | 仅 UI，两种内核都可用 |
+| C5 | 每个模型的 max tokens / temperature / 默认推理强度；价格表；自定义 OpenAI 兼容服务商 | Settings › Models | 偏好 `modelSettings`；`<userData>/harness/providers.json`，密钥加密存于 `provider-keys.bin` | 仅 DeepSeek；Codex 下显示提示、控件禁用 |
+| C6 | Harness profile：插件开关、MCP、技能目录、hooks、overlay，以及恢复入口 | Settings › Desktop app › Harness | `<userData>/harness/overlay.json` → `overlay.patch.yml`，`user.patch.yml`；环境变量 `CODE_DESKTOP_CORE_PATCHES`、`CODE_DESKTOP_CORE_SAFE_MODE=1` | 仅 DeepSeek；Codex/fixture 显示提示 |
+
+**结果（2026-10-03 Final regression）**
+- harness 147/147 通过；app `npm test` 1720 通过 / 0 失败 / 1 跳过；build 正常。
+- 离屏 suites `--all -j 4`：60/60 通过（59 个 PASS，1 个 LOAD，即 menus-states 并行失败、串行重试通过）。
+- 实测 DeepSeek（隔离的 DSH_HOME 和临时 profile）：指令要求“每条回复以 🐳 开头”，3 条回复都以 🐳 开头。
+- 截图：`work/customization/shots/`（各设置页的浅色/深色截图，以及 live-whale-*）。
+
+**这次回归修的问题**
+- Theme 页字号和圆角的分段控件缺少 `.ss-control` 包裹，按钮没有样式（真实 bug，已修）。
+- 4 个 suite 的测试预期或环境问题：
+  - permission：断言现在包含 customization 的 null 字段。
+  - sidebar、files-pane：fixture 工作区移到 tmpdir，因为项目根现在是 git 仓库。
+  - account-lifecycle：Persona 组把账号区推到首屏以下，测量基线前先滚动到可见。
+- `work/deepseek-live-20261001/live.mjs` 新增两个环境变量：`CUSTOM_INSTRUCTIONS` 和 `CUSTOM_SETTINGS=1`。
+
+**已知缺口**
+- 弹出窗口（popout）仍用默认主题；密度设置不作用于 portal 和弹出窗口；字号只缩放使用 CDS rem 的文字。
+- 子代理不继承自定义指令。
+- top_p 不支持（dsh-llm 没有这个字段）。
+- 关掉 overlay 后自定义服务商失效（providers.json 还在，重新保存一次即可恢复）。
+- 约 27 个 suite 脚本的工作区仍在 `analysis/` 下，以后依赖“不在 git 仓库里”的需要同样把工作区移出去。
+- 用户真实的 Code Desktop profile 没有动过；还没在真实 profile 里试用。
+
 ## 2026-10 保真第三轮（R01–R10）
 
 第三轮保真共 10 批（R01–R10），对照的仍是 reference/current-2.2553.1。各批的规格、改动、偏差和剩余缺口都记在 `work/fidelity-r3/LOG.md`，每批一节。暂缓项见 `work/fidelity-r3/DEFERRED.md`，快照在 `work/fidelity-r3/snapshots/`。包版本仍是 0.2.130，没有安装。

@@ -69,7 +69,8 @@ test('chrome: nav without Usage, search field without a clear button, every clos
   try {
     const narrow = page('preferences');
     const tabs = [...narrow.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]);
-    assert.deepEqual(tabs, ['Preferences', 'Code', 'General', 'Developer', 'Skills', 'Connectors', 'Plugins']);
+    // Customization pages (C1–C6) join the Settings and Desktop app groups; Customize stays last.
+    assert.deepEqual(tabs, ['Preferences', 'Theme', 'Code', 'Instructions', 'Commands', 'Models', 'General', 'Developer', 'Harness', 'Skills', 'Connectors', 'Plugins']);
   } finally { globalThis.innerWidth = 1200; }
 });
 

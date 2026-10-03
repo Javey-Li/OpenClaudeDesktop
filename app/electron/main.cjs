@@ -83,10 +83,22 @@ let quitting = false;
 // for the renderer brings it back (Zxr) and its "show" event clears it.
 let mainHidden = false;
 const {mcpDefinitions,storageReport,storageCoreRoot,editConfigTarget,recordSettingsFailure} = require("./settings-pages.cjs");
+const { createThemeFiles } = require("./theme-files.cjs");
+const {createHarnessProfile} = require("./harness-profile.cjs");
+const {createInstructionsService} = require("./instructions-service.cjs");
+const { createPersonaImage } = require("./persona-image.cjs");
+const { createModelSettings } = require("./model-settings.cjs");
+const { createCustomCommands } = require("./custom-commands.cjs");
 const sessionOperations = createSessionOperations({ getClient: () => client, getConfig: () => config, save, emit });
 // Skills / Connectors / Plugins catalog (skills/list, mcpServerStatus/list,
 // plugin/installed, ...): validated operations, never the raw rpc allowlist.
 const customizeOperations = createCustomizeOperations({ getClient: () => client, getConfig: () => config, knownCwd: (cwd) => workspaceQueryRoot(cwd) });
+const themeFiles = createThemeFiles({ dialog, getWindow: () => win });
+const harnessProfile = createHarnessProfile({app,shell,dialog,getConfig:()=>config,getClient:()=>client,emit,getWindow:()=>win});
+const instructionsService = createInstructionsService({getConfig:()=>config,getClient:()=>client,shell,knownCwd:(cwd)=>workspaceQueryRoot(cwd)});
+const personaImage = createPersonaImage({ dialog, getWindow: () => win });
+const modelSettings = createModelSettings({ getConfig: () => config, getClient: () => client, app, getHarnessProfile: () => harnessProfile });
+const customCommands = createCustomCommands({ app, shell, dialog, getConfig: () => config, emit: (e) => emit(e), getWindow: () => win, knownCwd: (cwd) => workspaceQueryRoot(cwd) });
 // Sidebar metadata snapshot returned by every sidebar-state mutation.
 function sidebarSnapshot() {
   return { sessionMetadata: config.sessionMetadata, customGroups: config.customGroups, sidebarPreferences: config.sidebarPreferences,
@@ -797,10 +809,12 @@ app.whenReady().then(async () => {
           params.codeDesktop = { ...params.codeDesktop, dynamicWorkflows: config.dynamicWorkflows === true };
         }
         if (p.method === "codeDesktop/workflow/stop" && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");
+        modelSettings.decorate(p.method, params);
         if (p.method === "turn/start") {
           config.stats[params.threadId] ??= { messages: 0, ids: [] };
           config.stats[params.threadId].model = params.model;
         }
+        instructionsService.decorate(p.method, params);
         if (p.method === "thread/start" || p.method === "thread/resume") {
           params.approvalsReviewer = "user";
           params.approvalPolicy = params.approvalPolicy || "on-request";
@@ -1129,11 +1143,14 @@ app.whenReady().then(async () => {
         try{let cursor;const servers=[],seen=new Set();do{const page=await owner.request('mcpServerStatus/list',{limit:100,...(config.threadIds.includes(p.threadId)?{threadId:p.threadId}:{}),...(cursor?{cursor}:{})});servers.push(...(page.data||[]));cursor=page.nextCursor;if(cursor&&seen.has(cursor))throw Error('MCP pagination did not advance.');if(cursor)seen.add(cursor);}while(cursor&&servers.length<1000&&seen.size<100);result.servers=servers;result.serversTruncated=!!cursor;}catch(error){recordSettingsFailure(result,'servers',error);}
         if(owner!==client||owner.connection!==connection||connection?.closed)throw Error('DeepSeek connection changed. Reconnect to continue.');return result;
       }
+      case "instructions": return instructionsService.run(p);
       case "desktop-startup": return desktopSettings.setStartup(p.enabled);
+      case "persona": return personaImage.run(p);
       case "desktop-worktree-folder": {
         const result=await dialog.showOpenDialog(win,{properties:['openDirectory','createDirectory']});if(result.canceled)return null;
         const directory=await fs.promises.realpath(result.filePaths[0]);config={...config,worktreeLocation:'custom',worktreeDirectory:directory};save();return config;
       }
+      case "custom-commands": return customCommands.run(p);
       case "desktop-storage": {
         // Fidelity F14: the original's Code sessions and worktrees / Runtime / App caches and logs areas
         // (index.chunk-ChZ67Jhw.js pfi/hfi; logs = app logs + crash dumps).
@@ -1143,14 +1160,17 @@ app.whenReady().then(async () => {
         return storageReport({userData:app.getPath('userData'),logs,dshHome:info?.codexHome,coreRoot:storageCoreRoot(core),coreName,
           threadIds:[...config.threadIds,...config.archivedThreadIds],worktreeDirs:config.worktreeDirectories||[]});
       }
+      case "theme-file": return themeFiles.run(p);
       case "desktop-edit-config": {
         const error=await shell.openPath(editConfigTarget(client.serverInfo));if(error)throw Error(error);return true;
       }
+      case "harness-profile": return harnessProfile.run(p);
       case "reveal-settings": {
         const error = await shell.openPath(app.getPath("userData"));
         if (error) throw new Error(error);
         return true;
       }
+      case "model-settings": return modelSettings.run(p);
       case "reveal-folder":
         await shell.openPath(p.cwd || config.cwd);
         return true;
@@ -1293,6 +1313,7 @@ app.whenReady().then(async () => {
 app.on("before-quit", () => { quitting = true; });
 installShutdownHandler(app, {
   stop: async () => {
+    customCommands.dispose();
     desktopSettings?.dispose();
     menuBar?.dispose();
     await Promise.all([stopAllCodexClients(), fileSearch.dispose(), workflowService?.dispose()]);

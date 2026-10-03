@@ -27,6 +27,14 @@ import { SettingsSearchResults } from './source-settings-search.jsx';
 import { bindSettingsAnchor } from './settings-anchor.mjs';
 import { EMPTY_SETTINGS_CATALOG, settingsCatalogGroups } from './settings-catalog-search.mjs';
 import { effortName } from './model-menu-model.mjs';
+import { SourceHarnessSettings } from './source-settings-harness.jsx';
+import { SourceCommandsSettings } from './source-settings-commands.jsx';
+import { SourceThemeSettings } from './source-settings-theme.jsx';
+import { SourceModelsSettings } from './source-settings-models.jsx';
+import { withEffortDefaults } from '../electron/prefs/model-settings.mjs';
+import { personaGroup } from './source-settings-persona.jsx';
+import { SettingRow } from './source-settings-kit.jsx';
+import { SourceInstructionsSettings } from './source-settings-instructions.jsx';
 import { settingsNavSections, settingsInitialFocus, NOTIFICATION_LEVEL_ITEMS, notificationLevel, drawAttentionDisabled, keepAwakeEnabled } from './settings-shell-model.mjs';
 const noCatalogSubscription=()=>()=>{};
 const emptyCatalog=()=>EMPTY_SETTINGS_CATALOG;
@@ -90,10 +98,15 @@ export { SourceSwitch as SettingSwitch } from './source-switch.jsx';
 // (sidebar-rows.js:16769-16793 uV) and search still lists it (the search gets the unfiltered groups).
 const tabs = [
   {id:'preferences',label:'Preferences',icon:'Settings',group:'Settings',keywords:['general']},
+  {id:'theme',label:'Theme',icon:'Palette',group:'Settings',keywords:['accent','colors','font size','corner radius','density','appearance'],page:SourceThemeSettings},
   {id:'usage',label:'Usage',icon:'UsageGaugeMiddle',group:'Settings',navHidden:true},
   {id:'code',label:'Code',icon:'Code',group:'Settings'},
+  {id:'instructions',label:'Instructions',icon:'BookText',group:'Settings',keywords:['custom instructions','system prompt','agents.md','project instructions'],page:SourceInstructionsSettings},
+  {id:'commands',label:'Commands',icon:'SlashShortcutCommand',group:'Settings',keywords:['slash commands','prompt templates','custom commands'],page:SourceCommandsSettings},
+  {id:'models',label:'Models',icon:'Lightning',group:'Settings',keywords:['max tokens','temperature','pricing','prices','cost'],page:SourceModelsSettings},
   {id:'general',label:'General',icon:'Computer',group:'Desktop app'},
   {id:'developer',label:'Developer',icon:'Wrench',group:'Desktop app'},
+  {id:'harness',label:'Harness',icon:'CommandLine',group:'Desktop app',keywords:['cordis','profile','bundles','hooks','harness plugins','overlay'],page:SourceHarnessSettings},
   {id:'customize-skills',label:'Skills',icon:'Scroll',group:'Customize',customize:true,keywords:['custom instructions','agent skills']},
   {id:'customize-connectors',label:'Connectors',icon:'Connectors',group:'Customize',customize:true,keywords:['mcp','integrations','tools']},
   {id:'customize-plugins',label:'Plugins',icon:'Plugin',group:'Customize',customize:true,keywords:['marketplace','extensions']},
@@ -145,7 +158,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   useEffect(()=>{if(!highlight || !presence.visible)return;return bindSettingsAnchor(presence.popup.current,highlight.id,()=>setHighlight(current=>current===highlight?null:current));},[highlight,tab,presence.visible,presence.popup]);
   useEffect(()=>{if(tab==='usage')presence.popup.current?.focus({preventScroll:true});},[tab]);
   const root=presence.popup, search=useRef(null), titleId=useId(), close=useRef(onClose);close.current=onClose;
-  const prefs=appearancePreferences(config), account=boot?.account?.account, models=boot?.models || [], chosen=models.find(m=>m.model===model), fast=fastTierForModel(chosen);
+  const prefs=appearancePreferences(config), account=boot?.account?.account, models=withEffortDefaults(boot?.models || [], config.modelSettings), chosen=models.find(m=>m.model===model), fast=fastTierForModel(chosen);
   useEffect(()=>{let live=true;fetch('./build-info.json').then(r=>r.json()).then(value=>live&&setBuild(value)).catch(()=>{});return()=>{live=false;};},[]);
   // The opener is read in a layout effect, before any passive effect moves focus: the tab==='usage' effect above
   // is declared first and already focused the popup, so /usage (main.jsx:1352) captured the popup itself and, it
@@ -214,6 +227,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
       row('motion','Motion','Reduce animation in streaming responses and other interface elements.',segments('motion','Motion',[{value:'system',label:'System'},{value:'reduce',label:'Reduced'}])),
     ]},
     {tab:'preferences',title:'Profile',rows:[{id:'name',label:'What should we call you?',description:'Used only in this app.',below:<SourceProfileSetting value={config.displayName || ''} onSave={value=>onSave({displayName:value})}/>}]},
+    personaGroup({config,onSave,desktopCall}),
     {tab:'preferences',title:'DeepSeek account',rows:accountRows},
     // c71860c77 pa: appearance precedes local sessions. Codex-only controls stay below.
     {tab:'code',title:'Code appearance',rows:[
@@ -272,7 +286,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
     ]},
   ];
   // Profile belongs in Preferences, before Appearance (c0db37792:1391–1403).
-  groups.sort((a,b)=>a.tab==='preferences'&&b.tab==='preferences'?(['Profile','DeepSeek account','Appearance'].indexOf(a.title)-['Profile','DeepSeek account','Appearance'].indexOf(b.title)):0);
+  groups.sort((a,b)=>a.tab==='preferences'&&b.tab==='preferences'?(['Profile','Persona','DeepSeek account','Appearance'].indexOf(a.title)-['Profile','Persona','DeepSeek account','Appearance'].indexOf(b.title)):0);
   const results=settingsSearch(tabs,[...groups,...settingsCatalogGroups(catalog,{cwd:customize?.cwd,threadId:customize?.threadId??null})],query),shown=groups.filter(group=>group.tab===tab&&group.title!=='Local MCP servers'&&!tabs.find(t=>t.id===group.tab)?.customize);
   const chooseResult=result=>{
     const destination=result.targetSection||result.tab;
@@ -282,6 +296,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   };
   useEffect(()=>{if(searchOpen)root.current?.querySelector('.ss-search-results [data-highlighted]')?.scrollIntoView({block:'nearest'});},[query,searchIndex,searchOpen]);
   const activeTab=tabs.find(t=>t.id===tab);
+  const pageProps={config,boot,model,effort,busy,engine,desktopCall,onSave,onReconnect,customize,cwd:customize?.cwd??config.cwd,threadId:customize?.threadId??null};
   const customizePage=activeTab?.customize&&customize ? <SourceCustomize key={JSON.stringify([tab,customize.cwd,customize.threadId])} section={tab} store={customize.store} threadId={customize.threadId} cwd={customize.cwd} call={customize.call}
     core={boot?.core} onEditConfig={boot?.connected?()=>desktopCall('desktop-edit-config'):undefined}
     onUseSkill={customize.onUseSkill} onOpenExternal={customize.onOpenExternal} onRevealPath={customize.onRevealPath} focus={focus} mcpDefinitions={desktop?.mcpDefinitions}
@@ -309,7 +324,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   // shared-22:4511-4515 ye and cc011544b's page header CloseButton: both are named 'Close'.
   const closeButton = <button type="button" className="ss-close" aria-label="Close" onClick={onClose}><Icon name="X" size={16}/></button>;
   return createPortal(<div className="ss-backdrop ss-settings-backdrop" data-open={presence.visible} onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={root} className="ss-dialog ss-settings-dialog" data-usage={usagePage||undefined} data-open={presence.visible} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
-    onKeyDown={e=>{if(!usagePage&&!narrow&&!e.altKey&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();e.stopPropagation();search.current?.focus();search.current?.select();return;}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close.current();}if(e.key==='Tab'){const items=[...root.current.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')].filter(el=>el.getClientRects().length&&el.tabIndex>=0);const first=items[0],last=items.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===root.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&(document.activeElement===last||document.activeElement===root.current)){e.preventDefault();first?.focus();}}}}>
+    onKeyDown={e=>{if(!usagePage&&!narrow&&!e.altKey&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();e.stopPropagation();search.current?.focus();search.current?.select();return;}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close.current();}if(e.key==='Tab'){const items=[...root.current.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter(el=>el.getClientRects().length&&el.tabIndex>=0);const first=items[0],last=items.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===root.current)){e.preventDefault();last?.focus();}else if(!e.shiftKey&&(document.activeElement===last||document.activeElement===root.current)){e.preventDefault();first?.focus();}}}}>
     <h2 id={titleId} className="sr-only">{usagePage?'Usage':'Settings'}</h2>
     {usagePage?<header className="ss-usage-header"><h2 className="text-heading-semibold" aria-hidden="true">Usage</h2>{closeButton}</header>:narrow?<header className="ss-narrow"><div className="ss-narrow-heading"><strong aria-hidden="true">Settings</strong>{closeButton}</div><div role="tablist" aria-label="Settings" onKeyDown={event=>{
       const controls=[...event.currentTarget.querySelectorAll('[role="tab"]')], index=controls.indexOf(document.activeElement);
@@ -319,16 +334,8 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
     }}>{navTabs.map(t=><button role="tab" aria-selected={tab===t.id} tabIndex={tab===t.id?0:-1} key={t.id} onFocus={()=>selectTab(t.id)} onClick={()=>selectTab(t.id)}>{t.label}</button>)}</div></header>:<nav className="ss-nav" aria-label="Settings">{searchField}<div className="ss-nav-scroll scroll-fade-y scroll-fade-size-6">{navGroups.map(group=><div key={group}><p>{group}</p><ul>{navTabs.filter(t=>t.group===group).map(t=><li key={t.id}><button aria-current={tab===t.id?'page':undefined} onClick={()=>{setTab(t.id);setQuery('');setError('');setFocus(null);setHighlight(null);setSearchOpen(false);}}><Icon name={t.icon} size={20}/><span>{t.label}</span></button></li>)}</ul></div>)}</div></nav>}
     <div className="ss-pane" data-customize={!!activeTab?.customize}>
     {!usagePage&&!narrow&&<div className="ss-page-header">{closeButton}</div>}
-    <div className="ss-content" key={tab} data-page={tab}>{error&&<p className="ss-error" role="alert">{error}</p>}{['code','developer'].includes(tab)&&desktopErrors(desktop?.errors).map(notice=><p className="ss-connection-notice" role="status" key={notice.key}>{notice.message}</p>)}{tab==='developer'&&<DeveloperServers desktop={desktop} connected={boot?.connected} pending={!!pending} error={rowErrors['mcp-config']} onRemove={customize?.call&&mcpWritable ? removeServer : undefined} onEditConfig={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))} onDocs={()=>action('mcp-config',()=>desktopCall('external',{url:'https://modelcontextprotocol.io/quickstart'}))}/>} {customizePage}{tab==='usage'&&<SourceUsage key={usageIdentity} readUsage={readUsage} engine={engine} onOpenLink={url=>Promise.resolve(desktopCall('external',{url})).catch(()=>{})}/>} {shown.map(group=><section className="ss-group" key={group.tab+group.title}><h3 tabIndex={-1} className="text-heading-semibold settings-row-title">{group.title}</h3><div className="settings-group-dividers">{(group.skeleton?group.rows.filter(row=>row.id==='version'):group.rows).map(row=><SettingRow key={row.id} row={row} error={rowErrors[row.id]}/>)}{group.skeleton&&[0,1,2].map(index=><SettingSkeletonRow key={index}/>)}</div></section>)}</div></div>
+    <div className="ss-content" key={tab} data-page={tab}>{error&&<p className="ss-error" role="alert">{error}</p>}{['code','developer'].includes(tab)&&desktopErrors(desktop?.errors).map(notice=><p className="ss-connection-notice" role="status" key={notice.key}>{notice.message}</p>)}{tab==='developer'&&<DeveloperServers desktop={desktop} connected={boot?.connected} pending={!!pending} error={rowErrors['mcp-config']} onRemove={customize?.call&&mcpWritable ? removeServer : undefined} onEditConfig={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))} onDocs={()=>action('mcp-config',()=>desktopCall('external',{url:'https://modelcontextprotocol.io/quickstart'}))}/>} {customizePage}{activeTab?.page&&<activeTab.page {...pageProps}/>}{tab==='usage'&&<SourceUsage key={usageIdentity} readUsage={readUsage} engine={engine} onOpenLink={url=>Promise.resolve(desktopCall('external',{url})).catch(()=>{})}/>} {shown.map(group=><section className="ss-group" key={group.tab+group.title}><h3 tabIndex={-1} className="text-heading-semibold settings-row-title">{group.title}</h3><div className="settings-group-dividers">{(group.skeleton?group.rows.filter(row=>row.id==='version'):group.rows).map(row=><SettingRow key={row.id} row={row} error={rowErrors[row.id]}/>)}{group.skeleton&&[0,1,2].map(index=><SettingSkeletonRow key={index}/>)}</div></section>)}</div></div>
   </section>{storage&&<StorageDialog call={desktopCall} settingsRoot={root} onClose={()=>setStorage(false)}/>}</div>,document.body);
-}
-function SettingRow({row,error}) {
- const label=useId(),description=useId();
- return <div className={(row.grid?'ss-grid-row':'ss-row')} role="group" aria-labelledby={label} aria-describedby={row.description&&!row.grid?description:undefined} data-setting-id={row.id} data-settings-row="" data-indent={row.indent||undefined}>
-   <div className="ss-row-top"><div className="ss-row-copy"><div id={label} className={row.grid?'sr-only':'text-body'}><span className="settings-row-title">{row.label}</span></div>{row.description&&!row.grid&&<div id={description} data-settings-desc="">{row.description}</div>}</div>{row.control&&<div className="ss-control">{row.control}</div>}</div>{row.grid}
-   {/* c71860c77:1820-1840: a failed save is muted body text in the row's below slot; the raw reason stays in the title (and the console). */}
-   {(row.below||error)&&<div className="ss-row-below">{row.below}{error&&<span className="ss-row-error" title={error}>Couldn’t save the setting. Try again.</span>}</div>}
- </div>;
 }
 // c71860c77-B72Ova_w It fallback: a row of two text bars (h-5 w-36 / h-5 w-72) beside a 40×24 pill, drawn with
 // the shared-frame Skeleton classes from the loaded CDS stylesheet (role=status, sr-only "Loading").

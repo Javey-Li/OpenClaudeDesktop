@@ -2,6 +2,22 @@ import "./source-spark.css";
 import React, { useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "./use-reduced-motion.js";
 import { isOnceState, resolveSparkRendering, sparkBox, sparkKeyframes, sparkTiming, validateSparkStrip } from "./spark-sprite-model.mjs";
+import "./persona-settings.css";
+import { Icon } from "./icons";
+import { usePersona } from "./use-persona.js";
+
+// C2 persona: the built-in glyph alternatives to the spark sprite.
+export const PERSONA_GLYPHS = Object.freeze({ star: "StarFilled", lightning: "Lightning", chat: "ChatSimpleFilled" });
+/** A non-spark persona icon (built-in glyph or custom image) in the spark's box. */
+export function PersonaSparkGlyph({ persona, size = 18, state, className = "", color = "var(--cds-clay, #d97757)", style }) {
+  const busy = state !== undefined && state !== null && state !== "idle";
+  const box = { "--cds-spark-size": sizeRem(size), color, ...style };
+  const shared = { className: `source-spark persona-spark ${className}`, "data-cds": "Spark", "data-spark-rendering": "persona",
+    "data-persona-icon": persona.sparkIcon, "data-spark-state": busy ? state : undefined, "aria-hidden": "true", style: box };
+  if (persona.sparkIcon === "custom" && persona.sparkImage)
+    return <span {...shared}><img src={persona.sparkImage} alt="" draggable={false} /></span>;
+  return <span {...shared}><Icon name={PERSONA_GLYPHS[persona.sparkIcon] || "StarFilled"} size={size} /></span>;
+}
 
 // Claude 2.2553.1 shared-frame bd: original static Spark path, not a font glyph
 // or the homepage crab.
@@ -50,6 +66,8 @@ function StaticSpark({ size, rendering, className, color }) {
 // state undefined|'idle' -> static svg (dv). Any other state -> sprite once
 // its strip is available and motion is not reduced; otherwise static fallback.
 export function SourceSpark({ size = 18, state, className = "", color = "var(--cds-clay, #d97757)", onEnd }) {
+  const persona = usePersona();
+  const personaGlyph = persona.sparkIcon !== "spark";
   const reducedMotion = useReducedMotion();
   const busy = state !== undefined && state !== null && state !== "idle";
   const [loaded, setLoaded] = useState(() => stripCache);
@@ -57,7 +75,7 @@ export function SourceSpark({ size = 18, state, className = "", color = "var(--c
   const endRef = useRef(onEnd);
   endRef.current = onEnd;
   useEffect(() => {
-    if (!busy || reducedMotion || loaded) return undefined;
+    if (!busy || reducedMotion || loaded || personaGlyph) return undefined;
     let alive = true;
     loadThinkingStrip().then((strip) => { if (alive) setLoaded(strip); });
     return () => { alive = false; };
@@ -73,6 +91,14 @@ export function SourceSpark({ size = 18, state, className = "", color = "var(--c
     if (once) animation.addEventListener("finish", finish);
     return () => { animation.removeEventListener("finish", finish); animation.cancel(); };
   }, [rendering, strip, state, once]);
+  // C2: a persona glyph has no sprite strip; a once-state still ends, so
+  // flows waiting on onEnd do not stall.
+  useEffect(() => {
+    if (!personaGlyph || !once) return undefined;
+    const timer = setTimeout(() => endRef.current?.(), 0);
+    return () => clearTimeout(timer);
+  }, [personaGlyph, once, state]);
+  if (personaGlyph) return <PersonaSparkGlyph persona={persona} size={size} state={state} className={className} color={color} />;
   if (rendering !== "sprite") return <StaticSpark size={size} rendering={rendering} className={`source-spark ${className}`} color={color} />;
   return (
     <span

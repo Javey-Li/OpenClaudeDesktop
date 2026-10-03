@@ -1,5 +1,6 @@
 import { _electron as electron } from "../../tools/node_modules/playwright/index.mjs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -20,7 +21,8 @@ const startedAt = new Date().toISOString();
 const directory = path.join(evidence, `home-page-ui-${startedAt.replaceAll(":", "-")}`);
 await fs.mkdir(directory, { recursive: true });
 const profile = await fs.mkdtemp(path.join(directory, "profile-"));
-const workspace = path.join(profile, "workspace");
+// The project root is a git repo now (analysis/ is gitignored inside it): keep the fixture workspace outside any repo.
+const workspace = path.join(await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "cd-home-page-"))), "workspace");
 await fs.mkdir(workspace);
 await fs.writeFile(path.join(profile, "home-page-fixture.marker"), "isolated-home-page-test\n");
 const executablePath = process.env.TEST_ELECTRON_BINARY || path.join(root, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
@@ -347,6 +349,8 @@ try {
   const dayTooltip = await page.locator('[role="tooltip"]').textContent();
   assert.ok(dayTooltip.includes(formatDayKey(T0)) && dayTooltip.includes("Test model") && dayTooltip.includes("4k"), dayTooltip);
   // dT: each row is a 6px round aria-hidden dot followed by '{model}: {tokens}'.
+  // The tooltip enters with a scale transition; under parallel load the rect could be read mid-transition (5.88px).
+  await page.waitForFunction(() => [...document.querySelectorAll('[role="tooltip"] .sh-day-tooltip-dot')].every((d) => { const r = d.getBoundingClientRect(); return r.width === 6 && r.height === 6; }), null, { timeout: 3000 }).catch(() => {});
   const tooltipRows = await page.locator('[role="tooltip"] .sh-day-tooltip-row').evaluateAll((items) => items.map((row) => {
     const dot = row.querySelector(".sh-day-tooltip-dot"), r = dot.getBoundingClientRect();
     return { text: row.textContent, dot: [r.width, r.height, getComputedStyle(dot).borderRadius, dot.getAttribute("aria-hidden")], gap: getComputedStyle(row).gap, numeric: getComputedStyle(row).fontVariantNumeric };

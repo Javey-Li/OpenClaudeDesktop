@@ -131,6 +131,12 @@ import { createSessionCycler } from "./session-cycle-model.mjs";
 import { effectiveView, nextTranscriptView, readSessionViews, withSessionView, writeSessionViews, transcriptViewMenu } from "./transcript-view-model.mjs";
 import { reasoningPlacement } from "./reasoning-model.mjs";
 import { initialAppearance, parseThemeCommand, resolveThemeMode, writeThemeMode, THEME_LABELS } from "./theme-command-model.mjs";
+import { applyCustomTheme, themeDensity } from "./theme-custom-model.mjs";
+import { withEffortDefaults } from "../electron/prefs/model-settings.mjs";
+import { customCommandsStore } from "./custom-commands-store.mjs";
+import { mergeCommands, expandCommand } from "./custom-commands-model.mjs";
+import { normalizeCustomCommands } from "../electron/prefs/custom-commands.mjs";
+import { setPersona } from "./persona-store.mjs";
 const api = window.desktop;
 // index.html ships data-mode="system" (the loaded CSS resolves it through
 // prefers-color-scheme, which nativeTheme.themeSource drives). Before the first
@@ -689,9 +695,17 @@ function App() {
   const customizeSnapshot = useSyncExternalStore(customizeStore.subscribe, customizeStore.getSnapshot, customizeStore.getSnapshot);
   const commandSkills = useMemo(() => customizeSnapshot.skills.skills.filter(skillInvocable)
     .map((row) => ({ name: row.skillName || row.name, description: row.description, path: row.path })), [customizeSnapshot.skills.skills]);
+  // Custom slash commands (C3): <userData>/commands and <workdir>/.code-desktop/commands via custom-commands-store.mjs
+  // (main custom-commands.cjs watches both folders); rows merged with built-in > project > global > skills precedence.
+  const customCommandsSnapshot = useSyncExternalStore(customCommandsStore.subscribe, customCommandsStore.getSnapshot, customCommandsStore.getSnapshot);
+  const customCommandsPrefs = JSON.stringify(normalizeCustomCommands(boot?.config?.customCommands));
+  useEffect(() => { if (boot) customCommandsStore.load(workdir || cwd, { force: true }); }, [workdir, cwd, customCommandsPrefs, !!boot]);
+  const customCommandsEntry = customCommandsSnapshot.entries[workdir || cwd || ""];
+  const customCommands = useMemo(() => customCommandsEntry ? mergeCommands({ global: customCommandsEntry.global, project: customCommandsEntry.project,
+    builtinIds: sessionCommands.flatMap((entry) => [entry.id, ...(entry.aliases || [])]), skillNames: commandSkills.map((skill) => skill.name) }) : [], [customCommandsEntry, commandSkills]);
   const commandContext = { current, archived:session?.archived, connected:!!boot?.connected && !state.approvalClosed,
-    loading, running, sending, pending:actionPending, hasHistory:items.length > 0, unsupportedMethods, skills: commandSkills };
-  const models = boot?.models || [];
+    loading, running, sending, pending:actionPending, hasHistory:items.length > 0, unsupportedMethods, skills: commandSkills, customCommands };
+  const models = useMemo(() => withEffortDefaults(boot?.models || [], boot?.config?.modelSettings), [boot?.models, boot?.config?.modelSettings]);
   const chosen = models.find((m) => m.model === model);
   // A saved model the current core does not list (a Codex model on the DeepSeek core) or a
   // catalog that arrived after init falls back to the catalog default instead of "Default model".
@@ -1264,6 +1278,7 @@ function App() {
   // cds-root gets data-font (anthropic → "sans", otherwise the system branch;
   // OpenDyslexic rides on that branch through --font-ui-dyslexic).
   const cdsFont = prefs.interfaceFont === "anthropic" ? "sans" : "system";
+  useEffect(() => { setPersona(boot?.config?.persona); }, [boot?.config?.persona]);
   useEffect(() => {
     const root = document.documentElement;
     for (const key of ["motion","transcriptSize","transcriptWidth"]) root.dataset['local' + key[0].toUpperCase() + key.slice(1)] = prefs[key];
@@ -1297,6 +1312,7 @@ function App() {
     window.dispatchEvent(new Event("local-motion-change"));
   }, [localPreferences]);
   useEffect(() => { writeSessionViews(localStorage, sessionViews); }, [sessionViews]);
+  useEffect(() => { applyCustomTheme(document, boot?.config); }, [JSON.stringify(boot?.config?.customTheme ?? null)]);
   // titlebar-release-notes.js:5166-5168 B: markSeen() as soon as the notes open,
   // so the nudge hides once they close and returns only for a new version.
   const whatsNewHasNotes = LOCAL_RELEASE_NOTE_VERSIONS.includes(clientVersion);
@@ -1769,7 +1785,7 @@ function App() {
   function composerInput(text, turnCwd) {
     const parsed = parseSessionCommand(text, commandContext);
     const chip = parsed?.skill ? skillChipInput(text, parsed.skill) : null;
-    const body = chip ? chip.text : text;
+    const body = chip ? chip.text : parsed?.custom ? expandCommand(parsed.custom.body, parsed.args) : text;
     const root = (turnCwd || "").replace(/\/$/, "");
     const mentioned = mentionInputs(body, mentions, { resolvePath: (relative) => (root ? `${root}/${relative}` : relative) });
     return [
@@ -1829,7 +1845,7 @@ function App() {
     if (boot?.account?.deepseek && !boot.account.account) return; // R02: no DeepSeek key → no thread/turn (composer warning); the draft stays.
     // A known skill ('/pdf …', a chip from '/' or Add › Skills) parses without error and goes out as a message.
     const parsed = parseSessionCommand(draft, commandContext);
-    if (parsed && !parsed.skill) {
+    if (parsed && !parsed.skill && !parsed.custom) {
       if (parsed.error) { setError(parsed.error); setCommandSuggestion(parsed.suggestion); return; }
       setCommandSuggestion(null);
       await executeCommand(parsed.id, parsed.args, draft);
@@ -1906,8 +1922,10 @@ function App() {
           model: model || null,
           serviceTier,
           ...threadPermissionParams({permission: effectivePermission, mode, ...permissionHints()}),
-          developerInstructions:
-            "You are the assistant in Code Desktop, a local desktop client powered by DeepSeek. Follow the user language. When asked for a plan, use the plan tool. Do not claim to be Claude.",
+          // Codex only: the DeepSeek core honors developerInstructions (structured.js, for workflow agents), and its
+          // persona and custom instructions come from the profile and codeDesktop.customization instead.
+          ...(engine === "deepseek" ? {} : { developerInstructions:
+            "You are the assistant in Code Desktop, a local desktop client powered by DeepSeek. Follow the user language. When asked for a plan, use the plan tool. Do not claim to be Claude." }),
         });
         id = r.thread.id;
         bypassMode.adoptSession(id);
@@ -2772,7 +2790,7 @@ function App() {
       />
       <main
         className="workspace epitaxy-root cds-root"
-        data-density="compact"
+        data-density={themeDensity(boot?.config)}
         data-font={cdsFont}
         data-platform="desktop"
       >

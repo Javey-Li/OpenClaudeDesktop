@@ -5,6 +5,9 @@ import {
   greetingName, greetingText, heatmapLightness, heatmapWeeks, localDayKey, modelColor,
 } from "./home-model.mjs";
 import "./source-home.css";
+import { usePersona } from "./use-persona.js";
+import { greetingFor } from "./persona-store.mjs";
+import { PersonaSparkGlyph } from "./source-spark.jsx";
 
 // 2.2553.1 draft home (cc43287c9 Jk greeting; code-home Rw/qw/Jw/Yw stats card).
 // The card renders the original getCodeStats object (main.cjs 'stats': the
@@ -19,11 +22,14 @@ const formatNumber = (value) => new Intl.NumberFormat().format(value);
 /** Jk: spark (22px, pulse once on mount) + title; copy follows landingClear. */
 export function SourceGreeting({ displayName, landingClear = true, shimmerOnMount = true }) {
   const [pulse] = useState(!!shimmerOnMount);
+  const persona = usePersona(); // C2: greeting template and assistant icon
   return (
     <header className="welcome-heading source-greeting">
-      <img className={"claude-spark" + (pulse ? " source-spark-pulse" : "")} src="./assets/v1/claude-spark.svg"
-        alt="" width="22" height="22" />
-      <h1>{greetingText(greetingName(displayName), landingClear)}</h1>
+      {persona.sparkIcon === "spark"
+        ? <img className={"claude-spark" + (pulse ? " source-spark-pulse" : "")} src="./assets/v1/claude-spark.svg"
+          alt="" width="22" height="22" />
+        : <PersonaSparkGlyph persona={persona} size={22} className={"claude-spark" + (pulse ? " source-spark-pulse" : "")} />}
+      <h1>{greetingFor({ displayName, landingClear }, persona)}</h1>
     </header>
   );
 }

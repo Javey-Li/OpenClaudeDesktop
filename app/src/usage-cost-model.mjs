@@ -5,6 +5,8 @@ import { compactTokens, formatDayKey } from "./home-model.mjs";
 
 export const COST_DAILY_DAYS = 30;
 export const COST_FOOTNOTE = "按 DeepSeek 官方价格估算（峰谷分时），实际以 DeepSeek 平台账单为准";
+// account/usage/read deepseek.customPrices: the estimate used the prices from Settings › Models.
+export const CUSTOM_COST_FOOTNOTE = "按你在 Settings › Models 中设置的价格估算，实际以 DeepSeek 平台账单为准";
 export const DEEPSEEK_USAGE_URL = "https://platform.deepseek.com/usage";
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
@@ -45,7 +47,7 @@ const share = (part, whole) => (whole > 0 ? Math.max(0, Math.min(1, part / whole
  *   categoryBasis: 'cost' | 'tokens',
  *   models: {key: string, name: string, tokens: number, cost: number | null, share: number}[],
  *   daily: {date: string, label: string, tokens: number, cost: number | null, share: number}[],
- *   partial: boolean, usageUrl: string,
+ *   partial: boolean, customPrices: boolean, usageUrl: string,
  * }}
  */
 export function deepseekCostPresentation(data, { todayKey, locale } = {}) {
@@ -85,6 +87,7 @@ export function deepseekCostPresentation(data, { todayKey, locale } = {}) {
     models: models.map((entry) => ({ ...entry, share: share(entry.tokens, modelMax) })),
     daily: days.map((entry) => ({ date: entry.date, label: formatDayKey(entry.date, locale), tokens: count(entry.tokens), cost: money(entry.costCny), share: share(count(entry.tokens), dayMax) })),
     partial: all.unpricedTokens > 0,
+    customPrices: source.customPrices === true,
     usageUrl,
   };
 }

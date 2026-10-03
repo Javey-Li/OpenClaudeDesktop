@@ -306,7 +306,8 @@ try {
     return (await requests()).filter((request) => request.method === "turn/start" && request.params.input[0].text === text).at(-1);
   }
   const acceptTurn = await planTurn("fixture:plan-review accept");
-  assert.deepEqual(acceptTurn.params.codeDesktop, { permissionMode: "plan", afterPlan: "acceptEdits" });
+  // C1/C5: DeepSeek turn/start always carries customization (null = none set, clears any earlier value).
+  assert.deepEqual(acceptTurn.params.codeDesktop, { permissionMode: "plan", afterPlan: "acceptEdits", customization: { instructions: null, modelParams: null } });
   metrics.planLabels = await planCard().locator(".sac-button-label").allTextContents();
   assert.deepEqual(metrics.planLabels, ["Reject", "Revise\u2026", "Accept", "Accept and allow edits"]);
   await planCard().getByRole("button", { name: "Accept", exact: true }).click();
@@ -315,7 +316,7 @@ try {
   await waitUntil(async () => (await preferences()).permission === "ask", "Accept continues in Manual");
   await settled();
   const primaryTurn = await planTurn("fixture:plan-review primary");
-  assert.deepEqual(primaryTurn.params.codeDesktop, { permissionMode: "plan", afterPlan: "acceptEdits" });
+  assert.deepEqual(primaryTurn.params.codeDesktop, { permissionMode: "plan", afterPlan: "acceptEdits", customization: { instructions: null, modelParams: null } });
   await planCard().getByRole("button", { name: "Accept and allow edits", exact: true }).click();
   await planCard().waitFor({ state: "detached" });
   await page.waitForFunction(() => document.querySelector(".sc-permission")?.textContent === "Accept edits");

@@ -25,7 +25,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { PRICING_URL, costCny, modelDisplayName, pricedModel, pricingTier } from './pricing.js'
+import { DEEPSEEK_PRICES, PRICING_URL, costCny, modelDisplayName, priceTable, pricedModel, pricingTier } from './pricing.js'
 
 const MAX = Number.MAX_SAFE_INTEGER
 const count = (value) => (Number.isSafeInteger(value) && value > 0 ? value : 0)
@@ -269,11 +269,11 @@ export function foldSession(events) {
 
 const round6 = (value) => Math.round(value * 1e6) / 1e6
 const emptyTally = () => ({ inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0, peakTokens: 0, unpricedTokens: 0, input: 0, cacheRead: 0, output: 0 })
-function tallyCell(tally, model, tier, cell) {
+function tallyCell(tally, model, tier, cell, table = DEEPSEEK_PRICES) {
   CATEGORIES.forEach((field, index) => { tally[field] = add(tally[field], cell[index]) })
   const tokens = cell.reduce(add, 0)
   if (tier === 'peak') tally.peakTokens = add(tally.peakTokens, tokens)
-  const cost = costCny(model, tier, Object.fromEntries(CATEGORIES.map((field, index) => [field, cell[index]])))
+  const cost = costCny(model, tier, Object.fromEntries(CATEGORIES.map((field, index) => [field, cell[index]])), table)
   if (!cost) {
     tally.unpricedTokens = add(tally.unpricedTokens, tokens)
     return
@@ -317,10 +317,13 @@ const tallyFor = (map, key) => map.get(key) ?? map.set(key, emptyTally()).get(ke
  *   models   all-time totals per priced model (old Flash ids merge into
  *            deepseek-flash) or raw model id, most tokens first, with displayName
  *   daily    totals per local day with tokens, ascending
+ * customPrices is true when the table is not the official one (Settings →
+ * Models → Pricing overrides).
  * @param {{billing?: ReturnType<typeof foldSessionBilling>}[]} summaries
  * @param {string} todayKey - local YYYY-MM-DD
+ * @param {Record<string, object>} [table] - pricing.js priceTable(overrides)
  */
-export function deepseekUsage(summaries, todayKey) {
+export function deepseekUsage(summaries, todayKey, table = DEEPSEEK_PRICES) {
   const today = typeof todayKey === 'string' && DAY_KEY.test(todayKey) ? todayKey : null
   const cutoff = today ? dayOffset(today, -29) : null
   const all = emptyTally(), recent = emptyTally(), current = emptyTally()
@@ -333,14 +336,14 @@ export function deepseekUsage(summaries, todayKey) {
       for (const [name, byTier] of Object.entries(byModel)) {
         const model = modelKey(name)
         if (!model || !isRecord(byTier)) continue
-        const group = pricedModel(model) ?? model
+        const group = pricedModel(model, table) ?? model
         for (const tier of TIERS) {
           const cell = byTier[tier]
           if (!validCell(cell)) continue
           const targets = [all, tallyFor(models, group), tallyFor(days, date)]
           if (cutoff && date >= cutoff && date <= today) targets.push(recent)
           if (date === today) targets.push(current)
-          for (const tally of targets) tallyCell(tally, model, tier, cell)
+          for (const tally of targets) tallyCell(tally, model, tier, cell, table)
         }
       }
     }
@@ -348,10 +351,11 @@ export function deepseekUsage(summaries, todayKey) {
   return {
     currency: 'CNY',
     pricingUrl: PRICING_URL,
+    customPrices: table !== DEEPSEEK_PRICES,
     allTime: totalsOf(all),
     last30Days: totalsOf(recent),
     today: totalsOf(current),
-    models: [...models].map(([model, tally]) => ({ model, displayName: modelDisplayName(model), ...totalsOf(tally) }))
+    models: [...models].map(([model, tally]) => ({ model, displayName: modelDisplayName(model, table), ...totalsOf(tally) }))
       .filter((entry) => entry.tokens > 0)
       .sort((left, right) => right.tokens - left.tokens || (left.model < right.model ? -1 : 1)),
     daily: [...days.keys()].sort().map((date) => ({ date, ...totalsOf(days.get(date)) })).filter((day) => day.tokens > 0),
@@ -378,8 +382,9 @@ const dayOffset = (key, offset) => {
  * `deepseek` field (deepseekUsage) carries the estimated cost.
  * @param {{days?: Record<string, number>, longestTurnSec?: number, billing?: object}[]} summaries
  * @param {string} todayKey - local YYYY-MM-DD
+ * @param {object | null} [prices] - the app's price overrides (params.codeDesktop.prices), merged over the official table
  */
-export function accountTokenUsage(summaries, todayKey) {
+export function accountTokenUsage(summaries, todayKey, prices) {
   const daily = new Map()
   let longestRunningTurnSec = 0
   for (const summary of summaries ?? []) {
@@ -412,7 +417,7 @@ export function accountTokenUsage(summaries, todayKey) {
     summary: { lifetimeTokens, peakDailyTokens, longestRunningTurnSec, currentStreakDays, longestStreakDays },
     dailyUsageBuckets: keys.map((startDate) => ({ startDate, tokens: daily.get(startDate) })),
     threadUsage: null,
-    deepseek: deepseekUsage(summaries, todayKey),
+    deepseek: deepseekUsage(summaries, todayKey, priceTable(prices)),
   }
 }
 

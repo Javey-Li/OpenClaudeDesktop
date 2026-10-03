@@ -1,5 +1,6 @@
 // Codex data adaptation for the current non-dock jM/EM approval-card branch.
 // This model does not grant permissions, hold request identities or invoke IPC.
+import { assistantName, escapeRegExp } from "./persona-store.mjs";
 const COMMAND = "item/commandExecution/requestApproval";
 const FILE = "item/fileChange/requestApproval";
 const PERMISSIONS = "item/permissions/requestApproval";
@@ -166,11 +167,12 @@ export function approvalCardModel(request, item) {
   // detail at all, so the card has no path box, no preview (:15596-15607) and no toggle.
   if (detail?.kind === "path" && heading?.meta && detail.text === heading.meta) detail = null;
   const clampTitle = kind === "file" ? !!heading : !!derived?.clampTitle;
-  const title = heading ? `Allow DeepSeek to ${heading.action}${heading.meta ? ` ${heading.meta}` : ""}?`
+  const who = assistantName(); // C2 persona; "DeepSeek" by default
+  const title = heading ? `Allow ${who} to ${heading.action}${heading.meta ? ` ${heading.meta}` : ""}?`
     : kind === "command"
-      ? params.kind === "writeStdin" ? "Allow DeepSeek to send input to this terminal?" : "Allow DeepSeek to run this command?"
-      : kind === "file" ? "Allow DeepSeek to edit files?"
-      : kind === "permissions" ? "Allow DeepSeek to use these permissions?" : "Unsupported approval request";
+      ? params.kind === "writeStdin" ? `Allow ${who} to send input to this terminal?` : `Allow ${who} to run this command?`
+      : kind === "file" ? `Allow ${who} to edit files?`
+      : kind === "permissions" ? `Allow ${who} to use these permissions?` : "Unsupported approval request";
   const supported = kind !== "unsupported";
   const deny = supported ? { key: kind === "permissions" ? "deny" : "decline", label: "Deny", primary: false } : null;
   // sessionGrantable (DeepSeek core): false when the core would not remember the
@@ -197,7 +199,7 @@ export function approvalAnnouncement(model) {
   if (!model) return "";
   const heading = model.heading;
   const action = announceText(heading ? heading.action
-    : model.title.replace(/^Allow DeepSeek to /, "").replace(/\?$/, ""));
+    : model.title.replace(new RegExp(`^Allow ${escapeRegExp(assistantName())} to `), "").replace(/^Allow DeepSeek to /, "").replace(/\?$/, ""));
   const meta = heading?.meta ? announceText(heading.meta) : null;
   const detail = model.detail?.text && model.detail.text !== heading?.meta ? announceText(model.detail.text) : null;
   let text = detail && meta ? `Permission requested: ${action}. ${detail}, ${meta}`

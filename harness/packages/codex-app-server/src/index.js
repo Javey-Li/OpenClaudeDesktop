@@ -66,6 +66,9 @@ import { UsageCache, accountTokenUsage, codeStats, localDayKey, sessionUsageSumm
 import { CacheRevisions, cachedValues, coldRow, descendantIds, matchesSearch, mustStayLoaded, ownsRunningJob, readColdThread, registerListProjection, seedable, titleOf } from './list.js'
 import { installLogParams, pluginRequest } from './plugins.js'
 import { attachDeveloperInstructions, attachStructuredOutput, developerInstructionsOf, hideWorkflowTool, outputSchemaOf, workflowsAllowedBy } from './structured.js'
+import { createCustomRef, applyCustomization, installCustomization } from './customization.js'
+import { profileReadResponse } from './profile.js'
+import { ALIASES as PRICE_ALIASES, DEEPSEEK_PRICES, PEAK_WINDOWS, PRICING_URL } from './pricing.js'
 
 export const name = 'codex-app-server'
 export const inject = ['codeDesktopStartup', 'agents', 'llm', 'sessionPersistence', 'sessions']
@@ -784,6 +787,8 @@ export function apply(ctx, config) {
     const selectionRef = { current: selection, assembled: undefined }
     const instructions = developerInstructionsOf(params)
     let scope
+    const customRef = createCustomRef()
+    applyCustomization(customRef, params)
     const handle = await ctx.agents.create({
       sessionId,
       meta: { cwd },
@@ -793,6 +798,7 @@ export function apply(ctx, config) {
         scope = agentCtx
         installModelSelection(agentCtx, selectionRef)
         if (instructions) attachDeveloperInstructions(agentCtx, instructions)
+        installCustomization(agentCtx, customRef, { catalog })
       },
     })
     // Kept with the bridge metadata: a resumed session gets its instructions back.
@@ -800,6 +806,7 @@ export function apply(ctx, config) {
     const thread = new LiveThread(handle, cwd, scope)
     thread.gateWorkflows(params, true)
     thread.selection = selectionRef
+    thread.custom = customRef
     threads.set(thread.id, thread)
     thread.hydrate([])
     await applyPermissions(thread, params)
@@ -820,6 +827,7 @@ export function apply(ctx, config) {
       const selectionRef = { current: undefined, assembled: undefined }
       const instructions = developerInstructionsOf(store.get(threadId))
       let scope
+      const customRef = createCustomRef()
       // requireSession again: the log can vanish between stat and resume.
       const handle = await requireSession(threadId, () => ctx.agents.resume({
         resumeSessionId: threadId,
@@ -832,6 +840,7 @@ export function apply(ctx, config) {
             ? { provider: logged.config.provider, model: logged.config.model, ...(logged.config.reasoningEffort && logged.adapterDefaults?.reasoningEffort !== true ? { reasoningEffort: logged.config.reasoningEffort } : {}) }
             : { ...route }
           installModelSelection(agentCtx, selectionRef)
+          installCustomization(agentCtx, customRef, { catalog })
         },
       }).catch((error) => {
         // The jsonl write lock is held by another process (the DeepSeek app,
@@ -841,6 +850,7 @@ export function apply(ctx, config) {
       const thread = new LiveThread(handle, handle.agent.session.header.cwd ?? header.cwd, scope)
       thread.gateWorkflows(undefined, true)
       thread.selection = selectionRef
+      thread.custom = customRef
       threads.set(threadId, thread)
       let events = []
       try {
@@ -1202,7 +1212,10 @@ export function apply(ctx, config) {
         return { rateLimits: empty, rateLimitsByLimitId: null, rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null }
       }
       case 'account/usage/read':
-        return accountTokenUsage(await readUsageSummaries(), localDayKey(Date.now()))
+        return accountTokenUsage(await readUsageSummaries(), localDayKey(Date.now()), params?.codeDesktop?.prices)
+      case 'codeDesktop/pricing/read':
+        // Settings → Models → Pricing: the official table the app's overrides start from.
+        return { official: DEEPSEEK_PRICES, aliases: PRICE_ALIASES, pricingUrl: PRICING_URL, peakWindows: PEAK_WINDOWS }
       case 'codeDesktop/stats/read':
         // The home stats card (cc43287c9-BMbiZYzF.js:3987-4004 getCodeStats → code-home.js Iw/Xw/eT/cT).
         return codeStats(await readUsageSummaries())
@@ -1244,6 +1257,7 @@ export function apply(ctx, config) {
         const thread = await openThread(requireId(params.threadId))
         await applyPermissions(thread, params)
         await applyRoute(thread, params)
+        applyCustomization(thread.custom, params)
         const response = sessionResponse(thread, { includeTurns: params.excludeTurns !== true })
         if (params.initialTurnsPage) response.initialTurnsPage = pageTurns(thread.projector, params.initialTurnsPage)
         response.turnsBackwardsCursor = null
@@ -1353,6 +1367,7 @@ export function apply(ctx, config) {
         const thread = await openThread(requireId(params.threadId))
         await applyPermissions(thread, params)
         await applyRoute(thread, params)
+        applyCustomization(thread.custom, params)
         const message = await inputMessage(params.input, thread)
         if (schema) thread.applyStructured(schema, message.id)
         thread.agent.followup(message)
@@ -1457,6 +1472,7 @@ export function apply(ctx, config) {
       case 'codeDesktop/plugin/setEnabled':
       case 'codeDesktop/plugin/remove':
         return pluginRequest(method, params, ctx.get('pluginManager'))
+      case 'codeDesktop/profile/read': return profileReadResponse({ entries: (() => { try { const e = ctx.get('configEditor'); return e ? e.entries() : ctx.get('loader')?.entries() } catch { return [] } })(), bundles: await profileBundles().catch(() => undefined), patchPath: configPath(), dir: ctx.get('profileContext')?.dir })
       case 'codeDesktop/diagnostics': {
         const tools = ctx.get('tools')
         let toolNames = []

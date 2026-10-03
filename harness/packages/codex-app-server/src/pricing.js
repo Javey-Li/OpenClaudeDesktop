@@ -39,20 +39,72 @@ export const DEEPSEEK_PRICES = Object.freeze({
   }),
 })
 
-const ALIASES = Object.freeze({ 'deepseek-v4-flash': 'deepseek-flash', 'deepseek-v4-flash-vision-exp': 'deepseek-flash' })
+export const ALIASES = Object.freeze({ 'deepseek-v4-flash': 'deepseek-flash', 'deepseek-v4-flash-vision-exp': 'deepseek-flash' })
 
-/** The canonical priced model id for a source model id, or null when DeepSeek publishes no price for it. */
-export function pricedModel(model) {
+/** The peak window in words, for Settings → Models. */
+export const PEAK_WINDOWS = 'Beijing Mon–Fri 09–12, 14–18'
+
+const MODEL_ID = /^[A-Za-z0-9_.:/-]{1,128}$/
+const MAX_ENTRIES = 50
+const PRICE_MAX = 10000
+const DISPLAY_NAME_MAX = 60
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\x00-\x1f\x7f]/
+const isRecord = (value) => !!value && typeof value === 'object' && !Array.isArray(value)
+const validPrice = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= PRICE_MAX
+
+/**
+ * Bridge-side validation of the app's price overrides (Settings → Models,
+ * account/usage/read params.codeDesktop.prices), the same rules as the app's
+ * prefs/model-settings.mjs: model id /^[A-Za-z0-9_.:\/-]{1,128}$/, at most 50
+ * entries, every off-peak and peak cacheHit / cacheMiss / output a finite CNY
+ * per 1M in 0–10000, optional displayName ≤60. Invalid entries are dropped.
+ * @returns {Record<string, {displayName?: string, offPeak: object, peak: object}>}
+ */
+export function normalizePrices(value) {
+  const out = {}
+  if (!isRecord(value)) return out
+  for (const [id, entry] of Object.entries(value)) {
+    if (Object.keys(out).length >= MAX_ENTRIES) break
+    if (id === '__proto__' || !MODEL_ID.test(id) || !isRecord(entry)) continue
+    const tiers = {}
+    for (const tier of ['offPeak', 'peak']) {
+      const prices = entry[tier]
+      if (!isRecord(prices) || !['cacheHit', 'cacheMiss', 'output'].every((field) => validPrice(prices[field]))) break
+      tiers[tier] = Object.freeze({ cacheHit: prices.cacheHit, cacheMiss: prices.cacheMiss, output: prices.output })
+    }
+    if (!tiers.offPeak || !tiers.peak) continue
+    const name = typeof entry.displayName === 'string' ? entry.displayName.trim() : ''
+    const official = Object.hasOwn(DEEPSEEK_PRICES, id) ? DEEPSEEK_PRICES[id].displayName : undefined
+    const displayName = name && name.length <= DISPLAY_NAME_MAX && !CONTROL.test(name) ? name : official
+    out[id] = Object.freeze({ ...(displayName ? { displayName } : {}), ...tiers })
+  }
+  return out
+}
+
+/** The official table with the app's overrides merged over it (null/invalid → official). */
+export function priceTable(overrides) {
+  const normalized = normalizePrices(overrides)
+  return Object.keys(normalized).length ? Object.freeze({ ...DEEPSEEK_PRICES, ...normalized }) : DEEPSEEK_PRICES
+}
+
+/**
+ * The canonical priced model id for a source model id, or null when the table
+ * has no price for it. An exact entry wins; the old Flash ids are billed as
+ * deepseek-flash only when the table has no entry of their own.
+ */
+export function pricedModel(model, table = DEEPSEEK_PRICES) {
   if (typeof model !== 'string') return null
+  if (Object.hasOwn(table, model)) return model
   const id = model.trim().toLowerCase()
-  if (Object.hasOwn(DEEPSEEK_PRICES, id)) return id
-  return Object.hasOwn(ALIASES, id) ? ALIASES[id] : null
+  if (Object.hasOwn(table, id)) return id
+  return Object.hasOwn(ALIASES, id) && Object.hasOwn(table, ALIASES[id]) ? ALIASES[id] : null
 }
 
 /** The display name the app uses for a model ('4.1 Flash', '4 Pro'), else the id itself. */
-export function modelDisplayName(model) {
-  const priced = pricedModel(model)
-  return priced ? DEEPSEEK_PRICES[priced].displayName : model
+export function modelDisplayName(model, table = DEEPSEEK_PRICES) {
+  const priced = pricedModel(model, table)
+  return priced ? table[priced].displayName ?? priced : model
 }
 
 const BEIJING_OFFSET_MS = 8 * 3600 * 1000
@@ -76,11 +128,12 @@ export const pricingTier = (time) => (isPeakTime(time) ? 'peak' : 'offPeak')
  * @param {string} model
  * @param {'peak' | 'offPeak'} tier
  * @param {{inputTokens?: number, cacheReadTokens?: number, cacheWriteTokens?: number, outputTokens?: number}} tokens
+ * @param {Record<string, object>} [table] - priceTable(overrides); the official prices by default
  * @returns {{input: number, cacheRead: number, output: number, total: number} | null}
  */
-export function costCny(model, tier, { inputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0, outputTokens = 0 } = {}) {
-  const priced = pricedModel(model)
-  const price = priced && DEEPSEEK_PRICES[priced][tier === 'peak' ? 'peak' : 'offPeak']
+export function costCny(model, tier, { inputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0, outputTokens = 0 } = {}, table = DEEPSEEK_PRICES) {
+  const priced = pricedModel(model, table)
+  const price = priced && table[priced][tier === 'peak' ? 'peak' : 'offPeak']
   if (!price) return null
   const input = ((inputTokens + cacheWriteTokens) * price.cacheMiss) / 1e6
   const cacheRead = (cacheReadTokens * price.cacheHit) / 1e6
