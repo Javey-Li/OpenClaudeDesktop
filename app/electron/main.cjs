@@ -1107,7 +1107,16 @@ app.whenReady().then(async () => {
       case "workflow-start": {
         if(!p.plan&&!initial?.models?.some(model=>(model.id===p.model||model.model===p.model)))throw Error('Choose an available DeepSeek model.');
         if(p.effort&&!initial?.models?.find(model=>(model.id===p.model||model.model===p.model))?.supportedReasoningEfforts?.some(e=>e.reasoningEffort===p.effort))throw Error('Choose an available reasoning effort.');
-        return workflowService.start({...p,cwd:workspaceQueryRoot(p.cwd)});
+        // Agents take the session Mode's access (permission-policy.mjs workflowAccess), derived here, never sent.
+        const { workflowAccess, validateBypassRequest } = await import("./permission-policy.mjs");
+        const access = workflowAccess({ permission: p.permission, mode: p.mode });
+        if (access === "danger-full-access" && !p.plan) {
+          const owner = client;
+          await validateBypassRequest({ sandbox: "danger-full-access" }, () => config, () => owner.request("configRequirements/read", {}));
+          if (owner !== client) throw new Error("The DeepSeek connection changed. Try again.");
+        }
+        const { permission, mode, ...options } = p;
+        return workflowService.start({...options,access,cwd:workspaceQueryRoot(p.cwd)});
       }
       case "workflow-stop": return workflowService.stop(p.id);
       case "background-read": return backgroundOperations.read(p);

@@ -40,6 +40,16 @@ export function approvedPlanPermission(request, payload, afterPlan) {
   const chosen = payload?.codeDesktop?.afterPlan;
   return afterPlanPermission(chosen === 'auto' || chosen === 'ask' || chosen === 'acceptEdits' ? chosen : afterPlan);
 }
+// /workflow runner agents follow the session's Mode at launch. They never ask (approvalPolicy never:
+// the runner's own core has no approval card), so each Mode becomes an access level:
+//   Auto, Accept edits   workspace-write: create and edit files in the working directory
+//   Bypass permissions   danger-full-access (validated like any bypass request)
+//   Plan, Ask, chat      read-only: Plan never edits, and Ask's per-edit approval has no card here
+export const WORKFLOW_ACCESS = Object.freeze(['read-only', 'workspace-write', 'danger-full-access']);
+export function workflowAccess({ permission = 'auto', mode = 'code' } = {}) {
+  if (!PERMISSION_MODES.includes(permission) || mode !== 'code' || permission === 'plan' || permission === 'ask') return 'read-only';
+  return permission === 'bypass' ? 'danger-full-access' : 'workspace-write';
+}
 export function turnPermissionParams({ cwd, additionalFolders = [], ...options } = {}) {
   const { sandbox, ...base } = threadPermissionParams(options);
   return { ...base, sandboxPolicy: sandbox === 'danger-full-access' ? { type: 'dangerFullAccess' }

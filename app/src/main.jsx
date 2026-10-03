@@ -1,4 +1,4 @@
-import { threadPermissionParams, turnPermissionParams, approvesPlan, afterPlanPermission, approvedPlanPermission } from '../electron/permission-policy.mjs';
+import { threadPermissionParams, turnPermissionParams, approvesPlan, afterPlanPermission, approvedPlanPermission, workflowAccess } from '../electron/permission-policy.mjs';
 import { useBypassPermission, SourceBypassDialog } from './source-bypass-permission.jsx';
 import {SourceToastProvider, useSourceToasts} from './source-toast.jsx';
 import { reportActionError, sessionActionErrorKind, ACTION_ERROR_COPY } from "./action-error-model.mjs";
@@ -2048,7 +2048,7 @@ function App() {
           case "diff": togglePaneTile("changes"); break;
           case "tasks": togglePaneTile("tasks"); break;
           case "workflows": changeTileView({taskViews:[]});openPaneTile('tasks');break;
-          case "workflow": setWorkflowLaunch({...parseWorkflowLaunch(args),threadId:current,cwd:workdir,model,effort,after:items.at(-1)?.id});break;
+          case "workflow": setWorkflowLaunch({...parseWorkflowLaunch(args),threadId:current,cwd:workdir,model,effort,permission:effectivePermission,mode,access:workflowAccess({permission:effectivePermission,mode}),after:items.at(-1)?.id});break;
           case "rename":
             if(args){if(!await renameSession(current,args))return;}else setRename({id:current,name:session?.name||session?.preview||""});break;
           case "add-dir": {
@@ -3164,7 +3164,7 @@ function App() {
       {shownActionDialog.value?.kind === "review" && <ReviewDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("review")} initialInstructions={shownActionDialog.value.instructions} workspaceInfo={workspaceInfo}
         onClose={() => setActionDialog(null)} onSubmit={async target => { const dialog = actionDialog; await performOperation("review", {target}); setActionDialog(value => value === dialog ? null : value); }} />}
       {shownWhatsNew.value && <LocalReleaseNotes key={`whats-new-${shownWhatsNew.key}`} open={shownWhatsNew.open} onExited={shownWhatsNew.onExited} onClose={() => setWhatsNew(false)} />}
-      {workflowLaunch&&<WorkflowLaunch initial={workflowLaunch} onClose={()=>setWorkflowLaunch(null)} onPick={()=>call('workflow-pick')} onStart={async options=>{const run=await call('workflow-start',{...options,threadId:workflowLaunch.threadId,model:workflowLaunch.model,effort:workflowLaunch.effort,cwd:workflowLaunch.cwd,after:workflowLaunch.after});setWorkflowRuns(old=>mergeWorkflow(old,run));if(currentRef.current===run.threadId)openWorkflow(run.id);}}/>}
+      {workflowLaunch&&<WorkflowLaunch initial={workflowLaunch} onClose={()=>setWorkflowLaunch(null)} onPick={()=>call('workflow-pick')} onStart={async options=>{const run=await call('workflow-start',{...options,threadId:workflowLaunch.threadId,model:workflowLaunch.model,effort:workflowLaunch.effort,cwd:workflowLaunch.cwd,permission:workflowLaunch.permission,mode:workflowLaunch.mode,after:workflowLaunch.after});setWorkflowRuns(old=>mergeWorkflow(old,run));if(currentRef.current===run.threadId)openWorkflow(run.id);}}/>}
       {<SourceSettings open={!!settings} config={{...boot?.config,...localPreferences,theme,displayName,fastMode}} model={model} effort={effort} permission={permission}
         boot={boot} busy={running || sending || actionPending} onSave={updatePreferences} onClose={()=>setSettings(false)}
         initialSection={typeof settings === "string" ? settings : undefined} readUsage={readAccountUsageDetails} desktopCall={call}

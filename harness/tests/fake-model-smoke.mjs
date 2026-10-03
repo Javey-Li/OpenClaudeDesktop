@@ -24,6 +24,7 @@ childProcess.spawn = (...args) => {
 }
 const { CodexClient } = require('../../app/electron/codex.cjs')
 
+const cleanup = []
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cd-fake-model-'))
 const workspace = path.join(home, 'workspace')
 await fs.mkdir(workspace, { recursive: true })
@@ -207,13 +208,20 @@ try {
 
   // The /workflow runner's agents (codexAgent.js buildThreadParams): approvalPolicy never and the
   // launch's sandbox on thread/start, nothing on turn/start; read-only, or workspace-write with --write.
-  for (const [sandbox, file, expected] of [['read-only', 'ro.txt', false], ['workspace-write', 'rw.txt', true]]) {
+  // Mode → access (app permission-policy.mjs workflowAccess): Plan/Ask read-only, Auto/Accept edits
+  // workspace-write, Bypass danger-full-access (which also reaches outside the workspace).
+  // Not under the temp dir: workspace-write also allows platform temporary areas.
+  const outside = await fs.mkdtemp(path.join(os.homedir(), '.cd-fake-model-outside-'))
+  cleanup.push(outside)
+  for (const [sandbox, target, expected] of [['read-only', path.join(workspace, 'ro.txt'), false], ['workspace-write', path.join(workspace, 'rw.txt'), true],
+    ['workspace-write', path.join(outside, 'ww-outside.txt'), false], ['danger-full-access', path.join(outside, 'bypass.txt'), true]]) {
     const agent = (await client.request('thread/start', { cwd: workspace, model, approvalPolicy: 'never', sandbox })).thread.id
     from = events.length
-    await client.request('turn/start', { threadId: agent, input: [{ type: 'text', text: `WRITE_FILE ${path.join(workspace, file)}` }] })
+    await client.request('turn/start', { threadId: agent, input: [{ type: 'text', text: `WRITE_FILE ${target}` }] })
     await turnDone(agent, from)
-    const exists = await fs.access(path.join(workspace, file)).then(() => true, () => false)
-    check(`a runner agent with ${sandbox} access ${expected ? 'writes' : 'cannot write'} without asking`, () => {
+    const exists = await fs.access(target).then(() => true, () => false)
+    const where = target.startsWith(workspace) ? 'in' : 'outside'
+    check(`a runner agent with ${sandbox} access ${expected ? 'writes' : 'cannot write'} ${where} the workspace without asking`, () => {
       assert.equal(exists, expected)
       assert.ok(!events.slice(from).some((event) => event.kind === 'request'), 'an approval was asked')
     })
@@ -323,5 +331,6 @@ try {
   try { client.stop() } catch {}
   server.close()
   await fs.rm(home, { recursive: true, force: true }).catch(() => {})
+  for (const dir of cleanup) await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
   process.exit(exitCode)
 }

@@ -17,9 +17,9 @@ process.once('message',async options=>{
   // commandArgs: the core's arguments (the DeepSeek bridge script + app-server --stdio); absent = the runner's Codex default.
   const clientOptions={command:options.command,...(Array.isArray(options.commandArgs)?{args:options.commandArgs}:{}),clientInfo:{name:'code-desktop-workflows',title:'Code Desktop',version:options.version}};
   if(!options.plan){const client=await getClient(clientOptions);send({type:'connection',pid:client.pid});}
-  // The launch chooses the access (read-only, or workspace-write when the user let agents edit files);
-  // script options cannot raise it. Agents never ask (approvalPolicy never): the choice was made at launch.
-  const sandbox=options.write===true?'workspace-write':'read-only';
+  // The access comes from the session's Mode at launch (permission-policy.mjs workflowAccess);
+  // script options cannot raise it. Agents never ask (approvalPolicy never): the Mode chose already.
+  const sandbox=['workspace-write','danger-full-access'].includes(options.access)?options.access:'read-only';
   const controlled=opts=>({...opts,cwd:options.cwd,sandbox,clientOptions,pinnedModel:options.model});
   const result=await runWorkflowSource(options.source,{
    args:options.args,plan:options.plan,journal,defaultModel:options.model,pinnedModel:options.model,

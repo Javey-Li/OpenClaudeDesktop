@@ -29,3 +29,15 @@ test('a workflow tool item renders as its run row, keeping its turn',()=>{
   // A run the core has not named yet is still addressable by its call id.
   assert.equal(modelWorkflowRuns([{id:'w2',workflowRun:{...run,id:'call-w2'}}],'t')[0].id,'call-w2');
 });
+
+test('/workflow agents take the access of the session Mode they were launched in',async()=>{
+  const {workflowAccess}=await import('../electron/permission-policy.mjs');
+  assert.equal(workflowAccess({permission:'auto'}),'workspace-write');
+  assert.equal(workflowAccess({permission:'acceptEdits'}),'workspace-write');
+  assert.equal(workflowAccess({permission:'bypass'}),'danger-full-access');
+  assert.equal(workflowAccess({permission:'plan'}),'read-only');
+  assert.equal(workflowAccess({permission:'ask'}),'read-only','Ask has no approval card for workflow agents');
+  assert.equal(workflowAccess({permission:'bypass',mode:'chat'}),'read-only');
+  assert.equal(workflowAccess({permission:'root'}),'read-only');
+  assert.equal(workflowAccess(),'workspace-write','the default Mode (Auto) edits files');
+});
