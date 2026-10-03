@@ -1,0 +1,131 @@
+// Host actions mapped to real Codex 0.155.1 capabilities. Claude 2.2553.1
+// cc183b3ab supplies names/aliases; there is no app-server CLI command catalog.
+export const sessionCommands = [
+  {id:'compact',label:'Compact conversation',description:'Summarize earlier context in this session',session:true,idle:true,icon:'Archive'},
+  {id:'clear',aliases:['reset','new'],label:'New session',description:'Clear conversation history and free up context'},
+  {id:'review',label:'Review code',description:'Review changes, a branch, commit, or instructions',argumentHint:'[instructions]',session:true,idle:true,icon:'Search'},
+  {id:'fork',label:'Fork session',description:'Fork this session into a new one',argumentHint:'[prompt]',session:true,idle:true,icon:'GitBranch'},
+  {id:'rename',aliases:['name'],label:'Rename session',description:'Rename this session',argumentHint:'[new title]',session:true},
+  {id:'model',label:'Choose model',description:'Set the model for this session',argumentHint:'[model-id]',connected:true,idle:true},
+  {id:'effort',label:'Reasoning effort',description:'Set the effort level for this session',argumentHint:'[level]',connected:true,idle:true},
+  {id:'fast',label:'Fast mode',description:'Turn fast mode on or off',argumentHint:'[on|off]',connected:true,idle:true},
+  {id:'plan',label:'Plan mode',description:'Switch to plan mode or view this session’s plan',argumentHint:'[open|<description>]',idle:true},
+  {id:'permissions',aliases:['allowed-tools'],label:'Permission mode',description:'Change the permission mode',idle:true},
+  {id:'resume',aliases:['continue'],label:'Find a session',description:'Search and continue a DeepSeek session from this computer',argumentHint:'[search]'},
+  {id:'status',label:'Session status',description:'Show this session’s version, model, environment, and account',session:true,idle:true,icon:'UsageGaugeMiddle'},
+  {id:'usage',aliases:['stats','cost'],label:'Usage',description:'Show plan usage and rate limits'},
+  {id:'diff',label:'Show changes',description:'Show or hide this session’s changes',session:true},
+  {id:'workflow',label:'Run workflow',description:'Run a local dynamic workflow',argumentHint:'[path] [--plan] [--resume run-id] [--args JSON]',session:true},
+  {id:'workflows',label:'Workflows',description:'Show workflows in background tasks',session:true},
+  {id:'tasks',aliases:['bashes'],label:'Background tasks',description:'Show this session’s background tasks',session:true},
+  {id:'config',aliases:['settings'],label:'Settings',description:'Open Code settings'},
+  {id:'theme',label:'Appearance',description:'Set the appearance (system, light, or dark)',argumentHint:'[system|light|dark]'},
+  {id:'sandbox',label:'Sandbox',description:'Open Code sandbox settings'},
+  {id:'add-dir',label:'Add directory',description:'Add another folder to this session',argumentHint:'[path]'},
+  {id:'export',label:'Export conversation',description:'Export this session’s transcript',session:true,idle:true},
+  {id:'rewind',label:'Rewind conversation',description:'Rewind the session to an earlier message',session:true,idle:true},
+  {id:'skills',label:'Skills',description:'Browse and manage your skills'},
+  {id:'mcp',label:'Connectors',description:'Manage MCP connectors'},
+  // Existing local plugin management is real; unsupported /plugin install is not advertised.
+  {id:'plugin',aliases:['plugins','marketplace'],label:'Plugins',description:'Manage plugins'},
+  {id:'help',label:'Help',description:'Get help and support'},
+];
+const findCommand = name => sessionCommands.find(c => c.id === name || c.aliases?.includes(name));
+export function commandSuggestion(name) {
+  const distance = (a,b) => { let row=Array.from({length:b.length+1},(_,i)=>i); for(let i=1;i<=a.length;i++){const next=[i];for(let j=1;j<=b.length;j++)next[j]=Math.min(next[j-1]+1,row[j]+1,row[j-1]+(a[i-1]===b[j-1]?0:1));row=next;}return row[b.length]; };
+  const ranked=sessionCommands.map(c=>({id:c.id,d:Math.min(...[c.id,...c.aliases||[]].map(n=>distance(name,n)))})).sort((a,b)=>a.d-b.d);
+  return ranked[0]?.d <= (name.length<=4?1:2) && ranked[0].d !== ranked[1]?.d ? ranked[0].id : null;
+}
+// Skills in '/' (cc183b3ab-BNeMUZS1.js:619-700: the slash list is the session's supported commands, which
+// include its user-invocable skills; c099c328d-CbkcmYSW.js:10637-10690 maps each name to its entry). Only
+// enabled skills whose name is one slash token (plugin-qualified names keep their ':' or '.') reach the list;
+// a built-in command keeps its own name.
+const SLASH_NAME=/^[a-z0-9][a-z0-9_:.-]*$/i;
+export function slashSkills(skills=[]) {
+  const seen=new Set(),out=[];
+  for(const skill of Array.isArray(skills)?skills:[]){
+    const name=typeof skill?.name==='string'?skill.name:'',key=name.toLowerCase();
+    if(!SLASH_NAME.test(name)||findCommand(key)||seen.has(key)||typeof skill.path!=='string'||!skill.path)continue;
+    seen.add(key);out.push({name,description:skill.description||'',argumentHint:skill.argumentHint||'',path:skill.path});
+  }
+  return out;
+}
+const findSkill=(name,context)=>slashSkills(context?.skills).find(skill=>skill.name.toLowerCase()===name);
+// A known skill parses as {skill, args} with no error: send() treats it as a message, whose leading
+// '/name' becomes the {type:'skill'} input item.
+export function parseSessionCommand(text, context={}) {
+  const value=String(text).trim(),named=/^\/([a-z0-9][a-z0-9_:.-]*)(?=\s|$)/i.exec(value);
+  const skill=named&&!findCommand(named[1].toLowerCase())?findSkill(named[1].toLowerCase(),context):null;
+  if(skill)return {id:skill.name,args:value.slice(named[0].length).trim(),requested:named[1].toLowerCase(),command:null,skill,suggestion:null,error:null};
+  const match=/^\/([a-z0-9][a-z0-9_-]*)\b/i.exec(value);
+  if(!match || value[match[0].length]==='/')return null;
+  const requested=match[1].toLowerCase(),command=findCommand(requested),id=command?.id||requested,args=value.slice(match[0].length).trim();
+  const suggestion=command?null:commandSuggestion(requested);
+  let error=null;
+  if(!command)error=requested==='cd'?'Changing the directory isn’t available for this session.':['feedback','bug','share','login','logout','ultrareview','usage-credits','extra-usage'].includes(requested)?`/${requested} isn’t available in the app.`:`/${requested} isn’t a command here.`;
+  else if(/[\r\n]/.test(value))error=`/${requested} only works on a single line. Remove the extra lines and try again.`;
+  else if(args&&!command.argumentHint)error=`/${requested} doesn’t take arguments here. Remove the text after the command and try again.`;
+  return {id,args,requested,command,suggestion,error};
+}
+// The core request behind each session action. A core lists the ones it
+// cannot serve in initialize capabilities.unsupportedMethods (boot.core).
+const COMMAND_METHODS={fork:'thread/fork',review:'review/start',rewind:'thread/revert'};
+export function unsupportedCommand(id, context={}) {
+  return context.unsupportedMethods?.includes(COMMAND_METHODS[id])?'Not available with the DeepSeek core yet':'';
+}
+export function commandUnavailable(command, context={}) {
+  const unsupported=unsupportedCommand(command.id,context);
+  if(unsupported)return unsupported;
+  if(command.id==='workflow'&&context.dynamicWorkflows!==true)return 'Enable Dynamic workflows in Code settings first';
+  if(command.id==='status'&&context.running)return 'Session info is available when DeepSeek finishes this turn.';
+  if(command.id==='fast'&&context.fastAvailable===false)return 'Fast mode is not available for this model';
+  if(command.id==='effort'&&context.effortAvailable===false)return 'Reasoning effort is not available for this model';
+  if(command.session&&!context.current)return 'Open a session first';
+  if(command.session&&context.archived)return 'Restore this archived session first';
+  if((command.session||command.connected)&&!context.connected)return 'Reconnect to DeepSeek first';
+  if((command.session||command.idle)&&context.loading)return 'Wait for the session to load';
+  if(command.idle&&(context.running||context.sending||context.pending))return 'Wait for the current task to finish or stop it';
+  if(['compact','fork','review','rewind'].includes(command.id)&&!context.hasHistory)return 'Send a message first';
+  return '';
+}
+export function slashQuery(text) {
+  const value=String(text);
+  return value.startsWith('/')&&!/^\/\s/.test(value)&&value.length<=51&&!/[\r\n]/.test(value)?value.slice(1):null;
+}
+export function matchCommands(query, context={}) {
+  const value=String(query).replace(/^\//,'').toLowerCase();
+  if(value.length>50)return [];
+  const spaced=/^(\S+)\s+(\S)?/.exec(value);
+  if(spaced&&(spaced[2]||findCommand(spaced[1])||findSkill(spaced[1],context)))return [];
+  const q=value.trim();
+  const rank=c=>c.id===q?0:c.aliases?.includes(q)?1:c.id.startsWith(q)?2:c.aliases?.some(a=>a.startsWith(q))?3:4;
+  const commands=sessionCommands.filter(c=>!commandUnavailable(c,context)&&(!q||[c.id,...c.aliases||[]].some(n=>n.includes(q))))
+    .sort((a,b)=>rank(a)-rank(b)).map(c=>({...c,matchedAlias:q&&!c.id.includes(q)?c.aliases?.find(n=>n.includes(q)):null}));
+  // Skill rows follow the host commands: {id: name, description, argumentHint, kind:'skill', path}.
+  const skills=slashSkills(context.skills).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill',path:skill.path,matchedAlias:null}))
+    .filter(skill=>!q||skill.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
+  return [...commands,...skills];
+}
+export function commandArgumentHint(text) {
+  if(text.length>128||!/^\/\S+[ \t]+$/.test(text))return '';
+  return findCommand(text.trim().slice(1).toLowerCase())?.argumentHint||'';
+}
+// '/plan [open|share|<description>]' (cc43287c9-BMbiZYzF.js:28880-28916 vG). Not yet planning: switch to Plan, open the
+// pane when a plan exists (bare/open) or leave the description in the draft. Already planning: open the pane when it
+// can, otherwise the 'already_in_plan' / 'already_in_plan_no_plan' notice; a description still goes to the draft
+// with 'already_in_plan'. Plan not selectable: only a bare '/plan' over a written plan opens the pane.
+export function planCommandAction({arg='',currentMode,planSelectable=true,hasPlan=false,canOpenPane=false,paneAlreadyOpen=false}={}){
+  const planning=currentMode==='plan',lower=arg.toLowerCase(),described=arg!==''&&lower!=='open'&&lower!=='share',openable=hasPlan&&canOpenPane&&!paneAlreadyOpen;
+  if(!planning&&!planSelectable)return described||!openable?{kind:'unavailable'}:{kind:'run',switchToPlan:false,openPane:true,notice:null,composerText:null};
+  if(described)return {kind:'run',switchToPlan:!planning,openPane:planning&&openable,notice:planning?'already_in_plan':null,composerText:arg};
+  return {kind:'run',switchToPlan:!planning,openPane:openable,notice:planning?(hasPlan?(openable?null:'already_in_plan'):'already_in_plan_no_plan'):null,composerText:null};
+}
+export const operationPending=operation=>['starting','running','unknown'].includes(operation?.phase);
+export function rateLimitRows(result) {
+  const entries=result?.rateLimitsByLimitId&&Object.keys(result.rateLimitsByLimitId).length?Object.entries(result.rateLimitsByLimitId):result?.rateLimits?[['codex',result.rateLimits]]:[];
+  return entries.flatMap(([key,limits])=>['primary','secondary'].flatMap(window=>{
+    const data=limits?.[window];if(!data||!Number.isFinite(data.usedPercent))return [];
+    const minutes=data.windowDurationMins;
+    return [{key:`${key}:${window}`,label:`${limits.limitName||key} · ${Number.isFinite(minutes)&&minutes>0?minutes%1440===0?`${minutes/1440} days`:minutes%60===0?`${minutes/60} hours`:`${minutes} minutes`:window}`,remaining:Math.max(0,Math.min(100,100-data.usedPercent)),resetsAt:Number.isFinite(data.resetsAt)?data.resetsAt:null}];
+  }));
+}

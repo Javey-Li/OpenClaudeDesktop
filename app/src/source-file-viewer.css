@@ -1,0 +1,252 @@
+/* Files pane file viewer (source-file-viewer.jsx; 2.2553.1 cd2efac6e jo).
+   gc (:3517-3530): "h-full flex flex-col overflow-hidden"; the body slot is
+   "flex-1 min-h-0". */
+.source-file-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  outline: none;
+}
+/* qn flush (cdf69fdd3-DM0fGX-C.js:13-36): epitaxy-panel-subheader flex
+   items-center gap-[4px] shrink-0 px-md h-[calc(2rem*var(--cds-rem-scale,1))]. */
+.sfv-subheader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: calc(2rem * var(--cds-rem-scale, 1));
+  padding-inline: var(--cds-pad-md);
+  min-width: 0;
+}
+/* Yo copy-path button: text-body text-secondary flex flex-1 min-w-0 text-left
+   rounded-[3px] -mx-0.75 hover:bg-fill-ghost-hover focus-visible:shadow-focus. */
+.sfv-path {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin: 0 calc(var(--spacing, 0.25rem) * -0.75);
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cds-text-secondary);
+  font-family: var(--cds-font-sans);
+  font-size: var(--cds-font-size-body);
+  line-height: var(--cds-leading-body);
+  text-align: left;
+  cursor: var(--cds-cursor-interactive, default);
+}
+button.sfv-path:hover {
+  background-color: var(--cds-fill-ghost-hover);
+}
+button.sfv-path:focus-visible {
+  outline: none;
+  box-shadow: var(--cds-focus-shadow);
+}
+/* Ma: -mx-1 -my-1 flex min-w-0 overflow-x-auto px-1 py-1 whitespace-nowrap
+   [direction:rtl] with a hidden scrollbar; the ltr path is "flex min-w-full
+   shrink-0 items-baseline"; folders and the separator are shrink-0 text-muted,
+   segments px-0.75. */
+.sfv-breadcrumb {
+  display: flex;
+  min-width: 0;
+  margin: calc(var(--spacing, 0.25rem) * -1);
+  padding: calc(var(--spacing, 0.25rem) * 1);
+  overflow-x: auto;
+  white-space: nowrap;
+  direction: rtl;
+  scrollbar-width: none;
+}
+.sfv-breadcrumb::-webkit-scrollbar {
+  display: none;
+}
+.sfv-breadcrumb-path {
+  display: flex;
+  min-width: 100%;
+  flex-shrink: 0;
+  align-items: baseline;
+}
+.sfv-crumb {
+  flex-shrink: 0;
+  padding-inline: calc(var(--spacing, 0.25rem) * 0.75);
+}
+.sfv-crumb-lead {
+  flex-shrink: 0;
+  padding-left: calc(var(--spacing, 0.25rem) * 0.75);
+  color: var(--cds-text-muted);
+}
+.sfv-crumb-dir,
+.sfv-crumb-separator {
+  flex-shrink: 0;
+  color: var(--cds-text-muted);
+}
+.sfv-crumb-name {
+  color: var(--cds-text-primary);
+}
+.sfv-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.sfv-body > .source-pane-state,
+.sfv-body > .source-empty-state {
+  flex: 1 1 0;
+  min-height: 0;
+}
+/* [data-file-viewer] "epitaxy-diff flex-1 min-h-0 [contain:strict]" around the
+   File renderer's "h-full overflow-y-auto select-text" scroller. The file pane
+   scroller reserves stable both-edges gutters (panes-tile-current.js:1728). The
+   code takes the selected code theme's foreground and background (the
+   --code-theme-* variables main.jsx writes), as the Changes body does. */
+.sfv-viewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  contain: strict;
+}
+.sfv-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+  padding-block: var(--cds-pad-xs);
+  background: light-dark(var(--code-theme-light-bg, transparent), var(--code-theme-dark-bg, transparent));
+  color: light-dark(var(--code-theme-light-fg, var(--cds-text-primary)), var(--code-theme-dark-fg, var(--cds-text-primary)));
+  font: var(--cds-font-size-code) / var(--cds-leading-code) var(--cds-font-mono);
+  font-feature-settings: "liga", "clig", "calt";
+  user-select: text;
+}
+/* ji (cd2efac6e :990-1012) note: text-footnote text-muted. */
+.sfv-plain-note {
+  margin: 0 0 var(--cds-pad-xs);
+  padding-inline: var(--cds-pad-md);
+  color: var(--cds-text-muted);
+  font-family: var(--cds-font-sans);
+  font-size: var(--cds-font-size-footnote);
+  line-height: var(--cds-leading-footnote);
+  user-select: none;
+}
+.sfv-line {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  min-height: 1lh;
+}
+/* Jump range (da :1519-1549): the theme's editor.lineHighlightBackground, or
+   ca = color-mix(in srgb, currentColor 8%, transparent); the local code themes
+   define no line highlight colour, so ca applies (light and dark follow the
+   code foreground). */
+.sfv-line[data-active] {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+/* Gutter as .sft-read-number: muted tabular digits, content-box width sized by
+   the last line's digit count, 2ch + 5px before and 1ch after. */
+.sfv-number {
+  box-sizing: content-box;
+  min-width: var(--sfv-number-width, 3ch);
+  padding-left: calc(2ch + 5px);
+  padding-right: 1ch;
+  text-align: right;
+  color: var(--cds-text-muted);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.sfv-number::before {
+  content: attr(data-number);
+}
+.sfv-line > code {
+  display: block;
+  padding-right: 1ch;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Previews (cd2efac6e q, :4478-4480): the scroller classes are the loaded
+   source utilities; the body slot is a flex column, so the scroller takes the
+   remaining height. */
+.sfv-preview {
+  min-width: 0;
+}
+/* .epitaxy-markdown.epitaxy-file-prose (c19e90103-B6esh4pG.css): a 16px item
+   gap and the file heading scale (h1 22/28, h2 17/22 text-primary, h3 15,
+   h4-h6 semibold), the first heading flush with the top. The local response
+   renderer is a flex column whose gap replaces the block margins, so each
+   source margin is written as its difference from the 16px gap. */
+.sfv-prose {
+  --chat-item-gap: 16px;
+}
+.sfv-prose > .source-markdown h1 {
+  margin-block: 12px 0;
+  font-size: 22px;
+  line-height: 28px;
+}
+.sfv-prose > .source-markdown h2 {
+  margin-block: 8px -8px;
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--cds-text-primary);
+}
+.sfv-prose > .source-markdown h3 {
+  margin-block: 4px -10px;
+  font-size: 15px;
+}
+.sfv-prose > .source-markdown :is(h4, h5, h6) {
+  margin-block: 0 -12px;
+  font-weight: var(--cds-font-weight-semibold, 600);
+  font-variation-settings: var(--cds-font-wght-semibold, normal);
+}
+.sfv-prose > .source-markdown > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+/* EpitaxyCsvPreview: the table (the response Markdown table look) scrolls
+   inside its focusable region. */
+.sfv-csv-region:focus-visible {
+  outline: none;
+  box-shadow: var(--cds-focus-shadow);
+}
+/* Eye/Code toggle after the flex-1 breadcrumb. */
+.sfv-view-toggle {
+  flex: none;
+}
+/* ki frontmatter grid and the ji plain <pre>: the loaded utilities assume
+   the source's preflight (no UA margins on dl/dd/pre), which the local
+   stylesheet does not carry. */
+.sfv-frontmatter {
+  margin-top: 0;
+  margin-inline: 0;
+}
+.sfv-frontmatter > dd {
+  margin: 0;
+}
+.sfv-plain-source {
+  margin: 0;
+}
+/* Progressive chunks (.epitaxy-markdown.epitaxy-file-prose-chunk,
+   c19e90103-B6esh4pG.css): the item gap between chunks, and a chunk that
+   starts with a heading keeps the heading's own top margin (h1 28, h2 24,
+   h3 20, h4-h6 and hr 16), written as the difference from the gap like the
+   in-chunk heading rules above. A chunk that ends on a heading already
+   narrows the gap through that heading's negative bottom margin (h2 8,
+   h3 6, h4-h6 4). */
+.sfv-prose.epitaxy-file-prose-chunk {
+  margin-bottom: var(--chat-item-gap);
+}
+.sfv-prose.epitaxy-file-prose-chunk:last-child {
+  margin-bottom: 0;
+}
+.sfv-prose.epitaxy-file-prose-chunk + .sfv-prose.epitaxy-file-prose-chunk > .source-markdown > h1:first-child {
+  margin-top: 12px;
+}
+.sfv-prose.epitaxy-file-prose-chunk + .sfv-prose.epitaxy-file-prose-chunk > .source-markdown > h2:first-child {
+  margin-top: 8px;
+}
+.sfv-prose.epitaxy-file-prose-chunk + .sfv-prose.epitaxy-file-prose-chunk > .source-markdown > h3:first-child {
+  margin-top: 4px;
+}

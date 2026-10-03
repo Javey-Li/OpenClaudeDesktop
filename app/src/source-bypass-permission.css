@@ -1,0 +1,6 @@
+/* shared-frame rp on the shared Dialog (source-dialog.css): sm 400px, rounded-card/surface-3/shadow-panel-lg,
+   p-xl, alert title -2px, Qf footer and the bg-backdrop + 2px blur backdrop. The body copy is the dialog's own. */
+.source-bypass-dialog{overflow-wrap:anywhere}
+.source-bypass-dialog p{margin:4px 0 0;line-height:var(--cds-leading-body)}
+.source-bypass-dialog .source-bypass-workspace{margin-top:12px;font-family:var(--cds-font-mono);font-size:var(--cds-font-size-code);color:var(--cds-text-primary);word-break:break-all}
+.source-bypass-dialog .source-bypass-note{margin-top:12px;color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote,12px)}

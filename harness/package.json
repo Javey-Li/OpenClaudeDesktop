@@ -1,0 +1,16 @@
+{
+  "name": "code-desktop-deepseek-core",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness runtime + Codex app-server compatible bridge for Code Desktop",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@code-desktop/dsh-codex-app-server": "file:./packages/codex-app-server",
+    "@code-desktop/dsh-code-desktop-app": "file:./packages/code-desktop-app"
+  },
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node bin/codex-app-server.mjs app-server --stdio",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

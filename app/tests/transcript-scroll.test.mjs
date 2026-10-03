@@ -1,0 +1,212 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  createTranscriptCache,
+  identityMatches,
+  isUpwardWheel,
+  isUpNavigationKey,
+  navigationDirection,
+  isUserScrollMovement,
+  transcriptKeyIntent,
+  GLIDE_MS,
+  glideDeadline,
+  jumpBehavior,
+  prefersReducedMotion,
+} from "../src/use-transcript-scroll.js";
+
+test("returning sessions keep reading snapshots, but stale visits cannot overwrite them", () => {
+  const cache = createTranscriptCache();
+  const first = cache.open("A");
+  const reading = {
+    following: false,
+    anchor: { itemId: "row-12", offset: -8 },
+  };
+  assert.equal(cache.save("A", first.generation, reading), true);
+  cache.open("B");
+  const second = cache.open("A");
+  assert.deepEqual(second.snapshot, reading);
+  const newer = { following: false, anchor: { itemId: "row-18", offset: -3 } };
+  assert.equal(cache.save("A", second.generation, newer), true);
+  assert.equal(cache.save("A", first.generation, { following: true }), false);
+  assert.deepEqual(cache.open("A").snapshot, newer);
+});
+
+test("cache keeps 50 recent sessions and revisiting refreshes recency", () => {
+  const cache = createTranscriptCache();
+  for (let n = 0; n < 50; n++) {
+    const handle = cache.open(`session-${n}`);
+    cache.save(`session-${n}`, handle.generation, { index: n });
+  }
+  cache.open("session-0");
+  cache.open("session-50");
+  assert.equal(cache.size, 50);
+  assert.deepEqual(cache.open("session-0").snapshot, { index: 0 });
+  assert.equal(cache.open("session-1").snapshot, undefined);
+  assert.equal(cache.size, 50);
+});
+
+test("an evicted handle cannot resurrect a snapshot or evict a current session", () => {
+  const cache = createTranscriptCache(2);
+  const first = cache.open("A");
+  cache.open("B");
+  cache.open("C");
+  assert.equal(cache.save("A", first.generation, { following: false }), false);
+  assert.equal(cache.size, 2);
+  assert.equal(cache.open("A").snapshot, undefined);
+});
+
+test("snap guards reject old A after A to B to A, even though the session ID matches", () => {
+  const old = { sessionKey: "code:A", generation: 10 };
+  const expected = {
+    expectedSessionKey: old.sessionKey,
+    expectedGeneration: old.generation,
+  };
+  assert.equal(identityMatches(old, expected), true);
+  assert.equal(
+    identityMatches({ sessionKey: "code:B", generation: 11 }, expected),
+    false,
+  );
+  assert.equal(
+    identityMatches({ sessionKey: "code:A", generation: 12 }, expected),
+    false,
+  );
+});
+
+test("horizontal code scrolling and pinch/zoom gestures do not release vertical following", () => {
+  assert.equal(isUpwardWheel({ deltaY: -20, deltaX: 0, ctrlKey: false }), true);
+  assert.equal(
+    isUpwardWheel({ deltaY: -20, deltaX: 30, ctrlKey: false }),
+    false,
+  );
+  assert.equal(isUpwardWheel({ deltaY: -20, deltaX: 0, ctrlKey: true }), false);
+  assert.equal(isUpwardWheel({ deltaY: 20, deltaX: 0, ctrlKey: false }), false);
+});
+
+test("only backward navigation keys signal reading upward", () => {
+  for (const key of ["ArrowUp", "PageUp", "Home"])
+    assert.equal(isUpNavigationKey({ key }), true);
+  assert.equal(isUpNavigationKey({ key: " ", shiftKey: true }), true);
+  assert.equal(isUpNavigationKey({ key: "Tab", shiftKey: true }), true);
+  for (const modifier of ["ctrlKey", "altKey", "metaKey"])
+    assert.equal(isUpNavigationKey({ key: "Home", [modifier]: true }), false);
+  for (const key of ["Enter", "ArrowDown", "End", "a", " "])
+    assert.equal(isUpNavigationKey({ key }), false);
+});
+
+test("downward keys also carry user intent during simultaneous content resizing", () => {
+  for (const key of ["ArrowDown", "PageDown", "End", " "])
+    assert.equal(navigationDirection({ key }), "down");
+  assert.equal(navigationDirection({ key: "Tab" }), "none");
+  assert.equal(navigationDirection({ key: "End", metaKey: true }), "none");
+});
+
+test("Space activates historical rows before generic downward navigation, preserving editable/keep-pin exclusions", () => {
+  const row = {
+    inViewport: true,
+    inItem: true,
+    editable: false,
+    keepsPin: false,
+  };
+  for (const key of [" ", "Enter"])
+    assert.equal(transcriptKeyIntent({ key }, row), "release");
+  assert.equal(
+    transcriptKeyIntent({ key: " " }, { ...row, inItem: false }),
+    "down",
+  );
+  assert.equal(
+    transcriptKeyIntent({ key: " " }, { ...row, keepsPin: true }),
+    "down",
+  );
+  assert.equal(
+    transcriptKeyIntent({ key: "Enter" }, { ...row, keepsPin: true }),
+    "none",
+  );
+  assert.equal(
+    transcriptKeyIntent({ key: " " }, { ...row, editable: true }),
+    "none",
+  );
+  assert.equal(
+    transcriptKeyIntent({ key: "Enter" }, { ...row, inViewport: false }),
+    "none",
+  );
+  assert.equal(
+    transcriptKeyIntent(
+      { key: "Tab", shiftKey: true },
+      { editable: true, inViewport: false },
+    ),
+    "up",
+  );
+});
+
+test("content growth cannot turn a native scrollbar upward movement into a layout clamp", () => {
+  assert.equal(
+    isUserScrollMovement({
+      delta: -120,
+      top: 780,
+      maximum: 1050,
+      layoutChanged: true,
+      explicitIntent: false,
+      programmatic: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isUserScrollMovement({
+      delta: 120,
+      top: 700,
+      maximum: 1050,
+      layoutChanged: true,
+      explicitIntent: false,
+      programmatic: false,
+    }),
+    true,
+  );
+});
+
+test("a reduced maximum clamp is preserved, while explicit drag and keyboard intent wins", () => {
+  const clamp = {
+    delta: -100,
+    top: 800,
+    maximum: 800,
+    layoutChanged: true,
+    explicitIntent: false,
+    programmatic: false,
+  };
+  assert.equal(isUserScrollMovement(clamp), false);
+  assert.equal(isUserScrollMovement({ ...clamp, explicitIntent: true }), true);
+  assert.equal(isUserScrollMovement({ ...clamp, top: 650 }), true);
+  assert.equal(
+    isUserScrollMovement({ ...clamp, top: 650, programmatic: true }),
+    false,
+  );
+});
+
+test("smooth-jump guard: glide scroll events never classify as user movement until a real intent arrives", () => {
+  // scroll-follow-current.js:31 le = 1500 and :655-670: the chip's smooth
+  // jump pins at once and guards its own scroll events for up to 1500ms.
+  assert.equal(GLIDE_MS, 1500);
+  assert.equal(glideDeadline(1000, 800), 2500);
+  assert.equal(glideDeadline(1000, 2), 0, "already at the tail: no glide");
+  const glide = { top: 400, maximum: 3000, layoutChanged: false, explicitIntent: false, programmatic: false, gliding: true };
+  // Intermediate frames of the glide, including a content-growth clamp that
+  // moves the viewport upward, keep following pinned.
+  for (const delta of [180, 40, -60]) assert.equal(isUserScrollMovement({ ...glide, delta }), false, `delta ${delta}`);
+  assert.equal(isUserScrollMovement({ ...glide, delta: -60, layoutChanged: true }), false);
+  // A wheel, key or touch intent during the glide is the user's again.
+  assert.equal(isUserScrollMovement({ ...glide, delta: -60, explicitIntent: true }), true);
+  // Without a glide the same upward movement is user movement.
+  assert.equal(isUserScrollMovement({ ...glide, delta: -60, gliding: false }), true);
+});
+
+test("the chip jumps smoothly unless reduced motion is requested; Send keeps the instant jump", () => {
+  assert.equal(jumpBehavior("smooth", false), "smooth");
+  assert.equal(jumpBehavior("smooth", true), "instant");
+  assert.equal(jumpBehavior(undefined, false), "instant");
+  assert.equal(jumpBehavior("instant", false), "instant");
+  const view = (dataset, matches = false) => ({ document: { documentElement: { dataset } }, matchMedia: () => ({ matches }) });
+  assert.equal(prefersReducedMotion(view({ reduceMotion: "true" })), true);
+  assert.equal(prefersReducedMotion(view({ localMotion: "reduce" })), true);
+  assert.equal(prefersReducedMotion(view({}, true)), true);
+  assert.equal(prefersReducedMotion(view({})), false);
+  assert.equal(prefersReducedMotion(null), false);
+});

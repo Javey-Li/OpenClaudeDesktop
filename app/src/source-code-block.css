@@ -1,0 +1,57 @@
+/* Plain counterpart of current oi/Jr; not the generic .prose pre styling. */
+.source-markdown .scb-flow { min-width: 0; margin-block: .75em 0; }
+.source-markdown .scb-flow:first-child { margin-block-start: 0; }
+.scb-block {
+  position: relative; width: fit-content; min-width: min(100%, 318px); max-width: 100%;
+  --scb-control: var(--cds-h-control, 24px);
+  --scb-padding-end: calc(var(--scb-control) + var(--cds-pad-xs, 4px) * 3 + 2px);
+  --scb-background: var(--code-theme-light-bg, #fff);
+}
+[data-mode="dark"] .scb-block { --scb-background: var(--code-theme-dark-bg, #1a1a19); }
+/* code-block-current.js:1325 Kr(n): the inline-end reserve grows by one 24px
+   control and the 3px gap for the secret toggle (Ee = Kr(1 + !!R)). */
+.scb-block[data-secrets] { --scb-padding-end: calc(var(--scb-control) * 2 + 3px + var(--cds-pad-xs, 4px) * 3 + 2px); }
+.scb-body { position: relative; border-radius: 8px; overflow: clip; }
+.scb-body::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--cds-border), inset 0 0 0 1px var(--epitaxy-transcript-surface, var(--cds-surface-1));
+}
+.source-markdown .scb-pre {
+  margin: 0; border: 0; border-radius: 0; overflow: visible;
+  padding: var(--cds-pad-md, 8px) calc(var(--scb-padding-end) + 1ch) var(--cds-pad-md, 8px) calc(10px + 1ch);
+  background: var(--scb-background); color: var(--cds-text-primary);
+  font: var(--cds-font-size-code, 12px)/var(--cds-leading-code, 17px) var(--cds-font-mono, monospace);
+  font-feature-settings: "liga", "clig", "calt";
+  letter-spacing: calc(round(up, 1ch, 1px / 64) - 1ch);
+  tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word;
+}
+.source-markdown .scb-pre > .scb-code {
+  display: block; contain: content; padding: 0; margin: 0; border: 0; border-radius: 0;
+  font: inherit; letter-spacing: inherit; font-feature-settings: inherit; color: inherit;
+  background: none; white-space: inherit; overflow-wrap: inherit; tab-size: inherit;
+}
+.scb-actions-track { position: absolute; inset-block: 0; right: 7px; pointer-events: none; }
+.scb-actions {
+  display: flex; gap: 3px; position: sticky; pointer-events: auto; margin-top: 5px;
+  top: calc(max(var(--epitaxy-top-fade-height, 0px), var(--fade-top, 0px)) + 5px);
+}
+.scb-actions.scb-single-line {
+  margin-top: calc(var(--cds-pad-md, 8px) + var(--cds-leading-code, 17px) / 2 - var(--scb-control) / 2);
+}
+.scb-copy {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--scb-control); height: var(--scb-control); border: 0; padding: 0;
+  border-radius: var(--cds-radius, 6px); background: transparent; color: var(--cds-text-primary);
+  cursor: var(--cds-cursor-interactive, default); user-select: none;
+  transition: box-shadow var(--cds-dur-fast, 120ms), background-color var(--cds-dur-fast, 120ms);
+}
+.scb-copy:hover { background: var(--cds-fill-ghost-hover); }
+/* Pr (:1185-1215): ghost, text-secondary; pressed takes Nr's overrides of the
+   accent pair (bg-accent -> fill-control, text-accent -> text-primary). */
+.scb-reveal { color: var(--cds-text-secondary); }
+.scb-reveal[aria-pressed="true"], .scb-reveal[aria-pressed="true"]:hover { background: var(--cds-fill-control); color: var(--cds-text-primary); }
+.scb-copy:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.source-markdown .scb-language-placeholder { margin: 0; padding: 0; border: 0; background: none; }
+.scb-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .scb-copy { transition: none; } }
+html[data-reduce-motion="true"] .scb-copy { transition: none; }

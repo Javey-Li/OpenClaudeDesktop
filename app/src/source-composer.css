@@ -1,0 +1,253 @@
+/* Dimensions translated from shared-11, code-footer, code-effort and code-slider.
+   Original CDS tokens continue to supply palette, fonts and compact sizing. */
+.sc-zone.composer-zone { position: relative; container-type: inline-size; gap: 6px; }
+.sc-context-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cds-gap-xs, 6px); min-width: 0; padding: 0 96px var(--cds-pad-xs, 4px) 0; }
+.sc-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; gap: 5px; height: 24px; min-width: 24px; padding: 0 6px; border: 0; border-radius: 6px; color: var(--cds-text-secondary); background: transparent; line-height: 1; white-space: nowrap; transition: color 100ms, background-color 100ms, box-shadow 100ms; }
+.sc-button:hover:not(:disabled) { color: var(--cds-text-primary); background: var(--cds-alpha-1); }
+.sc-button:active:not(:disabled) { background: var(--cds-alpha-2); }
+.sc-button:disabled { color: var(--cds-text-secondary); opacity: .4; }
+.sc-button:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.sc-icon-button { width: 24px; padding: 0; }
+.sc-context-row .sc-context-chip,
+.sc-branch-worktree { height: 24px; border: 0; border-radius: var(--cds-radius, 6px); background: var(--cds-fill-secondary); box-shadow: inset 0 0 0 1px var(--cds-fill-secondary-ring), 0 1px 2px 0 #0000000d; font-size: var(--cds-font-size-body, 13px); line-height: var(--cds-leading-body, 19px); }
+.sc-context-row .sc-context-chip { padding-inline: var(--cds-pad-sm, 6px); gap: var(--cds-gap-xs, 6px); }
+.sc-context-row .sc-context-chip:hover:not(:disabled), .sc-branch-chip:hover:not(:disabled), .sc-worktree:hover { background: var(--cds-fill-secondary-hover); }
+.sc-context-row .sc-context-chip:disabled { background: var(--cds-fill-disabled); color: var(--cds-text-disabled); }
+.sc-folder-chip { min-width: 0; max-width: 100%; }
+.sc-folder-chip > span:last-child, .sc-branch-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.sc-folder-chip > span:last-child { max-width: 160px; }
+.sc-extra-folder { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding-right: 5px !important; color: var(--cds-text-secondary); cursor: default; }
+.sc-extra-folder > span:nth-child(2) { max-width: 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-extra-folder > button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 2px; border-radius: 3px; }
+.sc-extra-folder > button:hover:not(:disabled) { background: var(--cds-fill-secondary-hover); }
+.sc-extra-folder > button:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.sc-branch-worktree { display: flex; align-items: stretch; min-width: 0; max-width: 100%; }
+.sc-branch-worktree .sc-branch-chip { min-width: 0; flex-shrink: 1; border-radius: inherit; height: 24px; padding-inline: var(--cds-pad-sm, 6px); gap: var(--cds-gap-xs, 6px); }
+.sc-worktree-divider { width: 1px; flex-shrink: 0; margin-block: 7px; background: var(--cds-border); transition: opacity 100ms; }
+.sc-branch-worktree:hover .sc-worktree-divider, .sc-branch-worktree:focus-within .sc-worktree-divider { opacity: 0; }
+.sc-worktree { display: flex; align-items: center; gap: 3px; padding: 0 var(--cds-pad-sm, 6px) 0 5px; border-radius: inherit; white-space: nowrap; }
+.sc-worktree-checkbox { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--cds-checkbox-xxs, 12px); height: var(--cds-checkbox-xxs, 12px); }
+.sc-worktree input { appearance: none; position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; border: 1px solid var(--cds-border-strong); border-radius: var(--cds-checkbox-xxs-radius, 3px); background: transparent; }
+.sc-worktree input:checked { background: var(--cds-fill-accent); border: 0; }
+.sc-worktree input + [data-cds="Icon"] { pointer-events: none; position: relative; color: var(--cds-on-accent); opacity: 0; }
+.sc-worktree input:checked + [data-cds="Icon"] { opacity: 1; }
+.sc-worktree input:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.sc-worktree:has(input:disabled) { opacity: .4; }
+.sc-add-folder { width: auto; }
+.sc-composer.composer { min-height: 40px; border-radius: var(--cds-radius-composer, 12px); }
+.sc-composer .sc-surface { padding: 8px; border-radius: inherit; background: var(--cds-surface-3); cursor: text; box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 3.5%), 0 0 0 var(--cds-ring-hairline, .5px) hsl(60 2% 12% / .15); transition: box-shadow 200ms; }
+.sc-composer .sc-input-row { display: flex; align-items: flex-end; gap: 6px; min-height: 24px; }
+.sc-composer .sc-input { display: block; width: 100%; flex: 1; min-width: 0; min-height: 24px; max-height: 190px; margin: 0; padding: 2px 0 2px 4px; border: 0; outline: none; resize: none; background: transparent; color: var(--cds-text-primary); font-family: var(--cds-font-sans, anthropic-sans); font-size: 14px; line-height: 20px; }
+.sc-composer .sc-input::placeholder { color: var(--cds-text-muted); opacity: 1; }
+.sc-composer .sc-submit { width: 24px; height: 24px; min-height: 24px; align-self: flex-end; }
+.sc-submit-slot { display: inline-flex; flex-shrink: 0; align-self: flex-end; }
+/* c099c328d sm: `grid items-center justify-items-end` cell; each layer is im
+   `col-start-1 row-start-1 flex cursor-default items-center justify-end`. After a
+   swap the active layer gets am `motion-safe:animate-[cds-fade-in_0.12s_ease-out_0.08s_backwards]`;
+   the previous one om `pointer-events-none invisible opacity-0 [transition:visibility_0s_linear_80ms]
+   motion-safe:[transition:opacity_80ms_ease-out,visibility_0s_linear_80ms]` until its visibility transition ends. */
+.sc-composer .sc-submit-cell { display: grid; align-items: center; justify-items: end; align-self: flex-end; flex-shrink: 0; }
+.sc-composer .sc-submit-layer { grid-column: 1; grid-row: 1; display: flex; align-items: center; justify-content: flex-end; cursor: default; }
+.sc-composer .sc-submit-layer[data-leaving] { pointer-events: none; visibility: hidden; opacity: 0; transition: visibility 0s linear 80ms; }
+@media (prefers-reduced-motion: no-preference) {
+  .sc-composer .sc-submit-layer[data-entering] { animation: cds-fade-in .12s ease-out .08s backwards; }
+  .sc-composer .sc-submit-layer[data-leaving] { transition: opacity 80ms ease-out, visibility 0s linear 80ms; }
+}
+/* motion-safe also excludes the in-app setting (:not(:where([data-reduce-motion=true] *)) in the
+   source variants): om keeps only its unconditional visibility transition, whose transitionend
+   unmounts the layer, and am has no entry animation. */
+html[data-reduce-motion="true"] .sc-composer .sc-submit-layer[data-entering] { animation: none; }
+html[data-reduce-motion="true"] .sc-composer .sc-submit-layer[data-leaving] { transition: visibility 0s linear 80ms; }
+/* design-system.css (2.2553.1) @keyframes cds-fade-in{0%{opacity:0}}. */
+@keyframes cds-fade-in { 0% { opacity: 0; } }
+/* c099c328d Nh/Ih: ArrowReturn/Stop size sm with text-secondary on the icon itself; Nh
+   group-disabled/btn:text-disabled. Fh `[&:disabled:not([aria-busy])]:opacity-100`: a
+   disabled, non-busy Send is not faded (the busy spinner keeps .sc-button:disabled .4).
+   jh (non-compact main composer) `before:absolute before:content-[''] before:left-0
+   before:-top-2.5 before:-right-2.5 before:-bottom-2.5`: 10px invisible hit extension. */
+.sc-composer .sc-submit { position: relative; }
+.sc-composer .sc-submit::before { content: ''; position: absolute; left: 0; top: -10px; right: -10px; bottom: -10px; }
+.sc-composer .sc-submit [data-cds="Icon"] { color: var(--cds-text-secondary); }
+.sc-composer .sc-submit:disabled [data-cds="Icon"] { color: var(--cds-text-disabled); }
+.sc-composer .sc-submit:disabled:not([aria-busy]) { opacity: 1; }
+.sc-composer .sc-surface:hover:not(:has(button:hover)) { box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 3.5%), 0 0 0 var(--cds-ring-hairline, .5px) hsl(60 2% 12% / .3); }
+.sc-composer .sc-surface:focus-within, .sc-composer .sc-surface:hover:focus-within:not(:has(button:hover)) { box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 7.5%), 0 0 0 var(--cds-ring-hairline, .5px) hsl(60 2% 12% / .3); }
+[data-mode="dark"] .sc-composer .sc-surface { box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 3.5%), inset 0 0 0 1px var(--cds-border); }
+[data-mode="dark"] .sc-composer .sc-surface:hover:not(:has(button:hover)), [data-mode="dark"] .sc-composer .sc-surface:focus-within, [data-mode="dark"] .sc-composer .sc-surface:hover:focus-within:not(:has(button:hover)) { box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 7.5%), inset 0 0 0 1px var(--cds-border-strong); }
+/* ChatComposer root states (shared-11 :1726-1736): data-disabled makes the
+   card cursor-default with a disabled editor; data-drag-over marks a Finder
+   drop in progress. The CDS Button busy state keeps the spinner in the
+   ArrowReturn slot with an sr-only busy label. */
+.sc-composer[data-disabled] .sc-surface { cursor: default; }
+.sc-composer .sc-input:disabled { color: var(--cds-text-primary); opacity: 1; -webkit-text-fill-color: var(--cds-text-primary); cursor: default; }
+.sc-composer[data-disabled] textarea.sc-input::placeholder { color: var(--cds-text-disabled, var(--cds-text-muted)); }
+.sc-composer[data-drag-over] .sc-surface { box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 7.5%), 0 0 0 1px var(--cds-fill-accent); }
+.sc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Footnote warning row above the composer: text-footnote, text-warning, gap-sm. */
+.sc-warning-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--cds-font-size-footnote, 12px); line-height: var(--cds-leading-footnote, 15px); color: var(--cds-text-warning); }
+.sc-warning-text { flex: 1; min-width: 0; }
+.sc-warning-action { flex-shrink: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: default; }
+.sc-warning-action:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); border-radius: 3px; }
+.sc-zone .sc-chin { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 0; min-height: 20px; padding: 0 10px 0 7px; font-size: 12px; font-weight: 400; line-height: 15px; color: var(--cds-text-secondary); }
+/* shared-11 cu leading slot 'flex items-center self-start' (no gap): Add (Us) and Mode (Ie span) touch. The
+   gap-xs in c360a9e1c:4894 belongs to the dictation bH cluster between them, which is empty:hidden here. */
+.sc-chin-leading { display: flex; align-items: center; flex-shrink: 0; gap: 0; }
+.sc-chin-trailing { display: flex; align-items: center; min-width: 0; gap: 4px; margin-left: auto; padding-left: 8px; }
+.sc-chin .sc-button { height: 20px; min-width: 20px; padding: 0 6px; border-radius: 5px; font-size: 12px; font-weight: 400; line-height: 15px; }
+.sc-chin .sc-icon-button { width: 20px; padding: 0; }
+.sc-chin .sc-icon-button [data-cds="Icon"] { font-size: 12px !important; }
+/* Current CDS Button size="base" adds no data-size reset: Add inherits the
+   chin's xs 20px control, while dockGlyph explicitly keeps its 16px icon. */
+.sc-chin .sc-add { width: 20px; height: 20px; }
+.sc-chin .sc-add [data-cds="Icon"] { font-size: 16px !important; }
+.sc-chin .sc-model-trigger { min-width: 0; flex-shrink: 1; }
+.sc-model-trigger > span { overflow: hidden; text-overflow: ellipsis; }
+.sc-chin .sc-usage-trigger { color: var(--cds-text-muted); }
+/* shared-14 xT: 12×12 svg, Tailwind -rotate-90 is the `rotate` property (c6a992d55 .-rotate-90{rotate:-90deg});
+   value circle transition-[stroke-dashoffset] duration-300 with the default cubic-bezier(.4,0,.2,1). */
+.sc-context-ring { display: block; flex-shrink: 0; width: 12px; height: 12px; rotate: -90deg; }
+.sc-context-ring-value { transition: stroke-dashoffset 300ms cubic-bezier(.4, 0, .2, 1); }
+.sc-spinner { width: 13px; height: 13px; border: 1.5px solid var(--cds-alpha-3); border-top-color: var(--cds-text-secondary); border-radius: 50%; animation: sc-spin .7s linear infinite; }
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+/* CDS Spinner arc: animate-[spin_1s_linear_infinite] motion-reduce:animate-none (shared-frame-C_2npUJq.js:2341-2343). */
+@media (prefers-reduced-motion: reduce) { .sc-spinner { animation: none; } }
+html[data-reduce-motion="true"] .sc-spinner { animation: none; }
+
+.sc-pet-slot { position: relative; height: 0; margin-bottom: -6px; pointer-events: none; }
+.sc-pet { position: absolute; z-index: 2; right: -16px; bottom: -13px; width: 80px; height: 80px; padding: 0; border: 0; outline: none; background: transparent; pointer-events: auto; transform: scaleX(-1); cursor: default; }
+.sc-pet-animation { display: block; width: 100%; height: 100%; opacity: 0; }
+.sc-pet-animation[data-ready] { opacity: 1; transition: opacity 200ms; }
+.sc-pet-animation > svg { display: block; width: 100%; height: 100%; }
+
+/* c8e04f916 p.Popup on the CDS Popover (source-popover.css): 'isolate flex w-[220px] select-none flex-col gap-lg',
+   padding lg; the local help bubble rises above the popup, so the body does not clip it. */
+.sp-popup.sc-effort-popover { isolation: isolate; display: flex; flex-direction: column; width: 220px; gap: var(--cds-gap-lg); user-select: none; }
+.sc-effort-popover .sp-body { overflow: visible; }
+.sc-effort-control { display: flex; flex-direction: column; width: 100%; min-width: 0; gap: var(--cds-gap-lg, 20px); user-select: none; font-size: 13px; line-height: 19px; }
+.sc-effort-heading, .sc-effort-title { display: flex; align-items: center; min-width: 0; gap: 8px; }
+.sc-effort-heading { justify-content: space-between; }
+.sc-effort-label { flex-shrink: 0; color: var(--cds-text-muted); }
+.sc-effort-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: sc-effort-change .2s ease-out; }
+@keyframes sc-effort-change { from { opacity: 0; transform: translateY(.55em); filter: blur(1px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+.sc-effort-help-wrap { position: relative; display: flex; }
+.sc-effort-help { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; color: var(--cds-text-muted); }
+.sc-effort-help:hover { color: var(--cds-text-primary); }
+.sc-effort-help:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.sc-effort-description { position: absolute; z-index: 1; right: -12px; bottom: calc(100% + 8px); display: flex; flex-direction: column; gap: 6px; width: 220px; padding: 12px; border-radius: 10px; background: var(--cds-surface-3); color: var(--cds-text-muted); box-shadow: 0 0 0 .5px var(--cds-border-strong), 0 4px 16px #0002; font-size: 12px; line-height: 16px; }
+.sc-effort-description strong { font-weight: 500; color: var(--cds-text-primary); }
+.sc-effort-slider-group { display: flex; flex-direction: column; gap: 8px; }
+.sc-effort-scale { display: flex; justify-content: space-between; color: var(--cds-text-muted); font-size: 12px; line-height: 15px; }
+.sc-slider { --sc-slider-height: 24px; --sc-slider-inset: 8px; position: relative; width: 100%; height: var(--sc-slider-height); touch-action: none; }
+.sc-slider[data-disabled] { opacity: .4; }
+.sc-slider-track { position: absolute; overflow: hidden; inset: 2px 0; border-radius: 6px; background: var(--cds-slider-track); }
+.sc-slider-fill { width: calc(var(--sc-slider-inset) + (100% - 2 * var(--sc-slider-inset)) * var(--sc-slider-position)); height: 100%; background: var(--cds-slider-fill); transition: width 120ms ease-out; }
+.sc-slider-stops { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; pointer-events: none; }
+.sc-slider-stops > span { display: block; width: 3px; height: 3px; border-radius: 50%; background: var(--cds-slider-stop-dot); }
+.sc-slider-carriage { position: absolute; inset: 0 var(--sc-slider-inset); pointer-events: none; }
+.sc-slider-handle { position: absolute; top: 2px; left: calc(100% * var(--sc-slider-position)); width: 16px; height: 20px; transform: translateX(-50%); border-radius: 6px; background: var(--cds-slider-handle); box-shadow: 0 0 0 1px var(--cds-slider-handle-shadow-outer), 0 0 12px var(--cds-slider-handle-shadow-depth); transition: left 120ms ease-out, scale 120ms cubic-bezier(.34,1.56,.64,1); }
+.sc-slider[data-dragging] .sc-slider-handle { scale: 1.12; }
+.sc-slider input { appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: transparent; cursor: default; outline: none; }
+.sc-slider input::-webkit-slider-runnable-track { height: 24px; background: transparent; }
+.sc-slider input::-webkit-slider-thumb { appearance: none; width: 16px; height: 24px; background: transparent; border: 0; }
+.sc-slider:has(input:focus-visible) .sc-slider-handle { box-shadow: var(--cds-focus-shadow); }
+@container (max-width: 400px) { .sc-zone .sc-chin { font-size: 11px; padding-inline: 0; } .sc-chin-trailing { padding-left: 0; gap: 2px; } .sc-chin .sc-button { padding-inline: 4px; } .sc-chin .sc-icon-button { padding: 0; } }
+@media (prefers-reduced-motion: reduce) { .sc-pet-animation, .sc-slider-fill, .sc-slider-handle, .sc-button, .sc-composer .sc-surface, .sc-context-ring-value { transition: none; } .sc-effort-value { animation: none; } }
+html[data-reduce-motion="true"] .sc-pet-animation, html[data-reduce-motion="true"] .sc-slider-fill, html[data-reduce-motion="true"] .sc-slider-handle, html[data-reduce-motion="true"] .sc-button, html[data-reduce-motion="true"] .sc-composer .sc-surface, html[data-reduce-motion="true"] .sc-context-ring-value { transition: none; }
+html[data-reduce-motion="true"] .sc-effort-value { animation: none; }
+
+.sc-chin .sc-permission { line-height: 17px; }
+.sc-chin .sc-permission:hover:not(:disabled), .sc-chin .sc-permission[aria-expanded="true"] { background: var(--cds-fill-ghost-hover); color: var(--cds-text-secondary); }
+/* Button ghost variant: bg-fill-ghost-hover while [aria-haspopup][aria-expanded=true] (shared-frame :2743). */
+.sc-chin .sc-model-trigger[aria-expanded="true"] { background: var(--cds-fill-ghost-hover); }
+.sc-chin .sc-model-trigger .sc-spinner { width: 11px; height: 11px; }
+
+.sc-fast-label { color:var(--cds-text-muted); margin-left:4px; }
+/* Prompt-history strip = CDS ChatComposer Header (c099c328d Em :9012-9015 Nn.Header aria-hidden
+   whitespace-nowrap + wm :8580-8633; shared-11 uu :1430-1446 `flex min-h-[var(--cds-h-control-nested)]
+   min-w-0 items-center gap-xs text-footnote font-normal text-muted` + So("text") `pl-[4px]
+   comfortable:pl-[6px]` (no leading card action, :1703); header slot :1856-1878 grid-rows-[1fr]
+   overflow-hidden, enterClassName nl `motion-safe:animate-[cds-grid-rows-in_0.3s_cubic-bezier(0.25,0.1,0.35,1)]`,
+   inner min-h-0 min-w-0 pb-[var(--cmp-gap-y)] (compact 0.375rem, comfortable 0.5rem). The card here
+   is a block with padding, so the header's -mb/gap pair collapses to the inner bottom padding. */
+.sc-history-header-grid { display: grid; grid-template-rows: 1fr; overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) { .sc-history-header-grid { animation: cds-grid-rows-in .3s cubic-bezier(.25,.1,.35,1); } }
+html[data-reduce-motion="true"] .sc-history-header-grid { animation: none; }
+.sc-history-header-clip { min-height: 0; min-width: 0; padding-bottom: .375rem; }
+[data-density="comfortable"] .sc-history-header-clip { padding-bottom: .5rem; }
+.sc-history-header { display: flex; align-items: center; gap: var(--cds-gap-xs, 6px); min-width: 0; min-height: var(--cds-h-control-nested, 18px); padding-left: 4px; white-space: nowrap;
+  font-size: var(--cds-font-size-footnote, 12px); line-height: var(--cds-leading-footnote, 15px); font-weight: 400; color: var(--cds-text-muted); cursor: default; }
+[data-density="comfortable"] .sc-history-header { padding-left: 6px; }
+.sc-history-count { font-variant-numeric: tabular-nums; }
+.sc-history-draft { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* cbd6db52c Kbd: kbd data-cds=Kbd `text-caption` + qa single-grapheme square keycap (source-shortcut.css). */
+.sc-history-kbd { font-size: var(--cds-font-size-caption, 11px); line-height: 1; }
+
+/* lH tooltip detail (cc43287c9 :21705-21712): 'block overflow-hidden text-ellipsis whitespace-nowrap [direction:rtl]' around <bdi>{path}</bdi>. */
+.sc-tooltip-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+
+/* Usage popover (c360a9e1c vd :4269-4283) and its yc panel (c2d611398 V/L/I). */
+.sp-popup.sc-usage-popover { width: 360px; max-width: calc(100vw - 2rem); max-height: min(var(--available-height), 640px); overflow-wrap: break-word; }
+.sc-usage-body { display: flex; flex-direction: column; padding-block: var(--cds-pad-sm); }
+.sc-usage-context { display: flex; flex-direction: column; }
+/* V header / L row: 'flex items-center gap-2 px-lg py-xs min-h-[20px] text-left outline-none focus-visible:shadow-focus rounded'. */
+.sc-usage-row { display: flex; align-items: center; gap: 8px; box-sizing: border-box; min-height: 20px; padding: var(--cds-pad-xs) var(--cds-pad-lg); border: 0;
+  border-radius: var(--cds-radius); background: transparent; color: inherit; font: inherit; text-align: left; outline: none; }
+.sc-usage-row:focus-visible { box-shadow: var(--cds-focus-shadow); }
+.sc-usage-context-header:disabled { cursor: default; }
+.sc-usage-muted { color: var(--cds-text-muted); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); }
+.sc-usage-summary { margin-left: auto; font-variant-numeric: tabular-nums; }
+.sc-usage-context-body { margin-top: var(--cds-pad-xs); padding: 0 var(--cds-pad-lg) var(--cds-pad-xs); }
+/* 'h-[4px] rounded-full overflow-hidden' on chart.reference.tint; the fill is the dT threshold colour with transition-[width]. */
+.sc-usage-bar { height: 4px; overflow: hidden; border-radius: 9999px; background: var(--cds-chart-reference-tint); }
+.sc-usage-bar-fill { height: 100%; transition: width 150ms cubic-bezier(.4, 0, .2, 1); }
+@media (prefers-reduced-motion: reduce) { .sc-usage-bar-fill { transition: none; } }
+html[data-reduce-motion="true"] .sc-usage-bar-fill { transition: none; }
+/* I separator 'mx-pad-lg my-xs h-px bg-alpha-2'. */
+.sc-usage-separator { height: 1px; margin: var(--cds-gap-xs) var(--cds-pad-lg); background: var(--cds-alpha-2); }
+/* L: 'text-footnote text-secondary hover:text-primary'. */
+.sc-usage-link { width: 100%; color: var(--cds-text-secondary); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); }
+.sc-usage-link:hover { color: var(--cds-text-primary); }
+
+/* Env pill menu (cc43287c9 :21036 Z.Popup '!min-w-[200px]'). */
+.smenu-popup.sc-env-menu { min-width: 200px; }
+
+/* Branch picker (cd2687f9f N, side top): list, h-1 spacer, then the search field 'relative flex items-center gap-xs
+   mx-1 px-md h-control shrink-0 rounded bg-alpha-1 has-[input:focus-visible]:shadow-focus mb-1'; popup
+   max-h-[min(360px,var(--available-height))]; Empty 'mx-1 px-md py-1.5 text-body text-muted select-none'. The
+   menu body already insets 4px, standing in for mx-1. */
+.smenu-popup.sc-branch-menu { max-height: min(360px, var(--available-height)); }
+.sc-branch-menu .smenu-body { display: flex; flex-direction: column; overflow: hidden; }
+.sc-branch-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.sc-branch-list:empty { display: none; }
+.sc-branch-empty { padding: 6px var(--cds-pad-md); color: var(--cds-text-muted); user-select: none; }
+.sc-branch-spacer { flex-shrink: 0; height: 4px; }
+.sc-branch-search { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: var(--cds-gap-xs); height: var(--cds-h-control);
+  padding-inline: var(--cds-pad-md); border-radius: var(--cds-radius); background: var(--cds-alpha-1); color: var(--cds-text-muted); }
+.sc-branch-search:has(input:focus-visible) { box-shadow: var(--cds-focus-shadow); }
+.sc-branch-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: transparent; color: var(--cds-text-primary); font: inherit; }
+.sc-branch-search input::placeholder { color: var(--cds-text-muted); }
+
+/* lH Recent rows: the hover/highlight-revealed dismiss X ('relative ml-xs grid size-icon shrink-0 place-items-center
+   text-muted opacity-0 hover:bg-fill-ghost-hover hover:text-primary group-data-[highlighted]/recent:opacity-100
+   pointer-coarse:opacity-100') inside a zero-width 'flex w-0' trailing slot. */
+.sc-recent-dismiss-slot { display: flex; width: 0; }
+.sc-recent-dismiss { position: relative; display: grid; flex-shrink: 0; place-items: center; width: var(--cds-icon); height: var(--cds-icon); margin-left: var(--cds-gap-xs);
+  border-radius: var(--cds-radius); color: var(--cds-text-muted); opacity: 0; }
+.sc-recent-dismiss:hover { background: var(--cds-fill-ghost-hover); color: var(--cds-text-primary); }
+.smenu-item[data-highlighted] .sc-recent-dismiss { opacity: 1; }
+@media (pointer: coarse) { .sc-recent-dismiss { opacity: 1; } }
+/* R05 usage compact row (c2d611398 H: px-lg pb-xs flex items-center gap-sm min-h-[20px] text-footnote; hint flex-1
+   min-w-0 truncate text-secondary) and the CDS TextLink (design-system.css :1541-1568 cds-text-link + -underline:
+   accent, underline offset 3px in a 60% currentColor line, rounded 2px, focus shadow; opacity-disabled when disabled;
+   desktop-layout.css :1037 pointer cursor only while enabled). */
+.sc-usage-compact-row { display: flex; align-items: center; gap: var(--cds-gap-sm); min-height: 20px; padding: 0 var(--cds-pad-lg) var(--cds-pad-xs);
+  font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); }
+.sc-usage-compact-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cds-text-secondary); }
+.sc-usage-compact { flex-shrink: 0; white-space: nowrap; margin: 0; padding: 0; border: 0; background: none; font: inherit; border-radius: 2px;
+  color: var(--cds-text-accent); --_text-link-line: color-mix(in srgb, currentColor, transparent 60%);
+  text-decoration-line: underline; text-underline-offset: 3px; text-decoration-color: var(--_text-link-line, currentColor);
+  transition-property: color, text-decoration-color, box-shadow; transition-duration: var(--cds-dur-fast, 60ms); transition-timing-function: var(--cds-ease-out);
+  outline: none; }
+.sc-usage-compact:is(:hover, :focus-visible) { --_text-link-line: currentColor; }
+.sc-usage-compact:focus-visible { box-shadow: var(--cds-focus-shadow, 0 0 0 2px Highlight); }
+.sc-usage-compact:disabled { cursor: default; opacity: var(--cds-opacity-disabled, .5); }

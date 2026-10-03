@@ -1,0 +1,623 @@
+import { useLayoutEffect, useRef, useState } from "react";
+import { centerScrollOffset } from "./transcript-find-model.mjs";
+
+// Claude 2.2553.1: follow controller c7f8992b4, cache cb670556a and
+// shared-10 jM observers. This controller is for the local non-virtualized DOM.
+const ITEM = "[data-transcript-item-id]";
+// Turn actions are siblings of message rows. They release following on
+// activation, but must never participate in message anchor measurements.
+const INTERACTION_ITEM = `${ITEM}, [data-turn-copy-id]`;
+const EDITABLE =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+const KEEP_PIN =
+  "[data-transcript-keeps-pin], [data-transcript-step-navigates]";
+let generation = 0;
+
+export function createTranscriptCache(capacity = 50) {
+  const entries = new Map();
+  return {
+    open(key) {
+      const previous = entries.get(key);
+      const entry = { generation: ++generation, snapshot: previous?.snapshot };
+      entries.delete(key);
+      entries.set(key, entry);
+      while (entries.size > capacity)
+        entries.delete(entries.keys().next().value);
+      return entry;
+    },
+    save(key, expectedGeneration, snapshot) {
+      const entry = entries.get(key);
+      if (!entry || entry.generation !== expectedGeneration) return false;
+      entry.snapshot = snapshot;
+      return true;
+    },
+    get size() {
+      return entries.size;
+    },
+  };
+}
+
+const cache = createTranscriptCache();
+
+export function isUpwardWheel(event) {
+  return (
+    !event.ctrlKey &&
+    event.deltaY < 0 &&
+    Math.abs(event.deltaY) > Math.abs(event.deltaX)
+  );
+}
+
+export function isUpNavigationKey(event) {
+  return navigationDirection(event) === "up";
+}
+
+export function navigationDirection(event) {
+  if (event.ctrlKey || event.altKey || event.metaKey) return "none";
+  if (event.key === "Tab") return event.shiftKey ? "up" : "none";
+  if (["ArrowUp", "PageUp", "Home"].includes(event.key)) return "up";
+  if (["ArrowDown", "PageDown", "End"].includes(event.key)) return "down";
+  if (event.key === " " || event.code === "Space")
+    return event.shiftKey ? "up" : "down";
+  return "none";
+}
+
+export function transcriptKeyIntent(event, context) {
+  // Source Tve row activation runs separately from the scroll-key classifier:
+  // Space on a historical button releases following before its click expands
+  // content. Space on the viewport itself remains downward navigation.
+  if (event.key === "Tab") return navigationDirection(event);
+  if ((!context.inViewport && !context.bodyTarget) || context.editable)
+    return "none";
+  if (
+    (event.key === "Enter" || event.key === " ") &&
+    context.inViewport &&
+    context.inItem &&
+    !context.keepsPin
+  )
+    return "release";
+  return navigationDirection(event);
+}
+
+export function identityMatches(identity, expected = {}) {
+  return (
+    (expected.expectedSessionKey === undefined ||
+      expected.expectedSessionKey === identity.sessionKey) &&
+    (expected.expectedGeneration === undefined ||
+      expected.expectedGeneration === identity.generation)
+  );
+}
+
+// A resize may clamp scrollTop to the new maximum. A meaningful movement
+// below that maximum cannot be explained by such a clamp. This also covers
+// native scrollbar implementations that do not dispatch DOM mouse events.
+// scroll-follow-current.js:31 (le) and :655-670: a smooth jump glides for up
+// to 1500ms; while it glides its own scroll events are not user movement,
+// unless a wheel, key or touch intent arrives (which ends the glide).
+export const GLIDE_MS = 1500;
+export function glideDeadline(now, distance) {
+  return distance > 2 ? now + GLIDE_MS : 0;
+}
+// The classic chip jumps smoothly (c360a9e1c-GPs-MV9u.js:3944-3978 od); a
+// reduced-motion preference turns it into the instant jump that Send uses.
+export function jumpBehavior(requested, reducedMotion) {
+  return requested === "smooth" && !reducedMotion ? "smooth" : "instant";
+}
+export function prefersReducedMotion(view) {
+  const root = view?.document?.documentElement;
+  return root?.dataset.reduceMotion === "true" || root?.dataset.localMotion === "reduce"
+    || !!view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+export function isUserScrollMovement({
+  delta,
+  top,
+  maximum,
+  layoutChanged,
+  explicitIntent,
+  programmatic,
+  gliding = false,
+}) {
+  if (programmatic) return false;
+  if (gliding && !explicitIntent) return false;
+  return (
+    !layoutChanged ||
+    explicitIntent ||
+    delta > 2 ||
+    (delta < -2 && top < maximum - 2)
+  );
+}
+
+function visible(viewport) {
+  return (
+    viewport.isConnected &&
+    viewport.clientWidth > 0 &&
+    viewport.clientHeight > 0
+  );
+}
+
+function geometry(viewport) {
+  return {
+    height: viewport.scrollHeight,
+    width: viewport.clientWidth,
+    viewportHeight: viewport.clientHeight,
+  };
+}
+
+function changed(a, b) {
+  return (
+    !a ||
+    a.height !== b.height ||
+    a.width !== b.width ||
+    a.viewportHeight !== b.viewportHeight
+  );
+}
+
+function measure(viewport, content, following) {
+  const bounds = viewport.getBoundingClientRect();
+  const nodes = content.querySelectorAll(ITEM);
+  let anchor;
+  for (const node of nodes) {
+    const row = node.getBoundingClientRect();
+    if (row.height > 0 && row.bottom > bounds.top && row.top < bounds.bottom) {
+      anchor = {
+        itemId: node.dataset.transcriptItemId,
+        offset: row.top - bounds.top,
+      };
+      break;
+    }
+  }
+  return {
+    following,
+    anchor,
+    scrollTop: viewport.scrollTop,
+    viewportWidth: viewport.clientWidth,
+    viewportHeight: viewport.clientHeight,
+  };
+}
+
+export function useTranscriptScroll({ sessionKey, ready }) {
+  const viewportRef = useRef(null);
+  const contentRef = useRef(null);
+  const endRef = useRef(null);
+  const controller = useRef(null);
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const [view, setView] = useState({
+    following: true,
+    showJump: false,
+    showFade: false,
+  });
+  const api = useRef({
+    capture: () => controller.current?.capture(),
+    getIdentity: () => controller.current?.identity ?? null,
+    // expected: {expectedSessionKey, expectedGeneration, behavior}; 'smooth'
+    // is the classic chip, anything else (Send) the instant jump.
+    jumpToLatest: (expected) => controller.current?.jump(expected) ?? false,
+    forwardWheel: (event) => controller.current?.forwardWheel(event),
+    // Feed keyboard navigation (N9 setPinned(false)) and the find bar's match
+    // reveal (G9 B: cancel the in-flight scroll, unpin, then centre).
+    release: () => controller.current?.release(),
+    reveal: (rect) => controller.current?.reveal(rect) ?? false,
+    getContent: () => contentRef.current,
+  });
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    const end = endRef.current;
+    if (!viewport || !content || !end || !sessionKey) {
+      controller.current = null;
+      setView({ following: true, showJump: false, showFade: false });
+      return;
+    }
+    const entry = cache.open(sessionKey);
+    const identity = Object.freeze({
+      sessionKey,
+      generation: entry.generation,
+    });
+    let disposed = false;
+    let following = entry.snapshot?.following ?? true;
+    let snapshot = entry.snapshot;
+    let pendingRestore = true;
+    let hidden = !visible(viewport);
+    let touchActive = false;
+    let touchY = null;
+    let frame = 0;
+    let lastTop = viewport.scrollTop;
+    let lastGeometry = geometry(viewport);
+    let ownTarget = null;
+    let jumpInRange = true;
+    let fadeInRange = true;
+    let userScrollPending = false;
+    let dragActive = false;
+    let glideUntil = 0;
+    let glideTarget = null;
+    let glideTimer = 0;
+
+    const live = () => !disposed && controller.current?.identity === identity;
+    function publish() {
+      if (!live()) return;
+      const measurable = visible(viewport);
+      const next = {
+        following,
+        showJump: measurable && !pendingRestore && !following && !jumpInRange,
+        showFade: measurable && !pendingRestore && !fadeInRange,
+      };
+      setView((old) =>
+        old.following === next.following &&
+        old.showJump === next.showJump &&
+        old.showFade === next.showFade
+          ? old
+          : next,
+      );
+    }
+    function save() {
+      if (!live() || !visible(viewport) || pendingRestore || hidden)
+        return snapshot;
+      const next = measure(viewport, content, following);
+      // A provisional loading-only DOM must never replace a useful row anchor.
+      if (!next.anchor && snapshot?.anchor && !readyRef.current)
+        return snapshot;
+      snapshot = next;
+      cache.save(sessionKey, identity.generation, snapshot);
+      return snapshot;
+    }
+    function write(top) {
+      const target = Math.max(
+        0,
+        Math.min(top, viewport.scrollHeight - viewport.clientHeight),
+      );
+      if (Math.abs(viewport.scrollTop - target) > 0.1) {
+        ownTarget = target;
+        viewport.scrollTop = target;
+      }
+      lastTop = viewport.scrollTop;
+    }
+    function restore(saved) {
+      if (saved?.anchor) {
+        const row = Array.from(content.querySelectorAll(ITEM)).find(
+          (node) => node.dataset.transcriptItemId === saved.anchor.itemId,
+        );
+        if (row) {
+          write(
+            viewport.scrollTop +
+              row.getBoundingClientRect().top -
+              viewport.getBoundingClientRect().top -
+              saved.anchor.offset,
+          );
+          return true;
+        }
+      }
+      return false;
+    }
+    const view = viewport.ownerDocument.defaultView;
+    const gliding = () => glideUntil > performance.now();
+    function endGlide() {
+      glideUntil = 0;
+      glideTarget = null;
+      if (glideTimer) view?.clearTimeout(glideTimer);
+      glideTimer = 0;
+    }
+    function glide() {
+      glideTarget = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      viewport.scrollTo({ top: glideTarget, behavior: "smooth" });
+    }
+    function updateRangeFallback() {
+      // IO is authoritative once it has delivered. Initial measurement avoids
+      // a stale visible button between a direct jump and the next IO delivery.
+      const distance =
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+      jumpInRange = distance <= 200;
+      fadeInRange = distance <= 8;
+    }
+    function flush() {
+      frame = 0;
+      if (!live()) return;
+      if (!visible(viewport)) {
+        hidden = true;
+        publish();
+        return;
+      }
+      const now = geometry(viewport);
+      if (hidden) {
+        hidden = false;
+        pendingRestore = true;
+      }
+      if (touchActive || (dragActive && following)) {
+        publish();
+        return;
+      }
+      if (pendingRestore) {
+        if (!readyRef.current) {
+          publish();
+          return;
+        }
+        if (following) write(viewport.scrollHeight);
+        else if (!restore(snapshot)) {
+          // Official missing-anchor terminal fallback parks at the tail. The
+          // local app has no historical paging API to recover a missing row.
+          write(viewport.scrollHeight);
+          following = true;
+        }
+        pendingRestore = false;
+      } else if (following && gliding()) {
+        // Content that grew during the glide extends it instead of snapping.
+        if (viewport.scrollHeight - viewport.clientHeight > glideTarget + 2)
+          glide();
+      } else if (following) {
+        if (
+          viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop >
+          2
+        )
+          write(viewport.scrollHeight);
+      } else if (changed(lastGeometry, now)) {
+        restore(snapshot);
+      }
+      lastGeometry = geometry(viewport);
+      lastTop = viewport.scrollTop;
+      userScrollPending = false;
+      updateRangeFallback();
+      save();
+      publish();
+    }
+    function schedule() {
+      if (live() && !frame) frame = requestAnimationFrame(flush);
+    }
+    function release() {
+      if (!live() || !visible(viewport)) return;
+      endGlide();
+      following = false;
+      pendingRestore = false;
+      ownTarget = null;
+      save();
+      updateRangeFallback();
+      publish();
+    }
+    function onScroll() {
+      if (!live()) return;
+      if (!visible(viewport)) {
+        hidden = true;
+        publish();
+        return;
+      }
+      const top = viewport.scrollTop;
+      const delta = top - lastTop;
+      const layoutChanged = changed(lastGeometry, geometry(viewport));
+      const own = ownTarget != null && Math.abs(top - ownTarget) <= 2;
+      const maximum = viewport.scrollHeight - viewport.clientHeight;
+      const userMovement = isUserScrollMovement({
+        delta,
+        top,
+        maximum,
+        layoutChanged,
+        explicitIntent: userScrollPending || dragActive,
+        programmatic: own,
+        gliding: gliding(),
+      });
+      // :359: arriving at the tail ends the glide.
+      if (glideUntil && maximum - top <= 2) endGlide();
+      // A coalesced scroll event may already contain a user override. Once
+      // observed, an old target must not mask a later user return to that y.
+      ownTarget = null;
+      if (userMovement && !pendingRestore && !hidden) {
+        if (delta < -2) following = false;
+        else if (
+          delta > 0 &&
+          viewport.scrollHeight - viewport.clientHeight - top <= 1
+        )
+          following = true;
+      }
+      lastTop = top;
+      // Save user movement before RO/frame compensation uses the previous
+      // anchor; do not save a browser clamp caused by content/viewport resize.
+      if (
+        (userMovement || (own && !layoutChanged)) &&
+        !pendingRestore &&
+        !hidden
+      )
+        save();
+      userScrollPending = false;
+      updateRangeFallback();
+      publish();
+      schedule();
+    }
+    function onWheel(event) {
+      if (isUpwardWheel(event) && viewport.scrollTop > 0) release();
+      if (!event.ctrlKey && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        endGlide();
+        userScrollPending = true;
+        ownTarget = null;
+      }
+    }
+    function onKey(event) {
+      if (!live() || !visible(viewport)) return;
+      const intent = transcriptKeyIntent(event, {
+        inViewport: viewport.contains(event.target),
+        bodyTarget: event.target === viewport.ownerDocument.body,
+        editable: !!event.target.closest?.(EDITABLE),
+        inItem: !!event.target.closest?.(INTERACTION_ITEM),
+        keepsPin: !!event.target.closest?.(KEEP_PIN),
+      });
+      if (intent === "release") release();
+      else if (intent === "up") {
+        release();
+        userScrollPending = true;
+      } else if (intent === "down") {
+        endGlide();
+        userScrollPending = true;
+        ownTarget = null;
+      }
+    }
+    function onPointer(event) {
+      if (
+        event.target.closest?.(INTERACTION_ITEM) &&
+        !event.target.closest?.(`${KEEP_PIN}, ${EDITABLE}`)
+      )
+        release();
+    }
+    function onMouseDown(event) {
+      let target = event.target;
+      while (target && target !== viewport) {
+        const style = getComputedStyle(target);
+        if (
+          (target.scrollHeight > target.clientHeight &&
+            /auto|scroll/.test(style.overflowY)) ||
+          (target.scrollWidth > target.clientWidth &&
+            /auto|scroll/.test(style.overflowX))
+        )
+          return;
+        target = target.parentElement;
+      }
+      dragActive = true;
+      ownTarget = null;
+    }
+    function onMouseUp() {
+      dragActive = false;
+      schedule();
+    }
+    function onTouchStart(event) {
+      endGlide();
+      touchActive = true;
+      touchY = event.touches[0]?.clientY ?? null;
+    }
+    function onTouchMove(event) {
+      const y = event.touches[0]?.clientY;
+      if (touchY != null && y != null && Math.abs(y - touchY) > 4)
+        userScrollPending = true;
+      if (
+        touchY != null &&
+        y != null &&
+        y - touchY > 4 &&
+        viewport.scrollTop > 0
+      )
+        release();
+    }
+    function onTouchEnd() {
+      touchActive = false;
+      touchY = null;
+      schedule();
+    }
+    const local = {
+      identity,
+      capture: save,
+      readyChanged: schedule,
+      jump(expected = {}) {
+        if (
+          !live() ||
+          !visible(viewport) ||
+          !identityMatches(identity, expected)
+        )
+          return false;
+        following = true;
+        pendingRestore = false;
+        hidden = false;
+        endGlide();
+        const behavior = jumpBehavior(expected.behavior, prefersReducedMotion(view));
+        const deadline = behavior === "smooth"
+          ? glideDeadline(performance.now(), viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop)
+          : 0;
+        if (deadline) {
+          // scroll-follow-current.js:655-670: scrollTo smooth, pinned at once,
+          // the glide guard until the tail or the deadline (then catch up).
+          glideUntil = deadline;
+          glideTimer = view?.setTimeout(() => { glideTimer = 0; endGlide(); schedule(); }, GLIDE_MS) ?? 0;
+          ownTarget = null;
+          glide();
+        } else write(viewport.scrollHeight);
+        lastGeometry = geometry(viewport);
+        updateRangeFallback();
+        save();
+        publish();
+        return true;
+      },
+      release,
+      // shared-18 Ko/Vo: a find match outside the visible band (cut at the
+      // scroller's scroll-padding-bottom) is centred; following is released
+      // first, as G9's scrollToIndex does.
+      reveal(rect) {
+        if (!live() || !visible(viewport) || !rect) return false;
+        release();
+        const style = view?.getComputedStyle(viewport);
+        const padding = Number.parseFloat(style?.scrollPaddingBottom ?? "");
+        const bounds = viewport.getBoundingClientRect();
+        const offset = centerScrollOffset(rect, bounds, padding > 0 ? bounds.bottom - padding : undefined);
+        if (offset !== null) {
+          write(viewport.scrollTop + offset);
+          lastGeometry = geometry(viewport);
+          updateRangeFallback();
+          save();
+          publish();
+        }
+        return true;
+      },
+      // c360a9e1c od wrapper: a wheel over the chip scrolls the transcript.
+      forwardWheel(event) {
+        if (!live() || !visible(viewport)) return;
+        onWheel(event);
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+        viewport.scrollBy({ top: event.deltaY * unit, left: 0 });
+      },
+    };
+    controller.current = local;
+    const resize = new ResizeObserver(schedule);
+    resize.observe(viewport);
+    resize.observe(content);
+    const observers = [200, 8].map((margin, index) => {
+      const observer = new IntersectionObserver(
+        ([record]) => {
+          if (!live() || !visible(viewport) || !record) return;
+          if (index === 0) jumpInRange = record.isIntersecting;
+          else fadeInRange = record.isIntersecting;
+          publish();
+        },
+        { root: viewport, rootMargin: `0px 0px ${margin}px 0px`, threshold: 0 },
+      );
+      observer.observe(end);
+      return observer;
+    });
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    viewport.addEventListener("wheel", onWheel, {
+      passive: true,
+      capture: true,
+    });
+    viewport.ownerDocument.addEventListener("keydown", onKey, true);
+    viewport.addEventListener("mousedown", onMouseDown, true);
+    viewport.ownerDocument.addEventListener("mouseup", onMouseUp, true);
+    viewport.ownerDocument.defaultView?.addEventListener("blur", onMouseUp);
+    content.addEventListener("pointerdown", onPointer, true);
+    viewport.addEventListener("touchstart", onTouchStart, { passive: true });
+    viewport.addEventListener("touchmove", onTouchMove, { passive: true });
+    viewport.addEventListener("touchend", onTouchEnd, { passive: true });
+    viewport.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    updateRangeFallback();
+    flush();
+    return () => {
+      save();
+      disposed = true;
+      endGlide();
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      observers.forEach((observer) => observer.disconnect());
+      viewport.removeEventListener("scroll", onScroll);
+      viewport.removeEventListener("wheel", onWheel, true);
+      viewport.ownerDocument.removeEventListener("keydown", onKey, true);
+      viewport.removeEventListener("mousedown", onMouseDown, true);
+      viewport.ownerDocument.removeEventListener("mouseup", onMouseUp, true);
+      viewport.ownerDocument.defaultView?.removeEventListener(
+        "blur",
+        onMouseUp,
+      );
+      content.removeEventListener("pointerdown", onPointer, true);
+      viewport.removeEventListener("touchstart", onTouchStart);
+      viewport.removeEventListener("touchmove", onTouchMove);
+      viewport.removeEventListener("touchend", onTouchEnd);
+      viewport.removeEventListener("touchcancel", onTouchEnd);
+      if (controller.current === local) controller.current = null;
+    };
+  }, [sessionKey]);
+
+  useLayoutEffect(() => {
+    controller.current?.readyChanged();
+  }, [ready]);
+  return { viewportRef, contentRef, endRef, api: api.current, ...view };
+}

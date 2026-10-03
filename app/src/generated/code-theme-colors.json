@@ -1,0 +1,158 @@
+{
+  "claude-light": {
+    "mode": "light",
+    "bg": "#ffffff",
+    "fg": "#1a1a1a",
+    "selection": "#0073e640"
+  },
+  "claude-dark": {
+    "mode": "dark",
+    "bg": "#1a1a19",
+    "fg": "#eaecf0",
+    "selection": "#0099ff4d"
+  },
+  "github-light": {
+    "mode": "light",
+    "bg": "#ffffff",
+    "fg": "#24292e",
+    "selection": "#0366d625"
+  },
+  "github-dark": {
+    "mode": "dark",
+    "bg": "#24292e",
+    "fg": "#e1e4e8",
+    "selection": "#3392ff44"
+  },
+  "github-dark-dimmed": {
+    "mode": "dark",
+    "bg": "#22272e",
+    "fg": "#adbac7",
+    "selection": "#0099ff4d"
+  },
+  "one-dark-pro": {
+    "mode": "dark",
+    "bg": "#282c34",
+    "fg": "#abb2bf",
+    "selection": "#67769660"
+  },
+  "one-light": {
+    "mode": "light",
+    "bg": "#fafafa",
+    "fg": "#383a42",
+    "selection": "#e5e5e6"
+  },
+  "dracula": {
+    "mode": "dark",
+    "bg": "#282a36",
+    "fg": "#f8f8f2",
+    "selection": "#44475a"
+  },
+  "dracula-soft": {
+    "mode": "dark",
+    "bg": "#282a36",
+    "fg": "#f6f6f4",
+    "selection": "#44475a"
+  },
+  "catppuccin-latte": {
+    "mode": "light",
+    "bg": "#eff1f5",
+    "fg": "#4c4f69",
+    "selection": "#7c7f934d"
+  },
+  "catppuccin-mocha": {
+    "mode": "dark",
+    "bg": "#1e1e2e",
+    "fg": "#cdd6f4",
+    "selection": "#9399b240"
+  },
+  "nord": {
+    "mode": "dark",
+    "bg": "#2e3440",
+    "fg": "#d8dee9",
+    "selection": "#434c5ecc"
+  },
+  "solarized-dark": {
+    "mode": "dark",
+    "bg": "#002b36",
+    "fg": "#839496",
+    "selection": "#274642"
+  },
+  "solarized-light": {
+    "mode": "light",
+    "bg": "#fdf6e3",
+    "fg": "#657b83",
+    "selection": "#eee8d5"
+  },
+  "vitesse-dark": {
+    "mode": "dark",
+    "bg": "#121212",
+    "fg": "#dbd7caee",
+    "selection": "#eeeeee18"
+  },
+  "vitesse-light": {
+    "mode": "light",
+    "bg": "#ffffff",
+    "fg": "#393a34",
+    "selection": "#22222218"
+  },
+  "min-dark": {
+    "mode": "dark",
+    "bg": "#1f1f1f",
+    "fg": "#b392f0",
+    "selection": "#0099ff4d"
+  },
+  "min-light": {
+    "mode": "light",
+    "bg": "#ffffff",
+    "fg": "#212121",
+    "selection": "#0073e640"
+  },
+  "monokai": {
+    "mode": "dark",
+    "bg": "#272822",
+    "fg": "#f8f8f2",
+    "selection": "#878b9180"
+  },
+  "tokyo-night": {
+    "mode": "dark",
+    "bg": "#1a1b26",
+    "fg": "#a9b1d6",
+    "selection": "#515c7e4d"
+  },
+  "night-owl": {
+    "mode": "dark",
+    "bg": "#011627",
+    "fg": "#d6deeb",
+    "selection": "#1d3b53"
+  },
+  "rose-pine": {
+    "mode": "dark",
+    "bg": "#191724",
+    "fg": "#e0def4",
+    "selection": "#6e6a8633"
+  },
+  "rose-pine-dawn": {
+    "mode": "light",
+    "bg": "#faf4ed",
+    "fg": "#575279",
+    "selection": "#6e6a8614"
+  },
+  "ayu-dark": {
+    "mode": "dark",
+    "bg": "#10141c",
+    "fg": "#bfbdb6",
+    "selection": "#3388ff40"
+  },
+  "slack-dark": {
+    "mode": "dark",
+    "bg": "#222222",
+    "fg": "#e6e6e6",
+    "selection": "#0099ff4d"
+  },
+  "slack-ochin": {
+    "mode": "light",
+    "bg": "#ffffff",
+    "fg": "#000000",
+    "selection": "#aed4fb"
+  }
+}

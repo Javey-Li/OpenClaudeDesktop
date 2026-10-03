@@ -1,0 +1,33 @@
+# Code Desktop over dsh-base: a Codex app-server compatible JSON-RPC endpoint on
+# stdio. Stdout belongs to the protocol; diagnostics go to stderr.
+
+- id: system-prompt
+  config:
+    personaSuffix: Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model, working inside
+      Code Desktop, a local desktop client for DeepSeek Harness.
+
+# Code Desktop names sessions from the first prompt itself.
+- id: session-title-llm
+  disabled: true
+
+- insert:
+    # ask_user_question (legacy: blocks the tool call until answered). The
+    # bridge answers 'user-questions/request' with the Codex question card,
+    # which also carries exit_plan_mode's plan review.
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
+
+    - id: code-desktop-startup
+      name: '@code-desktop/dsh-codex-app-server/startup'
+
+    - id: codex-app-server
+      name: '@code-desktop/dsh-codex-app-server'
+      inject: [codeDesktopStartup]
+      config:
+        provider: deepseek-official
+        model: deepseek-flash
+
+- id: hmr
+  disabled: true
