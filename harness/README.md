@@ -33,6 +33,8 @@ node tests/fake-model-smoke.mjs   # 同一客户端对真实内核，模型换�
 
 `fake-model-smoke.mjs` 覆盖 developerInstructions、outputSchema、模型的 `workflow` 工具（进度、回放、前台/后台 Stop、Dynamic workflows 开关）与 runner agent 的只读/可写权限。内核由 `#!/usr/bin/env node` 启动，CodexClient 会把 `~/.local/bin`、`/usr/local/bin` 放到 PATH 前面：那里的 node 必须 ≥ 22（Harness 要求），否则内核启动即退出。
 
+Code Desktop 的沙箱实现由自己的 bundle 组装（`packages/code-desktop-app/cordis.patch.yml`）：`sandbox-fs.js`、`sandbox-shell.js`、`sandbox-approval.js` 分别提供文件边界、系统命令沙箱与审批。共享 DSH Purge 依赖保持原样；即使其实现主动绕过 fs/bash/approval，本 profile 仍执行 `thread/start` 的 read-only / workspace-write 限制。`approvalPolicy: never` 拒绝提权；预设应用失败会让请求失败，不能静默沿用较宽权限。测试见 `tests/sandbox.test.mjs` 和 fake smoke 的 write/edit/bash 权限矩阵。
+
 Code Desktop 默认使用本内核（`app/electron/codex.cjs` 的 `resolveCore()`）：
 
 | 环境变量 | 作用 |
@@ -202,7 +204,7 @@ Settings → Instructions（C1）。偏好键 `customInstructions = {enabled, gl
 - 用户自己 DeepSeek Harness App profile（`~/.dsh/profiles/…`）里的 MCP 服务器和插件不会被 Code Desktop 的内核加载；Connectors / Plugins 页只显示桥接层 profile（`harness/profile`）里的内容。
 - Code Desktop 偏好里记住的 Codex 会话（cliVersion 为纯版本号或 modelProvider 为 openai）在 DeepSeek 内核下读不到：侧栏不列出它们，只在列表顶部显示一行说明（"N Codex sessions aren’t available with the DeepSeek core…"），id 保留在配置里，`CODE_DESKTOP_CORE=codex` 启动即恢复。
 - 没有可压缩历史时 `/compact` 仍以 completed 的空轮结束（界面显示 "Conversation compacted"），回放里不留这一轮。
-- `thread/delete` 是**软删除**（桥接层隐藏），Harness 的会话文件仍在 `~/.dsh/sessions`，官方 DeepSeek Harness App 仍能看到；因此 DeepSeek 内核下删除确认框写的是 "Remove session?"（"…will be removed from Code Desktop. Its history stays in DeepSeek Harness…"），不再承诺永久删除。
+- `thread/delete` 同时删除对应的 Harness 历史目录（`<DSH_HOME>/sessions/<project>/<id>/`，桥接 `index.js` 的 `deleteSessionFiles`）；其他会话不受影响。fake smoke 使用临时 `DSH_HOME` 验证删除后的目录与会话不可读。
 - 图片附件走 Harness 附件存储，以图片块发给模型；只有不支持图片输入的模型（目录里 `inputModalities` 不含 `image`，如 deepseek-v4-pro）不能附图：app 在暂存时就拒绝（"The selected model doesn’t support image input."），已暂存后再换模型发送则内核返回 `-32602`。用户气泡里的图片是附件存储里规范化后的副本（可能被缩小、换格式），不是原文件。`@` 提及的行内 chip 位置（`text_elements`）不保存，回放时提及只显示为文件卡片；技能以 `/name` 文本出现在气泡里（不是技能卡片）；以前用文本标记发出的图片在回放里显示为图片卡片（原路径）。
 - 部署人格前缀在 `packages/code-desktop-app/cordis.patch.yml`；`developerInstructions` 是它后面的一个段，不替换它。
 - 模型 workflow 的每个 agent 没有 token 数与模型名（持久记录不带）；它们是子代理会话（childId），但 Tasks 卡片的 agent 行还不能打开其转录。

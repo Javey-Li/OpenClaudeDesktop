@@ -1,5 +1,45 @@
 # 接手说明：Code UI 源码优先还原
 
+## 2026-10 API 中转、简体中文、历史删除、/btw 与只读沙箱修复
+
+本节接续上一位 agent 的未提交成果，在 `ui-next` 上先原样保存为 `0503394`（Relay connection, i18n zh-CN, delete Harness history, /btw side chat），之后逐项提交。没有 push，没有重启用户正在运行的 app；内核验证使用隔离的 `DSH_HOME`，不访问真实 `~/.dsh`。按用户补充要求，**共享 DSH Purge 文件保持原样**，沙箱修复只在 Code Desktop 自有桥接层与 bundle/profile 生效。
+
+**上一批成果**
+
+- **Settings › Models 的 API 连接**：官方接口或第三方中转站，可读取中转站模型列表。主进程中转器监听 `127.0.0.1`，把请求中的 `<system-reminder>` 改为 `<system_reminder>`。主要文件：`app/electron/model-settings.cjs`、`relay-proxy.cjs`、`prefs/model-settings.mjs`、`app/src/source-settings-models.jsx`、`models-settings.css`；测试 `app/tests/model-settings.test.mjs`。
+- **界面语言与简体中文**：源字符串保持英文，以 `t()` / `tn()` 查询分区词典。入口 `app/electron/i18n/index.mjs`，中文在 `zh-CN/{app,common,customize,menus,models,panes,session,settings,sidebar}.mjs`；语言菜单 `app/src/source-language-picker.jsx` / `.css`。新增用户文案仍须补词典，并运行 `app/tests/i18n.test.mjs` 检查占位符。
+- **删除会话同时删除 Harness 历史**：桥接 `harness/packages/codex-app-server/src/index.js` 的 `deleteSessionFiles` 删除对应会话目录；`harness/tests/fake-model-smoke.mjs` 验证目录消失、会话不可读、其他会话不受影响。
+- **`/btw` 侧聊**：`app/src/source-side-chat.jsx` / `.css` 与 `side-chat-store.mjs`；桥接 `side-question.js`，RPC `codeDesktop/sideQuestion`、取消请求与增量事件。侧聊读取主会话上下文，但不追加到主会话；支持追问、复制回答、转为新会话草稿。测试 `app/tests/side-chat-store.test.mjs` 与 `harness/tests/side-question.test.mjs`。
+
+**本次修复与根因**
+
+- **只读失效**：`thread/start.sandbox` 经 `approval.js` 的 `updatePermission` → `presetTarget` → `permissionPresets.set`，会正确写入会话 `sandbox/mode`。真正失效的是共享依赖中的 `[dsh-purge]` 改动：`dsh-fs-sandbox.checkedTarget` 直接返回目标，`dsh-sandbox-local.confine` 原样返回 argv（Seatbelt 模板也允许写入），`dsh-user-approval.decide` 与 `dsh-sandbox.approveEscalation` 放行审批／忽略拒绝。
+- **仅修 Code Desktop**：`harness/packages/code-desktop-app/cordis.patch.yml` 禁用本 profile 的共享 fs/sandbox/approval 行，装入 `sandbox-fs.js`、`sandbox-shell.js`、`sandbox-approval.js`（位于桥接 `src/`，导出在其 `package.json`）。文件工具按每次调用的模式及规范路径限制写入；命令恢复系统沙箱包裹；审批恢复 waterfall，并在已记录拒绝的提权请求上抛错，防止共享 Purge 提权函数忽略拒绝。Bypass 仍按明确的 `danger-full-access` 工作。共享依赖与其他 DSH profile 未保留任何修改。
+- **桥接保护**：`index.js` 等待 `permissionPresets` 再启动；`approval.js` 遇到预设不可用／应用失败时拒绝请求，`approvalPolicy: never` 在额外可写根与会话授权之前拒绝提权。新增 `harness/tests/sandbox.test.mjs`，扩展 `approval.test.mjs` 与 fake smoke，覆盖 write/edit/bash、workspace 内外、符号链接、审批异常和显式提权。
+- **系统提示的两项失败属于测试过时**：`dsh-system-prompt` 明确以 `[dsh-purge] identity stripped` 移除内置身份句。`harness/tests/system-prompt.test.mjs` 的真实 registry fixture 显式设 `includeHarnessIdentity: false`，校验 Code Desktop persona／工具段／cwd 的完整预览文本。自定义提示替换、子作用域隔离、模板插值与清空后恢复的断言都保留；纯函数测试仍覆盖移除非空 identity 段。没有修改 Purge 或产品的系统提示行为。
+- **`/btw` 用户气泡底色**：`app/src/source-side-chat.css` 的 `.ssc-user p` 改用转录区同款 `--cds-bg-user-message`（回退 `--cds-alpha-1`），替换原先用于按钮的 `--cds-fill-secondary`（浅色下是白色 10% 透明度，落在白面板上几乎不可见）。没有新增产品文案。
+
+**验证结果**
+
+| 阶段 | app `npm test` | app build | harness `npm test` | fake smoke |
+|---|---|---|---|---|
+| 任务 1：应用沙箱 | 1743 通过 / 0 失败 / 1 既有跳过 | exit 0 | 175 通过 / 2 既有失败 | 53/53，exit 0 |
+| 任务 2：提示测试 | 1743 通过 / 0 失败 / 1 既有跳过 | exit 0 | 177/177 | 53/53，exit 0 |
+| 任务 3：文档与气泡 | 1743 通过 / 0 失败 / 1 既有跳过 | exit 0 | 177/177 | 53/53，exit 0 |
+
+- 任务 1 按顺序提交时仍有任务 2 的两项已知失败；任务 2、3 的完整回归均已清零，未删除或跳过测试。
+- 独立安全单元测试（sandbox + approval）：23/23。fake smoke 比原先增加 18 项工具权限场景。
+- `/btw` CSS 离屏验证：浅／深色 2/2，底色与转录区一致；一次性 Electron profile，所有窗口不可见且不抢焦点。证据在本机 `work/ui-next/bubbles-{light,dark}.png`、`bubbles-report.json`；测试日志在同目录 `task{1-final,2,3}-*.log`（work 证据未提交）。
+- 最后核对所涉共享 Purge 包的 16 个 JS 文件，哈希无变化。build 保留既有动态导入／chunk 体积提示，exit 0。
+
+**已知缺口**
+
+- `/btw` 用户气泡底色过淡：本节已修；侧聊仍是内存状态，不持久化。
+- 弹出窗口（popout）仍不跟随自定义主题。
+- 子代理仍不继承自定义指令。
+- 可选的 “Not delivered · Retry · Discard” 本轮未实现：原版 `cd5a31703-ChuTw_FH.js` 的 `epitaxy-failed-send` 绑定真实失败消息与重试／丢弃动作；本地需要新增失败消息状态，并覆盖普通发送、steer/queue、附件快照、导航切换与断线重试去重，不能只加一行外观。继续见 `work/fidelity-r3/DEFERRED.md` 的 `transcript-failed-send`。
+- 用户现有 Electron／内核进程未重启；这些运行时修复将在下次启动内核时加载。
+
 ## 2026-10 自定义功能（C1–C6）
 
 六项自定义功能已落地，详细过程见 `work/customization/LOG.md`（每项一节，末尾是 Final regression），协议与文件格式见 `harness/README.md` 对应小节。`<userData>` = `~/Library/Application Support/Code Desktop`（`CODE_DESKTOP_DATA` 可改）。
