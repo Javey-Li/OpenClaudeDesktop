@@ -62,10 +62,12 @@ test('previewCustom: reads params.codeDesktop.customization leniently', () => {
   assert.deepEqual(previewCustom({ codeDesktop: { customization: [] } }, normalizeInstructions), { systemPrompt: null, instructions: null })
 })
 
-// A registry like the profile's: identity, persona prefix/suffix with strict variables, one tool section.
+// DSH Purge deliberately strips harness:identity. Make the fixture's identity
+// policy explicit so these bridge tests also work with a pristine npm install;
+// applySystemPrompt above still verifies removal of a populated identity section.
 async function withRegistry(run) {
   const root = new Context()
-  await root.plugin(SystemPrompt, { personaPrefix: PERSONA, personaSuffix: 'Your working directory is {{cwd}}.' })
+  await root.plugin(SystemPrompt, { includeHarnessIdentity: false, personaPrefix: PERSONA, personaSuffix: 'Your working directory is {{cwd}}.' })
   return new Promise((resolve, reject) => root.plugin({
     inject: ['systemPrompt'],
     apply: async (ctx) => {
@@ -103,10 +105,10 @@ test('real registry: the listener is agent-scoped and replaces the built-in prom
     const disposed = renderPrompt(await ctx.systemPrompt.assemble(contextFor(agent)))
     return { before, custom, text: renderPrompt(custom), otherAgent, noProject, cleared, disposed }
   })
-  assert.match(result.before, /^You are an AI agent powered by DeepSeek Harness\.\n\nYou are a coding agent powered by the deepseek-flash model/)
+  assert.match(result.before, /^You are a coding agent powered by the deepseek-flash model/)
   assert.equal(result.text, "You are Captain Whale (deepseek-flash) in /w. Always start replies with 'Arrr'.\n\nWorkflow agent rules.\n\nUse pnpm.")
   assert.deepEqual(result.custom.tools.map((t) => t.name), ['bash'], 'tools are still sent as schemas')
-  assert.match(result.otherAgent, /DeepSeek Harness/, 'other agents keep the built-in prompt')
+  assert.equal(result.otherAgent, 'You are a coding agent powered by the deepseek-flash model, working inside Code Desktop.\n\nUse bash carefully.\n\nYour working directory is /w.', 'other agents keep the built-in prompt')
   assert.doesNotMatch(result.otherAgent, /Captain Whale/)
   assert.equal(result.noProject, "You are Captain Whale (deepseek-flash) in /w. Always start replies with 'Arrr'.\n\nWorkflow agent rules.")
   assert.equal(result.cleared, result.before, 'null restores the built-in prompt')
@@ -134,7 +136,7 @@ test('systemPromptPreview: with an agent (exact) and without one (global layer +
   assert.deepEqual(result.withAgent.sections, [{ name: SYSTEM_PROMPT_SECTION, chars: 21 }, { name: INSTRUCTIONS_SECTION, chars: 16 }])
   assert.deepEqual(result.withAgent.tools, ['bash'])
   assert.deepEqual(result.withAgent.variables, { provider: 'deepseek-official', model: 'deepseek-pro', cwd: '/repo' })
-  assert.match(result.withAgent.defaultText, /^You are an AI agent powered by DeepSeek Harness\.\n\nYou are a coding agent powered by the deepseek-pro model[\s\S]*Your working directory is \/repo\.$/)
+  assert.equal(result.withAgent.defaultText, 'You are a coding agent powered by the deepseek-pro model, working inside Code Desktop.\n\nUse bash carefully.\n\nYour working directory is /repo.')
   assert.doesNotMatch(result.withAgent.defaultText, /Preview project|Thread project/, 'the built-in default carries no customization')
   assert.match(result.withAgent.defaultTemplate, /powered by the \{\{model\}\} model[\s\S]*Your working directory is \{\{cwd\}\}\.$/, 'the template keeps the references')
   assert.equal(interpolateLoose(result.withAgent.defaultTemplate, result.withAgent.variables), result.withAgent.defaultText, 'pasting the template back gives the built-in text')
