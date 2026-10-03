@@ -27,3 +27,6 @@
 }
 .ins-preview[data-empty] { color:var(--cds-text-muted); }
 .ins-preview:focus-visible { outline:none; box-shadow:var(--cds-focus-shadow); }
+.ins-editor-actions { margin-inline-start:auto; }
+.ins-warning { margin:var(--cds-gap-sm) 0 0; color:var(--cds-text-warning, var(--cds-text-secondary)); font-size:12px; line-height:16px; }
+.ins-system-prompt { max-height:420px; }

@@ -1,6 +1,9 @@
 // customInstructions preference (C1). Pure and renderer-safe: no node:* imports.
 // Shape: { enabled, global, projects: { [absFolderPath]: { text, useFile } } }.
-export const INSTRUCTIONS_MAX_CHARS = 20000;
+// No length limit on custom instructions (user preference); long text only costs context tokens.
+// On the DeepSeek core a non-empty global text IS the whole system prompt (customSystemPrompt);
+// empty keeps the built-in prompt. Codex appends it to its own prompt instead.
+export const INSTRUCTIONS_MAX_CHARS = Infinity;
 export const INSTRUCTIONS_MAX_PROJECTS = 64;
 export const INSTRUCTIONS_MAX_PATH = 1024;
 export const INSTRUCTIONS_DEFAULT = Object.freeze({ enabled: true, global: '', projects: Object.freeze({}) });
@@ -80,4 +83,11 @@ export function instructionsProjectList(cwd, threadMetadata) {
   add(cwd);
   for (const meta of Object.values(threadMetadata && typeof threadMetadata === 'object' ? threadMetadata : {})) add(meta?.cwd);
   return list;
+}
+
+/** The global text that replaces the DeepSeek core's built-in system prompt, or null (built-in). */
+export function customSystemPrompt(prefs) {
+  const value = normalizeInstructions(prefs);
+  const text = value.enabled ? value.global.trim() : '';
+  return text || null;
 }

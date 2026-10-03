@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { INSTRUCTIONS_DEFAULT, normalizeInstructions, validateInstructions, projectInstructionsFor, withProjectInstructions, instructionsProjectList } from '../electron/prefs/instructions.mjs';
+import { INSTRUCTIONS_DEFAULT, normalizeInstructions, validateInstructions, projectInstructionsFor, withProjectInstructions, instructionsProjectList, customSystemPrompt } from '../electron/prefs/instructions.mjs';
 import { settingsPatch } from '../electron/preferences.mjs';
 
 test('defaults are frozen and normalize fills every field', () => {
@@ -18,7 +18,7 @@ test('normalize is lenient: caps text, drops bad paths and empty file-only entri
     '/c': { text: '', useFile: false },
     '/d': null,
   } });
-  assert.equal(value.global.length, 20000);
+  assert.equal(value.global.length, 20050, 'no length cap');
   assert.deepEqual(value.projects, { '/a': { text: 'trailing', useFile: true }, '/c': { text: '', useFile: false } });
 });
 
@@ -26,7 +26,7 @@ test('validate is strict with user-facing messages; null resets', () => {
   assert.equal(validateInstructions(null), null);
   assert.throws(() => validateInstructions([]), /Invalid custom instructions/);
   assert.throws(() => validateInstructions({ enabled: 'yes' }), /Invalid custom instructions/);
-  assert.throws(() => validateInstructions({ global: 'x'.repeat(20001) }), /20,000 characters or fewer/);
+  assert.equal(validateInstructions({ global: 'x'.repeat(200001) }).global.length, 200001, 'no length cap');
   assert.throws(() => validateInstructions({ global: 'a\0b' }), /Invalid global instructions/);
   assert.throws(() => validateInstructions({ projects: { 'rel': { text: 'x' } } }), /absolute folder path/);
   assert.throws(() => validateInstructions({ projects: { ['/' + 'x'.repeat(1024)]: { text: 'x' } } }), /absolute folder path/);
@@ -70,4 +70,14 @@ test('project list: cwd first, unique session folders, at most 20', () => {
   assert.equal(list.length, 20);
   assert.equal(new Set(list).size, 20);
   assert.deepEqual(instructionsProjectList(undefined, null), []);
+});
+
+test('customSystemPrompt: the trimmed global text when on, else null (built-in prompt)', () => {
+  assert.equal(customSystemPrompt({ global: "  You are Captain Whale. Always start replies with 'Arrr'.\n" }), "You are Captain Whale. Always start replies with 'Arrr'.");
+  assert.equal(customSystemPrompt({ global: 'x'.repeat(250000) }).length, 250000, 'never capped');
+  assert.equal(customSystemPrompt({ global: '   \n' }), null);
+  assert.equal(customSystemPrompt({ enabled: false, global: 'G' }), null);
+  assert.equal(customSystemPrompt(undefined), null);
+  const saved = settingsPatch({}, { customInstructions: { global: 'Whole prompt {{model}} {{cwd}}' } });
+  assert.equal(customSystemPrompt(saved.customInstructions), 'Whole prompt {{model}} {{cwd}}', 'references are stored as written');
 });

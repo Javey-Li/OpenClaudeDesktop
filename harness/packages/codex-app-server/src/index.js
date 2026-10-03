@@ -33,6 +33,9 @@
  *   developerInstructions / outputSchema
  *                       a scoped prompt section / a one-turn structured_output
  *                       capture tool on the agent's scope (structured.js)
+ *   custom system prompt params.codeDesktop.customization.systemPrompt replaces
+ *                       the assembled sections (system-prompt.js);
+ *                       codeDesktop/systemPrompt/preview renders it
  *   plugin management   codeDesktop/plugin/* over dsh-plugin-manager (plugins.js)
  *   dynamic workflows   the Harness `workflow` tool's runs as workflowRun on its
  *                       item (workflows.js); codeDesktop/workflow/stop
@@ -46,7 +49,7 @@ import { isAbsolute } from 'node:path'
 import { realpath } from 'node:fs/promises'
 import z from '@deepseek-ai/schemastery'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
-import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import { assembleContextFor, installModelSelection } from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { LineTransport, RpcError, METHOD_NOT_FOUND, INVALID_PARAMS, invalidParams } from './transport.js'
@@ -67,6 +70,8 @@ import { CacheRevisions, cachedValues, coldRow, descendantIds, matchesSearch, mu
 import { installLogParams, pluginRequest } from './plugins.js'
 import { attachDeveloperInstructions, attachStructuredOutput, developerInstructionsOf, hideWorkflowTool, outputSchemaOf, workflowsAllowedBy } from './structured.js'
 import { createCustomRef, applyCustomization, installCustomization } from './customization.js'
+import { normalizeInstructions as normalizeCustomInstructions } from './instructions.js'
+import { previewCustom, systemPromptPreview } from './system-prompt.js'
 import { profileReadResponse } from './profile.js'
 import { ALIASES as PRICE_ALIASES, DEEPSEEK_PRICES, PEAK_WINDOWS, PRICING_URL } from './pricing.js'
 
@@ -92,7 +97,7 @@ const DSH_VERSION = '0.2.0-rc.2'
 // structuredOutput: thread/start developerInstructions and turn/start outputSchema are honored (structured.js).
 // pluginManage (set at initialize when the profile has dsh-plugin-manager): codeDesktop/plugin/* install,
 // remove and enable bundles (plugins.js).
-const CAPABILITIES = { unsupportedMethods: ['thread/fork', 'review/start', 'thread/revert'], skillToggle: false, mcpConfigWrite: false, livePermissions: true, codeStats: true, modelWorkflows: true, structuredOutput: true }
+const CAPABILITIES = { unsupportedMethods: ['thread/fork', 'review/start', 'thread/revert'], skillToggle: false, mcpConfigWrite: false, livePermissions: true, codeStats: true, modelWorkflows: true, structuredOutput: true, systemPromptPreview: true }
 
 // How long after start account/read waits for the credentials and account services.
 const ACCOUNT_SERVICE_WAIT_MS = 5000
@@ -1216,6 +1221,19 @@ export function apply(ctx, config) {
       case 'codeDesktop/pricing/read':
         // Settings → Models → Pricing: the official table the app's overrides start from.
         return { official: DEEPSEEK_PRICES, aliases: PRICE_ALIASES, pricingUrl: PRICING_URL, peakWindows: PEAK_WINDOWS }
+      case 'codeDesktop/systemPrompt/preview': {
+        // Settings → Instructions: the exact system prompt for the app's values. A loaded thread
+        // (threadId, else one open in the same cwd) assembles in its agent's scope; otherwise the
+        // global layer with the route's variables (system-prompt.js systemPromptPreview).
+        const systemPrompt = ctx.get('systemPrompt')
+        if (!systemPrompt) throw new RpcError(-32000, 'The system prompt registry is not available.')
+        const cwd = await normalizeCwd(params?.cwd)
+        const byId = typeof params?.threadId === 'string' ? threads.get(params.threadId) : undefined
+        const thread = byId && !byId.closing ? byId : [...threads.values()].find((candidate) => !candidate.closing && candidate.cwd === cwd)
+        const route = thread?.selection?.current ?? await catalog.selection(params?.model, undefined, undefined) ?? catalog.defaultRoute()
+        const result = await systemPromptPreview({ systemPrompt, assembleContextFor }, { agent: thread?.agent, cwd, route, custom: previewCustom(params, normalizeCustomInstructions) })
+        return { ...result, cwd, threadId: thread?.id ?? null }
+      }
       case 'codeDesktop/stats/read':
         // The home stats card (cc43287c9-BMbiZYzF.js:3987-4004 getCodeStats → code-home.js Iw/Xw/eT/cT).
         return codeStats(await readUsageSummaries())

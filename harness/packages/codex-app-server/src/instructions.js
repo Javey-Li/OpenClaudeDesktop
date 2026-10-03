@@ -1,10 +1,12 @@
 /**
  * Code Desktop custom instructions (Settings → Instructions).
  *
- * The app composes the global text, the project's .code-desktop/instructions.md
- * and the project override into one block and sends it on thread/start,
- * thread/resume and turn/start as params.codeDesktop.customization.instructions
- * (string | null; customization.js stores it on the thread's ref).
+ * The app composes the project's .code-desktop/instructions.md and the project
+ * override into one block and sends it on thread/start, thread/resume and
+ * turn/start as params.codeDesktop.customization.instructions (string | null;
+ * customization.js stores it on the thread's ref). The global text is the
+ * whole system prompt instead (customization.systemPrompt, system-prompt.js);
+ * this section is kept after it.
  *
  * installInstructions registers one agent-scoped system-prompt section right
  * after the deployment persona suffix. Its text is read from the ref at every
@@ -14,10 +16,17 @@
  */
 
 export const INSTRUCTIONS_SECTION = 'code-desktop:custom-instructions'
-export const INSTRUCTIONS_CAP = 40000
+/**
+ * AssembleContext field codeDesktop/systemPrompt/preview sets so one assembly
+ * uses the app's values ({ systemPrompt, instructions }) instead of the
+ * thread's ref (system-prompt.js).
+ */
+export const PREVIEW_CUSTOM = 'codeDesktopCustom'
+// No cap: custom instructions are passed through whole (user preference).
+export const INSTRUCTIONS_CAP = Infinity
 
 /**
- * Bridge-side check of the app's value: a string capped at 40000 chars, else null.
+ * Bridge-side check of the app's value: a non-blank string (never capped), else null.
  * @param {unknown} value
  * @returns {string | null}
  */
@@ -41,6 +50,6 @@ export function installInstructions(agentCtx, ref) {
     name: INSTRUCTIONS_SECTION,
     order,
     interpolate: false,
-    text: () => ref.instructions ?? '',
+    text: (context) => (context?.[PREVIEW_CUSTOM] ?? ref).instructions ?? '',
   })
 }

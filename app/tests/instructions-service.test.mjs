@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import service from '../electron/instructions-service.cjs';
-const { createInstructionsService, findProjectFile, composeInstructions, decorateCoreParams, TOTAL_CAP } = service;
+const { createInstructionsService, findProjectFile, composeInstructions, decorateCoreParams, systemPromptResult, TOTAL_CAP } = service;
 
 function tree() {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ins-home-')));
@@ -43,37 +43,44 @@ test('composeInstructions: format, omitted parts, comments, disabled and the 400
   assert.deepEqual(full.parts.map(p => p.source), ['global', 'projectFile', 'projectOverride']);
   assert.equal(full.chars, full.text.length);
   assert.equal(full.truncated, false);
+  assert.equal(full.systemPrompt, 'Be brief.', 'DeepSeek: the global text is the whole system prompt');
+  assert.equal(full.instructions, 'Run tests.\n\nUse pnpm.', 'after a custom system prompt the project text is bare');
+  const kept = composeInstructions({ prefs: { global: '<!-- mine -->\nYou are X.\n' }, cwd: '/w' });
+  assert.equal(kept.systemPrompt, '<!-- mine -->\nYou are X.', 'the system prompt is the text as written, trimmed');
   const fileOnly = composeInstructions({ prefs: {}, cwd: '/r/x', fileText: 'From file', filePath: '/r/.code-desktop/instructions.md' });
   assert.equal(fileOnly.text, '# Project instructions (/r)\nFrom file');
+  assert.equal(fileOnly.systemPrompt, null, 'empty global: the built-in prompt');
+  assert.equal(fileOnly.instructions, '# Project instructions (/r)\nFrom file', 'after the built-in prompt the project text keeps its heading');
   const commentOnly = composeInstructions({ prefs: {}, cwd: '/r', fileText: '<!-- nothing yet -->\n', filePath: '/r/.code-desktop/instructions.md' });
   assert.equal(commentOnly.text, '');
   const noFile = composeInstructions({ prefs: { projects: { '/w': { text: 'o', useFile: false } } }, cwd: '/w', fileText: 'ignored', filePath: '/w/.code-desktop/instructions.md' });
   assert.equal(noFile.text, '# Project instructions (/w)\no');
-  assert.equal(composeInstructions({ prefs: { ...prefs, enabled: false }, cwd: '/w/app' }).text, '');
+  const off = composeInstructions({ prefs: { ...prefs, enabled: false }, cwd: '/w/app' });
+  assert.deepEqual([off.text, off.systemPrompt, off.instructions], ['', null, null]);
+  assert.equal(composeInstructions({ prefs: { global: '   ' }, cwd: '/w' }).systemPrompt, null);
   const big = composeInstructions({ prefs: { global: 'g'.repeat(20000), projects: { '/w': { text: 'p'.repeat(20000) } } }, cwd: '/w', fileText: 'f'.repeat(30000), filePath: '/w/.code-desktop/instructions.md' });
-  assert.equal(big.truncated, true);
-  assert.equal(big.text.length, TOTAL_CAP);
-  assert.ok(big.text.endsWith('\n[truncated]'));
+  assert.ok(!big.truncated, 'no total cap');
+  assert.ok(big.text.includes('g'.repeat(20000)) && big.text.includes('p'.repeat(20000)) && big.text.includes('f'.repeat(30000)));
 });
 
 test('decorateCoreParams: DeepSeek merges the namespaced key on start, resume and turn', () => {
-  const read = () => ({ text: 'T' });
+  const read = () => ({ text: 'ignored', systemPrompt: 'S', instructions: 'T' });
   for (const method of ['thread/start', 'thread/resume', 'turn/start']) {
     const params = { codeDesktop: { hints: true, customization: { modelParams: { m: { temperature: 1 } } } } };
     decorateCoreParams(method, params, { engine: 'deepseek-harness', cwd: '/w', read });
-    assert.deepEqual(params.codeDesktop, { hints: true, customization: { modelParams: { m: { temperature: 1 } }, instructions: 'T' } });
+    assert.deepEqual(params.codeDesktop, { hints: true, customization: { modelParams: { m: { temperature: 1 } }, systemPrompt: 'S', instructions: 'T' } });
     assert.equal(params.developerInstructions, undefined, 'DeepSeek never gets developerInstructions from us');
   }
   const cleared = {};
   decorateCoreParams('turn/start', cleared, { engine: 'deepseek-harness', cwd: '/w', read: () => ({ text: '' }) });
-  assert.deepEqual(cleared, { codeDesktop: { customization: { instructions: null } } });
+  assert.deepEqual(cleared, { codeDesktop: { customization: { systemPrompt: null, instructions: null } } });
   const other = {};
   decorateCoreParams('thread/list', other, { engine: 'deepseek-harness', cwd: '/w', read });
   assert.deepEqual(other, {});
 });
 
 test('decorateCoreParams: Codex appends developerInstructions on start and resume only', () => {
-  const read = () => ({ text: 'Mine' });
+  const read = () => ({ text: 'Mine', systemPrompt: 'ignored by Codex', instructions: 'ignored' });
   const start = { developerInstructions: 'App' };
   decorateCoreParams('thread/start', start, { engine: undefined, cwd: '/w', read });
   assert.equal(start.developerInstructions, 'App\n\nMine');
@@ -96,15 +103,19 @@ test('service: decorate reads the file fresh and resolves cwd from thread metada
   const svc = createInstructionsService({ getConfig: () => config, getClient: () => client, shell: {}, knownCwd: c => c, home });
   const turn = { threadId: 't1' };
   svc.decorate('turn/start', turn);
-  assert.equal(turn.codeDesktop.customization.instructions, '# Custom instructions\nG');
+  assert.deepEqual(turn.codeDesktop.customization, { systemPrompt: 'G', instructions: null });
   writeFile(path.join(repo, '.code-desktop', 'instructions.md'), 'Repo rule');
   const next = { threadId: 't1' };
   svc.decorate('turn/start', next);
-  assert.equal(next.codeDesktop.customization.instructions, `# Custom instructions\nG\n\n# Project instructions (${repo})\nRepo rule`);
+  assert.deepEqual(next.codeDesktop.customization, { systemPrompt: 'G', instructions: 'Repo rule' });
+  config.customInstructions = { global: '' };
+  const builtIn = { threadId: 't1' };
+  svc.decorate('turn/start', builtIn);
+  assert.deepEqual(builtIn.codeDesktop.customization, { systemPrompt: null, instructions: `# Project instructions (${repo})\nRepo rule` });
   config.customInstructions = { enabled: false, global: 'G' };
   const off = { cwd: repo };
   svc.decorate('thread/start', off);
-  assert.equal(off.codeDesktop.customization.instructions, null);
+  assert.deepEqual(off.codeDesktop.customization, { systemPrompt: null, instructions: null });
 });
 
 test('service ops: preview, create-file (never overwrites), open/reveal, cwd validation', async (t) => {
@@ -134,12 +145,35 @@ test('service ops: preview, create-file (never overwrites), open/reveal, cwd val
   await assert.rejects(svc.run({ op: 'nope', cwd: repo }), /Unsupported instructions operation/);
 });
 
-test('the project file is capped at 32 KB', (t) => {
+test('the project file is read whole (no size cap)', (t) => {
   const { home, repo, cleanup } = tree(); t.after(cleanup);
   writeFile(path.join(repo, '.code-desktop', 'instructions.md'), 'x'.repeat(40 * 1024));
   const svc = createInstructionsService({ getConfig: () => ({}), getClient: () => ({ serverInfo: { engine: 'deepseek-harness' } }), shell: {}, knownCwd: c => c, home });
   const params = { cwd: repo };
   svc.decorate('thread/start', params);
   const body = params.codeDesktop.customization.instructions.split('\n').at(-1);
-  assert.equal(body.length, 32 * 1024);
+  assert.equal(body.length, 40 * 1024);
+});
+
+test('service op system-prompt: asks the DeepSeek core with the saved values and shapes the result', async (t) => {
+  const { home, repo, cleanup } = tree(); t.after(cleanup);
+  writeFile(path.join(repo, '.code-desktop', 'instructions.md'), 'Repo rule');
+  const calls = [];
+  const client = { serverInfo: { engine: 'deepseek-harness' }, request: async (method, params, timeout) => {
+    calls.push({ method, params, timeout });
+    return { text: 'Arrr.\n\nRepo rule', defaultText: 'You are an AI agent powered by DeepSeek Harness.', defaultTemplate: 'T {{model}}', custom: true, exact: false,
+      sections: [{ name: 'code-desktop:system-prompt', chars: 5 }, { bogus: 1 }], tools: ['bash', 3], variables: { model: 'deepseek-flash', cwd: repo }, cwd: repo, threadId: null };
+  } };
+  const config = { cwd: repo, threadIds: ['t1'], customInstructions: { global: 'Arrr.' } };
+  const svc = createInstructionsService({ getConfig: () => config, getClient: () => client, shell: {}, knownCwd: c => c, home });
+  const result = await svc.run({ op: 'system-prompt', cwd: repo, threadId: 't1', model: 'deepseek-pro' });
+  assert.deepEqual(calls, [{ method: 'codeDesktop/systemPrompt/preview', timeout: 15000,
+    params: { cwd: repo, threadId: 't1', model: 'deepseek-pro', codeDesktop: { customization: { systemPrompt: 'Arrr.', instructions: 'Repo rule' } } } }]);
+  assert.deepEqual(result, { text: 'Arrr.\n\nRepo rule', defaultText: 'You are an AI agent powered by DeepSeek Harness.', defaultTemplate: 'T {{model}}', custom: true, exact: false,
+    sections: [{ name: 'code-desktop:system-prompt', chars: 5 }], tools: ['bash'], model: 'deepseek-flash', cwd: repo, threadId: null });
+  await svc.run({ op: 'system-prompt', cwd: repo, threadId: 'unknown' });
+  assert.equal(calls[1].params.threadId, undefined, 'only known sessions are passed');
+  client.serverInfo.engine = 'codex';
+  await assert.rejects(svc.run({ op: 'system-prompt', cwd: repo }), /needs the DeepSeek core/);
+  assert.deepEqual(systemPromptResult(null), { text: '', defaultText: '', defaultTemplate: '', custom: false, exact: false, sections: [], tools: [], model: null, cwd: null, threadId: null });
 });

@@ -6,19 +6,20 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import { INSTRUCTIONS_SECTION, installInstructions, normalizeInstructions } from '../packages/codex-app-server/src/instructions.js'
 import { applyCustomization, createCustomRef, installCustomization } from '../packages/codex-app-server/src/customization.js'
 
-test('normalizeInstructions: strings only, trimmed, capped at 40000, empty is null', () => {
+test('normalizeInstructions: strings only, trimmed, not capped, empty is null', () => {
   assert.equal(normalizeInstructions('  hi  '), 'hi')
   assert.equal(normalizeInstructions(''), null)
   assert.equal(normalizeInstructions(null), null)
   assert.equal(normalizeInstructions(42), null)
-  assert.equal(normalizeInstructions('x'.repeat(50000)).length, 40000)
+  assert.equal(normalizeInstructions('x'.repeat(50000)).length, 50000)
 })
 
 test('applyCustomization: a present key replaces (null clears), an absent key keeps', () => {
   const ref = createCustomRef()
-  assert.deepEqual(ref, { instructions: undefined, modelParams: undefined })
-  applyCustomization(ref, { codeDesktop: { customization: { instructions: 'A' } } })
+  assert.deepEqual(ref, { systemPrompt: undefined, instructions: undefined, modelParams: undefined })
+  applyCustomization(ref, { codeDesktop: { customization: { instructions: 'A', systemPrompt: ' S ' } } })
   assert.equal(ref.instructions, 'A')
+  assert.equal(ref.systemPrompt, 'S')
   applyCustomization(ref, { codeDesktop: { customization: { modelParams: null } } })
   assert.equal(ref.instructions, 'A')
   assert.equal(ref.modelParams, null)
@@ -27,6 +28,9 @@ test('applyCustomization: a present key replaces (null clears), an absent key ke
   assert.equal(ref.instructions, 'A', 'developerInstructions is still ignored')
   applyCustomization(ref, { codeDesktop: { customization: { instructions: null } } })
   assert.equal(ref.instructions, null)
+  assert.equal(ref.systemPrompt, 'S', 'an absent systemPrompt key keeps it')
+  applyCustomization(ref, { codeDesktop: { customization: { systemPrompt: null } } })
+  assert.equal(ref.systemPrompt, null)
   assert.equal(applyCustomization(undefined, {}), undefined)
 })
 

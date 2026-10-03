@@ -413,6 +413,45 @@ try {
       }), name))
     }
   }
+  // SYSTEM_PROMPT=1: record the last reply, then open Settings › Instructions,
+  // press "Preview final system prompt" and record/screenshot the exact text
+  // (prefix sp-<THEME>-). Pair with CUSTOM_INSTRUCTIONS to check a custom prompt.
+  if (process.env.SYSTEM_PROMPT) {
+    report.lastReply = await page.evaluate(() => Array.from(document.querySelectorAll('.assistant-message')).at(-1)?.textContent ?? null)
+    await page.keyboard.press('Meta+,')
+    const dialog = page.locator('.ss-settings-dialog')
+    await dialog.waitFor({ timeout: 15000 })
+    const tone = process.env.THEME || 'light'
+    await dialog.getByRole('navigation', { name: 'Settings', exact: true }).getByRole('button', { name: 'Instructions', exact: true }).click()
+    await page.waitForTimeout(1200)
+    await shot(`sp-${tone}-instructions`)
+    await dialog.getByRole('button', { name: 'Preview final system prompt', exact: true }).click()
+    const pre = dialog.locator('pre[aria-label="Final system prompt"]')
+    await pre.waitFor({ timeout: 15000 })
+    await page.waitForFunction(() => !/^Loading/.test(document.querySelector('pre[aria-label="Final system prompt"]')?.textContent ?? 'Loading'), {}, { timeout: 30000 }).catch(() => {})
+    await pre.scrollIntoViewIfNeeded().catch(() => {})
+    await page.waitForTimeout(500)
+    await shot(`sp-${tone}-preview`)
+    report.systemPrompt = await dialog.evaluate((node) => ({
+      preview: node.querySelector('pre[aria-label="Final system prompt"]')?.textContent ?? null,
+      summary: node.querySelector('[data-setting-id="instructions-system-prompt"] [data-settings-desc]')?.textContent ?? null,
+      globalNote: node.querySelector('[data-setting-id="instructions-global"] [data-settings-desc]')?.textContent ?? null,
+      warning: node.querySelector('.ins-warning')?.textContent ?? null,
+      alerts: Array.from(node.querySelectorAll('[role="alert"]')).map((entry) => entry.textContent.trim()).filter(Boolean),
+    }))
+    // SEED=1: "Start from built-in default" fills the (unsaved) editor with the built-in template.
+    if (process.env.SEED) {
+      await dialog.getByRole('button', { name: 'Start from built-in default', exact: true }).click()
+      await page.waitForFunction(() => (document.querySelector('textarea[aria-label="Global instructions"]')?.value ?? '').length > 0, {}, { timeout: 30000 }).catch(() => {})
+      await page.waitForTimeout(500)
+      await shot(`sp-${tone}-seeded`)
+      report.systemPrompt.seeded = await dialog.evaluate((node) => {
+        const value = node.querySelector('textarea[aria-label="Global instructions"]')?.value ?? ''
+        return { chars: value.length, start: value.slice(0, 200), hasModelRef: value.includes('{{model}}'), hasCwdRef: value.includes('{{cwd}}'),
+          saveVisible: Array.from(node.querySelectorAll('[data-setting-id="instructions-global"] button')).some((b) => b.textContent === 'Save') }
+      })
+    }
+  }
 } catch (error) {
   report.errors.push(error.stack || String(error))
   await shot('99-error').catch(() => {})

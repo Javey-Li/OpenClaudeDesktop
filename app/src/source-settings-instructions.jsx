@@ -8,21 +8,28 @@ import { INSTRUCTIONS_MAX_CHARS, normalizeInstructions, projectInstructionsFor, 
 import './source-profile-setting.css';
 import './instructions-settings.css';
 
-// C1 Settings → Instructions: global and per-project custom instructions that
-// the core appends to the agent's system prompt. Every save sends the whole
-// customInstructions object (read-modify-write over the saved config).
+// C1 Settings → Instructions. On the DeepSeek core the global instructions ARE
+// the whole system prompt (empty = the built-in prompt); project instructions
+// follow it. On Codex both are appended to Codex's own prompt. Every save
+// sends the whole customInstructions object (read-modify-write over the saved
+// config).
 
 const LIMIT_LABEL = INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US');
-const countLabel = n => `${n.toLocaleString('en-US')} / ${LIMIT_LABEL}`;
+const countLabel = n => Number.isFinite(INSTRUCTIONS_MAX_CHARS) ? `${n.toLocaleString('en-US')} / ${LIMIT_LABEL}` : `${n.toLocaleString('en-US')} characters`;
 const baseName = p => (p === '/' ? '/' : p.split('/').filter(Boolean).at(-1) || p);
 const sizeLabel = bytes => (bytes < 1024 ? `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}` : `${(bytes / 1024).toFixed(1)} KB`);
+export const GLOBAL_NOTE = {
+  deepseek: 'This is the whole system prompt. Leave empty to use the built-in default. {{model}} and {{cwd}} are filled in.',
+  codex: 'Added to Codex’s built-in prompt for every project. The Codex core can’t replace its own system prompt.',
+};
+export const TOOLS_NOTE = 'Your text replaces the built-in tool guidance too. Tools stay available to the agent, but it may use them less well without that guidance.';
 export const WHEN_IT_APPLIES = {
   deepseek: 'Changes apply from your next message in any session, including sessions that are already open.',
   codex: 'Changes apply to new sessions and to sessions reopened after a restart.',
 };
 
 /** Large manual-save textarea (SourceProfileSetting pattern) with a character count. */
-export function InstructionsEditor({ label, value, onSave, placeholder, disabled = false }) {
+export function InstructionsEditor({ label, value, onSave, placeholder, disabled = false, seed = null, actions = null }) {
   const [draft, setDraft] = useState(value), [status, setStatus] = useState({ saving: false, error: '' });
   const latest = useRef({ value, onSave }), edited = useRef(false), owner = useRef(null), field = useRef(null);
   const countId = useId(), errorId = useId(); latest.current = { value, onSave };
@@ -35,6 +42,8 @@ export function InstructionsEditor({ label, value, onSave, placeholder, disabled
     owner.current = controller; return () => { controller.dispose(); owner.current = null; };
   }, []);
   useEffect(() => { setDraft(current => { if (!edited.current) return value; if (current === value) edited.current = false; return current; }); }, [value]);
+  // seed {text, n}: replace the draft (unsaved) with text, e.g. the built-in default to start from.
+  useEffect(() => { if (!seed) return; edited.current = seed.text !== latest.current.value; setDraft(seed.text); owner.current?.edit(); field.current?.focus(); }, [seed?.n]);
   const dirty = draft !== value, over = draft.length > INSTRUCTIONS_MAX_CHARS;
   return <form className="ss-profile-setting ins-editor" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (dirty) void owner.current?.submit(draft); }}>
     <textarea ref={field} data-cds="TextArea" className="ins-textarea" aria-label={label} rows={12} spellCheck={false} value={draft} placeholder={placeholder} disabled={disabled}
@@ -44,6 +53,7 @@ export function InstructionsEditor({ label, value, onSave, placeholder, disabled
       onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
     <div className="ins-editor-footer">
       <span id={countId} className="ins-count" data-over={over || undefined}>{countLabel(draft.length)}</span>
+      {actions && !dirty && <div className="ss-profile-actions ins-editor-actions" data-size="sm">{actions}</div>}
       {dirty && <div className="ss-profile-actions" data-size="sm">
         <SourceSettingsButton variant="ghost" size="sm" disabled={status.saving} onClick={() => { owner.current?.edit(); edited.current = false; setDraft(latest.current.value); field.current?.focus(); }}>Revert</SourceSettingsButton>
         <SourceSettingsButton type="submit" variant="primary" size="sm" busy={status.saving} disabled={over}>Save</SourceSettingsButton>
@@ -53,7 +63,7 @@ export function InstructionsEditor({ label, value, onSave, placeholder, disabled
   </form>;
 }
 
-export function SourceInstructionsSettings({ config = {}, engine, desktopCall, onSave, cwd }) {
+export function SourceInstructionsSettings({ config = {}, engine, desktopCall, onSave, cwd, threadId = null, model }) {
   const saved = normalizeInstructions(config.customInstructions);
   const [optimistic, setOptimistic] = useState(null), [rowErrors, setRowErrors] = useState({});
   const shown = optimistic ?? saved;
@@ -74,6 +84,35 @@ export function SourceInstructionsSettings({ config = {}, engine, desktopCall, o
     }
   };
   useEffect(() => { void refresh(); }, [project, savedKey]);
+
+  // DeepSeek: the exact system prompt the core assembles for the project (codeDesktop/systemPrompt/preview).
+  const deepseek = engine === 'deepseek';
+  const [prompt, setPrompt] = useState({ open: false, busy: '', result: null, error: '' }), [copied, setCopied] = useState('');
+  const [seed, setSeed] = useState(null);
+  const promptSeq = useRef(0);
+  const readPrompt = async (purpose) => {
+    if (!project || !desktopCall) return null;
+    const seq = ++promptSeq.current;
+    setPrompt(v => ({ ...v, busy: purpose, error: '' }));
+    try {
+      const result = await desktopCall('instructions', { op: 'system-prompt', cwd: project, ...(threadId && project === cwd ? { threadId } : {}), ...(typeof model === 'string' && model ? { model } : {}) });
+      if (seq === promptSeq.current) setPrompt(v => ({ ...v, busy: '', result, error: '', open: v.open || purpose === 'preview' }));
+      return result;
+    } catch (error) {
+      if (seq === promptSeq.current) setPrompt(v => ({ ...v, busy: '', error: error?.message || String(error), open: v.open || purpose === 'preview' }));
+      return null;
+    }
+  };
+  useEffect(() => { if (deepseek && prompt.open) void readPrompt('refresh'); }, [project, savedKey]);
+  const startFromDefault = async () => {
+    const result = await readPrompt('default');
+    if (result?.defaultTemplate) setSeed(v => ({ text: result.defaultTemplate, n: (v?.n ?? 0) + 1 }));
+  };
+  const copyPrompt = async () => {
+    try { await navigator.clipboard.writeText(prompt.result?.text ?? ''); setCopied('Copied'); }
+    catch { setCopied('Couldn’t copy to the clipboard. Try again.'); }
+    setTimeout(() => setCopied(''), 2000);
+  };
 
   // Whole-object writes. A failed write drops the optimistic value and shows the row error.
   const write = async (rowId, next) => {
@@ -99,14 +138,25 @@ export function SourceInstructionsSettings({ config = {}, engine, desktopCall, o
   const isDefault = !shown.global && shown.enabled && !Object.keys(shown.projects).length;
   const file = preview?.file;
   const useFile = entry?.useFile !== false;
-  const note = WHEN_IT_APPLIES[engine === 'deepseek' ? 'deepseek' : 'codex'];
+  const note = WHEN_IT_APPLIES[deepseek ? 'deepseek' : 'codex'];
+  const customPrompt = deepseek && shown.enabled && Boolean(saved.global.trim());
 
   const globalRows = [
-    settingRow('instructions-enabled', 'Use custom instructions', 'Append your instructions to the agent’s system prompt. Turn off to pause them without losing the text.',
+    settingRow('instructions-enabled', 'Use custom instructions', deepseek
+      ? 'Use your global instructions as the system prompt and add project instructions. Turn off to use the built-in prompt without losing your text.'
+      : 'Append your instructions to the agent’s system prompt. Turn off to pause them without losing the text.',
       <SourceSwitch label="Use custom instructions" checked={shown.enabled} onChange={value => quiet(write('instructions-enabled', { ...shown, enabled: value }))} />),
-    settingRow('instructions-global', 'Global instructions', 'Added for every project. For example, your preferred language, tone or tools.', null,
-      { below: <InstructionsEditor label="Global instructions" value={saved.global} placeholder="e.g. Answer in English. Prefer small, focused commits."
-        onSave={text => persist({ ...saved, global: text })} /> }),
+    settingRow('instructions-global', 'Global instructions', GLOBAL_NOTE[deepseek ? 'deepseek' : 'codex'], null,
+      { below: <>
+        <InstructionsEditor label="Global instructions" value={saved.global} seed={seed}
+          placeholder={deepseek ? 'Empty: the built-in system prompt is used.\ne.g. You are a careful coding agent working in {{cwd}}. Answer in English.' : 'e.g. Answer in English. Prefer small, focused commits.'}
+          onSave={text => persist({ ...saved, global: text })}
+          actions={deepseek ? <>
+            <SourceSettingsButton size="sm" variant="ghost" busy={prompt.busy === 'default'} disabled={!project} onClick={() => void startFromDefault()}>Start from built-in default</SourceSettingsButton>
+            <SourceSettingsButton size="sm" variant="secondary" disabled={!saved.global} onClick={() => { if (window.confirm('Clear your global instructions? The built-in system prompt will be used again.')) void quiet(write('instructions-global', { ...saved, global: '' })); }}>Reset</SourceSettingsButton>
+          </> : null} />
+        {customPrompt && <p className="ins-warning" role="note">{TOOLS_NOTE}</p>}
+      </> }),
   ];
   const projectRows = project ? [
     settingRow('instructions-project', 'Project', entry && entry.root !== project ? `Saved for ${entry.root} and its subfolders.` : 'Instructions apply to this folder and its subfolders.',
@@ -128,6 +178,20 @@ export function SourceInstructionsSettings({ config = {}, engine, desktopCall, o
       { below: <InstructionsEditor key={root} label="Project instructions" value={savedEntry?.text ?? ''} placeholder="e.g. Use pnpm. Run the unit tests before finishing."
         onSave={text => persist(withProjectInstructions(saved, savedEntry?.root ?? project, { useFile: savedEntry?.useFile !== false, text }))} /> }),
   ] : [settingRow('instructions-project', 'Project', 'Choose a folder for a session to add project instructions.', null)];
+  const systemPromptRows = [
+    settingRow('instructions-system-prompt', 'Final system prompt', prompt.result
+      ? `${prompt.result.text.length.toLocaleString('en-US')} characters · ${prompt.result.custom ? 'your global instructions' : 'built-in'}${prompt.result.model ? ` · ${prompt.result.model}` : ''}${project ? ` · for ${baseName(project)}` : ''}${prompt.result.exact ? ' · open session' : ''}`
+      : 'The exact text sent to the model for this project. Tools are sent separately.',
+      <span className="ins-file-actions">
+        {prompt.open && prompt.result && <SourceSettingsButton size="sm" variant="ghost" onClick={() => void copyPrompt()}>{copied === 'Copied' ? 'Copied' : 'Copy'}</SourceSettingsButton>}
+        <SourceSettingsButton size="sm" variant={prompt.open ? 'ghost' : 'secondary'} busy={prompt.busy === 'preview' || prompt.busy === 'refresh'} disabled={!project}
+          onClick={() => void readPrompt('preview')}>{prompt.open ? 'Refresh' : 'Preview final system prompt'}</SourceSettingsButton>
+      </span>,
+      { below: prompt.open ? <>
+        <pre className="ins-preview ins-system-prompt" aria-label="Final system prompt" tabIndex={0} data-empty={!prompt.result?.text || undefined}>{prompt.error ? `The preview is unavailable. ${prompt.error}` : prompt.result ? (prompt.result.text || 'The system prompt is empty.') : 'Loading…'}</pre>
+        {copied && copied !== 'Copied' && <span className="ss-row-error" role="alert">{copied}</span>}
+      </> : null }),
+  ];
   const previewRows = [
     settingRow('instructions-preview', 'Final text', preview
       ? `${preview.chars ? `${preview.chars.toLocaleString('en-US')} characters` : 'Nothing is added'}${preview.truncated ? ' · truncated to 40,000 characters' : ''}${project ? ` · for ${baseName(project)}` : ''}`
@@ -139,7 +203,9 @@ export function SourceInstructionsSettings({ config = {}, engine, desktopCall, o
   return <div className="ins-page" data-engine={engine}>
     <SettingsGroup title="Global instructions" rows={globalRows} rowErrors={rowErrors} />
     <SettingsGroup title="Project instructions" rows={projectRows} rowErrors={rowErrors} />
-    <SettingsGroup title="Preview" rows={previewRows} rowErrors={rowErrors} />
+    {deepseek
+      ? <SettingsGroup title="Preview" rows={[...systemPromptRows, previewRows[1]]} rowErrors={rowErrors} />
+      : <SettingsGroup title="Preview" rows={previewRows} rowErrors={rowErrors} />}
     <SettingsGroup title="Reset" rowErrors={rowErrors} rows={[settingRow('instructions-reset', 'Reset instructions', 'Remove your global text and every project override. Files in your projects are not changed.',
       <SourceSettingsButton size="sm" variant="secondary" disabled={isDefault} onClick={() => { if (window.confirm('Reset all custom instructions? Your global text and project overrides will be removed.')) void quiet(write('instructions-reset', null)); }}>Reset</SourceSettingsButton>)]} />
   </div>;
