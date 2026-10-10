@@ -85,6 +85,20 @@ const menuItems = (popup) => popup
   : [];
 const enabledItems = (popup) => menuItems(popup).filter((node) => !node.hasAttribute("data-disabled"));
 
+// floating-ui useListNavigation focusItemOnOpen "auto" (vendor-frame-BmPfNbgY.js:20106, :20180-20190, :20357-20359):
+// a root menu highlights its first row on open only when a key opened it (Enter / Space / an arrow on the
+// trigger); a pointer press (click or right-click) leaves every row unhighlighted and focuses the popup, so
+// the highlight follows hover and ArrowDown starts at the first row. The most recent input decides.
+const KEYBOARD_OPEN_KEYS = new Set(["Enter", " ", "ArrowDown", "ArrowUp"]);
+let lastKeyboardOpenAt = -Infinity;
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("keydown", (event) => {
+    lastKeyboardOpenAt = KEYBOARD_OPEN_KEYS.has(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey ? performance.now() : -Infinity;
+  }, true);
+  document.addEventListener("pointerdown", () => { lastKeyboardOpenAt = -Infinity; }, true);
+}
+const keyboardOpened = () => typeof performance !== "undefined" && performance.now() - lastKeyboardOpenAt < 1000;
+
 /**
  * Trigger contract (A_/zg/Button ghost): aria-haspopup, aria-expanded,
  * data-popup-open while open, and ArrowDown/ArrowUp on the focused closed
@@ -140,7 +154,10 @@ function PopupImpl({
   const trigger = nested ? submenu.triggerRef.current : triggerProp === undefined ? (point ? null : anchorProp) : triggerProp;
   const resolvedSide = side ?? (nested ? "right" : "bottom");
   const resolvedOffset = sideOffset ?? (nested ? NESTED_SIDE_OFFSET : ROOT_SIDE_OFFSET);
-  const highlightOnOpen = initialHighlight !== undefined ? initialHighlight : nested ? (submenu.focusFirst.current ? "first" : null) : "first";
+  // Roots: "first" / "last" (keyboard entry), "popup" (focus the popup, nothing highlighted), null (leave focus
+  // alone, e.g. a search field takes it); undefined follows focusItemOnOpen "auto" (keyboardOpened above).
+  const [highlightOnOpen] = useState(() => initialHighlight !== undefined ? initialHighlight
+    : nested ? (submenu.focusFirst.current ? "first" : null) : keyboardOpened() ? "first" : "popup");
   const latest = useRef({});
   latest.current = { onClose, finalFocus, consumerKeyDown, anchor, trigger };
 
@@ -269,8 +286,9 @@ function PopupImpl({
     return () => { observer?.disconnect(); window.removeEventListener("resize", place); };
   }, [sheet, anchor, point, nested, submenu, resolvedSide, align, resolvedOffset, alignOffset, collisionPadding]);
 
-  // Initial highlight: first item (root, keyboard-opened submenu) or last
-  // (ArrowUp from the trigger). Focus lands on the next frame, as before.
+  // Initial highlight: first item (keyboard-opened root or submenu) or last
+  // (ArrowUp from the trigger); "popup" focuses the popup with no highlighted
+  // row. Focus lands on the next frame, as before.
   useLayoutEffect(() => {
     const list = enabledItems(popupRef.current);
     const target = highlightOnOpen === "last" ? list[list.length - 1] : highlightOnOpen === "first" ? list[0] : null;
@@ -342,6 +360,9 @@ function PopupImpl({
     latest.current.consumerKeyDown?.(event);
     if (event.defaultPrevented || event.nativeEvent.isComposing) return;
     const key = event.key;
+    // A text field inside the menu (the model menu's search) keeps its typing: only the arrows (into the rows),
+    // Enter and Escape reach the menu.
+    if (event.target !== popupRef.current && event.target.matches?.("input,textarea") && !["ArrowDown", "ArrowUp", "Enter", "Escape", "Tab"].includes(key)) return;
     if (nested && (key === "ArrowLeft" || key === "Escape")) {
       event.preventDefault(); event.stopPropagation();
       submenu.close({ focusTrigger: true });
@@ -655,8 +676,9 @@ const MenuSubmenuTrigger = forwardRef(function MenuSubmenuTrigger({ children, tr
     <MenuItem ref={setRef} keepOpen className={`smenu-submenu-trigger ${className}`.trim()}
       aria-haspopup="menu" aria-expanded={submenu.open} aria-controls={submenu.open ? submenu.id : undefined}
       data-popup-open={submenu.open ? "" : undefined} data-submenu-trigger=""
-      hint={hint}
-      trailing={<>{trailing}<Icon name="CaretRight" size={12} className="smenu-caret" /></>}
+      // The hint (e.g. Viewport's "Mobile · 375 × 812") reads before the caret, which stays pinned to the row's end
+      // like every other submenu row's.
+      trailing={<>{trailing}{hint && <span className="smenu-hint" data-numeric={isNumericText(hint) ? "" : undefined}>{hint}</span>}<Icon name="CaretRight" size={12} className="smenu-caret" /></>}
       onClick={(event) => { onClick?.(event); if (!event.defaultPrevented) submenu.openChild(true); }}
       onPointerEnter={(event) => { onPointerEnter?.(event); if (openOnHover && !event.defaultPrevented) submenu.hoverEnter(event); }}
       onPointerMove={(event) => { onPointerMove?.(event); if (openOnHover && !event.defaultPrevented) submenu.hoverMove(event); }}

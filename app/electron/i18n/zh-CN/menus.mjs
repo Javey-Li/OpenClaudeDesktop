@@ -7,6 +7,8 @@ export default {
   // File
   'File': '文件',
   'New Session': '新建会话',
+  'Open File…': '打开文件…',
+  'Open File': '打开文件',
   'Open Folder…': '打开文件夹…',
   'Close Window': '关闭窗口',
   'Close Session': '关闭会话',
@@ -25,6 +27,9 @@ export default {
   'Find Previous': '查找上一个',
   // View
   'View': '显示',
+  'Command Palette…': '命令面板…',
+  'Show Side Chat': '显示侧边对话',
+  'Hide Side Chat': '隐藏侧边对话',
   'Show Sidebar': '显示边栏',
   'Hide Sidebar': '隐藏边栏',
   'Show Changes': '显示更改',

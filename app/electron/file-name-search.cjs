@@ -127,7 +127,8 @@ function createFileNameSearch(options = {}) {
       error: { code: 'BUSY', message: 'Filename search capacity is occupied; retry the current query.' },
     });
     return new Promise(resolve => {
-      const job = { request: { ...request, query: request.query.trim() }, resolve,
+      // browse: an empty query lists the project's files (the composer's bare '@'), shallowest first.
+      const job = { request: { ...request, query: request.query.trim(), browse: request.browse === true }, resolve,
         generation: ++generation, created: Date.now(), settled: false, child: null, result: null };
       latest.set(request.scope, job);
       job.timer = setTimeout(() => fail(job, 'TIMEOUT', 'Filename search exceeded its time limit.'), limits.deadlineMs);

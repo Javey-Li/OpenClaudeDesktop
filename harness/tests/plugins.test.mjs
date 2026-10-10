@@ -77,6 +77,40 @@ test('installs use CODE_DESKTOP_PNPM, else the bundled pnpm 11 under this node',
 
 test('plugin rows tell the client what it may change', () => {
   const summary = pluginSummary({ name: 'p', version: '1.0.0', enabled: true, removable: true, optional: false, error: { code: 'operation-error', diagnostic: 'Cannot find module' }, rows: [] }, '/profile')
-  assert.deepEqual(summary.codeDesktop, { removable: true, optional: false, readOnlyReason: null, loadError: 'Cannot find module' })
+  assert.deepEqual(summary.codeDesktop, { removable: true, optional: false, held: false, experimental: false, title: null, description: null, icon: null, components: 0, readOnlyReason: null, loadError: 'Cannot find module', unavailable: null })
   assert.equal(pluginSummary({ name: 'core', readOnlyReason: 'management-required', rows: [] }, '/profile').codeDesktop.readOnlyReason, 'management-required')
+})
+
+test('an official optional bundle keeps its localized meta, icon and experimental tag for the client', () => {
+  const icon = 'data:image/svg+xml;base64,PHN2Zy8+'
+  const summary = pluginSummary({ name: '@deepseek-ai/dsh-experimental-auto-review', version: '0.2.0', enabled: false, installed: false, optional: true, removable: false,
+    meta: { title: { en: 'Auto review', zh: '自动审查' }, description: { en: 'Reviews tools', zh: '审查工具', 'bad key!': 'x' }, icon }, rows: [{ rowId: 'a' }, { rowId: 'b' }] }, '/profile')
+  assert.equal(summary.interface.displayName, 'Auto review')
+  assert.equal(summary.interface.logo, icon)
+  assert.deepEqual(summary.codeDesktop, { removable: false, optional: true, held: false, experimental: true, title: { en: 'Auto review', zh: '自动审查' }, description: { en: 'Reviews tools', zh: '审查工具' }, icon, components: 2, readOnlyReason: null, loadError: null, unavailable: 'notSupported' })
+  assert.equal(pluginSummary({ name: 'x', meta: { icon: 'javascript:alert(1)' }, rows: [] }).codeDesktop.icon, null, 'only image data URLs pass')
+})
+
+test('codeDesktop/plugin/registries reads the plugin manager registry configuration', async () => {
+  const registries = { registry: undefined, fallbackRegistries: ['https://registry.npmmirror.com/'], resolved: ['https://registry.npmjs.org/', 'https://registry.npmmirror.com/'] }
+  assert.deepEqual(await pluginRequest('codeDesktop/plugin/registries', {}, { registries: async () => registries }), registries)
+  await assert.rejects(pluginRequest('codeDesktop/plugin/registries', {}, undefined))
+})
+
+test('Official bundles that can\'t run in Code Desktop are marked unavailable and are never turned on here', async () => {
+  const { bundleUnavailable, pluginsInstalledResponse } = await import('../packages/codex-app-server/src/catalog.js')
+  for (const name of ['@deepseek-ai/dsh-experimental-schedule-bundle', '@deepseek-ai/dsh-experimental-agent-team-profile', '@deepseek-ai/dsh-experimental-auto-review'])
+    assert.ok(pluginSummary({ name, optional: true, rows: [] }).codeDesktop.unavailable, name)
+  assert.equal(pluginSummary({ name: '@deepseek-ai/dsh-experimental-schedule-bundle', rows: [] }).codeDesktop.unavailable, 'needsHost')
+  // Any enabled bundle whose row the loader still holds pending can't run here either.
+  const phases = new Map([['r1', 'active'], ['r2', 'pending']])
+  assert.equal(bundleUnavailable({ name: 'x', enabled: true, rows: [{ rowId: 'r1' }, { rowId: 'r2' }] }, phases), 'needsHost')
+  assert.equal(bundleUnavailable({ name: 'x', enabled: false, rows: [{ rowId: 'r2' }] }, phases), null)
+  assert.equal(bundleUnavailable({ name: 'x', enabled: true, rows: [{ rowId: 'r1' }] }, phases), null)
+  assert.equal(pluginsInstalledResponse([{ name: 'x', enabled: true, rows: [{ rowId: 'r2' }] }], '/p', { phases }).marketplaces[0].plugins[0].codeDesktop.unavailable, 'needsHost')
+  const manager = fakeManager()
+  await assert.rejects(pluginRequest('codeDesktop/plugin/setEnabled', { pluginName: '@deepseek-ai/dsh-experimental-agent-team-profile', enabled: true }, manager), /can’t run in Code Desktop/)
+  assert.equal(manager.calls.length, 0)
+  await pluginRequest('codeDesktop/plugin/setEnabled', { pluginName: '@deepseek-ai/dsh-experimental-agent-team-profile', enabled: false }, manager)
+  assert.deepEqual(manager.calls.at(-1), ['setBundleEnabled', '@deepseek-ai/dsh-experimental-agent-team-profile', false])
 })

@@ -30,10 +30,11 @@ test("fixture persists the exact multi-item turn while emitting real lifecycle a
         message.error ? request.reject(new Error(message.error.message)) : request.resolve(message.result);
       } else events.push(message);
     });
-    function rpc(method, params = {}) {
+    // initialize also waits for the fixture process to start (cold module load), which can pass 1.5s on a busy machine.
+    function rpc(method, params = {}, ms = method === "initialize" ? 10000 : 1500) {
       const id = ++next;
       return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error(`Fixture timeout: ${method}`)), 1500);
+        const timeout = setTimeout(() => reject(new Error(`Fixture timeout: ${method}`)), ms);
         awaiting.set(id, { resolve, reject, timeout });
         child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
       });

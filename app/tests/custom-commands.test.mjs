@@ -82,6 +82,8 @@ test('watchers emit custom-commands-changed for new folders and edits', async t 
   const f = fixture(); t.after(f.cleanup);
   await f.service.run({ op: 'list', cwd: f.project });
   assert.equal(f.service.watcherCount(), 2);
+  // macOS FSEvents streams drop changes made in the first moments after they start; let them settle.
+  await wait(250);
   // The project commands folder does not exist yet: the watcher sits on an ancestor.
   fs.mkdirSync(path.join(f.project, '.code-desktop', 'commands'), { recursive: true });
   for (let i = 0; i < 40 && !f.events.some(e => e.scope === 'project'); i++) await wait(50);

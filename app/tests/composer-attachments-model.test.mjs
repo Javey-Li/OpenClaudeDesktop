@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  IMAGE_MAX_BYTES, IMAGE_TYPE_ERROR, IMAGE_SIZE_ERROR, IMAGE_PROCESS_ERROR, IMAGE_MODEL_ERROR, trimMessage,
+  IMAGE_MAX_BYTES, IMAGE_TYPE_ERROR, IMAGE_SIZE_ERROR, IMAGE_PROCESS_ERROR, IMAGE_MODEL_ERROR, trimMessage, maxImagesMessage,
   stageFiles, markReady, markFailed, removeAttachment, attachmentInputs, attachmentsReady, imageMime, modelAcceptsImages, skillChipInput,
 } from "../src/composer-attachments-model.mjs";
 
@@ -33,16 +33,17 @@ test("31457281-byte PNG is dropped with the 30 MB toast; 31457280 bytes is accep
   assert.deepEqual(edge.notices, []);
 });
 
-test("cap of five images: the sixth is dropped with the trim message", () => {
+test("cap of five images: the sixth is dropped with Claude's max-images message", () => {
   const files = Array.from({ length: 6 }, (_, index) => png(`i${index}.png`));
   const staged = stageFiles([], files, { makeId });
   assert.equal(staged.entries.length, 5);
-  assert.deepEqual(staged.notices, [trimMessage(1, 5)]);
+  assert.deepEqual(staged.notices, [maxImagesMessage(5)]);
+  assert.equal(maxImagesMessage(5), "Maximum of 5 images allowed.");
   assert.equal(trimMessage(1, 5), "Removed 1 image — this session allows up to 5.");
   assert.equal(trimMessage(2, 5), "Removed 2 images — this session allows up to 5.");
   const more = stageFiles(staged.entries, [png("extra.png")], { makeId });
   assert.equal(more.entries.length, 5);
-  assert.deepEqual(more.notices, [trimMessage(1, 5)]);
+  assert.deepEqual(more.notices, [maxImagesMessage(5)]);
 });
 
 test("dedupe by path, removal, ready/failed transitions", () => {
@@ -127,4 +128,17 @@ test("attachmentViewerState keeps the viewer only while its entry is attached an
   assert.equal(attachmentViewerState(viewer, swapped), null, "a draft swap to other attachments closes it");
   assert.equal(attachmentViewerState(viewer, markReady(ready, "id-0", { previewUrl: "" })), null, "no preview left to show");
   assert.equal(attachmentViewerState(null, ready), null);
+});
+
+test("a core that reads images for a model without vision (imageFallback) takes them as file mentions, with a note", async () => {
+  const { stageFiles: stage, attachmentInputs: inputs, markReady: ready, IMAGE_FALLBACK_NOTE, IMAGE_MODEL_ERROR } = await import("../src/composer-attachments-model.mjs");
+  const png = { name: "shot.png", size: 10, type: "image/png" };
+  const refused = stage([], [png], { imagesAllowed: false, makeId: () => "a" });
+  assert.deepEqual([refused.added.length, refused.notices], [0, [IMAGE_MODEL_ERROR]]);
+  const staged = stage([], [png], { imagesAllowed: false, imageFallback: true, makeId: () => "a" });
+  assert.deepEqual([staged.added.length, staged.added[0].asFile, staged.notices, staged.infos], [1, true, [], [IMAGE_FALLBACK_NOTE]]);
+  const entries = ready(staged.entries, "a", { path: "/tmp/shot.png" });
+  assert.deepEqual(inputs(entries), [{ type: "mention", name: "shot.png", path: "/tmp/shot.png" }]);
+  const normal = ready(stage([], [png], { makeId: () => "b" }).entries, "b", { path: "/tmp/shot.png" });
+  assert.deepEqual(inputs(normal), [{ type: "localImage", path: "/tmp/shot.png" }]);
 });

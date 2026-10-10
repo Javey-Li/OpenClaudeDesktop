@@ -22,7 +22,7 @@ test('commit mode (every local session) hides Base branch and keeps only the Cha
 });
 
 test('commit action follows cc(): disabled while responding with the official reason, disabled when clean, never busy', () => {
-  assert.equal(COMMIT_RESPONDING_REASON, 'Claude is working \u2014 wait for the turn to finish');
+  assert.equal(COMMIT_RESPONDING_REASON, 'DeepSeek is working \u2014 wait for the turn to finish', 'the assistant-as-actor word, rewritten per core');
   assert.equal(COMMIT_CLEAN_REASON, 'No changes to commit');
   assert.deepEqual(commitAction(dirty, { responding: true }), { label: 'Commit', text: COMMIT_TURN_TEXT, disabled: true, disabledReason: COMMIT_RESPONDING_REASON });
   assert.deepEqual(commitAction({ ...dirty, workingTreeDirty: false }), { label: 'Commit', text: COMMIT_TURN_TEXT, disabled: true, disabledReason: COMMIT_CLEAN_REASON });
@@ -86,4 +86,18 @@ test('placeholder reservation: remembered px capped at 360 with 28px rows, else 
   assert.deepEqual(railReservation({ checkoutHadRow: true, hasPr: true }), { heightPx: 156, rows: 5, source: 'checkout' });
   assert.deepEqual(railReservation({}), { heightPx: 0, rows: 0, source: 'none' });
   assert.deepEqual(railReservation({ remembered: 0, checkoutHadRow: false }), { heightPx: 0, rows: 0, source: 'none' });
+});
+
+test('pull request action: a committed branch of a GitHub repo gets Create PR and the compare page', async () => {
+  const { pullRequestAction } = await import('../src/git-rail-model.mjs');
+  const github = { host: 'github.com', owner: 'acme', name: 'widget' };
+  const status = { isRepo: true, branch: 'feature/x', workingTreeDirty: false, comparison: { base: 'main', same: false, ahead: 2, unpushed: 0 } };
+  assert.deepEqual(pullRequestAction({ status, identity: github }), { manualUrl: 'https://github.com/acme/widget/compare/main...feature%2Fx?expand=1' });
+  assert.equal(pullRequestAction({ status: { ...status, workingTreeDirty: true }, identity: github }), null, 'Commit comes first');
+  assert.equal(pullRequestAction({ status, identity: { ...github, host: 'gitlab.com' } }), null);
+  assert.equal(pullRequestAction({ status, identity: { host: 'github.com', owner: null, name: 'w' } }), null);
+  assert.match(pullRequestAction({ status: { ...status, branch: 'main', comparison: { base: 'main', same: true } }, identity: github }).disabledReason, /base branch/);
+  assert.match(pullRequestAction({ status: { ...status, comparison: { ...status.comparison, ahead: 0 } }, identity: github }).disabledReason, /No changes/);
+  assert.match(pullRequestAction({ status: { ...status, comparison: { ...status.comparison, unpushed: null } }, identity: github }).manualDisabledReason, /pushed/);
+  assert.ok(pullRequestAction({ status, identity: github, responding: true }).disabledReason);
 });

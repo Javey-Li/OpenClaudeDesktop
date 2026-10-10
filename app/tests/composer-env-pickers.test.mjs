@@ -126,6 +126,29 @@ test('effort control: its title names the popover; the section no longer carries
   assert.match(html, /<section class="sc-effort-control" aria-label="Effort settings">/);
 });
 
+// Purple top tier (c8e04f916 effort.js:59-112/:150-153, c360a9e1c:5257, c2d9b9a76 slider.js:194/:240-247): the accent follows
+// the previewed id 'ultra'; the lit overlay sits inside the fill only when the last level is ultra, and data-at-max marks the top stop.
+test('effort control: ultra gets the purple accent, the 4-layer glow label and the lit overlay; DeepSeek max gets nothing', () => {
+  const effort = (levels, value, extra = {}) => renderToStaticMarkup(React.createElement(C.EffortControl, { levels, value, onChange: noop, ...extra }));
+  const slider = (html) => /<div class="sc-slider"[^>]*>/.exec(html)?.[0] || '';
+  const top = effort(['low', 'high', { reasoningEffort: 'ultra', description: 'Maximum reasoning with automatic task delegation' }], 'ultra');
+  assert.match(slider(top), / data-at-max=""/);
+  assert.match(top, /<div class="sc-slider-fill"><span class="sc-slider-overlay" data-slider-overlay="" aria-hidden="true"><span class="sc-effort-lit-ground" data-on=""/, 'overlay inside the fill');
+  assert.match(top, /<span class="sc-effort-value" aria-hidden="true"><span class="sc-effort-swap" data-accent=""/);
+  assert.deepEqual([...top.matchAll(/class="sc-effort-glow" data-r="([^"]+)">Ultra</g)].map((match) => match[1]), ['0', '0.5', '1', '2']);
+  assert.doesNotMatch(top, /data-animate|data-leaving/, 'no swap animation on first mount');
+  assert.match(top, /aria-valuetext="Ultra"/);
+  const low = effort(['low', 'high', 'ultra'], 'low');
+  assert.match(low, /data-slider-overlay=""/, 'the overlay is mounted for an ultra model at any stop');
+  assert.doesNotMatch(slider(low), /data-at-max/); assert.doesNotMatch(low, /data-accent|data-on=""|<canvas/, 'unlit: no accent, ground off, canvas not yet mounted');
+  const deepseek = effort([{ reasoningEffort: 'off' }, { reasoningEffort: 'low' }, { reasoningEffort: 'high' }, { reasoningEffort: 'max' }], 'max');
+  assert.doesNotMatch(deepseek, /data-slider-overlay|data-at-max|data-accent|sc-effort-lit/, 'DeepSeek max is not the purple tier');
+  assert.match(deepseek, /<div class="sc-slider-fill"><\/div>/);
+  assert.doesNotMatch(effort(['low', 'medium', 'high', 'xhigh', 'max'], 'max'), /data-slider-overlay|data-accent/, 'gpt-5.6-luna max is not the tier');
+  assert.doesNotMatch(effort(['ultra'], 'ultra'), /data-slider-overlay|data-at-max/, 'a single level is unavailable: no overlay');
+  assert.doesNotMatch(effort(['low', 'ultra'], 'ultra', { disabled: true }), /data-slider-overlay/, 'disabled: no overlay');
+});
+
 test('the legacy code-ui Popover/MenuItem host is gone; menus and popovers use the CDS primitives', () => {
   const read = (file) => fs.readFileSync(path.join(app, file), 'utf8');
   const main = read('src/main.jsx'), codeUi = read('src/code-ui.jsx'), style = read('src/style.css');
@@ -142,7 +165,7 @@ test('the legacy code-ui Popover/MenuItem host is gone; menus and popovers use t
   const composer = read('src/source-composer.jsx');
   assert.match(composer, /<SourcePopover anchor=\{anchor\} side="top" align="end" dataCds="ModelSelectorEffort" className="sc-effort-popover"/);
   assert.match(composer, /<SourcePopover anchor=\{anchor\} side="top" align="end" sideOffset=\{8\} padding="none" className="epitaxy-root sc-usage-popover"/);
-  assert.match(composer, /<SourcePopoverTitle className="sp-sr-only">Usage<\/SourcePopoverTitle>/);
+  assert.match(composer, /<SourcePopoverTitle className="sp-sr-only">\{t\("Usage"\)\}<\/SourcePopoverTitle>/);
   assert.match(read('src/source-composer.css'), /\.sp-popup\.sc-usage-popover \{ width: 360px; max-width: calc\(100vw - 2rem\); max-height: min\(var\(--available-height\), 640px\);/);
   assert.match(read('electron/main.cjs'), /const title = p\.additional \? i18n\.t\("Add folder to session"\) : i18n\.t\("Select folder for local session"\);/);
 });

@@ -12,6 +12,7 @@
 // page "pending" until a new core client exists.
 const fs = require("node:fs");
 const path = require("node:path");
+const { coreSupports, coreById } = require("./core-registry.mjs");
 
 const METHOD_NOT_FOUND = -32601;
 const USER_PATCH_EXAMPLE = `# Your own patches for the Code Desktop DeepSeek core profile.
@@ -63,9 +64,17 @@ function createHarnessProfile({ app, shell, dialog, getConfig = () => undefined,
   }
   const overlayEnabled = () => preferences()?.harnessProfile?.overlayEnabled !== false;
   const mtime = (file) => { try { return fs.statSync(file).mtimeMs; } catch { return null; } };
-  // The core the app spawns (codex.cjs coreKind/resolveCore): an explicit
-  // CODEX_BINARY is an override of unknown kind, else CODE_DESKTOP_CORE picks.
-  const configuredEngine = () => (env.CODEX_BINARY ? "override" : env.CODE_DESKTOP_CORE === "codex" ? "codex" : "deepseek");
+  // The core the app spawns, as a core id (codex.cjs chosenCore/coreKind): an
+  // explicit CODEX_BINARY is an override of unknown kind, else CODE_DESKTOP_CORE
+  // or Settings › Cores (config.core, core-manager.cjs) picks; an unknown id
+  // starts the built-in DeepSeek core. The page then asks coreSupports(id,
+  // 'harnessProfile'), so a ZCode, OpenCode or pack core that is down never
+  // shows the DeepSeek Harness profile editor.
+  const configuredEngine = () => {
+    if (env.CODEX_BINARY) return "override";
+    const core = coreById(env.CODE_DESKTOP_CORE || preferences()?.core);
+    return core && core.kind !== "builtin" ? core.id : "deepseek";
+  };
   // When this app last saw a DeepSeek core running with the overlays: an
   // overlay edited after that is the likely cause of a core that won't start.
   function lastStart() {
@@ -128,9 +137,8 @@ function createHarnessProfile({ app, shell, dialog, getConfig = () => undefined,
 
   async function readProfile() {
     const client = getClient();
-    const engine = client?.serverInfo?.engine;
     if (!client?.serverInfo) return { connected: false, profile: null };
-    if (engine !== "deepseek-harness") return { connected: true, unsupported: true, reason: "engine", profile: null };
+    if (!coreSupports(client.serverInfo, "harnessProfile")) return { connected: true, unsupported: true, reason: "engine", profile: null };
     try {
       const profile = await client.request("codeDesktop/profile/read", {}, 15000);
       lastEntries = Array.isArray(profile?.entries) ? profile.entries : [];
@@ -243,13 +251,19 @@ function createHarnessProfile({ app, shell, dialog, getConfig = () => undefined,
   }
 
   // C5 seams: provider rows and the env vars the core process needs.
-  async function setManagedRow(id, row) { const mod = await lib; return writeState(mod.setManagedRow(readState(), id, row)); }
+  // An unchanged row writes nothing and asks for no restart (model-settings re-applies its rows at startup).
+  async function setManagedRow(id, row) {
+    const mod = await lib, current = readState(), next = mod.setManagedRow(current, id, row);
+    return JSON.stringify(mod.normalizeOverlay(current)) === JSON.stringify(next) ? next : writeState(next);
+  }
   async function removeManagedRow(id) { return setManagedRow(id, null); }
-  function setCoreEnv(key, value) {
+  // pending:false sets a value before the first core spawn (nothing to restart yet); an unchanged value marks nothing.
+  function setCoreEnv(key, value, { pending: restart = true } = {}) {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(String(key))) throw new Error("Invalid environment variable name.");
+    const before = managedEnv.get(key);
     if (value === null || value === undefined) managedEnv.delete(key); else managedEnv.set(key, String(value));
     syncEnv();
-    markPending();
+    if (restart && before !== managedEnv.get(key)) markPending();
   }
   const coreEnvKeys = () => Object.fromEntries(managedEnv);
 

@@ -222,7 +222,8 @@ try {
     return groups;
   });
   assert.deepEqual(metrics.nav.map(group => group.title), ["Settings", "Desktop app", "Customize"]);
-  assert.deepEqual(metrics.nav[2].buttons.map(button => button.name), ["Skills", "Connectors", "Plugins"]);
+  // Hooks follows Plugins for a core that lists hooks (capabilities.hooksList; the Codex fixture does).
+  assert.deepEqual(metrics.nav[2].buttons.map(button => button.name), ["Skills", "Connectors", "Plugins", "Hooks"]);
   for (const button of metrics.nav[2].buttons) { near(button.height, 32, `${button.name} nav height`, 0.5); assert.equal(button.paddingInline, "8px"); assert.equal(button.gap, "12px"); }
   assert.equal(metrics.nav[2].buttons[0].current, "page");
   // QC/pS:2197–2200,4132–4166 explicitly uses md. shared-frame ra/aa:1654–1677
@@ -237,7 +238,7 @@ try {
     assert.equal(box.icon, 20, `${name} icon does not stretch with the label`);
     assert.equal(box.label, box.text, `${name} fits the normal 192px navigation`);
   }
-  checks.push("/skills opens Settings with a Customize group (Skills/Connectors/Plugins) after Settings and Desktop app; 32px rows, 8px inline padding, 12px icon gap, aria-current on Skills");
+  checks.push("/skills opens Settings with a Customize group (Skills/Connectors/Plugins/Hooks) after Settings and Desktop app; 32px rows, 8px inline padding, 12px icon gap, aria-current on Skills");
 
   // 1b. customize-skills Ti {missing:"all"} → c27f32a39 Ie: the failed list renders only the
   // role=status failure with a secondary busy "Retry" (no table, no raw backend text).
@@ -535,7 +536,7 @@ try {
   assert.deepEqual(metrics.skillDetail.facts, [["Added by", "You"], ["Last updated", shortDate(alphaMtime)]]); assert.equal(metrics.skillDetail.factLabelColor, metrics.detailTokens.muted);
   assert.equal(await detail.locator(".cz-skill-head h2").textContent(), "fx-alpha");
   await detail.locator("[data-cds=InfoTip]").hover();
-  await page.locator('[data-cds="Tooltip"]').filter({ hasText: "DeepSeek uses these descriptions when deciding which skills to use in chat." }).waitFor();
+  await page.locator('[data-cds="Tooltip"]').filter({ hasText: "Codex uses these descriptions when deciding which skills to use in chat." }).waitFor();
   await page.mouse.move(2, 2);
   checks.push(`F13 skill detail geometry px 24 / pb 24 / gap 12, header min-h ${metrics.skillDetail.headHeight}px py 12 -mr-24 pr-md, h2 font-large-bold; facts Added by / Last updated; Description h3 + InfoTip tooltip; files mt-2`);
   await page.locator("[data-skill-file]").waitFor();
@@ -800,7 +801,7 @@ try {
   await row("fx-auth").getByRole("button", { name: "Sign in", exact: true }).click();
   // R04: the source shows no "finish signing in" notice (its feedback is toasts, and only on failure).
   await waitTrace(entries => entries.slice(count).some(entry => entry.method === "mcpServer/oauth/login"), "oauth login");
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-cz-page="connectors"] button')].every(button => !button.disabled));
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-cz-page="connectors"] button')].every(button => !button.disabled || button.matches('[role=switch], [data-connector-setting] *, .cz-tool-list *')));
   assert.equal(await page.locator('[data-cz-page="connectors"] :is(.cz-info,.cz-error,[role=alert])').count(), 0, "no inline notice paragraphs");
   const login = (await trace()).slice(count).find(entry => entry.method === "mcpServer/oauth/login");
   assert.deepEqual(login.params, { name: "fx-auth", threadId: T });
@@ -823,9 +824,11 @@ try {
   const baseSeed = await readSeed();
   const withDown = n => ({ ...baseSeed, mcp: { servers: [...baseSeed.mcp.servers, ...Array.from({ length: n }, (_, index) => ({ name: `fx-down-${index + 1}`, runtimeStatus: "failed", tools: {}, authStatus: "unsupported" }))] } });
   const brokenNames = () => brokenCard.locator("li").evaluateAll(items => items.map(item => item.getAttribute("data-broken-name")));
-  const reloadConnectors = async (label, click) => { await page.waitForFunction(() => [...document.querySelectorAll('[data-cz-page="connectors"] button')].every(button => !button.disabled));
+  // The connector settings controls (on/off switch, approval selects) stay disabled for a connector defined outside
+  // the user's own config, so only the action buttons signal the end of a reload.
+  const reloadConnectors = async (label, click) => { await page.waitForFunction(() => [...document.querySelectorAll('[data-cz-page="connectors"] button')].every(button => !button.disabled || button.matches('[role=switch], [data-connector-setting] *, .cz-tool-list *')));
     count = (await trace()).length; await click(); await waitTrace(entries => entries.slice(count).some(entry => entry.method === "mcpServerStatus/list"), label);
-    await page.waitForFunction(() => [...document.querySelectorAll('[data-cz-page="connectors"] button')].every(button => !button.disabled)); };
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-cz-page="connectors"] button')].every(button => !button.disabled || button.matches('[role=switch], [data-connector-setting] *, .cz-tool-list *'))); };
   await writeSeed(withDown(4));
   await reloadConnectors("re-list with six broken", () => row("fx-failed").getByRole("button", { name: "Reconnect", exact: true }).click());
   await brokenCard.locator("h3").filter({ hasText: "6 connectors stopped working" }).waitFor();
@@ -871,10 +874,12 @@ try {
   assert.deepEqual(await labels(page.locator(".cz-drill-header [data-cds=Button]")), ["Connectors"]);
   metrics.connectorDrill = await connectorDrill.locator('[data-connector-view="connected"]').evaluate(node => { const head = node.firstElementChild, style = getComputedStyle(node), headStyle = getComputedStyle(head), tile = head.querySelector(".cz-connector-tile").getBoundingClientRect();
     return { padding: [parseFloat(style.paddingLeft), parseFloat(style.paddingRight), parseFloat(style.paddingBottom)], headMinHeight: parseFloat(headStyle.minHeight), headPadding: [parseFloat(headStyle.paddingTop), parseFloat(headStyle.paddingBottom)],
-      tile: [tile.width, tile.height], title: head.querySelector("h2").textContent, tools: [...node.querySelectorAll(".cz-tool-list li")].map(item => item.textContent),
-      actions: [...head.querySelectorAll("button")].map(button => `${button.dataset.variant}:${button.getAttribute("aria-label") || button.textContent.trim()}`) }; });
+      tile: [tile.width, tile.height], title: head.querySelector("h2").textContent, tools: [...node.querySelectorAll(".cz-tool-list li")].map(item => item.dataset.tool ?? item.textContent),
+      actions: [...head.querySelectorAll("button")].map(button => `${button.dataset.variant ?? button.getAttribute("role")}:${button.getAttribute("aria-label") || button.textContent.trim()}`) }; });
   assert.deepEqual(metrics.connectorDrill, { padding: [24, 24, 24], headMinHeight: 56, headPadding: [12, 12], tile: [24, 24], title: "Fixture Connected", tools: ["one", "two"],
-    actions: ["secondary:Reconnect", "ghost:More options for Fixture Connected"] });
+    // A Codex core's connector settings (config/read mcp_servers): the on/off switch sits before Reconnect, and each tool
+    // row carries its approval select and switch (data-tool holds the name).
+    actions: ["switch:Turn Fixture Connected on or off", "secondary:Reconnect", "ghost:More options for Fixture Connected"] });
   // R04 c2e7fd468 LocalConfig in En's mt-4 slot (c08e79e85), from desktop-settings-read mcpDefinitions over the fixture's
   // config/read mcp_servers: default-open Command / Arguments / Environment variables, env names masked, never the value.
   const localConfig = connectorDrill.locator("[data-cz-local-config]");
@@ -923,21 +928,24 @@ try {
   checks.push("F13 connector drill: a row click replaces the list with the 'Connectors' drill (no aside/table/header); connected = px-6 pb-6, 56px header, 24px tile, tools one/two, secondary Reconnect + ⋮; failing = 56px tile, 'Connection issue' in text-warning, stopped-working copy, primary Reconnect; sign-in = not-connected copy + primary Sign in; starting = 'Checking connection…'; both Reconnects send reload then list; Back restores the list and its scroll position");
   // Add custom connector: invalid name rejected client-side, valid form writes config then reloads.
   await page.getByRole("button", { name: "Add custom connector", exact: true }).click();
-  const form = page.getByRole("form", { name: "Add custom connector", exact: true });
+  // The official custom connector dialog: URL first; a local server is the Command segment.
+  const form = page.getByRole("dialog", { name: "Add custom connector", exact: true }).getByRole("form", { name: "Add custom connector", exact: true });
+  await form.getByRole("radio", { name: "Command", exact: true }).click();
   await form.getByRole("textbox", { name: "Connector name" }).fill("bad name!");
   await form.getByRole("textbox", { name: "Command" }).fill("npx");
   count = (await trace()).length;
-  await form.getByRole("button", { name: "Add connector", exact: true }).click();
+  await form.getByRole("button", { name: "Add", exact: true }).click();
   await form.getByRole("alert").waitFor();
   assert.equal((await trace()).slice(count).filter(entry => entry.method === "config/batchWrite").length, 0, "invalid name sends nothing");
-  // An existing mcp_servers.<name> must never be upserted over: the CLI shares ~/.codex/config.toml.
+  // An existing mcp_servers.<name> must never be upserted over: the CLI shares its config.toml. The copy names the
+  // running core's real file, this launch's CODEX_HOME (profile/codex-home), not ~/.codex.
   await form.getByRole("textbox", { name: "Connector name" }).fill("fx-connected");
-  await form.getByRole("button", { name: "Add connector", exact: true }).click();
-  await form.getByRole("alert").filter({ hasText: "already in ~/.codex/config.toml" }).waitFor();
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await form.getByRole("alert").filter({ hasText: /already in \S*\/codex-home\/config\.toml/ }).waitFor();
   assert.equal((await trace()).slice(count).filter(entry => entry.method === "config/batchWrite").length, 0, "a duplicate name sends nothing");
   await form.getByRole("textbox", { name: "Connector name" }).fill("fx-new");
   await form.getByRole("textbox", { name: "Arguments" }).fill("-y demo");
-  await form.getByRole("button", { name: "Add connector", exact: true }).click();
+  await form.getByRole("button", { name: "Add", exact: true }).click();
   await mcpTable.locator('tr[data-mcp-name="fx-new"]').waitFor();
   const adds = (await trace()).slice(count).filter(entry => ["config/batchWrite", "config/mcpServer/reload", "mcpServerStatus/list"].includes(entry.method));
   assert.deepEqual(adds.map(entry => entry.method), ["config/batchWrite", "config/mcpServer/reload", "mcpServerStatus/list"]);
@@ -981,7 +989,7 @@ try {
   const removal = (await trace()).slice(count).find(entry => entry.method === "config/batchWrite");
   assert.deepEqual(removal.params.edits, [{ keyPath: "mcp_servers.fx-new", value: null, mergeStrategy: "replace" }]);
   // The outcome is a toast, not an inline "Removed …" line in the page.
-  const removedToast = page.locator('[data-cds="Toast"] .source-toast-card').filter({ hasText: "Removed fx-new from ~/.codex/config.toml." });
+  const removedToast = page.locator('[data-cds="Toast"] .source-toast-card').filter({ hasText: /Removed fx-new from \S*\/codex-home\/config\.toml\./ });
   await removedToast.waitFor();
   assert.equal(await page.locator('[data-cz-page="connectors"]').getByText(/Removed fx-new/).count(), 0);
   assert.equal(await page.locator('[data-cz-page="connectors"] :is(.cz-info,.cz-error,[role=alert])').count(), 0);
@@ -1010,7 +1018,7 @@ try {
   near(metrics.connectorsEmpty.centre, 0, "pictogram, copy and actions are centred", 1);
   assert.deepEqual(metrics.connectorsEmpty.svg, [96, 96]); near(metrics.connectorsEmpty.gap, metrics.connectorsEmpty.gapLg, "pictogram → copy = --cds-gap-lg", 0.5);
   assert.ok(metrics.connectorsEmpty.copyWidth <= 320.5, `copy max-w-xs (${metrics.connectorsEmpty.copyWidth})`);
-  assert.equal(metrics.connectorsEmpty.copy, "Unlock more with DeepSeek when you connect your team’s tools."); assert.equal(metrics.connectorsEmpty.copyColor, secondaryText);
+  assert.equal(metrics.connectorsEmpty.copy, "Unlock more with Codex when you connect your team’s tools."); assert.equal(metrics.connectorsEmpty.copyColor, secondaryText);
   assert.equal(metrics.connectorsEmpty.role, null); assert.deepEqual(metrics.connectorsEmpty.actions, ["secondary:Add custom connector"]);
   assert.equal(metrics.connectorsEmpty.table, false); assert.equal(metrics.connectorsEmpty.filter, false, "no status filter without connectors");
   await page.screenshot({ path: path.join(directory, "connectors-empty.png") });
@@ -1071,9 +1079,9 @@ try {
   tabCopy.hooks = await pluginDetail.locator(".cz-plugin-tab-description").textContent();
   await pluginDetail.getByRole('tab', {name:'Connectors',exact:true}).click();
   tabCopy.connectors = await pluginDetail.locator(".cz-plugin-tab-description").textContent();
-  assert.deepEqual(tabCopy, { skills: "Invoke by typing / in chat, or let DeepSeek use them automatically for relevant tasks.",
+  assert.deepEqual(tabCopy, { skills: "Invoke by typing / in chat, or let Codex use them automatically for relevant tasks.",
     hooks: "Commands this plugin runs automatically — on session events, or when its skills are used.",
-    connectors: "Tools and data sources this plugin connects to. Connect each one so DeepSeek can use it." });
+    connectors: "Tools and data sources this plugin connects to. Connect each one so Codex can use it." });
   assert.equal((await pluginDetail.textContent()).includes("Claude"), false, "no Claude copy in the Fx Plugin drill");
   // R04 c36b3644c fe → c26958849 rows: 24px connector tile, the catalog title, its status as the muted description.
   const pluginConnector = pluginDetail.locator('[data-plugin-mcp] button[data-connector-name="fx-connected"]');
@@ -1107,7 +1115,7 @@ try {
   checks.push("R04 Fx Plugin drill: DeepSeek tab copy (no 'Claude'), the Connectors tab row is a 24px-tile 'Fixture Connected · Connected' row that opens data-cz-detail=connector; Fx Off shows 'Last updated —'");
   await closeSettings();
   // R03: the refused "Show in Folder" (step 4) was a toast, so no app-level error banner waits behind the modal.
-  assert.equal(await page.locator(".composer-error").count(), 0);
+  assert.equal(await page.locator(".composer-error").count(), 0, `no error banner: ${await page.locator(".composer-error").allTextContents().catch(() => [])}`);
 
   // 8. Composer Add menu: no placeholder, Skills submenu with footer, chip → turn/start skill input.
   const add = page.getByRole("button", { name: "Add", exact: true });

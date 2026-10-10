@@ -96,11 +96,11 @@ test('the app mode hint is read only when present and valid; an approved plan ne
   assert.deepEqual(permissionHint({ codeDesktop: { permissionMode: 'chat', afterPlan: 'plan' } }), { mode: 'chat', afterPlan: 'auto' })
   assert.deepEqual(afterPlanPermission('ask'), { mode: 'ask', approvalPolicy: 'untrusted', sandbox: 'workspace-write' })
   assert.deepEqual(afterPlanPermission('acceptEdits'), { mode: 'acceptEdits', approvalPolicy: 'untrusted', sandbox: 'workspace-write' })
-  for (const value of ['auto', 'bypass', undefined])
+  for (const value of ['auto', 'plan', undefined])
     assert.deepEqual(afterPlanPermission(value), { mode: 'auto', approvalPolicy: 'on-request', sandbox: 'workspace-write' })
 })
 
-test("the plan card's codeDesktop.afterPlan overrides the turn hint; Bypass is never a target", () => {
+test("the plan card's codeDesktop.afterPlan overrides the turn hint; Bypass only as the card's explicit choice", () => {
   const items = [planReview()]
   // Code Desktop R07 plan card: Accept → 'ask', the primary → its trust-forward target.
   const accept = { answers: { [PLAN_REVIEW]: { answers: ['Approve'] } }, codeDesktop: { afterPlan: 'ask' } }
@@ -109,11 +109,13 @@ test("the plan card's codeDesktop.afterPlan overrides the turn hint; Bypass is n
   assert.deepEqual(afterPlanPermission(approvedAfterPlan(accept, 'auto')), { mode: 'ask', approvalPolicy: 'untrusted', sandbox: 'workspace-write' })
   assert.equal(approvedAfterPlan({ ...accept, codeDesktop: { afterPlan: 'acceptEdits' } }, 'ask'), 'acceptEdits')
   assert.equal(approvedAfterPlan({ ...accept, codeDesktop: { afterPlan: 'auto' } }, 'ask'), 'auto')
-  // Without the extension, or with an unknown or Bypass value, the hint decides, and Bypass still maps to Auto.
-  for (const response of [{ answers: accept.answers }, { ...accept, codeDesktop: { afterPlan: 'bypass' } }, { ...accept, codeDesktop: 'ask' }, null])
+  // Without the extension, or with an unknown value, the hint decides, and a hinted Bypass maps to Auto.
+  for (const response of [{ answers: accept.answers }, { ...accept, codeDesktop: { afterPlan: 'plan' } }, { ...accept, codeDesktop: 'ask' }, null])
     assert.equal(approvedAfterPlan(response, 'acceptEdits'), 'acceptEdits')
-  assert.equal(approvedAfterPlan({ ...accept, codeDesktop: { afterPlan: 'bypass' } }, 'bypass'), 'bypass')
-  assert.deepEqual(afterPlanPermission(approvedAfterPlan({ ...accept, codeDesktop: { afterPlan: 'bypass' } }, 'bypass')).mode, 'auto')
+  assert.equal(approvedAfterPlan({ answers: accept.answers }, 'bypass'), 'auto')
+  // 'Accept and bypass permissions' (validated by the app's main process) continues in Bypass.
+  assert.equal(approvedAfterPlan({ ...accept, codeDesktop: { afterPlan: 'bypass' } }, 'ask'), 'bypass')
+  assert.deepEqual(afterPlanPermission(approvedAfterPlan({ ...accept, codeDesktop: { afterPlan: 'bypass' } }, 'auto')), { mode: 'bypass', approvalPolicy: 'never', sandbox: 'danger-full-access' })
   // Revise sends its option plus the feedback: no approval, the text is the feedback.
   const revise = harnessAnswer(items, { answers: { [PLAN_REVIEW]: { answers: ['Keep planning', 'Split step two'] } } })
   assert.deepEqual(revise, { answers: [{ id: PLAN_REVIEW, selected: ['Keep planning'], custom: 'Split step two' }] })

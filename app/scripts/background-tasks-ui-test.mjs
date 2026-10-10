@@ -181,7 +181,7 @@ try {
   assert.ok(!(await disconnectedRow.textContent()).includes('Tool execution was interrupted.'));
   await page.screenshot({path:path.join(directory,'disconnected-status.png')});
   await page.keyboard.press('Meta+,');const settings=page.getByRole('dialog',{name:'Settings',exact:true});await settings.waitFor();
-  await settings.getByRole('textbox',{name:'Search settings'}).fill('DeepSeek core');await settings.getByRole('textbox',{name:'Search settings'}).press('Enter');
+  await settings.getByRole('textbox',{name:'Search settings'}).fill('Codex core');await settings.getByRole('textbox',{name:'Search settings'}).press('Enter');
   await settings.getByRole('button',{name:'Reconnect',exact:true}).click();
   await poll(async()=>await settings.getByText('Connected',{exact:true}).count()===1,'actual fixture reconnect');
   await page.keyboard.press('Escape');await settings.waitFor({state:'detached'});

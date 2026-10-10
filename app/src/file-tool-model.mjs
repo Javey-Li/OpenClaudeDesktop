@@ -2,6 +2,10 @@ import { parseUnifiedDiff } from './diff-model.js';
 import { commandRowState } from './command-row-model.mjs';
 import { isHiddenTranscriptItem } from './transcript-item-visibility.mjs';
 import { questionReceipt } from './generic-tool-model.mjs';
+import { appToolStandsAlone } from './agent-tool-titles.mjs';
+import { computerUseAction } from './computer-use-model.mjs';
+import { imageGenerationState } from './media-item-model.mjs';
+import { commandText } from './shell-command-model.mjs';
 import { t, tn, getLocale } from '../electron/i18n/index.mjs';
 
 // Contract: approval-current:4164–4238; cf6ae6197:6986–7031. Only protocol
@@ -13,6 +17,24 @@ export function fileAction(item) {
   const actions = item?.commandActions;
   return item?.type === 'commandExecution' && actions?.length === 1 && ['read', 'search', 'listFiles'].includes(actions[0].type) ? actions[0] : null;
 }
+/**
+ * The facts an expanded search / list / other file step shows. A tool's own arguments when it has them, else the
+ * pattern and path the action reports; only a step that reports neither (Codex's `ls -la`: path null) names the
+ * command that ran (the action's own, else the item's, without the `<shell> -lc` wrapper), so 'Listed workspace'
+ * still says what ran and a search never gets a synthesized command: fact beside its inputs.
+ */
+export function fileActionFacts(item, action) {
+  if (action?.type === 'search' || action?.type === 'listFiles') {
+    const args = action.arguments;
+    if (args && typeof args === 'object' && !Array.isArray(args) && Object.keys(args).length)
+      return Object.entries(args).filter(([, value]) => value != null);
+    const facts = Object.entries({ ...(action.query != null ? { pattern: action.query } : {}), ...(action.path ? { path: action.path } : {}) });
+    if (facts.length) return facts;
+    const command = commandText(action.command ?? item?.command);
+    return command ? [['command', command]] : [];
+  }
+  return Object.entries({ command: item?.command, ...(action?.query != null ? { query: action.query } : {}), ...(action?.path ? { path: action.path } : {}) }).filter(([, value]) => value != null);
+}
 export function readContents(output = '') {
   const lines = output.split('\n');
   const prefix = /^ *\d+(?:[:|] ?|→|\t)/;
@@ -20,8 +42,12 @@ export function readContents(output = '') {
 }
 const verbs = { read: [t('Read'), t('Reading'), t('Failed to read')], add: [t('Created'), t('Creating'), t('Failed to write')], update: [t('Edited'), t('Editing'), t('Failed to edit')], delete: [t('Deleted'), t('Deleting'), t('Failed to edit')], search: [t('Searched'), t('Searching'), t('Failed to search')], listFiles: [t('Listed'), t('Listing'), t('Failed to list')] };
 const verb = (kind, state) => (verbs[kind] || verbs.update)[state === 'busy' || state === 'blocked' ? 1 : state === 'failed' ? 2 : 0];
+// A Codex imageGeneration reports its own statuses ('generating', 'failed', …); as a group member it takes the
+// tool statuses the row states read. imageView and sleep carry no status: they are done when they arrive.
+const memberStatus = item => item?.type !== 'imageGeneration' ? item
+  : { ...item, status: { busy: 'inProgress', failed: 'failed', stopped: 'interrupted' }[imageGenerationState(item)] || 'completed' };
 export function fileRunState(items, pending = new Set()) {
-  const states = items.map(item => commandRowState(item, pending.has(item.id)));
+  const states = items.map(item => commandRowState(memberStatus(item), pending.has(item.id)));
   return states.includes('blocked') ? 'blocked' : states.includes('busy') ? 'busy' : states.includes('unknown') ? 'unknown' : states.at(-1) || 'done';
 }
 export function fileToolSummary(items, state) {
@@ -99,7 +125,11 @@ export function coalesceFileRuns(items) {
 }
 
 // An answered question is its own receipt card (wue/vZ, approval-current.js:45232-45240), never a group member.
-const groupable = item => ['commandExecution', 'fileChange', 'webSearch', 'mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall'].includes(item.type) && !questionReceipt(item);
+// Npe groups every consecutive tool call of any category, so Codex view_image, image generation and sleep join the
+// run too (their images go in the member's body inside the group, FN :17324); a hook's injected context does not.
+// Claude's stands-alone tools (ask_user_question, push_notification, send_to_user, report_findings) and the
+// DeepSeek core's `present` cards are never folded into a group either (agent-tool-titles.mjs appToolStandsAlone).
+const groupable = item => ['commandExecution', 'fileChange', 'webSearch', 'mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'computerUse', 'imageView', 'imageGeneration', 'sleep'].includes(item.type) && !questionReceipt(item) && !appToolStandsAlone(item);
 // Npe/Die: a prose/turn boundary closes a tool segment. This surface adds
 // groups containing file or command tools (including pure command batches).
 // Members retain their real ids and original order.
@@ -139,16 +169,16 @@ const HARNESS_CATEGORIES = { todo_write: 'todo', exit_plan_mode: 'exit_plan_mode
 // fk metas without a count: 'searched code', 'found files', 'updated todos', 'proposed a plan', 'ran code'.
 const FIXED_META = { search: t('code'), glob: t('files'), list: t('files'), web: t('the web'), todo: t('todos'), exit_plan_mode: t('a plan'), code: t('code') };
 // Count metas per noun: [one, other].
-const COUNT_META = { file: ['a file', '{count} files'], command: ['a command', '{count} commands'], agent: ['an agent', '{count} agents'], page: ['a page', '{count} pages'], tool: ['a tool', '{count} tools'] };
+const COUNT_META = { file: ['a file', '{count} files'], command: ['a command', '{count} commands'], agent: ['an agent', '{count} agents'], page: ['a page', '{count} pages'], tool: ['a tool', '{count} tools'], computer: ['the computer', 'the computer ({count} steps)'], image: ['an image', '{count} images'], sleep: ['once', '{count} times'] };
 // cf6ae6197 rk/ik/sk + Sk. Keep visual segments distinct from the full
 // accessible summary: all-failed categories tint only the verb; mixed failures
 // retain their count in the visible meta. Interruptions are not tool failures.
 export function fileGroupPresentation(items) {
-  const categories = new Map(), filePaths = new Set();
+  const categories = new Map(), filePaths = new Set(), waits = [];
   let missingFilePath = false;
   const add = (category, key, item, path) => {
     if (!categories.has(category)) categories.set(category, new Map());
-    const entries=categories.get(category),state=commandRowState(item);
+    const entries=categories.get(category),state=commandRowState(memberStatus(item));
     const observation=state==='failed'?'failed':state==='done'?'succeeded':state==='busy'||state==='blocked'?'pending':undefined;
     // An interrupted retry has no new outcome. A pending retry clears the
     // previous outcome, and its completion replaces it on the same path.
@@ -169,9 +199,15 @@ export function fileGroupPresentation(items) {
     else if (item.type === 'webSearch') add(item.action?.type === 'openPage' ? 'web_fetch' : 'web', item.id, item);
     else if (item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent') add('agent', item.id, item);
     else if (item.type === 'dynamicToolCall' && item.namespace == null && Object.hasOwn(HARNESS_CATEGORIES, item.tool)) add(HARNESS_CATEGORIES[item.tool], item.id, item);
+    // Computer use (computer-use-model.mjs): 'used the computer (N steps)'.
+    else if (computerUseAction(item)) add('computer', item.id, item);
+    // Viewing an image reads that file; a generated image is 'generated an image'; sleeps add up to 'waited 30s'.
+    else if (item.type === 'imageView') add('read', item.path, item, item.path);
+    else if (item.type === 'imageGeneration') add('image', item.id, item);
+    else if (item.type === 'sleep') { add('sleep', item.id, item); waits.push(item.durationMs); }
     else add('tool', item.id, item);
   }
-  const words = { add: t('created'), update: t('edited'), delete: t('deleted'), read: t('read'), search: t('searched'), glob: t('found'), list: t('listed'), web: t('browsed'), web_fetch: t('fetched'), command: t('ran'), agent: t('ran'), todo: t('updated'), exit_plan_mode: t('proposed'), code: t('ran'), tool: t('used') };
+  const words = { add: t('created'), update: t('edited'), delete: t('deleted'), read: t('read'), search: t('searched'), glob: t('found'), list: t('listed'), web: t('browsed'), web_fetch: t('fetched'), command: t('ran'), agent: t('ran'), todo: t('updated'), exit_plan_mode: t('proposed'), code: t('ran'), tool: t('used'), computer: t('used'), image: t('generated'), sleep: t('waited') };
   const fileKinds = new Set(['add', 'update', 'delete', 'read']);
   // User-requested compact Read count; never call six reads of one path six files.
   const readBatch = items.length > 1 && items.every(item => fileAction(item)?.type === 'read');
@@ -197,8 +233,10 @@ export function fileGroupPresentation(items) {
       continue;
     }
     const count=entries.size,failed=[...entries.values()].filter(value=>value==='failed').length;
-    const noun=fileKinds.has(kind)?'file':kind==='command'?'command':kind==='agent'?'agent':kind==='web_fetch'?'page':'tool';
+    const noun=fileKinds.has(kind)?'file':kind==='command'?'command':kind==='agent'?'agent':kind==='web_fetch'?'page':kind==='computer'?'computer':kind==='image'?'image':kind==='sleep'?'sleep':'tool';
     let meta=Object.hasOwn(FIXED_META,kind)?FIXED_META[kind]:tn(count,...COUNT_META[noun]);
+    // Sleeps that all report a duration read as the time waited ('waited 30s'), otherwise how many times.
+    if(kind==='sleep'&&waits.length&&waits.every(Number.isFinite))meta=t('{seconds}s',{seconds:Math.round(waits.reduce((sum,ms)=>sum+Math.max(0,ms),0)/1000)});
     if(readBatch && kind==='read' && items.length>count)meta=t('{meta} ({count} reads)',{meta,count:items.length});
     segments.push(segment(words[kind]||t('used'),meta,count,failed));
   }

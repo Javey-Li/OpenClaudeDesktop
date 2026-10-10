@@ -6,10 +6,16 @@
 // URL, which @deepseek-ai/dsh-plugin-manager reads as a git spec
 // (install-spec.js HOSTED_REPOSITORY_URL), so no registry release is needed.
 // The entry carries the repository for display only; `spec` is what installs.
+//
+// Every entry names the core whose plugin manager installs it (`core`, a core
+// id from core-registry.mjs): a bundle is a plugin for that core only, so the
+// page lists it only while that core runs (filterBuiltinPlugins `core`).
 
 export const BUILTIN_PLUGINS = Object.freeze([
   Object.freeze({
     id: "dsh-purge",
+    // A DeepSeek Harness bundle (dsh-plugin-manager git spec).
+    core: "deepseek",
     name: "dsh-purge",
     // The bundle name the plugin manager reports once it is installed.
     pluginName: "dsh-purge",
@@ -30,10 +36,11 @@ export function builtinPluginRow(entry, rows = []) {
   return rows.find((row) => text(row?.pluginName).toLowerCase() === name || text(row?.name).toLowerCase() === name);
 }
 
-// Search the built-in catalog the same way the installed table is searched
+// The entries for the running core (`core`: its id; an entry without a core is
+// offered nowhere), searched the same way the installed table is searched
 // (name, package name, description, author).
-export function filterBuiltinPlugins(entries = BUILTIN_PLUGINS, { query = "" } = {}) {
+export function filterBuiltinPlugins(entries = BUILTIN_PLUGINS, { query = "", core = null } = {}) {
   const term = text(query).trim().toLowerCase();
-  if (!term) return entries;
-  return entries.filter((entry) => `${entry.name} ${entry.pluginName} ${entry.description} ${entry.author}`.toLowerCase().includes(term));
+  return entries.filter((entry) => !!core && entry.core === core
+    && (!term || `${entry.name} ${entry.pluginName} ${entry.description} ${entry.author}`.toLowerCase().includes(term)));
 }

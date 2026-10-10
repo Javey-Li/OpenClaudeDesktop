@@ -44,7 +44,7 @@ const basename = (path = "") => path.split("/").filter(Boolean).pop() || path;
 export function SourceGitStatus({
   status, onOpenFolder, onCopyPath, onCopyBranch, onOpenChanges, onDismiss, dismissReserved = false,
   onAction, actionLabel, actionDisabled = false, actionDisabledReason, busy = false,
-  prMode = "commit", behind = null, showBehind = false, stale = false, heightPx, onMeasured,
+  prMode = "commit", behind = null, showBehind = false, stale = false, heightPx, onMeasured, pr = null,
 }) {
   const [menu, setMenu] = useState(null);
   const branchHead = useRef(null), branchTail = useRef(null), nav = useRef(null);
@@ -121,7 +121,16 @@ export function SourceGitStatus({
             onMouseDown={(event) => event.preventDefault()} onClick={() => onOpenChanges(status)}>{counts("contents text-body-medium")}</SourceSettingsButton>
         </SourceTooltip>
         : <span className="sg-diff sg-diff-static">{counts("contents")}</span>)}
-      {onAction && actionLabel && <SourceTooltip disabledReason={actionDisabled ? actionDisabledReason : undefined}>
+      {/* git-status-card.js:4985-5020: the pull request split button (a GitHub origin, a committed branch). */}
+      {pr && <span className="sg-pr" data-pr-action="">
+        <SourceTooltip disabledReason={pr.disabledReason}>
+          <SourceSettingsButton variant="secondary" className="sg-action sg-pr-main" disabled={!!pr.disabledReason || pr.busy} busy={pr.busy}
+            onMouseDown={(event) => event.preventDefault()} onClick={() => pr.onCreate?.()}>{t("Create PR")}</SourceSettingsButton>
+        </SourceTooltip>
+        <SourceSettingsButton variant="secondary" className="sg-pr-more" icon="CaretDown" iconSize={12} iconOnly aria-label={t("More pull request options")}
+          aria-haspopup="menu" aria-expanded={menu?.kind === "pr"} onMouseDown={(event) => event.preventDefault()} onClick={open("pr")} />
+      </span>}
+      {!pr && onAction && actionLabel && <SourceTooltip disabledReason={actionDisabled ? actionDisabledReason : undefined}>
         {/* git-status-card.js:1116 `onMouseDown: Mn` (e => e.preventDefault()): a pointer click keeps the composer's focus. */}
         <SourceSettingsButton variant="secondary" className="sg-action" disabled={actionDisabled || busy} busy={busy}
           onMouseDown={(event) => event.preventDefault()} onClick={() => onAction(status)}>{actionLabel}</SourceSettingsButton>
@@ -132,7 +141,11 @@ export function SourceGitStatus({
     </div>
     {/* git-chips D/M: Menu.Popup side bottom, align start (menuAlign default "start", 48/83, 109/200). */}
     {menu && <SourceMenu.Popup anchor={menu.anchor} side="bottom" align="start" layer="menu" dataCds="Menu"
-      label={menu.kind === "folder" ? t("Repository options") : t("Branch options")} onClose={() => setMenu(null)}>
+      label={menu.kind === "folder" ? t("Repository options") : menu.kind === "pr" ? t("Pull request options") : t("Branch options")} onClose={() => setMenu(null)}>
+      {menu.kind === "pr" && pr && <>
+        <SourceMenu.Item disabled={!!pr.disabledReason || pr.busy} onClick={() => run(pr.onDraft)}>{t("Create draft PR")}</SourceMenu.Item>
+        <SourceMenu.Item disabled={!!pr.manualDisabledReason || !pr.onManual} onClick={() => run(pr.onManual)}>{t("Manually create PR")}</SourceMenu.Item>
+      </>}
       {menu.kind === "folder" && repoMenu.map((item) => <React.Fragment key={item.label}>
         {item.separatorBefore && <SourceMenu.Separator />}
         <SourceMenu.Item onClick={repoActions[item.label]}>{t(item.label)}</SourceMenu.Item>

@@ -5,7 +5,7 @@ import {
   greetingName, greetingText, heatmapLightness, heatmapWeeks, localDayKey, modelColor,
 } from "./home-model.mjs";
 import "./source-home.css";
-import { t } from "../electron/i18n/index.mjs";
+import { getLocale, t } from "../electron/i18n/index.mjs";
 import { usePersona } from "./use-persona.js";
 import { greetingFor } from "./persona-store.mjs";
 import { PersonaSparkGlyph } from "./source-spark.jsx";
@@ -18,7 +18,9 @@ const TAB_SEGMENTS = [{ value: "overview", label: t("Overview") }, { value: "mod
 const RANGE_SEGMENTS = [{ value: "all", label: t("All") }, { value: "30d", label: t("30d") }, { value: "7d", label: t("7d") }];
 const MODEL_ROWS = 6;
 const LABEL_PROBE_KEY = "2000-09-30";
-const formatNumber = (value) => new Intl.NumberFormat().format(value);
+// Numbers, days and hours follow the UI language (Settings › Language), not the system locale.
+const formatNumber = (value) => new Intl.NumberFormat(getLocale()).format(value);
+const dayLabel = (key) => formatDayKey(key, getLocale());
 
 /** Jk: spark (22px, pulse once on mount) + title; copy follows landingClear. */
 export function SourceGreeting({ displayName, landingClear = true, shimmerOnMount = true }) {
@@ -209,7 +211,7 @@ function Heatmap({ dailyActivity, todayKey }) {
                   style={lightness === null ? undefined : { backgroundColor: `hsl(217 70% ${lightness}%)` }} />
               );
               return tooltips
-                ? <SourceTooltip key={cell.date} content={`${formatDayKey(cell.date)} — ${formatNumber(cell.count)}`} hoverable={false}>{node}</SourceTooltip>
+                ? <SourceTooltip key={cell.date} content={`${dayLabel(cell.date)} — ${formatNumber(cell.count)}`} hoverable={false}>{node}</SourceTooltip>
                 : node;
             })}
           </div>
@@ -224,7 +226,7 @@ function Overview({ stats, ranged, models, todayKey, seed }) {
   const favorite = ranged.modelTotals[0]?.model;
   const favoriteName = favorite ? modelDisplayName(models, favorite) : "—";
   const peak = stats.peakActivityHour == null ? "—"
-    : new Intl.DateTimeFormat(undefined, { hour: "numeric" }).format(new Date(2000, 0, 1, stats.peakActivityHour));
+    : new Intl.DateTimeFormat(getLocale(), { hour: "numeric" }).format(new Date(2000, 0, 1, stats.peakActivityHour));
   const sentence = bookSentence(ranged.totalTokens, seed);
   return (
     <div className="sh-overview">
@@ -250,7 +252,7 @@ function modelDisplayName(models, id) {
 function DayTooltip({ day, models }) {
   return (
     <span className="sh-day-tooltip">
-      <span className="sh-day-tooltip-date">{formatDayKey(day.date)}</span>
+      <span className="sh-day-tooltip-date">{dayLabel(day.date)}</span>
       {day.segments.map((segment) => (
         <span key={segment.model} className="sh-day-tooltip-row">
           <span className="sh-day-tooltip-dot" aria-hidden="true" style={{ backgroundColor: segment.color }} />
@@ -297,9 +299,9 @@ function TokenChart({ chart, models }) {
         </div>
       </SourceTooltipGroup>
       <div className="sh-chart-labels" aria-hidden="true">
-        <span className="sh-chart-probe"><span ref={probeRef} className="sh-chart-probe-text">{formatDayKey(LABEL_PROBE_KEY)}</span></span>
+        <span className="sh-chart-probe"><span ref={probeRef} className="sh-chart-probe-text">{dayLabel(LABEL_PROBE_KEY)}</span></span>
         {chart.days.map((day, index) => (
-          <span key={day.date} className="sh-chart-label">{index % step === 0 ? formatDayKey(day.date) : null}</span>
+          <span key={day.date} className="sh-chart-label">{index % step === 0 ? dayLabel(day.date) : null}</span>
         ))}
       </div>
     </div>

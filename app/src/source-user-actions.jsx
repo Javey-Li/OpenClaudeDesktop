@@ -4,7 +4,10 @@
 // keyboard-reachable "Show message actions" sentinel exist. Copy writes the
 // canonical user text exactly. BY (scroll-messages-current.js:39683) puts the
 // OY timestamp BEFORE Copy; locally it is the turn's Codex startedAt and is
-// omitted when that is null. No rewind or fork is fabricated.
+// omitted when that is null. After Copy: Rewind to here (jY, :33919
+// ArrowCounterClockwise; disabled with its reason while the agent works) and
+// Fork from here (wi.Action ArrowSplitRight), only where the caller says the
+// session can do them (message-actions-model.mjs userMessageActions).
 import React, { useId, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from './icons.jsx';
 import { SourceTooltip, SourceTooltipGroup } from './source-tooltip.jsx';
@@ -46,7 +49,21 @@ function useUserCopyFeedback(identity, text, button) {
   return { state, copy: () => controller.current?.copy() };
 }
 
-function UserActions({ identity, itemId, text, startedAtMs, interacted }) {
+// wi.Action: a ghost icon button with its label as the tooltip; a disabled one (jY under Wr) explains why instead.
+function UserAction({ icon, label, onClick = null, disabledReason = null, action }) {
+  const disabled = typeof onClick !== 'function';
+  return <SourceTooltip content={label} automatic={true} hoverable={false} disabledReason={disabled ? disabledReason || undefined : undefined}>
+    <button type="button" className="sua-copy sua-action" data-cds="Button" data-variant="ghost" data-cds-icon-only="" data-cds-ghost=""
+      data-message-action={action} aria-label={label} disabled={disabled} tabIndex={-1}
+      onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && event.repeat) event.preventDefault(); }}
+      onClick={disabled ? undefined : () => onClick()}>
+      <span className="sua-button-backdrop" aria-hidden="true"><span data-cds-part="paint" /></span>
+      <Icon name={icon} size={16} />
+    </button>
+  </SourceTooltip>;
+}
+
+function UserActions({ identity, itemId, text, startedAtMs, interacted, rewind = null, onFork = null }) {
   const root = useRef(null), copyButton = useRef(null), focusRequested = useRef(false);
   const [latched, setLatched] = useState(false);
   const coarse = useCoarseInput(root);
@@ -70,11 +87,12 @@ function UserActions({ identity, itemId, text, startedAtMs, interacted }) {
     </div> : <div className="sua-toolbar" data-cds="MessageActions" data-reveal="fade"
       role="toolbar" aria-label={t("Message actions")} tabIndex={-1}
       onKeyDown={event => {
-        const button = copyButton.current;
-        const index = turnFooterKeyIndex(event, { count: button && !button.disabled ? 1 : 0,
-          current: event.currentTarget.ownerDocument.activeElement === button ? 0 : -1,
+        // Roving focus over Copy and, where offered, Rewind to here / Fork from here.
+        const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+        const index = turnFooterKeyIndex(event, { count: buttons.length,
+          current: buttons.indexOf(event.currentTarget.ownerDocument.activeElement),
           rtl: event.currentTarget.ownerDocument.defaultView.getComputedStyle(event.currentTarget).direction === 'rtl' });
-        if (index !== null) { event.preventDefault(); button?.focus(); }
+        if (index !== null) { event.preventDefault(); buttons[index]?.focus(); }
       }}>
       <SourceTooltipGroup>
         {startedAtMs != null && <SourceTimestamp dateMs={startedAtMs} />}
@@ -92,6 +110,8 @@ function UserActions({ identity, itemId, text, startedAtMs, interacted }) {
             <Icon name={copied ? 'Check' : 'Copy'} size={16} />
           </button>
         </SourceTooltip>
+        {rewind && <UserAction action="rewind" icon="ArrowCounterClockwise" label={t("Rewind to here")} onClick={rewind.onClick ?? null} disabledReason={rewind.disabledReason} />}
+        {typeof onFork === 'function' && <UserAction action="fork" icon="ArrowSplitRight" label={t("Fork from here")} onClick={onFork} />}
       </SourceTooltipGroup>
       <span id={statusId} className="sua-status sua-sr-only" role="status">{announcement}</span>
     </div>}
@@ -100,7 +120,8 @@ function UserActions({ identity, itemId, text, startedAtMs, interacted }) {
 
 /** Mounted by the user article only when the message has copyable text. The
  * article owns the pointer/focus latch and the hover reveal scope. */
-export function SourceUserActions({ sessionKey, itemId, text = '', startedAtMs = null, interacted = false }) {
+// rewind: null (not offered) | {onClick} | {disabledReason} (offered, unavailable while the agent works); onFork: null | fn.
+export function SourceUserActions({ sessionKey, itemId, text = '', startedAtMs = null, interacted = false, rewind = null, onFork = null }) {
   const identity = JSON.stringify(['user', sessionKey, itemId]);
-  return <UserActions key={identity} identity={identity} itemId={itemId} text={text} startedAtMs={startedAtMs} interacted={interacted} />;
+  return <UserActions key={identity} identity={identity} itemId={itemId} text={text} startedAtMs={startedAtMs} interacted={interacted} rewind={rewind} onFork={onFork} />;
 }

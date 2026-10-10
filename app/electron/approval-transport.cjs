@@ -15,9 +15,21 @@ const sameIdentity = (a, b) => !!a && !!b &&
   typeof a.connectionId === "string" && typeof a.instanceId === "string" &&
   a.connectionId === b.connectionId && a.instanceId === b.instanceId;
 
+// Copy that names the core (a server protocol violation) goes through the main-process t() with the running core's
+// assistant name. codex.cjs is required lazily: it requires this module, so its exports exist only at call time.
+// Without a coreName option (codex.cjs can pass () => clientCoreName(client)) the chosen core names it.
+function coreFailure(ledger, code, source) {
+  const { t } = require("./i18n/index.mjs");
+  let core = null;
+  try { core = typeof ledger.coreName === "function" ? ledger.coreName() : null; } catch {}
+  if (typeof core !== "string" || !core) core = require("./codex.cjs").clientCoreName(null);
+  fail(code, t(source, { core }));
+}
+
 class ApprovalLedger {
-  constructor(emit) {
+  constructor(emit, { coreName = null } = {}) {
     this.emit = emit;
+    this.coreName = coreName;
     this.pending = new Map(); // Typed primitive wire IDs; 7 and '7' are distinct.
     this.history = new Map();
     this.connection = null;
@@ -60,7 +72,7 @@ class ApprovalLedger {
       // complete RPC payload (independent of object-key order), not just IDs.
       if (existing.request.method === message.method &&
           isDeepStrictEqual(existing.request.params, message.params)) return existing;
-      fail("approval_protocol_conflict", "DeepSeek reused an outstanding request ID. Reconnect to continue.");
+      coreFailure(this, "approval_protocol_conflict", "{core} reused an outstanding request ID. Reconnect to continue.");
     }
     const threadId = message.params?.threadId ?? null;
     let counts = this.history.get(message.id);
@@ -108,10 +120,13 @@ class ApprovalLedger {
         this.pending.get(entry.request.id) === entry) entry.phase = "pending";
   }
 
-  resolve(entry, reason) {
+  // result: the answer, for a request of the app's own (entry.onSettle, CodexClient.localApproval), which no core
+  // answers: every other way it ends (the turn, the connection, a cancel) settles it with null.
+  resolve(entry, reason, result = null) {
     if (this.connection !== entry.connection || this.pending.get(entry.request.id) !== entry) return false;
     this.pending.delete(entry.request.id);
     entry.phase = "resolved";
+    try { entry.onSettle?.(reason === "responded" ? result : null); } catch { /* the waiter is gone */ }
     this.publish({
       kind: "resolved", id: entry.request.id,
       bridgeApproval: entry.identity,
@@ -126,13 +141,16 @@ class ApprovalLedger {
     const entry = this.pending.get(params?.requestId);
     if (!entry || entry.connection !== connection || entry.request.params?.threadId !== params?.threadId) return false;
     if (entry.ambiguousResolution)
-      fail("approval_protocol_conflict", "DeepSeek resolved a reused request ID without its generation. Reconnect to continue.");
+      coreFailure(this, "approval_protocol_conflict", "{core} resolved a reused request ID without its generation. Reconnect to continue.");
     return this.resolve(entry, "server_resolved");
   }
 
   expireTurn(params, connection) {
     if (this.connection !== connection || connection.closed || !params?.turn?.id) return;
     for (const entry of [...this.pending.values()]) {
+      // An app card for a sub-agent's or background agent's call (CodexClient.localApproval outlivesTurn) stays: that
+      // work goes on after the turn, and the call's own signal closes the card.
+      if (entry.outlivesTurn) continue;
       if (entry.request.params?.threadId === params.threadId &&
           entry.request.params?.turnId === params.turn.id) this.resolve(entry, "turn_completed");
     }
@@ -140,6 +158,7 @@ class ApprovalLedger {
 
   invalidate(connection, reason = "disconnected") {
     if (!connection || this.connection !== connection) return false;
+    for (const entry of this.pending.values()) { try { entry.onSettle?.(null); } catch { /* the waiter is gone */ } }
     this.pending.clear();
     this.history.clear();
     this.connection = null;

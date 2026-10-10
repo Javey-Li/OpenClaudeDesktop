@@ -1,3 +1,5 @@
+import { registerCodexPack } from './codex-pack.mjs';
+registerCodexPack();
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -256,6 +258,67 @@ test("cleanup has a hard deadline and reports a process it could not terminate",
     await exited;
   }
   assert.equal(client.connections.size, 0);
+});
+
+// Settings › Models on Codex (model-settings.cjs → setCodexLaunch): `-c` overrides after `app-server --stdio`
+// and an environment for the Codex child only; an explicit binary bypasses both.
+async function codexCore(t, launch, script = "") {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "codex-launch-test-"));
+  const binary = path.join(directory, "codex");
+  const log = path.join(directory, "argv.jsonl");
+  await fs.writeFile(binary, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), K: process.env.K ?? null, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? null }) + '\\n');
+${script}
+require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') process.stdout.write(JSON.stringify({ id: message.id, result: {} }) + '\\n');
+});
+`, { mode: 0o755 });
+  const { setCoreChoice, setCodexLaunch } = require("../electron/codex.cjs");
+  const saved = { core: process.env.CODE_DESKTOP_CORE, override: process.env.CODEX_BINARY, system: process.env.CODE_DESKTOP_CORE_SYSTEM_PATHS, deepseek: process.env.DEEPSEEK_API_KEY };
+  Object.assign(process.env, { CODE_DESKTOP_CORE: "codex", CODE_DESKTOP_CORE_SYSTEM_PATHS: "", DEEPSEEK_API_KEY: "leak" });
+  delete process.env.CODEX_BINARY;
+  setCoreChoice({ core: "codex", agents: { codex: { path: binary } } });
+  setCodexLaunch(launch);
+  const restore = (key, value) => { if (value === undefined) delete process.env[key]; else process.env[key] = value; };
+  t.after(async () => {
+    setCodexLaunch(null); setCoreChoice({});
+    restore("CODE_DESKTOP_CORE", saved.core); restore("CODEX_BINARY", saved.override); restore("CODE_DESKTOP_CORE_SYSTEM_PATHS", saved.system); restore("DEEPSEEK_API_KEY", saved.deepseek);
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  const lines = async () => (await fs.readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+  return { binary, lines };
+}
+
+test("the Codex core gets the launch's -c overrides after app-server --stdio and its env, without the DeepSeek key", { timeout: 10000 }, async (t) => {
+  const { resolveCore } = require("../electron/codex.cjs");
+  let calls = 0;
+  const { binary, lines } = await codexCore(t, () => { calls++; return { args: ["-c", "x=1"], env: { K: "v", DEEPSEEK_API_KEY: undefined } }; });
+  assert.deepEqual({ ...resolveCore(), env: undefined }, { command: binary, prefix: [], kind: "codex", args: ["-c", "x=1"], env: undefined });
+  const client = new CodexClient({ initializeTimeout: 3000, shutdownTimeout: 80 });
+  t.after(() => client.stopAndWait());
+  await client.start();
+  assert.deepEqual(await lines(), [{ args: ["app-server", "--stdio", "-c", "x=1"], K: "v", DEEPSEEK_API_KEY: null }]);
+  assert.ok(calls >= 2, "read at each resolve, so a saved change applies on the next spawn");
+  // An explicit binary (options.binary, CODEX_BINARY) is a fixture or override: no launch options.
+  const direct = new CodexClient({ binary, initializeTimeout: 3000, shutdownTimeout: 80 });
+  t.after(() => direct.stopAndWait());
+  await direct.start();
+  assert.deepEqual((await lines()).at(-1), { args: ["app-server", "--stdio"], K: null, DEEPSEEK_API_KEY: "leak" });
+  process.env.CODEX_BINARY = binary;
+  assert.deepEqual(resolveCore(), { command: binary, prefix: [], kind: "override" });
+});
+
+test("an exit before initialize names stderr's last line, sanitized", { timeout: 10000 }, async (t) => {
+  const { stderrReason } = require("../electron/codex.cjs");
+  await codexCore(t, { args: [], env: {} }, `process.stderr.write('starting\\nError: invalid model_providers.codedesktop at https://relay.test/v1?token=abc: Bearer sk-abcdefghijkl\\n'); process.exit(1);`);
+  const client = new CodexClient({ initializeTimeout: 3000, shutdownTimeout: 80 });
+  const error = await client.start().then(() => null, (failure) => failure);
+  assert.match(error?.message ?? "", /^Codex disconnected \(1\)\. Error: invalid model_providers\.codedesktop at https:\/\/relay\.test\/v1 Bearer \[redacted\] Reconnect to continue\.$/);
+  assert.equal(stderrReason(""), "");
+  assert.equal(stderrReason(`x\n${"y".repeat(400)}\n`).length, 300);
+  assert.equal(stderrReason("api_key=sk-secretvalue123 failed"), "api_key=[redacted] failed");
 });
 
 test("app-wide shutdown also waits for a replaced client's old child and blocks late starts", { timeout: 10000 }, async (t) => {

@@ -521,7 +521,7 @@ try {
   assert.equal(await body('edit-a').locator('.src-cmd-copy').evaluate(node=>getComputedStyle(node).transitionDuration),'0s');
   metrics.scrollbar=await page.evaluate(()=>{const p=document.createElement('div');Object.assign(p.style,{overflow:'scroll',width:'100px',height:'100px',position:'fixed'});document.body.append(p);const gutter=p.offsetWidth-p.clientWidth;p.remove();return gutter;});
   await page.screenshot({path:path.join(directory,'light.png')});
-  await page.getByRole('button',{name:'Account menu',exact:true}).click();await page.getByRole('menuitem',{name:'Dark appearance',exact:true}).click();
+  await page.evaluate(()=>{document.documentElement.dataset.mode='dark';}); // no appearance row in the account menu (shared-21 $B)
   await page.waitForFunction(()=>document.documentElement.dataset.mode==='dark');
   await page.screenshot({path:path.join(directory,'dark.png')});
   await expand('solo-read');

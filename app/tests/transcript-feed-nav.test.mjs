@@ -132,8 +132,9 @@ test("wiring: the transcript is a feed (no role=log), main.jsx passes responding
   const main = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
   assert.match(main, /responding=\{running\}/);
   assert.match(main, /onFeedEscape=\{\(\) => textarea\.current\?\.focus\(\)\}/);
-  assert.match(main, /e\.kind === "find-open"\) transcriptRef\.current\?\.openFind/);
-  assert.match(main, /e\.kind === "find-step"\) transcriptRef\.current\?\.stepFind\?\.\(e\.forward !== false\)/);
+  // Split view: only the focused side's find bar takes Edit ▸ Find (source-split-view.jsx).
+  assert.match(main, /e\.kind === "find-open" && splitActiveRef\.current\) transcriptRef\.current\?\.openFind/);
+  assert.match(main, /e\.kind === "find-step" && splitActiveRef\.current\) transcriptRef\.current\?\.stepFind\?\.\(e\.forward !== false\)/);
   const bar = main.indexOf("<SourceFindBar ref={findBarRef}"), keyed = main.indexOf('<SourceTranscript\n                  key={current ?? "draft"}');
   assert.ok(bar > 0 && keyed > bar, "SourceFindBar is mounted before (outside) the keyed SourceTranscript");
   assert.ok(main.slice(bar, keyed).includes("/>"), "the find bar element closes before the transcript opens");

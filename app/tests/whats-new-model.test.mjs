@@ -38,11 +38,14 @@ test("storage helpers tolerate missing, throwing and non-string storage", () => 
   assert.equal(readSeenVersion(null), "");
   assert.equal(readSeenVersion({ getItem: () => 7 }), "");
 });
-test("LocalReleaseNotes announce the DeepSeek core and never mention Codex", async () => {
+test("LocalReleaseNotes are core-neutral: they announce the agent cores, name DeepSeek only as the built-in DeepSeek Harness, and never mention Codex", async () => {
   const { readFile } = await import("node:fs/promises");
   const notes = JSON.stringify(RELEASE_NOTES);
-  assert.match(notes, /DeepSeek/);
-  assert.match(notes, /now powered by DeepSeek Harness/);
+  assert.match(notes, /frame for agent cores/);
+  assert.match(notes, /Settings › Cores/);
+  assert.match(notes, /DeepSeek Harness is built in/);
+  assert.doesNotMatch(notes, /DeepSeek(?! Harness)/, "no DeepSeek-as-the-assistant (or DeepSeek models/billing) claims");
+  assert.doesNotMatch(notes, /now powered by DeepSeek Harness|Sessions run on DeepSeek/);
   assert.doesNotMatch(notes, /Codex/i);
   assert.equal(releaseNoteDate(RELEASE_NOTES[0].date), "October 1, 2026");
   const source = await readFile(new URL("../src/source-titlebar.jsx", import.meta.url), "utf8");

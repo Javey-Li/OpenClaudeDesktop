@@ -16,6 +16,15 @@ export const PERMISSION_OPTIONS = Object.freeze([
   Object.freeze({ value: "plan", label: t("Plan"), description: t("Create a plan before making changes") }),
   Object.freeze({ value: "bypass", label: t("Bypass permissions"), description: t("Accepts all permissions") }),
 ]);
+const BYPASS_LABEL = PERMISSION_OPTIONS.at(-1).label;
+/** Bypass while its local opt-in is off (approval-shared-current.js Lb nn, :8746-8803): a managed refusal shows a
+ * disabled 'Bypass permissions' row ('Disabled by your organization'); otherwise (Vc showDisabled) the row has no quick
+ * key and a trailing 'Enable' (text-footnote text-primary) and opens the Code settings page at the opt-in. */
+export function bypassOffer({ enabled = false, availability = null } = {}) {
+  if (enabled) return null;
+  if (availability && availability.allowed === false && /organization/.test(availability.reason || "")) return "blocked";
+  return "enable";
+}
 /** The chin trigger reads the item's full label (`ht = triggerLabel ?? label`;
  * the compact 'Accept'/'Bypass' trigger labels belong to the compact composer). */
 export const permissionLabel = value => PERMISSION_OPTIONS.find(option => option.value === value)?.label ?? t("Manual");
@@ -27,8 +36,11 @@ export const permissionLabel = value => PERMISSION_OPTIONS.find(option => option
  * defaultValue is Settings' default permission mode: wy() (ion-dist cf6ae6197)
  * gives that item a trailing neutral xxs Badge "Default" (pointer-events-none).
  */
-export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, onClose, onSelectComplete, initialHighlight, bypassEnabled = false }) {
-  const prefix = useId(), headingId = `${prefix}-heading`;
+// agents / agentValue / defaultAgent / onAgentChange: a core whose sessions can run as one of its own primary agents
+// (OpenCode's and MiMo's build, docs, compose…) adds an 'Agent' group; Plan still runs the core's plan agent.
+export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, onClose, onSelectComplete, initialHighlight, bypassEnabled = false, bypassOffer = null, onEnableBypass,
+  agents = null, agentValue = null, defaultAgent = null, onAgentChange }) {
+  const prefix = useId(), headingId = `${prefix}-heading`, agentHeadingId = `${prefix}-agent-heading`;
   return (
     <SourceMenu.Popup anchor={anchor} side="top" align="start" collisionPadding={{ top: 48, right: 8, bottom: 8, left: 8 }}
       labelledBy={headingId} className="sp-permission-menu" onClose={onClose}
@@ -50,7 +62,23 @@ export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, on
             {option.label}
           </SourceMenu.Item>;
         })}
+        {!bypassEnabled && bypassOffer === "enable" && onEnableBypass && <SourceMenu.Item className="sp-permission-item sp-permission-enable" label={BYPASS_LABEL}
+          description={t("Turn on in Settings to use it")} data-permission-action="enable-bypass"
+          trailing={<span className="sp-permission-enable-text">{t("Enable")}</span>}
+          onClick={() => onEnableBypass()}>{BYPASS_LABEL}</SourceMenu.Item>}
+        {!bypassEnabled && bypassOffer === "blocked" && <SourceMenu.Item className="sp-permission-item" label={BYPASS_LABEL} disabled
+          disabledReason={t("Disabled by your organization")} data-permission-action="bypass-blocked">{BYPASS_LABEL}</SourceMenu.Item>}
       </SourceMenu.Group>
+      {Array.isArray(agents) && agents.length > 1 && onAgentChange && <SourceMenu.Group aria-labelledby={agentHeadingId}>
+        <SourceMenu.GroupLabel id={agentHeadingId} className="sp-permission-heading">{t("Agent")}</SourceMenu.GroupLabel>
+        {agents.map((agent) => <SourceMenu.Item key={agent.name} className="sp-permission-item" checked={agent.name === agentValue} checkedRole="radio"
+          label={agent.name} description={agent.description || (value === "plan" ? t("Used when you leave Plan") : undefined)}
+          trailing={agent.name === defaultAgent
+            ? <span className="sp-permission-badge-slot"><span className="sp-permission-badge" data-cds="Badge" data-variant="neutral" data-step="1">
+                <span className="sp-permission-badge-text">{t("Default")}</span></span></span>
+            : undefined}
+          data-agent-value={agent.name} onClick={() => { if (agent.name !== agentValue) onAgentChange(agent.name); }}>{agent.name}</SourceMenu.Item>)}
+      </SourceMenu.Group>}
     </SourceMenu.Popup>
   );
 }

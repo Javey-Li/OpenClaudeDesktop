@@ -36,8 +36,9 @@ async function launch(){app=await electron.launch({args:[root],executablePath:pa
  await composer().waitFor();await row(ids[0]).waitFor({state:'attached'});}
 const collapsedClass=()=>page.evaluate(()=>document.querySelector('.dframe-root').classList.contains('sidebar-collapsed'));
 const saved=async()=>(await read('preferences.json')).sidebarCollapsed;
-const viewMenu=()=>app.evaluate(({Menu})=>{const items=Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items;return {label:items[0].label,accelerator:items[0].accelerator,type:items[0].type,next:items[1].type,roles:items.slice(2).map(item=>item.type==='separator'?'---':item.role?String(item.role).toLowerCase():item.label)};});
-const clickViewSidebar=()=>app.evaluate(({Menu})=>{Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items[0].click();});
+// View opens with Command Palette… (CmdOrCtrl+K), then the sidebar item (app-menu.cjs viewMenuItems).
+const viewMenu=()=>app.evaluate(({Menu})=>{const items=Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items;return {palette:[items[0].label,items[0].accelerator],label:items[1].label,accelerator:items[1].accelerator,type:items[1].type,next:items[2].type,roles:items.slice(3).map(item=>item.type==='separator'?'---':item.role?String(item.role).toLowerCase():item.label)};});
+const clickViewSidebar=()=>app.evaluate(({Menu})=>{Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items.find(item=>/^(Show|Hide) Sidebar$/.test(item.label)).click();});
 // One collapsed state across DOM, the titlebar/sidebar button, disk and the menu label.
 async function expectState(collapsed,label){
  await poll(async()=>await collapsedClass()===collapsed,label+' class');
@@ -89,10 +90,10 @@ const expectOpen=async(id,title,label)=>{await poll(async()=>(await row(id).getA
 try{
  await integrity();await launch();
  step('initial');assert.equal(await collapsedClass(),false);await hideButton().waitFor();assert.notEqual((await read('preferences.json')).sidebarCollapsed,true);
- const menu=await viewMenu();assert.deepEqual(menu,{label:'Hide Sidebar',accelerator:'CmdOrCtrl+B',type:'normal',next:'separator',roles:['Show Changes','Show Files','Close Pane','---','Actual Size','Zoom In','Zoom In (indie cooler version)','Zoom Out','Zoom In (numpad)','Zoom Out (numpad)','Actual Size (numpad)','---','reload','toggledevtools','---','Enter Full Screen']});report.metrics.initialMenu=menu;
+ const menu=await viewMenu();assert.deepEqual(menu,{palette:['Command Palette…','CmdOrCtrl+K'],label:'Hide Sidebar',accelerator:'CmdOrCtrl+B',type:'normal',next:'separator',roles:['Show Terminal','Show Changes','Show Preview','Show Files','Show Side Chat','Close Pane','---','Split View','---','Actual Size','Zoom In','Zoom In (indie cooler version)','Zoom Out','Zoom In (numpad)','Zoom Out (numpad)','Actual Size (numpad)','---','reload','toggledevtools','---','Enter Full Screen']});report.metrics.initialMenu=menu;
  // Fidelity F04 (on purpose): pNr adds bNr's pane items and Close Pane after the sidebar item, and the source's
  // Enter/Exit Full Screen item (Control+Command+F) replaces the togglefullscreen role.
- report.checks.push('A profile without sidebarCollapsed starts expanded; View menu opens with Hide Sidebar (CmdOrCtrl+B), a separator, the bNr Show Changes / Show Files / Close Pane items, the index.chunk-ChZ67Jhw.js dNr zoom items (in place of the zoom roles), reload/devtools and Enter Full Screen');
+ report.checks.push('A profile without sidebarCollapsed starts expanded; View menu opens with Command Palette… (CmdOrCtrl+K) and Hide Sidebar (CmdOrCtrl+B), a separator, the bNr Show Terminal / Changes / Preview / Files / Side Chat / Close Pane items, the index.chunk-ChZ67Jhw.js dNr zoom items (in place of the zoom roles), reload/devtools and Enter Full Screen');
  step('nav-initial');const go=await goMenu();report.metrics.goMenu=go;
  // Fidelity F04 (on purpose): ANr's full menu bar, and Swr's Previous/Next Session and Search… after Back/Forward (9 items).
  assert.deepEqual(go.labels,['Code Desktop','File','Edit','View','Go','Window','Help']);assert.equal(go.items.length,9);
@@ -150,16 +151,16 @@ try{
  await page.mouse.move(700,700);
  report.checks.push('New leading slot holds the only df-new-circle: 18x18 rounded-full, web fill = resolved --cds-neutral-70 with a 13px/700 text-secondary Add glyph while a session is open; hover gives the 25% muted mix and a text-primary glyph; transparent while New is selected');
  step('account-footer');let foot=await footerState();report.metrics.accountFooter=foot;
- assert.equal(foot.height,28);assert.equal(foot.radius,'6px');assert.equal(foot.radius,foot.pill);assert.equal(foot.paddingLeft,foot.rowPx);assert.equal(foot.paddingRight,'8px');assert.equal(foot.gap,foot.rowGap);
+ assert.equal(foot.height,28);assert.equal(foot.radius,'6px');assert.equal(foot.radius,foot.pill);assert.equal(foot.paddingLeft,foot.rowPx);assert.equal(foot.paddingRight,'6px','shared-styles .df-footer-row:has(.df-footer-aux:empty) .df-user-menu-btn: calc(var(--df-tray-caret-col) - 14px) = 8+24/2-14');assert.equal(foot.gap,foot.rowGap);
  assert.equal(foot.nameText,'Fixture');assert.equal(foot.nameSize,foot.rowFont);assert.equal(foot.nameColor,foot.secondary);
  assert.equal(foot.suffixTexts.length,2);assert.equal(foot.suffixTexts[0],'·');assert.ok(foot.suffixTexts[1].length>0);assert.deepEqual(foot.suffixHidden,['true',null]);
  assert.deepEqual(foot.suffixSizes,Array(2).fill(parseFloat(foot.rowFont)-2+'px'));assert.deepEqual(foot.suffixColors,[foot.muted,foot.muted]);assert.notEqual(foot.mask,'none');assert.match(foot.mask,/linear-gradient/);assert.equal(foot.suffixPaddingRight,'12px');
  assert.equal(foot.caretSize,'12px');assert.equal(foot.caretColor,foot.muted);assert.equal(foot.slotWidth+'px',foot.leadingSlot);assert.deepEqual(foot.spark,[16,16]);
- assert.equal(foot.rowPadding,'8px');assert.equal(foot.rowHeight,44);assert.equal(foot.hairline,foot.hairlineProbe,'tray :before 0.5px hairline (desktop-layout.css:602-611; snapped per DPR like a 0.5px probe)');assert.equal(foot.aux,'Connection settings');assert.equal(foot.background,'rgba(0, 0, 0, 0)');
+ assert.equal(foot.rowPadding,'8px');assert.equal(foot.rowHeight,44);assert.equal(foot.hairline,foot.hairlineProbe,'tray :before 0.5px hairline (desktop-layout.css:602-611; snapped per DPR like a 0.5px probe)');assert.equal(foot.aux,null,'df-footer-aux stays empty while the core is connected (Connection settings shows only on a connection issue)');assert.equal(foot.background,'rgba(0, 0, 0, 0)');
  await accountButton().hover();foot=await footerState();report.metrics.accountFooterHover=foot;assert.equal(foot.background,foot.hover,'hover:bg-[var(--df-hover)]');assert.notEqual(foot.background,'rgba(0, 0, 0, 0)');await shot('account-footer-hover');await page.mouse.move(700,700);
- await page.getByRole('button',{name:'Connection settings',exact:true}).focus();await page.keyboard.press('Shift+Tab');foot=await footerState();report.metrics.accountFooterFocus=foot;
+ await accountButton().focus();await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');foot=await footerState();report.metrics.accountFooterFocus=foot;
  assert.equal(foot.focused,true);assert.equal(foot.focusVisible,true);assert.notEqual(foot.boxShadow,'none','focus-visible:shadow-focus');await shot('account-footer-focus');await page.evaluate(()=>document.activeElement.blur());
- report.checks.push('Account footer is pw: 28px df-user-menu-btn with --df-radius-pill, --df-row-px / 8px padding and --df-row-gap; Spark in a --df-leading-slot df-on-rail; name at --df-row-font text-secondary; aria-hidden dot and suffix 2px smaller, text-muted, masked df-footer-suffix; xs muted caret; web footer row padding 8px (44px) under the tray hairline; hover --df-hover, Shift+Tab focus-visible box-shadow');
+ report.checks.push('Account footer is pw: 28px df-user-menu-btn with --df-radius-pill, --df-row-px / 6px (empty-aux caret column) padding and --df-row-gap; Spark in a --df-leading-slot df-on-rail; name at --df-row-font text-secondary; aria-hidden dot and suffix 2px smaller, text-muted, masked df-footer-suffix; xs muted caret; web footer row padding 8px (44px) under the tray hairline; hover --df-hover, keyboard (Shift+Tab, Tab) focus-visible box-shadow; empty df-footer-aux while connected');
  step('empty-filtered');await filterButton().click();await filterMenu().getByRole('menuitem',{name:/^Status/}).click();await page.getByRole('menu',{name:'Status',exact:true}).getByRole('menuitemradio',{name:'Archived',exact:true}).click();await filterMenu().waitFor({state:'detached'});
  const empty=sidebar().locator('[data-empty-variant="filtered"]');await empty.waitFor();assert.equal(await empty.locator('p').textContent(),'No sessions match the current filters');assert.equal(await sidebar().locator('.source-session-row').count(),0);
  await poll(async()=>(await savedSidebar()).status==='archived','archived status saved');
@@ -283,7 +284,7 @@ try{
  assert.deepEqual(await app.evaluate(()=>globalThis.__contextParams),[{isEditable:true}],'only the composer reached the native menu');
  report.checks.push('Right-clicking a session row opens its React menu without a webContents context-menu event; right-clicking the composer emits one for an editable target');
  step('pane-menu-state');const menuRows=()=>app.evaluate(({Menu})=>{const menu=Menu.getApplicationMenu(),view=menu.items.find(item=>item.label==='View').submenu.items,file=menu.items.find(item=>item.label==='File').submenu.items;
-  return {view:view.slice(2,5).map(item=>[item.label,item.enabled]),file:file.filter(item=>item.visible&&item.accelerator==='CmdOrCtrl+W').map(item=>item.label)};});
+  return {view:view.filter(item=>/^(Show|Hide) (Changes|Files)$|^Close Pane$/.test(item.label)).map(item=>[item.label,item.enabled]),file:file.filter(item=>item.visible&&item.accelerator==='CmdOrCtrl+W').map(item=>item.label)};});
  await poll(async()=>JSON.stringify((await menuRows()).view)===JSON.stringify([['Show Changes',true],['Show Files',true],['Close Pane',false]]),'pane items enabled for an open session');
  // R01 iwr: while the session view shows, File's ⌘W is Close Session (xdFFXdcjAb), with or without a pane.
  await poll(async()=>JSON.stringify((await menuRows()).file)===JSON.stringify(['Close Session']),'File ⌘W is Close Session in a session');
@@ -299,29 +300,29 @@ try{
  await newRow().click();await onlySelected({row:'nav:New',id:null},'New again after the pane menu');
  await poll(async()=>JSON.stringify(await menuRows())===JSON.stringify({view:[['Show Changes',false],['Show Files',false],['Close Pane',false]],file:['Close Window']}),'pane items disabled and Close Window on New');
  report.checks.push('View > Show Changes / Show Files are enabled only for an open session; in a session File ⌘W reads Close Session (iwr) with or without a pane; Show Files relabels Hide Files and enables View > Close Pane; File > Close Session closes the open pane first and keeps the session; on New File ⌘W is Close Window again');
- // search_palette ⇧⌘K and Go > Search… open the search field and never toggle it (sidebar-groups.js:4999-5047 sw).
- step('search-palette');const searchField=()=>page.getByRole('textbox',{name:'Search sessions',exact:true});
- const searchFocused=()=>page.evaluate(()=>document.activeElement?.getAttribute('aria-label')==='Search sessions');
- await composer().focus();await page.keyboard.press('Meta+Shift+K');await searchField().waitFor();await poll(searchFocused,'⇧⌘K focuses the field');
- await composer().focus();await page.keyboard.press('Meta+Shift+K');await page.waitForTimeout(200);assert.equal(await searchField().isVisible(),true,'a second ⇧⌘K keeps it open');await poll(searchFocused,'and refocuses it');
- await page.keyboard.press('Escape');await searchField().waitFor({state:'detached'});
- await clickGoLabel('Search…');await searchField().waitFor();await poll(searchFocused,'Go > Search… focuses the field');
- await page.getByRole('button',{name:'Close search',exact:true}).click();await searchField().waitFor({state:'detached'});
+ // search_palette ⇧⌘K and Go > Search… open the ⌘K palette in search mode and never toggle it (sidebar-groups.js:4999-5047 sw n("search")).
+ step('search-palette');const palette=()=>page.getByRole('dialog',{name:'Command palette',exact:true}),paletteField=()=>palette().getByRole('combobox');
+ const fieldFocused=()=>page.evaluate(()=>document.activeElement?.id==='command-palette-input');
+ await composer().focus();await page.keyboard.press('Meta+Shift+K');await palette().waitFor();await poll(fieldFocused,'⇧⌘K focuses the palette field');
+ assert.equal(await palette().getAttribute('data-palette-mode'),'search');assert.equal(await paletteField().getAttribute('aria-label'),'Search sessions and projects');
+ await page.keyboard.press('Meta+Shift+K');await page.waitForTimeout(200);assert.equal(await palette().isVisible(),true,'a second ⇧⌘K keeps it open');await poll(fieldFocused,'and keeps its field focused');
+ await page.keyboard.press('Escape');await palette().waitFor({state:'detached'});
+ await clickGoLabel('Search…');await palette().waitFor();await poll(fieldFocused,'Go > Search… focuses the palette field');assert.equal(await palette().getAttribute('data-palette-mode'),'search');
+ await palette().getByRole('button',{name:'Close',exact:true}).click();await palette().waitFor({state:'detached'});
  const searchTip=await tooltipFor(page.getByRole('button',{name:'Search',exact:true}),'Search');report.metrics.searchTooltip=searchTip;
  assert.equal(searchTip.shortcut,'⇧⌘K');assert.equal(searchTip.title,null);assert.ok(searchTip.text.startsWith('Search'));await page.mouse.move(700,700);
- report.checks.push('Meta+Shift+K opens and focuses the sidebar search, a second press keeps it open; Go > Search… does the same; the header button is "Search" with a ⇧⌘K CDS tooltip (_w) and no native title');
- // R01 (shortcuts-dialog-model.mjs searchShortcutAction): ⌘K is the command_palette toggle, an overlay that shows
- // whatever the sidebar state (sidebar-groups.js:4999-5024 sw). With the sidebar collapsed it docks it and focuses a
- // visible, non-inert 'Search sessions'; ⌘K again detaches the field, and the chin chords (blocked while the search
- // shows, main.jsx chin handler) work again: ⇧⌘I opens the model menu.
+ report.checks.push('Meta+Shift+K opens the ⌘K palette in search mode with its field focused, a second press keeps it open; Go > Search… does the same; the header button is "Search" with a ⇧⌘K CDS tooltip (_w) and no native title');
+ // R01 (shortcuts-dialog-model.mjs searchShortcutAction): ⌘K toggles the command palette, a centred overlay whatever the
+ // sidebar state (sidebar-groups.js:4999-5024 sw): a collapsed sidebar stays collapsed. Closing it, the chin chords work again.
  step('cmd-k-collapsed');await composer().focus();await page.keyboard.press('Meta+B');await expectState(true,'collapsed for ⌘K');
- await composer().focus();await page.keyboard.press('Meta+K');await expectState(false,'⌘K docks a collapsed sidebar');await searchField().waitFor();await poll(searchFocused,'⌘K focuses Search sessions');
- report.metrics.cmdKSearch=await searchField().evaluate(node=>({inert:!!node.closest('[inert]'),visibility:getComputedStyle(node).visibility,width:Math.round(node.getBoundingClientRect().width)}));
- assert.equal(report.metrics.cmdKSearch.inert,false);assert.equal(report.metrics.cmdKSearch.visibility,'visible');assert.ok(report.metrics.cmdKSearch.width>0);
- await page.keyboard.press('Meta+K');await searchField().waitFor({state:'detached'});
+ await composer().focus();await page.keyboard.press('Meta+K');await palette().waitFor();await poll(fieldFocused,'⌘K focuses the palette field');
+ report.metrics.cmdKSearch={mode:await palette().getAttribute('data-palette-mode'),label:await paletteField().getAttribute('aria-label'),inert:await paletteField().evaluate(node=>!!node.closest('[inert]')),collapsed:await collapsedClass()};
+ assert.deepEqual(report.metrics.cmdKSearch,{mode:'default',label:'Search or start a session',inert:false,collapsed:true});
+ await page.keyboard.press('Meta+K');await palette().waitFor({state:'detached'});
  const modelsMenu=()=>page.getByRole('menu',{name:'Models',exact:true});await composer().focus();await page.keyboard.press('Meta+Shift+KeyI');await modelsMenu().waitFor();
  await page.keyboard.press('Escape');await modelsMenu().waitFor({state:'detached'});
- report.checks.push('With the sidebar collapsed, ⌘K docks it and focuses a visible Search sessions field; ⌘K again detaches it; then ⇧⌘I opens the model menu (the chin chords are no longer blocked)');
+ await composer().focus();await page.keyboard.press('Meta+B');await expectState(false,'expanded again after ⌘K');
+ report.checks.push('With the sidebar collapsed, ⌘K opens the palette overlay focused on its field and the sidebar stays collapsed; ⌘K again closes it; then ⇧⌘I opens the model menu (the chin chords are not blocked)');
  step('composer-cmd-b');await composer().focus();await page.keyboard.insertText('draft stays');await page.keyboard.press('Meta+B');await expectState(true,'composer collapse');
  assert.equal(await page.evaluate(()=>document.querySelector('[data-cds="ChatComposerEditor"]').value),'draft stays');assert.equal(await page.locator('[data-cds="ChatComposerEditor"] strong, [data-cds="ChatComposerEditor"] b').count(),0);
  const show=await showButton().boundingBox();report.metrics.showButton=show;assert.ok(show.x>=85,'Show sidebar clears the traffic lights');await shot('sidebar-collapsed-light');
@@ -529,10 +530,11 @@ try{
  await showMore.click();await expectRows(45,'45 older rows');assert.equal(await showMore.count(),0);
  const toggleOlder=olderGroup.locator('[data-group-toggle]');await toggleOlder.click();await poll(async()=>await olderRows.count()===0,'older collapsed');await toggleOlder.click();await expectRows(45,'older reopened keeps reveal');assert.equal(await showMore.count(),0);
  report.checks.push('Show more reveals 20 then the remaining 5 (label "Show 5 more"); at 45 the button is gone and collapsing/reopening Older keeps all 45');
- step('truncate-epoch');await page.getByRole('button',{name:'Search',exact:true}).click();const search=page.getByRole('textbox',{name:'Search sessions',exact:true});
- await search.fill('Older session');await expectRows(20,'search resets reveal');assert.equal(await showMore.getAttribute('aria-label'),'Show 20 more in Older');
- await search.fill('');await expectRows(20,'cleared search keeps the reset');await page.getByRole('button',{name:'Close search',exact:true}).click();
- report.checks.push('A filter change (search) resets the revealed rows to the first 20 (vF epoch stand-in)');
+ // vF filter epoch (group/sort/status/activity; search is the ⌘K palette now and filters no rows): a sort change resets the reveal.
+ const sortBy=async(label)=>{await filterButton().click();await filterMenu().getByRole('menuitem',{name:/^Sort by/}).click();await page.getByRole('menu',{name:'Sort by',exact:true}).getByRole('menuitemradio',{name:label,exact:true}).click();await filterMenu().waitFor({state:'detached'});};
+ step('truncate-epoch');await sortBy('Date created');await expectRows(20,'a sort change resets reveal');assert.equal(await showMore.getAttribute('aria-label'),'Show 20 more in Older');
+ await sortBy('Last activity');await expectRows(20,'sorting back keeps the reset');
+ report.checks.push('A filter change (Sort by) resets the revealed rows to the first 20 (vF epoch)');
  step('truncate-keyboard');await olderRows.first().locator('[data-row-main-button]').focus();await page.keyboard.press('End');assert.equal(await showMore.evaluate(node=>node===document.activeElement),true);
  await page.keyboard.press('Enter');await expectRows(40,'keyboard reveal');await poll(()=>page.evaluate(()=>document.activeElement?.closest('[data-source-session-id]')?.dataset.sourceSessionId??null).then(id=>id===older[20]),'row 21 focused');
  assert.equal(await page.evaluate(()=>[...document.querySelectorAll('[data-group-key="older"] .source-session-row')].indexOf(document.activeElement.closest('.source-session-row'))),20);

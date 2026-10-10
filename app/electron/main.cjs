@@ -12,13 +12,62 @@ const os = require("node:os");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const run = promisify(execFile);
-const { CodexClient, stopAllCodexClients, resolveCore } = require("./codex.cjs");
+const worktrees = require("./worktrees.cjs");
+const { CodexClient, stopAllCodexClients, resolveCore, setCoreChoice, setCodexLaunch, codexBinary, deepseekCoreScript, bridgeScript, nodeBinary, coreError } = require("./codex.cjs");
+const { createCoreManager } = require("./core-manager.cjs");
+const { createExtensionPacks } = require("./extension-packs.cjs");
+const { coreName: coreNameOf, coreForEngine, coreById, coreSupports, coreCapabilities, worktreeBranchPrefix } = require("./core-registry.mjs");
+// The assistant's name in the copy (i18n setAssistantName): the chosen core's, DeepSeek by default.
+const chosenAssistant = () => { const core = coreById(config?.core); return (core && core.available !== false && core.assistant) || "DeepSeek"; };
+const { defaultProfile, normalizeSelection, toolProfilesPatch } = require("./prefs/tool-profiles.mjs");
 const { respondToApproval } = require("./respond-approval.cjs");
+const { createNativeSideChat } = require("./native-side-chat.cjs");
+const { createNativeThreadTitles } = require("./native-thread-title.cjs");
+const { messageFeedbackParams } = require("./message-feedback.cjs");
 const { interruptTurn } = require("./interrupt-turn.cjs");
 const { createSessionOperations } = require("./session-operations.cjs");
 const { createCustomizeOperations } = require("./customize-operations.cjs");
 const { installShutdownHandler } = require("./shutdown.cjs");
-const { listFiles, readFile, scopedPath } = require("./files.cjs");
+const { createLiveWork, backgroundSessions, createQuitGuard } = require("./quit-guard.cjs");
+const { createTerminalService } = require("./terminal-service.cjs");
+// Sessions with a running turn or workflow (quit-guard.cjs), fed from receive() and emit().
+const liveWork = createLiveWork({ getConfig: () => config });
+// The running core's own saved-workflow folders (descriptor workflowFolders: Qwen's .qwen/workflows), read and written
+// beside .claude/workflows by Code Desktop's workflow engine, so a script saved by either engine is found by both.
+const coreWorkflowFolders = () => { const folders = coreForEngine(client?.serverInfo?.engine).workflowFolders; return Array.isArray(folders) ? [...folders] : []; };
+// Sessions whose core goal is working (thread/goal/updated status active), so quitting can pause them first.
+const activeGoals = new Set();
+function observeGoal(e) {
+  const id = e.params?.threadId;
+  if (typeof id !== "string" || !id) return;
+  if (e.method === "thread/goal/updated") { if (e.params?.goal?.status === "active") activeGoals.add(id); else activeGoals.delete(id); }
+  else if (e.method === "thread/goal/cleared") activeGoals.delete(id);
+}
+// The last context usage each thread reported (thread/tokenUsage/updated) on the live connection. A core replays it only
+// when a thread is attached (Codex token_usage_replay.rs), and a reloaded window (a language switch, View › Reload)
+// finds its threads still attached here: init hands it over so the context ring isn't blank until the next reply.
+const threadUsage = new Map();
+function observeUsage(e) {
+  if (e.kind === "connection" && !e.connected) { threadUsage.clear(); return; }
+  const id = e.params?.threadId;
+  if (e.method !== "thread/tokenUsage/updated" || typeof id !== "string" || !id || !e.params?.tokenUsage) return;
+  threadUsage.delete(id);
+  threadUsage.set(id, e.params.tokenUsage);
+  while (threadUsage.size > 500) threadUsage.delete(threadUsage.keys().next().value);
+}
+// Quitting pauses each working goal on a native core (Codex), as Codex's TUI does before it exits
+// (app/event_dispatch.rs RunningTaskExitAction::Exit: thread_goal_set Paused, then turn_interrupt): otherwise the next
+// app-server resumes the goal loop on its own when the session is next opened. A bridge core (permission hints) keeps
+// its own restart rule (DeepSeek disarms a goal across restarts).
+async function pauseActiveGoals() {
+  if (!activeGoals.size || !client?.connection || client.connection.closed || client.serverInfo?.capabilities?.permissionHints === true) return;
+  const ids = [...activeGoals].filter((id) => config.threadIds.includes(id));
+  await Promise.race([
+    Promise.allSettled(ids.map((threadId) => client.request("thread/goal/set", { threadId, status: "paused" }, 3000))),
+    new Promise((resolve) => setTimeout(resolve, 3500).unref?.()),
+  ]);
+}
+const { listFiles, readFile, scopedPath, openBlockReason } = require("./files.cjs");
 const {createImageOperations}=require('./image-files.cjs');
 const imageOperations=createImageOperations({getRoot:workspaceQueryRoot,clipboard,nativeImage,showSaveDialog:options=>dialog.showSaveDialog(win,options)});
 const { createFileNameSearch } = require("./file-name-search.cjs");
@@ -50,6 +99,9 @@ const { porcelainEntries, wouldBranchSwitchConflict } = require("./branch-switch
 app.setName("Code Desktop");
 if (process.env.CODE_DESKTOP_DATA)
   app.setPath("userData", process.env.CODE_DESKTOP_DATA);
+// Bridge cores read Settings › Models custom providers from here (codex.cjs resolveCore).
+process.env.CODE_DESKTOP_DATA_DIR = app.getPath("userData");
+// The main window focused last (windowRegistry has them all): dialogs, the menu bar, the tray and notifications act on it.
 let win;
 // Popped-out side panes (2.2553.1 openPopout type "epitaxy-side-pane"): one
 // BrowserWindow per session+pane, same preload/sandbox, no approval routing.
@@ -63,18 +115,67 @@ let initial;
 let connecting;
 let desktopSettings;
 let workflowService;
-const {createAccountOperations}=require('./account-operations.cjs');
+const {createAccountOperations,perTokenAccount,perTokenRefusal}=require('./account-operations.cjs');
 const accountOperations=createAccountOperations({getClient:()=>client,openExternal:url=>shell.openExternal(url),
   onState:auth=>emit({kind:'account-auth',auth}),onAccount:account=>{if(initial)initial={...initial,account};emit({kind:'account-snapshot',account});}});
 const {createWorkflowService,workflowCoreCommand}=require("./workflow-service.cjs");
+const {createWorkflowToolService}=require("./workflow-tool-service.cjs");
+const {resolveWorkflowSettings,workflowRunnerEnv,workflowEngineFor}=require("./prefs/workflow-settings.mjs");
+let workflowToolService;
+// Managed settings (an administrator's hard limits): {disableWorkflows: true} turns Dynamic workflows off for good
+// (Claude Code's managed disableWorkflows). CODE_DESKTOP_MANAGED_SETTINGS names another file (tests).
+const MANAGED_SETTINGS = process.env.CODE_DESKTOP_MANAGED_SETTINGS || (process.platform === "darwin" ? "/Library/Application Support/Code Desktop/managed-settings.json" : process.platform === "win32" ? path.join(process.env.ProgramData || "C:\\ProgramData", "Code Desktop", "managed-settings.json") : "/etc/code-desktop/managed-settings.json");
+let managedCache = { at: 0, value: {} };
+function managedSettings() {
+  if (Date.now() - managedCache.at < 5000) return managedCache.value;
+  let value = {};
+  try { const read = JSON.parse(fs.readFileSync(MANAGED_SETTINGS, "utf8")); if (read && typeof read === "object" && !Array.isArray(read)) value = read; } catch { /* none */ }
+  managedCache = { at: Date.now(), value };
+  return value;
+}
+/** Settings › Code › Dynamic workflows in effect: the saved values, the environment (wins) and managed settings. */
+// The Workflow agents' model is saved per core (a model id belongs to one core's catalog): the running core's entry,
+// checked against the catalog it listed at connect.
+const workflowSettings = () => {
+  let coreId;
+  try { coreId = client?.serverInfo ? coreForEngine(client.serverInfo.engine).id : undefined; } catch { coreId = undefined; }
+  const models = coreId && initial?.core?.id === coreId && Array.isArray(initial.models) ? initial.models.map((model) => model?.model ?? model?.id).filter((id) => typeof id === "string") : null;
+  return resolveWorkflowSettings({ config: config || {}, env: process.env, managed: managedSettings(), parallelism: os.availableParallelism?.() ?? os.cpus().length, coreId, models });
+};
+/**
+ * How Code Desktop's runner gets an agent's structured result from the running core: undefined — Codex's StructuredOutput
+ * dynamic tool (a native core); "outputSchema" — turn/start outputSchema only (the DeepSeek Harness, OpenCode/MiMo: no
+ * dynamic tools); false — no structured output (ZCode, the ACP agents). Both of the latter ask for JSON in the prompt.
+ */
+function runnerStructuredOutput(owner = client) {
+  const info = owner?.serverInfo;
+  if (coreCapabilities(info).structuredOutput === false) return false;
+  return coreForEngine(info?.engine).kind === "native" ? undefined : "outputSchema";
+}
+/** The workflow variables set in the app's environment, for Settings (the renderer resolves the same way). */
+const WORKFLOW_ENV_KEYS = ["CLAUDE_CODE_DISABLE_WORKFLOWS", "CLAUDE_CODE_WORKFLOWS", "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS", "MAX_STRUCTURED_OUTPUT_RETRIES", "CLAUDE_CODE_WORKFLOW_PREFIX_STAGGER_MS",
+  "CLAUDE_CODE_WORKFLOW_PROMPT_PROVENANCE", "CLAUDE_CODE_WORKFLOW_SIZE_WARNING_AGENTS", "CLAUDE_CODE_WORKFLOW_SIZE_WARNING_TOKENS", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "CLAUDE_WORKFLOW_NAME_ONLY"];
+const workflowEnvFacts = () => Object.fromEntries(WORKFLOW_ENV_KEYS.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+/** Which engine runs the running core's dynamic workflows: "native" (its own, capabilities.modelWorkflows) or "codeDesktop". */
+function currentWorkflowEngine(owner = client) {
+  const info = owner?.serverInfo;
+  return workflowEngineFor(workflowSettings().engines, coreForEngine(info?.engine).id, coreSupports(info, "modelWorkflows"));
+}
 const {createBackgroundTasks}=require("./background-tasks.cjs");
 const backgroundOperations=createBackgroundTasks({getClient:()=>client,getConfig:()=>config});
 const {desktopPatch,createDesktopSettings} = require("./desktop-settings.cjs");
 const {createMenuBar,showWindow} = require("./menu-bar.cjs");
-const {appMenuTemplate,sidebarCollapsedPatch,navigationState,menuState,sameMenuState,closeAction,activateAction} = require("./app-menu.cjs");
+const {appMenuTemplate,sidebarCollapsedPatch,navigationState,menuState,sameMenuState,closeAction,activateAction,splitMenuState} = require("./app-menu.cjs");
 const {windowBackground,trafficLightPosition,scaleTrafficLights,zoomLevelAfter,clampZoomFactor} = require("./window-chrome.cjs");
 const {contextMenuTemplate,externalLink} = require("./context-menu.cjs");
-const {DEFAULT_WINDOW_SIZE,WINDOW_STATE_FILE,loadWindowState,windowStateBounds,restoreWindowState,trackWindowState} = require("./window-state.cjs");
+const {DEFAULT_WINDOW_SIZE,WINDOW_STATE_FILE,loadWindowState,windowStateBounds,restoreWindowState,trackWindowState,windowStateFile,cascadeWindowState,forgetWindowState,placeOnDisplays} = require("./window-state.cjs");
+// The pane windows open at a quit come back at the next launch (popout-restore.cjs; Claude Desktop's popout restore).
+const popoutRestore = require("./popout-restore.cjs");
+// Every main window (File › New Window, a session's "Open in new window", split view inside each): event routing,
+// per-window menu state and the windows reopened at launch (window-registry.cjs; its header documents the helpers
+// pane services use to find the window a request came from).
+const {MAIN_WINDOW_KEY,OPEN_WINDOWS_FILE,MAX_WINDOWS,newWindowKey,createWindowRegistry} = require("./window-registry.cjs");
+const windowRegistry = createWindowRegistry({ file: () => path.join(app.getPath("userData"), OPEN_WINDOWS_FILE), BrowserWindow });
 let menuBar;
 // Set by the app "before-quit" listener (index.chunk-ChZ67Jhw.js kk()): only a
 // quit lets the main window's "close" through; otherwise it hides.
@@ -89,26 +190,387 @@ const {createInstructionsService} = require("./instructions-service.cjs");
 const { createPersonaImage } = require("./persona-image.cjs");
 const { createModelSettings } = require("./model-settings.cjs");
 const { createCustomCommands } = require("./custom-commands.cjs");
-const sessionOperations = createSessionOperations({ getClient: () => client, getConfig: () => config, save, emit });
+// Code Desktop's own MCP server for every core (agent-tools-host.cjs: tool modules in ./agent-tools, a private socket)
+// and the Preview pane's browser and dev servers (preview-service.cjs). The tools act on the calling session only.
+const { createAgentToolsHost } = require("./agent-tools-host.cjs");
+const { createAgentToolApproval } = require("./agent-tool-approval.cjs");
+const { createPreviewService } = require("./preview-service.cjs");
+let previewService = null;
+const agentToolSession = (id) => {
+  if (typeof id !== "string" || !config || ![...config.threadIds, ...config.archivedThreadIds].includes(id)) return null;
+  const cwd = config.threadMetadata[id]?.cwd;
+  return typeof cwd === "string" && path.isAbsolute(cwd) ? { id, cwd } : null;
+};
+const agentToolApproval = createAgentToolApproval({ dialog, t: (source, values) => i18n ? i18n.t(source, values) : String(source).replace(/\{(\w+)\}/g, (match, key) => values?.[key] ?? match),
+  assistant: () => chosenAssistant(), windowFor: (sessionId) => {
+    // The window that shows the session (the focused one first), else the window focused last.
+    const showing = windowRegistry.windowsShowing(sessionId), focused = windowRegistry.lastFocused();
+    return (showing.includes(focused) ? focused : showing[0]) ?? focused ?? (win && !win.isDestroyed() ? win : null);
+  },
+  // Every sheet names the session asking and its folder, and says so when the window it opens on shows another one.
+  describeSession: (session, window) => {
+    const metadata = config?.threadMetadata?.[session?.id] ?? {};
+    const raw = [metadata.name, metadata.preview].find((value) => typeof value === "string" && value.trim())?.trim().replace(/\s+/g, " ") ?? "";
+    const title = raw.length > 60 ? `${raw.slice(0, 59)}\u2026` : raw;
+    const cwd = typeof session?.cwd === "string" ? session.cwd : metadata.cwd;
+    const home = os.homedir();
+    const folder = typeof cwd === "string" && cwd ? (cwd === home ? "~" : cwd.startsWith(home + path.sep) ? `~${cwd.slice(home.length)}` : cwd) : "";
+    return { title, folder, shown: window ? windowRegistry.windowsShowing(session?.id).includes(window) : null };
+  } });
+// Settings › Code › Preview: "Let DeepSeek use the preview" (unset reads as on).
+// Code › Dynamic workflows: the Workflow tool only while workflows are on and the running core uses Code Desktop's engine.
+const agentToolGroupEnabled = (group) => group === "workflow" ? (() => { try { return workflowSettings().enabled && currentWorkflowEngine() === "codeDesktop"; } catch { return false; } })() : group !== "preview" || config?.agentPreview !== false;
+// Bypass permissions runs everything without asking, the app's own tools included: a terminal command, an outside site
+// or a launch.json dev server the agent starts in a Bypass session needs no sheet (Workflow decides on its own, as
+// Claude Code does). The session's Mode is the one its last turn ran with (workflow-tool-service.cjs sessionAccess).
+// A Monitor command, a scheduled prompt and a web page WebFetch reads ask the same way (agent-tools/monitor.mjs,
+// schedule.mjs, web.mjs).
+const BYPASS_KINDS = new Set(["terminal-command", "preview-site", "preview-server", "monitor", "schedule", "web-fetch", "notebook-edit", "open-path"]);
+async function agentToolAsk(session, request, options = {}) {
+  if (BYPASS_KINDS.has(request?.kind) && typeof session?.id === "string") {
+    let access = null;
+    try { access = await workflowToolService?.sessionAccess(session.id); } catch { access = null; }
+    if (access === "danger-full-access") return true;
+  }
+  // The session's own approval card, like the core's command and file approvals: in its transcript, in every window
+  // and split side that shows it, with the card's shortcuts; the sidebar marks the session meanwhile. The native
+  // sheet only when no core connection can carry the card.
+  const answer = await agentToolCard(session, request, options);
+  if (answer !== undefined) return answer;
+  return agentToolApproval(session, request, options);
+}
+const cardText = (value, max = 4000) => typeof value === "string" ? (value.length > max ? `${value.slice(0, max)}…` : value) : undefined;
+/** The card for one agent-tool request (approval-card-model.mjs agentToolCard reads params.codeDesktop.agentTool). */
+async function agentToolCard(session, request = {}, { signal, call } = {}) {
+  const owner = client;
+  if (!owner || typeof owner.localApproval !== "function" || typeof session?.id !== "string" || !config?.threadIds?.includes(session.id)) return undefined;
+  const kind = ["terminal-command", "preview-site", "preview-server", "workflow", "monitor", "schedule", "web-fetch", "notebook-edit", "open-path"].includes(request.kind) ? request.kind : "other";
+  const { shellLine, launchEnvSummary } = require("./agent-tool-approval.cjs");
+  const command = kind === "terminal-command" || kind === "monitor" ? cardText(String(request.command ?? "")) : kind === "preview-server" ? cardText(shellLine(request.command, request.args)) : undefined;
+  const tool = { kind };
+  if (kind === "terminal-command") Object.assign(tool, { title: cardText(request.title, 200), tabTitle: cardText(request.tabTitle ?? request.tab, 200), detail: cardText(request.detail) });
+  if (kind === "preview-site") Object.assign(tool, { host: cardText(request.host, 300), url: cardText(request.url, 2000) });
+  // The configuration's env is part of what is approved (preview-service fingerprints it): the card shows it, and names
+  // the variables that change which program runs (PATH, NODE_OPTIONS, DYLD_*, …).
+  if (kind === "preview-server") { const env = launchEnvSummary(request.env); Object.assign(tool, { name: cardText(request.name, 200), env: env.lines.map((line) => cardText(line, 300)), envMore: env.more, envRisky: env.risky.slice(0, 20) }); }
+  if (kind === "monitor") Object.assign(tool, { description: cardText(request.description, 200) });
+  if (kind === "schedule") Object.assign(tool, { cron: cardText(request.cron, 200), humanSchedule: cardText(request.humanSchedule, 200), prompt: cardText(request.prompt), recurring: request.recurring !== false });
+  if (kind === "web-fetch") Object.assign(tool, { host: cardText(request.host, 300), url: cardText(request.url, 2000) });
+  if (kind === "open-path") Object.assign(tool, { action: request.action === "editor" ? "editor" : "reveal", path: cardText(request.path, 2000), editor: cardText(request.editor, 100), ...(Number.isInteger(request.line) ? { line: request.line } : {}) });
+  if (kind === "notebook-edit") Object.assign(tool, { path: cardText(request.path, 2000), mode: ["replace", "insert", "delete"].includes(request.mode) ? request.mode : "replace", cellId: cardText(request.cellId, 200), source: cardText(request.source) });
+  if (kind === "workflow") {
+    let args;
+    if (request.args !== undefined) { try { args = JSON.stringify(request.args); } catch { args = String(request.args); } }
+    // script: bounded as Claude's dialog bounds it (200,000 characters; scriptTruncated says the rest isn't shown).
+    const script = typeof request.script === "string" && request.script.trim() ? request.script : null;
+    Object.assign(tool, { name: cardText(request.name ?? request.displayName, 200), description: cardText(request.description), always: typeof request.name === "string" && !!request.name && request.always !== false, note: cardText(request.note),
+      ...(script ? { script: script.slice(0, 200000), ...(script.length > 200000 ? { scriptTruncated: true } : {}) } : {}),
+      phases: (Array.isArray(request.phases) ? request.phases : []).filter((phase) => phase && typeof phase.title === "string").slice(0, 50).map((phase) => ({ title: cardText(phase.title, 300), ...(typeof phase.detail === "string" ? { detail: cardText(phase.detail, 600) } : {}) })),
+      ...(args !== undefined ? { args: cardText(args, 2000) } : {}) });
+  }
+  if (kind === "other") Object.assign(tool, { title: cardText(request.title, 300), detail: cardText(request.detail) });
+  const params = {
+    // turnId: the session's running turn, so the turn's end expires the card (approval-transport.cjs expireTurn).
+    threadId: session.id, turnId: liveWork.turnOf(session.id) ?? "", itemId: typeof call?.itemId === "string" ? call.itemId : `code-desktop-tool-${require("node:crypto").randomUUID()}`, startedAtMs: Date.now(),
+    ...(command ? { command } : {}), ...(typeof (request.cwd ?? session.cwd) === "string" ? { cwd: request.cwd ?? session.cwd } : {}),
+    sessionGrantable: (kind === "workflow" && tool.always) || kind === "web-fetch", codeDesktop: { agentTool: tool },
+  };
+  const result = await owner.localApproval("item/commandExecution/requestApproval", params, { signal, outlivesTurn: agentToolCallOutlivesTurn(call, owner) });
+  if (result === undefined) return undefined;
+  const decision = result?.decision;
+  const approved = !signal?.aborted && (decision === "accept" || decision === "acceptForSession");
+  if (kind === "workflow") return { approved, always: approved && decision === "acceptForSession" && tool.always };
+  // WebFetch: "Allow for this session" lets the site's pages be read again without asking (agent-tools/web.mjs).
+  if (kind === "web-fetch") return { approved, always: approved && decision === "acceptForSession" };
+  return approved;
+}
+/**
+ * Whether the running core's agents keep working after the turn that started them ends (background sub-agents and
+ * workflow agents: DeepSeek, Kimi, Qwen, OpenCode, …) and make their Code Desktop tool calls as the session without
+ * naming their own thread: capabilities.backgroundAgents, else every core but a native one. Codex names the calling
+ * thread on every call instead (agent-tools-host.cjs cancelThread).
+ */
+function coreKeepsBackgroundAgents(owner = client) {
+  let reported, kind = null;
+  try { reported = coreCapabilities(owner?.serverInfo ?? null).backgroundAgents; kind = coreForEngine(owner?.serverInfo?.engine).kind; } catch { reported = undefined; }
+  return typeof reported === "boolean" ? reported : kind !== "native";
+}
+/** A Code Desktop tool call whose approval card must not expire with the session's turn: a sub-agent's, or any call
+ * on a core whose background agents outlive the turn (their calls are cancelled when the work they belong to stops). */
+function agentToolCallOutlivesTurn(call, owner = client) {
+  return call?.subAgent === true || coreKeepsBackgroundAgents(owner);
+}
+/** The app tool groups the running core gets only through load_tools (it has no tool search of its own, and reads the
+ * list again on tools/list_changed: capabilities.deferAppTools, core-registry.mjs). */
+function agentToolsDeferred(owner = client) {
+  let defer = false;
+  try { defer = coreCapabilities(owner?.serverInfo ?? null).deferAppTools === true; } catch { defer = false; }
+  return defer ? ["workflow", "monitor", "schedule", "findings", "notebook"] : [];
+}
+/** Whether the running core gets an app tool: always, unless the tool stands in for one the core lists in nativeTools. */
+function agentToolServedToCore(tool, owner = client, session = null) {
+  if (!tool?.native) return true;
+  let native = [];
+  try { native = coreCapabilities(owner?.serverInfo ?? config?.core ?? null).nativeTools; } catch { native = []; }
+  // Codex reads pages through its hosted web search (open_page / find_in_page) unless that is off for the session: then
+  // it gets WebFetch, as Claude keeps WebFetch with web search off.
+  if (tool.native === "WebFetch" && codexWebSearchOn(owner, session)) return false;
+  return !(Array.isArray(native) && native.includes(tool.native));
+}
+// The web_search each Codex session runs with, by the identity its Code Desktop server names (a start token, then the
+// thread id too): Settings › Code › Web search's thread override, else config.toml's (config/read), recorded when the
+// thread/start|resume request is decorated, before Codex starts the thread's server and lists its tools.
+const codexWebSearchModes = new Map();
+function rememberCodexWebSearch(identity, mode) {
+  if (typeof identity !== "string" || !identity || typeof mode !== "string") return;
+  codexWebSearchModes.delete(identity);
+  codexWebSearchModes.set(identity, mode);
+  while (codexWebSearchModes.size > 1000) codexWebSearchModes.delete(codexWebSearchModes.keys().next().value);
+}
+function codexWebSearchOn(owner, session = null) {
+  let codex = false;
+  try { codex = coreForEngine(owner?.serverInfo?.engine).kind === "native"; } catch { codex = false; }
+  if (!codex) return false;
+  const mode = typeof session === "string" ? codexWebSearchModes.get(session) : undefined;
+  if (typeof mode === "string") return mode !== "disabled";
+  // A session not recorded (another program's thread, a fork): the launch flags (a custom model endpoint launches
+  // with web_search="disabled", prefs/codex-provider.mjs).
+  const args = Array.isArray(owner?.child?.spawnargs) ? owner.child.spawnargs : [];
+  return !args.some((arg) => typeof arg === "string" && /^web_search\s*=\s*"?disabled"?$/.test(arg));
+}
+const agentTools = createAgentToolsHost({
+  resolveSession: (named, meta) => agentToolSession(named) ?? agentToolSession(meta?.threadId),
+  isGroupEnabled: agentToolGroupEnabled,
+  // Codex never reads the list again after a session starts (it ignores tools/list_changed, and config/mcpServer/reload
+  // doesn't re-list either): it is offered every group that could apply, so turning Dynamic workflows or the preview
+  // on reaches its open sessions; a call while one is off is refused with the setting's name. Its Workflow tool is
+  // listed only while Code Desktop's engine runs its workflows (always, for Codex). The bridges whose agents ignore
+  // the notice reopen their sessions instead (codeDesktop/appTools/changed, sent below).
+  isGroupListed: (group) => {
+    let native = false;
+    try { native = coreForEngine(client?.serverInfo?.engine).kind === "native"; } catch { native = false; }
+    if (!native) return agentToolGroupEnabled(group);
+    return group !== "workflow" || (() => { try { return currentWorkflowEngine() === "codeDesktop"; } catch { return false; } })();
+  },
+  // A tool standing in for a Claude tool the running core has itself (its nativeTools capability) isn't served to it.
+  isToolListed: (tool, server) => agentToolServedToCore(tool, client, server?.session ?? null),
+  // DeepSeek, OpenCode and MiMo send every tool definition with each model request and have no tool search
+  // (capabilities.deferAppTools): the long, rarely used groups wait behind code_desktop load_tools there (about 18k
+  // characters less per request, and per sub-agent and workflow agent step).
+  deferredGroups: () => agentToolsDeferred(),
+  requestApproval: (session, request, options) => agentToolAsk(session, request, options),
+  // Codex's /review delegate keeps the session's MCP servers (codex-rs core/src/tasks/review.rs clones the config with
+  // approvals off and a read-only sandbox, which Code Desktop's own tools aren't under): while a session is reviewing,
+  // only the tools that read pass, and nothing asks (the Review dialog promises a read-only review without prompts).
+  refuseCall: (session, tool) => sessionOperations.isReviewing(session?.id) && !REVIEW_APP_TOOLS.has(tool)
+    ? `${tool} isn’t available during a review: a review only reads. Finish the review; the user can ask for changes afterwards.` : null,
+});
+// The terminal tools (agent-tools/terminal.mjs) use the terminal pane's service (terminal-service.cjs, created below;
+// the factory runs per call, after it exists).
+agentTools.provide("terminals", () => terminalService);
+// The Workflow tool (agent-tools/workflow.mjs) launches through workflow-tool-service.cjs for the calling session.
+agentTools.provide("workflows", (session, ctx) => ({ launch: (args) => {
+  if (!workflowToolService) throw new Error("Dynamic workflows aren’t ready yet.");
+  if (!workflowSettings().enabled || currentWorkflowEngine() !== "codeDesktop") throw new Error("The Workflow tool isn’t available: this session’s workflows run on the agent’s own engine.");
+  // The call's signal: a stopped turn closes the approval sheet and starts nothing.
+  // Codex names its tool call: the run remembers it (the <task-notification>'s tool-use-id) and its card sits there.
+  return workflowToolService.launch(args, { sessionId: session.id, cwd: session.cwd, signal: ctx?.signal, toolUseId: ctx?.call?.callId ?? ctx?.call?.itemId ?? undefined, after: ctx?.call?.itemId ?? undefined });
+}, stop: (args) => {
+  if (!workflowToolService) throw new Error("Dynamic workflows aren’t ready yet.");
+  return workflowToolService.stop(args, { sessionId: session.id });
+} }));
+import(require("node:url").pathToFileURL(path.join(__dirname, "agent-tools/workflow.mjs")).href).then((module) => module.setDescriptionSource(() => {
+  const resolved = workflowSettings();
+  return { sizeGuideline: resolved.sizeGuideline, sizeIsDefault: resolved.sizeSource === "default", nameOnly: resolved.nameOnly };
+}), (error) => console.warn("Workflow tool description:", error?.message ?? error));
+agentTools.provide("preview", (session, ctx) => {
+  if (!previewService) throw new Error("The preview isn’t ready yet.");
+  return previewService.forSession(session, { requestApproval: (request, options) => agentToolAsk(session, request, { ...options, call: ctx?.call }), signal: ctx?.signal ?? null });
+});
+// AskUserQuestion (agent-tools/ask.mjs, for a core without its own question tool): the session's question card, as a
+// core's item/tool/requestUserInput shows it, answered here (CodexClient.localApproval). The call's signal (a stopped
+// turn) closes it unanswered; undefined when no connection can carry the card.
+agentTools.provide("questions", (session, ctx) => ({ ask: (questions) => {
+  const owner = client;
+  if (!owner || typeof owner.localApproval !== "function" || !config?.threadIds?.includes(session.id)) return Promise.resolve(undefined);
+  const itemId = typeof ctx?.call?.itemId === "string" ? ctx.call.itemId : `code-desktop-tool-${require("node:crypto").randomUUID()}`;
+  return owner.localApproval("item/tool/requestUserInput", { threadId: session.id, turnId: liveWork.turnOf(session.id) ?? "", itemId, questions }, { signal: ctx?.signal, outlivesTurn: agentToolCallOutlivesTurn(ctx?.call, owner) });
+} }));
+// PushNotification (agent-tools/notify.mjs): a notification for the calling session (desktop-settings.cjs notifyAgent).
+agentTools.provide("notifications", (session) => ({ send: ({ title, message } = {}) => desktopSettings ? desktopSettings.notifyAgent(session.id, { title, message }) : "unsupported" }));
+// Monitor (agent-tools/monitor.mjs): commands watched outside the core (monitor-service.cjs); each event reaches the
+// session as a <task-notification> turn once it is idle, as a workflow's does. The Background tasks pane lists and
+// stops them (desktop:call monitor-state / monitor-stop).
+const monitorService = require("./monitor-service.cjs").createMonitorService({
+  deliver: (threadId, notification) => workflowToolService?.notice(threadId, { notification }),
+  emit: (event) => emit(event),
+  env: () => { const env = { ...process.env }; for (const key of [...coreSecretEnvKeys(), "CODE_DESKTOP_AGENT_TOOLS_TOKEN", "CODE_DESKTOP_AGENT_TOOLS_SOCKET", "CODE_DESKTOP_AGENT_TOOLS_SERVER"]) delete env[key]; return env; },
+  ...(process.env.CODE_DESKTOP_TERMINAL_SHELL ? { shell: process.env.CODE_DESKTOP_TERMINAL_SHELL } : {}),
+});
+agentTools.provide("monitors", (session) => ({
+  start: (options) => monitorService.start({ ...options, sessionId: session.id, cwd: session.cwd }),
+  stop: (id) => monitorService.stop(session.id, id, { by: "agent" }),
+  list: () => monitorService.list(session.id),
+}));
+// CronCreate / CronList / CronDelete (agent-tools/schedule.mjs): session-only jobs (schedule-service.cjs) that fire
+// only while their session is idle, as a new turn with its last turn options. Listed and stopped in the Background
+// tasks pane (desktop:call schedule-state / schedule-stop).
+const scheduleService = require("./schedule-service.cjs").createScheduleService({
+  deliver: (threadId, prompt) => !config?.threadIds?.includes(threadId) ? "gone" : workflowToolService ? workflowToolService.notice(threadId, { prompt }) : false,
+  isIdle: (threadId) => !!workflowToolService?.idle(threadId),
+  emit: (event) => emit(event),
+});
+agentTools.provide("schedules", (session) => ({
+  check: (options) => scheduleService.check(options),
+  create: (options) => scheduleService.create(session.id, options),
+  list: () => scheduleService.list(session.id),
+  remove: (id) => scheduleService.remove(session.id, id),
+}));
+// list_sessions / get_session / set_session_title (agent-tools/sessions.mjs): the app's session list, read-only, and
+// the calling session's own title (thread/name/set, as the sidebar's Rename sends it).
+function agentToolSessionView(id, running) {
+  const archived = !!config?.archivedThreadIds?.includes(id);
+  if (!archived && !config?.threadIds?.includes(id)) return null;
+  const metadata = config.threadMetadata?.[id] ?? {};
+  const title = [metadata.name, metadata.preview].find((value) => typeof value === "string" && value.trim())?.trim().replace(/\s+/g, " ") ?? "";
+  return { id, title: title.length > 120 ? `${title.slice(0, 119)}\u2026` : title, folder: typeof metadata.cwd === "string" ? metadata.cwd : null, archived,
+    running: running.has(id), updatedAt: Number.isFinite(metadata.updatedAt) ? metadata.updatedAt : Number.isFinite(metadata.createdAt) ? metadata.createdAt : null };
+}
+agentTools.provide("sessions", (session) => ({
+  list: () => { const running = liveWork.sessions(); return [...(config?.threadIds ?? []), ...(config?.archivedThreadIds ?? [])].map((id) => agentToolSessionView(id, running)).filter(Boolean); },
+  get: (id) => agentToolSessionView(id, liveWork.sessions()),
+  rename: async (name) => {
+    const owner = client;
+    if (!owner || !config?.threadIds?.includes(session.id)) throw new Error("This session can’t be renamed right now.");
+    await owner.request("thread/name/set", { threadId: session.id, name });
+    if (config.threadMetadata[session.id]) { config.threadMetadata[session.id].name = name; save(); }
+    emit({ kind: "session-list", op: "renamed", threadId: session.id, name });
+  },
+}));
+// reveal_path / open_in_editor (agent-tools/host.mjs): Finder, and the Open in menu's editors (editors.cjs); an editor
+// with a file URL scheme opens at the line.
+const EDITOR_URL_SCHEMES = { vscode: "vscode", vscodeInsiders: "vscode-insiders", cursor: "cursor", windsurf: "windsurf", zed: "zed" };
+agentTools.provide("host", () => ({
+  editors: () => require("./editors.cjs").installedEditors(),
+  reveal: async (target) => { shell.showItemInFolder(target); return true; },
+  openInEditor: async (target, type, { line = null, column = null } = {}) => {
+    const scheme = EDITOR_URL_SCHEMES[type];
+    if (line && scheme && require("./editors.cjs").installedEditors().some((editor) => editor.type === type)) {
+      await shell.openExternal(`${scheme}://file${encodeURI(target)}:${line}${column ? `:${column}` : ""}`);
+      return { line: true };
+    }
+    await require("./editors.cjs").openInEditor(target, type);
+    return { line: line ? false : undefined };
+  },
+}));
+// NotebookEdit (agent-tools/notebook.mjs) follows the session's Mode: its access and permission as its last turn ran.
+agentTools.provide("access", (session) => ({ get: async () => ({ access: await workflowToolService?.sessionAccess(session.id) ?? "read-only", permission: workflowToolService?.permissionOf(session.id) ?? null }) }));
+// WebFetch (agent-tools/web.mjs): Electron's network stack (the system proxy and certificates), outside the core,
+// without the app's cookies. One hop per call: a redirect answers as a 3xx Response carrying its Location, so the tool
+// checks every host it is sent to (net.fetch's redirect: "manual" fails instead of answering).
+function agentToolFetch(url, { signal, headers = {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const { net } = require("electron");
+    let request;
+    try { request = net.request({ url, method: "GET", redirect: "manual", credentials: "omit", useSessionCookies: false, cache: "no-store" }); } catch (error) { reject(error); return; }
+    let settled = false;
+    const done = (fn, value) => { if (settled) return; settled = true; signal?.removeEventListener?.("abort", abort); fn(value); };
+    const abort = () => { try { request.abort(); } catch { /* gone */ } done(reject, signal?.reason ?? new Error("The fetch was stopped.")); };
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener?.("abort", abort, { once: true });
+    for (const [key, value] of Object.entries(headers)) { try { request.setHeader(key, String(value)); } catch { /* skipped */ } }
+    request.on("redirect", (status, _method, location) => done(resolve, new Response(null, { status, headers: { location } })));
+    request.on("response", (response) => {
+      const head = new Headers();
+      for (const [key, value] of Object.entries(response.headers ?? {})) { try { head.set(key, Array.isArray(value) ? value.join(", ") : String(value)); } catch { /* skipped */ } }
+      const body = [101, 204, 205, 304].includes(response.statusCode) ? null : require("node:stream").Readable.toWeb(response);
+      done(resolve, new Response(body, { status: response.statusCode, statusText: response.statusMessage || "", headers: head }));
+    });
+    request.on("error", (error) => done(reject, error));
+    request.end();
+  });
+}
+agentTools.provide("web", () => ({ fetch: agentToolFetch }));
+const AGENT_SESSION_KEY = `mcp_servers.${agentTools.SERVER_NAME}.env.CODE_DESKTOP_AGENT_SESSION`;
+const AGENT_TOKEN_KEY = `mcp_servers.${agentTools.SERVER_NAME}.env.CODE_DESKTOP_AGENT_TOOLS_TOKEN`;
+// thread/start and thread/fork carry a start identity (bound to the new thread below), thread/resume the thread
+// itself: Codex reads it as a thread config override, the bridges pass it to the server they start for the session.
+// Only a core that has the server: Codex when this app launched it with the -c definition (a session override naming a
+// server Codex doesn't define fails thread/start), never another native program; the DeepSeek core and the bridges
+// read the key themselves.
+function coreTakesAgentTools(owner) {
+  if (coreForEngine(owner?.serverInfo?.engine).kind !== "native") return true;
+  const args = Array.isArray(owner?.child?.spawnargs) ? owner.child.spawnargs : [];
+  return args.some((arg) => typeof arg === "string" && arg.startsWith(`mcp_servers.${agentTools.SERVER_NAME}.command=`));
+}
+// Codex's request_user_input works in Default mode too (codex-default-questions.cjs), so it needs no AskUserQuestion.
+const { defaultModeQuestions } = require("./codex-default-questions.cjs");
+function decorateAgentTools(method, params, owner = client) {
+  params = defaultModeQuestions(method, params, { native: coreForEngine(owner?.serverInfo?.engine).kind === "native", stages: owner?.connection?.featureStages ?? null });
+  if (!params || typeof params !== "object" || !["thread/start", "thread/resume", "thread/fork"].includes(method) || !agentTools.socketPath || !coreTakesAgentTools(owner)) return params;
+  const identity = agentTools.sessionIdentity(method === "thread/resume" ? params.threadId : null);
+  params.config = { ...(params.config && typeof params.config === "object" ? params.config : {}), [AGENT_SESSION_KEY]: identity };
+  // A fork runs with its parent's web search (thread config is inherited): so does its WebFetch.
+  if (method === "thread/fork" && codexWebSearchModes.has(params.threadId)) rememberCodexWebSearch(identity, codexWebSearchModes.get(params.threadId));
+  // Codex: the thread's server carries that session's own credential (agent-tools-host.cjs sessionToken; a thread-level
+  // env value wins over the launch's env_vars, checked against codex 0.155.1), so its process holds nothing that acts
+  // for another session. The bridges derive it themselves from the identity.
+  if (coreForEngine(owner?.serverInfo?.engine).kind === "native") params.config[AGENT_TOKEN_KEY] = agentTools.sessionToken(identity);
+  return params;
+}
+function bindAgentTools(params, thread) {
+  const identity = params?.config?.[AGENT_SESSION_KEY];
+  if (typeof identity === "string" && thread && typeof thread.id === "string") agentTools.bindThread(identity, thread.id);
+  // A fork's or side chat's server names the thread itself: it serves WebFetch as the thread's own did.
+  if (typeof identity === "string" && typeof thread?.id === "string" && codexWebSearchModes.has(identity)) rememberCodexWebSearch(thread.id, codexWebSearchModes.get(identity));
+}
+// decorateThread: Settings › Models' Codex provider on fork / resume (model-settings.cjs, created below).
+const sessionOperations = createSessionOperations({ getClient: () => client, getConfig: () => config, save, emit,
+  decorateThread: (method, params, owner) => decorateAgentTools(method, modelSettings.decorateThread(method, params, owner) ?? params, owner), onThreadCreated: bindAgentTools });
 // Skills / Connectors / Plugins catalog (skills/list, mcpServerStatus/list,
 // plugin/installed, ...): validated operations, never the raw rpc allowlist.
-const customizeOperations = createCustomizeOperations({ getClient: () => client, getConfig: () => config, knownCwd: (cwd) => workspaceQueryRoot(cwd) });
+const customizeOperations = createCustomizeOperations({ getClient: () => client, getConfig: () => config, knownCwd: (cwd) => workspaceQueryRoot(cwd),
+  // Skill folders: open in Finder, and a new SKILL.md in the default editor (customize skill-root).
+  openPath: (target) => shell.openPath(target) });
+// Settings › Code › Memories and Beta features on the Codex core (codex-features.cjs: /memories, /experimental).
+const codexFeatures = require("./codex-features.cjs").createCodexFeatures({ getClient: () => client });
 const themeFiles = createThemeFiles({ dialog, getWindow: () => win });
 const harnessProfile = createHarnessProfile({app,shell,dialog,getConfig:()=>config,getClient:()=>client,emit,getWindow:()=>win});
 const instructionsService = createInstructionsService({getConfig:()=>config,getClient:()=>client,shell,knownCwd:(cwd)=>workspaceQueryRoot(cwd)});
 const personaImage = createPersonaImage({ dialog, getWindow: () => win });
-const modelSettings = createModelSettings({ getConfig: () => config, getClient: () => client, app, getHarnessProfile: () => harnessProfile });
+// setCodexLaunch / codexCommand: the Codex endpoint's launch overrides and the binary whose bundled catalog they extend.
+const modelSettings = createModelSettings({ getConfig: () => config, getClient: () => client, app, getHarnessProfile: () => harnessProfile,
+  setCodexLaunch, codexCommand: codexBinary });
+// Settings › Cores: which agent core runs, and the official releases this app downloads (core-manager.cjs).
+const coreManager = createCoreManager({ dataDir: () => app.getPath("userData"), getConfig: () => config, save: () => save(), emit, setCoreChoice, deepseekScript: deepseekCoreScript, bridgeScript, nodeBinary });
+// Extension Packs (extension-packs.cjs): imported agent cores, registered with core-registry.mjs. A change re-points
+// codex.cjs (coreManager.apply) and tells the renderer, which registers the same descriptors.
+const extensionPacks = createExtensionPacks({ dataDir: () => app.getPath("userData"), getConfig: () => config, save: () => save(),
+  onChange: () => { coreManager.apply(); emit({ kind: "extensions", cores: extensionPacks.descriptors() }); } });
 const customCommands = createCustomCommands({ app, shell, dialog, getConfig: () => config, emit: (e) => emit(e), getWindow: () => win, knownCwd: (cwd) => workspaceQueryRoot(cwd) });
 // Sidebar metadata snapshot returned by every sidebar-state mutation.
 function sidebarSnapshot() {
   return { sessionMetadata: config.sessionMetadata, customGroups: config.customGroups, sidebarPreferences: config.sidebarPreferences,
-    pinnedOrder: config.pinnedOrder || [], projectOrder: Array.isArray(config.projectOrder) ? config.projectOrder : [], revision: config.sidebarRevision };
+    pinnedOrder: config.pinnedOrder || [], projectOrder: Array.isArray(config.projectOrder) ? config.projectOrder : [], revision: config.sidebarRevision,
+    // Codex's built-in Pinned section (codex-sections.cjs): a thread Codex keeps there reads as pinned.
+    codexPinnedSectionId: config.codexPinnedSectionId ?? null };
+}
+const codexSections = require("./codex-sections.cjs");
+// A sidebar change mirrored into Codex's sections (best effort: the local store stays the source of truth here).
+function mirrorSections(task) {
+  const owner = client;
+  if (!codexSections.sectionsCore(owner, { coreForEngine })) return;
+  Promise.resolve().then(() => task(owner)).then(() => { try { save(); } catch {} }, (error) => console.warn(`codex sections: ${error?.message ?? error}`));
 }
 // OS launchers behind one seam so isolated GUI suites can intercept them the
 // way they intercept shell.openPath; production always runs the real command.
 const externalOpeners = { terminal: (cwd) => run("open", ["-a", "Terminal", "--", cwd], { timeout: 10000 }) };
 globalThis.codeDesktopExternalOpeners = externalOpeners;
 const allowed = new Set([
+  // Codex goals (ThreadGoalSet/Get/ClearParams {threadId, …}): /goal and the goal strip, for a known session only.
+  "thread/goal/get",
+  "thread/goal/set",
+  "thread/goal/clear",
   "thread/start",
   "thread/resume",
   "thread/read",
@@ -143,15 +605,87 @@ const allowed = new Set([
   "model/list",
   "account/read",
   "account/rateLimits/read",
+  // ChatGPT workspace headlines (GetWorkspaceMessagesResponse; tui workspace_messages.rs): read-only.
+  "account/workspaceMessages/read",
+  // Codex /feedback (tui feedback_view.rs): category, note, and optionally this session's logs; params rebuilt below.
+  "feedback/upload",
+  // An ACP agent's own settings (Gemini / Qwen settings.json keys; acp-bridge codeDesktop/coreSettings/*).
+  "codeDesktop/coreSettings/read",
+  "codeDesktop/coreSettings/write",
+  // MiMo imports other tools' sessions only when the user asks (Settings › Code › Import sessions).
+  "codeDesktop/history/import",
   "account/usage/read",
+  // Read-only: the Mode menu's Bypass row shows a managed refusal ('Disabled by your organization') before opt-in.
+  "configRequirements/read",
+  // Codex 0.155.1 ConsumeAccountRateLimitResetCreditParams {idempotencyKey, creditId?}: redeems one earned
+  // usage-limit reset, only after the Usage page's confirmation; params are rebuilt below.
+  "account/rateLimitResetCredit/consume",
+  // SendAddCreditsNudgeEmailParams {creditType: credits|usage_limit}: a workspace member asks the owner for
+  // credits or a higher limit (Codex tui chatwidget/rate_limits.rs), only from the Usage page's button.
+  "account/sendAddCreditsNudgeEmail",
   // DeepSeek bridge extension (harness index.js, capabilities.livePermissions): a Mode change during a turn,
   // sent with the turn/start permission params; bypass is validated like turn/start below.
   "codeDesktop/thread/permissions",
   // DeepSeek bridge extension (capabilities.modelWorkflows): stop a run of the model's `workflow` tool.
   "codeDesktop/workflow/stop",
+  "codeDesktop/workflow/member",
+  // A model run's pause (Qwen's workflow-action) and a settled run's resume (ZCode's resumeWorkflowRun).
+  "codeDesktop/workflow/pause",
+  "codeDesktop/workflow/resume",
+  // A run's published deliverable, read from the core's store (ZCode's artifact.*: capabilities.workflowArtifacts).
+  "codeDesktop/workflow/artifact",
+  // A running run's sub-agent model and agent limit (ZCode's run card Configure: capabilities.workflowRunSettings).
+  "codeDesktop/workflow/settings",
   // DeepSeek bridge extension: the /btw side chat (side-question.js), read-only, plus its cancel.
   "codeDesktop/sideQuestion",
   "codeDesktop/sideQuestion/cancel",
+  // Automatic session title on a native core (capabilities.titleRequest: Codex's hidden structured title turn,
+  // native-thread-title.cjs) for a known session; answered here, never forwarded.
+  "codeDesktop/threadTitle",
+  // Bridge extension (capabilities.legacyMigration: Kimi Code's `kimi migrate`): what an older install left behind, and
+  // bringing it over after the user chose to in Settings › Cores (params rebuilt below).
+  "codeDesktop/migration/read",
+  "codeDesktop/migration/run",
+  // Bridge extension (capabilities.continueTurn: Qwen's session continue): Try again resumes the failed turn of a known
+  // session the agent's own way.
+  "codeDesktop/turn/continue",
+  // Bridge extension (capabilities.threadShare: OpenCode /share, /unshare): a known session's public share link, after the
+  // renderer's confirmation.
+  "codeDesktop/thread/share",
+  // Bridge extension (capabilities.moveCwd: OpenCode's /move): /cd moves a known session to another folder of its project.
+  "codeDesktop/thread/move",
+  // Codex Remote Control (remoteControl/*, `codex remote-control`): status, switching it on or off, pairing a device and
+  // the paired devices, from Settings › Code › Remote control on a native core (params rebuilt below).
+  "remoteControl/status/read",
+  "remoteControl/enable",
+  "remoteControl/disable",
+  "remoteControl/pairing/start",
+  "remoteControl/pairing/status",
+  "remoteControl/client/list",
+  "remoteControl/client/revoke",
+  // DeepSeek bridge extension (capabilities.messageFeedback, dsh-message-feedback): Good / Bad response on replies,
+  // listed when a session opens and set or cleared from a reply's buttons; params rebuilt in message-feedback.cjs.
+  "codeDesktop/messageFeedback/list",
+  "codeDesktop/messageFeedback/put",
+  "codeDesktop/messageFeedback/delete",
+  // Core extension (capabilities.coreCommands): the running core's own slash commands (/goal …), listed for the
+  // open session or folder and run against a known session; the renderer only sends them when the core reports it.
+  "codeDesktop/commands/list",
+  // OpenCode `references` for the @ menu (opencode-bridge codeDesktop/references/list).
+  "codeDesktop/references/list",
+  // What the agent's own @ names besides files (acp-bridge codeDesktop/mentions/list: Qwen's @mcp: / @ext:), read-only.
+  "codeDesktop/mentions/list",
+  // DeepSeek's own settings (codex-app-server core-settings.js: shell timeout and output, parallel tool calls, sub-agent
+  // limits, web search): read, and one listed field written or reset at a time (params rebuilt below).
+  "codeDesktop/settings/read",
+  "codeDesktop/settings/write",
+  "codeDesktop/commands/execute",
+  // Codex '!' shell mode (ThreadShellCommandParams {threadId, command}; tui RunUserShellCommand): the user's own command,
+  // run unsandboxed like Codex's own `!`, for a known session (params rebuilt below).
+  "thread/shellCommand",
+  // Codex /auto-review (ThreadApproveGuardianDeniedActionParams {threadId, event}): one retry of a denied action, for a
+  // known session, after the renderer's confirmation (params rebuilt below).
+  "thread/approveGuardianDeniedAction",
 ]);
 // Deprecated in 0.155.1 and deliberately unreachable from the renderer:
 // thread/rollback (thread_processor.rs:810-826, replaced by thread/revert)
@@ -208,25 +742,54 @@ let navState = navigationState();
 // report (the source's BZ.sessionPanes and BZ.reopenClosedSession, sent like
 // navigation-state); app-menu.cjs menuState normalizes every key.
 let paneMenuState = menuState();
+// View › Split View follows the focused window's "split-menu-state" report (official reportSplitViewMenuState).
+let splitMenu = splitMenuState();
 function installAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate({ sidebarOpen: config?.sidebarCollapsed !== true, ...navState, zoomed: mainZoomLevel() !== 0,
-    fullScreen: liveContents(win) && win.isFullScreen(), allowDevTools: !app.isPackaged, menuState: paneMenuState, emit: menuEmit })));
+    fullScreen: liveContents(win) && win.isFullScreen(), allowDevTools: !app.isPackaged, menuState: paneMenuState, splitState: splitMenu,
+    newWindow: windowRegistry.mainWindows().length < MAX_WINDOWS, emit: menuEmit })));
 }
-function setMenuState(payload) {
+// Each main window reports its own Go / pane / split state; the menu bar shows the focused window's (window kept
+// in windowRegistry, adopted on focus). A report from a background window is kept for when it is focused.
+const reportFromOtherWindow = (window) => !!window && liveContents(win) && window !== win;
+function setMenuState(payload, window) {
   const next = menuState(payload);
+  if (window) windowRegistry.setState(window, "menu", next);
+  if (reportFromOtherWindow(window)) return next;
   if (sameMenuState(next, paneMenuState)) return paneMenuState;
   paneMenuState = next;
   installAppMenu();
   return paneMenuState;
 }
+function setSplitMenuState(payload, window) {
+  const next = splitMenuState(payload);
+  if (window) windowRegistry.setState(window, "split", next);
+  if (reportFromOtherWindow(window) || JSON.stringify(next) === JSON.stringify(splitMenu)) return next;
+  splitMenu = next;
+  installAppMenu();
+  return next;
+}
+// A main window took the focus: it becomes `win` and the menu bar shows its reports.
+function adoptMainWindow(window) {
+  windowRegistry.noteFocus(window);
+  if (win === window) return;
+  win = window;
+  navState = windowRegistry.getState(window, "nav") ?? navigationState();
+  paneMenuState = windowRegistry.getState(window, "menu") ?? menuState();
+  splitMenu = windowRegistry.getState(window, "split") ?? splitMenuState();
+  installAppMenu();
+}
 // Zxr: a menu command aimed at the renderer first brings back a main window
 // the user closed (hidden) or minimized, and focuses it when another window
 // (a pane window) was the menu's target.
 function revealMainWindow(target) {
-  if (!liveContents(win)) return;
-  if (win.isMinimized()) win.restore();
-  else if (mainHidden) win.show();
-  if (target && target !== win && !target.isDestroyed()) win.focus();
+  // The menu's own main window, else (a pane window or none was the target) the main window focused last.
+  const window = windowRegistry.isMain(target) ? target : win;
+  if (!liveContents(window)) return null;
+  if (window.isMinimized()) window.restore();
+  else if (windowRegistry.getState(window, "hidden") === true) window.show();
+  if (target && target !== window && !target.isDestroyed()) window.focus();
+  return window;
 }
 // KK (Window > Show Main Window, the Dock and the tray's Show App): show the
 // main window, recreating it when it no longer exists.
@@ -255,12 +818,16 @@ function menuEmit(e, target) {
     if (window && window.isFullScreenable()) window.setFullScreen(!window.isFullScreen());
     return;
   }
-  if ((e?.kind === "close-pane" || e?.kind === "close-session") && target && target !== win && !target.isDestroyed()) return target.close();
+  // File › New Window: a fresh main window cascaded from the one the menu came from.
+  // The item is disabled at MAX_WINDOWS (installAppMenu); a refusal that still gets here (a race) is logged, not lost.
+  if (e?.kind === "new-window") return void openWindow({ from: windowRegistry.isMain(target) ? target : win }).catch((error) => console.warn("[window] New Window:", error?.message ?? error));
+  if ((e?.kind === "close-pane" || e?.kind === "close-session") && target && !windowRegistry.isMain(target) && !target.isDestroyed()) return target.close();
   // owr: in the main window the renderer's keydown owns ⌘W (pR); one that still reached File > Close
   // Session through the accelerator was declined there (a menu or dialog is open), so it is not re-sent.
   if (e?.kind === "close-session" && e.accelerator) return;
-  revealMainWindow(target);
-  emit(e);
+  // Menus act on the focused window only (its renderer routes the command to its focused split side).
+  const window = revealMainWindow(target);
+  if (window) windowRegistry.send(window, e);
 }
 // Pane windows keep their own traffic-light origin, scaled like the main one
 // (index.chunk-ChZ67Jhw.js sun/cun: run(base, zoomFactor) per window).
@@ -271,7 +838,7 @@ const zoomFactorOf = (window) => clampZoomFactor(liveContents(window) ? window.w
 function placeTrafficLights(window) {
   if (!liveContents(window) || typeof window.setWindowButtonPosition !== "function") return;
   const factor = zoomFactorOf(window);
-  window.setWindowButtonPosition(window === win ? trafficLightPosition(factor) : scaleTrafficLights(POPOUT_TRAFFIC_LIGHTS, factor));
+  window.setWindowButtonPosition(windowRegistry.isMain(window) ? trafficLightPosition(factor) : scaleTrafficLights(POPOUT_TRAFFIC_LIGHTS, factor));
 }
 // ONr/SNr: step (lNr .5) or reset the main window's level; CNr copies it to
 // every window and repositions each window's lights (cun); DNr keeps Actual
@@ -281,7 +848,7 @@ function placeTrafficLights(window) {
 function applyZoom(request) {
   if (!liveContents(win)) return;
   const level = zoomLevelAfter(win.webContents.getZoomLevel(), request);
-  for (const window of [win, ...[...popouts.values()].map((entry) => entry.window)]) {
+  for (const window of [...windowRegistry.mainWindows(), ...[...popouts.values()].map((entry) => entry.window)]) {
     if (!liveContents(window)) continue;
     window.webContents.setZoomLevel(level);
     placeTrafficLights(window);
@@ -303,7 +870,7 @@ function zoomSettled() {
 function watchZoom(window) {
   window.webContents.on("zoom-changed", () => setImmediate(() => {
     placeTrafficLights(window);
-    if (window === win) zoomSettled();
+    if (windowRegistry.isMain(window)) zoomSettled();
   }));
 }
 // Preload's synchronous first-paint appearance: the saved preference and the
@@ -314,10 +881,13 @@ let themePreference = null;
 let i18n = null;
 ipcMain.on("desktop:appearance", (e) => {
   const theme = themePreference ? themePreference(config?.theme) : "system";
-  e.returnValue = { theme, mode: nativeTheme.shouldUseDarkColors ? "dark" : "light", locale: i18n ? i18n.localePreference(config?.locale) : "en-US" };
+  e.returnValue = { theme, mode: nativeTheme.shouldUseDarkColors ? "dark" : "light", locale: i18n ? i18n.localePreference(config?.locale) : "en-US", assistant: chosenAssistant() };
 });
-function setNavigationState(payload) {
-  navState = navigationState(payload);
+function setNavigationState(payload, window) {
+  const next = navigationState(payload);
+  if (window) windowRegistry.setState(window, "nav", next);
+  if (reportFromOtherWindow(window)) return next;
+  navState = next;
   const menu = Menu.getApplicationMenu();
   const back = menu?.getMenuItemById("go-back"), forward = menu?.getMenuItemById("go-forward");
   if (back) back.enabled = navState.canGoBack;
@@ -325,11 +895,108 @@ function setNavigationState(payload) {
   return navState;
 }
 function emit(e) {
-  if(e.kind==='workflow')desktopSettings?.observe(e);
-  if (win && !win.isDestroyed()) win.webContents.send("desktop:event", e);
+  if(e.kind==='workflow'){desktopSettings?.observe(e);liveWork.observe(e);}
+  // Every main window (windowRegistry.dispatch: session and app events everywhere, desktop-navigate to the window
+  // showing that session, window-scoped events to their window); a notification's window comes to the front.
+  const sent = windowRegistry.dispatch(e);
+  if (e.kind === "desktop-navigate") for (const window of sent) showWindow(window);
+}
+// Session list changes made through one window reach the others (and the other split side), which add, rename,
+// archive or drop the row in their own lists (main.jsx "session-list").
+// Settings saved in one window reach the others and the other split side (appearance, language, sidebar width):
+// the config without the per-session ledgers, which no window reads from this event (main.jsx "config-updated").
+function emitConfig() {
+  const { activity, stats, threadMetadata, codeStats, sessionMetadata, ...shared } = config || {};
+  void activity; void stats; void threadMetadata; void codeStats; void sessionMetadata;
+  emit({ kind: "config-updated", config: shared });
+}
+function emitSessionList(op, value) {
+  if (op === "added" || op === "updated") {
+    if (!value?.id) return;
+    const { turns, ...thread } = value;
+    void turns;
+    emit({ kind: "session-list", op, thread });
+  } else if (typeof value === "string") emit({ kind: "session-list", op, threadId: value });
+}
+// Files named by the core's configWarning notifications (config.toml, a rules file): the only paths the notice
+// banner's 'Show in Finder' may reveal (reveal-config-file).
+const configWarningPaths = new Set();
+// Saved workflow files the last 'saved-workflows' listing named: the only ones 'saved-workflow-reveal' shows in Finder.
+const knownSavedWorkflowPaths = new Set();
+// Connection-wide notices (configWarning, deprecationNotice, a warning without a thread) of the live connection:
+// Codex sends them at initialize, often before the window listens, so init/reconnect hand them to the renderer too.
+let connectionNotices = [];
+// /btw on a native core (native-side-chat.cjs): Codex's own ephemeral side-conversation fork.
+// The fork's Code Desktop server works for the parent session with that session's own credential (so it can name no
+// other), and offers only the tools that read the session's terminal and preview: a side question never runs a
+// command, opens a card in the main thread or changes the session (Codex /side: non-mutating inspection only).
+// A review (Codex review/start) reads too: the side chat's tools, plus the session list and ReportFindings.
+const REVIEW_APP_TOOLS = new Set(["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList", "ReportFindings", "list_sessions", "get_session", "load_tools"]);
+const SIDE_CHAT_APP_TOOLS = ["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList"];
+const nativeSideChat = createNativeSideChat({ getClient: () => client, emit: (event) => emit(event),
+  settings: () => ({ model: config?.model ?? null, effort: config?.effort ?? null }),
+  decorateFork: (params, parentId, owner) => {
+    if (!agentTools.socketPath || coreForEngine(owner?.serverInfo?.engine).kind !== "native" || !coreTakesAgentTools(owner)) return params;
+    return { ...params, config: { ...(params.config ?? {}), [AGENT_SESSION_KEY]: parentId, [AGENT_TOKEN_KEY]: agentTools.sessionToken(parentId),
+      [`mcp_servers.${agentTools.SERVER_NAME}.enabled_tools`]: SIDE_CHAT_APP_TOOLS } };
+  } });
+// Codex's automatic session titles (native-thread-title.cjs): a hidden ephemeral thread per title, every MCP server
+// off (Code Desktop's own too: the launch flag adds it).
+const nativeThreadTitles = createNativeThreadTitles({ getClient: () => client,
+  ownServers: (owner) => agentTools.socketPath && coreForEngine(owner?.serverInfo?.engine).kind === "native" && coreTakesAgentTools(owner) ? [agentTools.SERVER_NAME] : [],
+  context: () => ({ chatgpt: accountOperations?.accountSnapshot?.()?.account?.type === "chatgpt", models: initial?.models || [], model: config?.model ?? null }) });
+// A native core without the codeDesktop/sideQuestion extension (Codex): the side chat runs as Codex's /side fork.
+const nativeSideQuestions = () => coreForEngine(client?.serverInfo?.engine).kind === "native" && client?.serverInfo?.capabilities?.sideQuestion !== true;
+// Codex's Claude Code import (externalAgentConfig/import): the call waiting for its import/completed notification.
+const pendingImports = new Map(), finishedImports = new Map();
+// The placeholder some cores put in a code_desktop tool item instead of the image the tool returned (ZCode, Qwen,
+// Gemini; DeepSeek on a text-only model, which drops the picture for the model: "[image unavailable: image/png; model
+// … does not declare image input; …]"): the item gets the picture back from the agent-tools host, so the row shows the
+// screenshot the agent took as on Codex.
+const IMAGE_PLACEHOLDER = /^\s*\[(?:Attached image\/[\w.+-]+: [^\]\n]*|Image: image\/[\w.+-]+|Tool '[^'\n]*' provided the following image data with mime-type: image\/[\w.+-]+|image unavailable: image\/[\w.+-]+;[^\]\n]*)\]\s*$/gm;
+function withAppToolImages(e) {
+  const item = e?.method === "item/completed" ? e.params?.item : null;
+  if (!item || item.type !== "mcpToolCall" || item.server !== agentTools.SERVER_NAME || typeof e.params.threadId !== "string") return e;
+  const content = Array.isArray(item.result?.content) ? item.result.content : [];
+  if (content.some((part) => part?.type === "image") || !content.some((part) => part?.type === "text" && typeof part.text === "string" && new RegExp(IMAGE_PLACEHOLDER.source, "m").test(part.text))) return e;
+  const images = agentTools.recentImages(e.params.threadId, item.tool);
+  if (!images) return e;
+  const text = content.map((part) => part?.type === "text" && typeof part.text === "string" ? { ...part, text: part.text.replace(IMAGE_PLACEHOLDER, "").trim() } : part).filter((part) => !(part?.type === "text" && !part.text));
+  return { ...e, params: { ...e.params, item: { ...item, result: { ...item.result, content: [...text, ...images] } } } };
 }
 function receive(e) {
+  e = withAppToolImages(e);
+  // A side-chat fork's events stay in main: the panel gets its deltas, the sidebar never sees the fork.
+  if (nativeSideChat.observe(e)) return;
+  if (nativeThreadTitles.observe(e)) return;
+  if (e.method === "externalAgentConfig/import/completed" && typeof e.params?.importId === "string") {
+    // Kept briefly too: the notification can arrive before the import call's own response.
+    if (pendingImports.has(e.params.importId)) pendingImports.get(e.params.importId)(e.params);
+    else { finishedImports.set(e.params.importId, e.params); setTimeout(() => finishedImports.delete(e.params.importId), 60000).unref?.(); }
+  }
+  if (e.kind === "connection" && !e.connected) { connectionNotices = []; activeGoals.clear(); }
+  if ((e.method === "configWarning" || e.method === "deprecationNotice" || (e.method === "warning" && !e.params?.threadId)) && connectionNotices.length < 50)
+    connectionNotices.push({ method: e.method, params: e.params });
+  if (e.method === "configWarning" && typeof e.params?.path === "string" && path.isAbsolute(e.params.path) && !e.params.path.includes("\0") && configWarningPaths.size < 200)
+    configWarningPaths.add(e.params.path);
   sessionOperations.observe(e);
+  liveWork.observe(e);
+  observeGoal(e);
+  observeUsage(e);
+  workflowToolService?.observe(e);
+  // A turn that ended, however it ended, cancels the Code Desktop tool calls it left waiting (Codex tells its MCP
+  // servers neither about a stop nor about its own tool_timeout_sec giving up on a call): their approval cards close,
+  // and Allow / Run can no longer start anything for a turn that is over and was told the call failed. Only the calls
+  // of the thread whose turn it was: a Codex sub-agent (spawn_agent) names its own thread on its calls, and its own
+  // turn's end cancels them (agent-tools-host.cjs cancelThread), not the parent's.
+  // A core whose agents keep background sub-agents or workflow agents working after the turn ends (DeepSeek, Kimi,
+  // Qwen, OpenCode, …: coreKeepsBackgroundAgents) makes their calls as the session itself, still live: there only a
+  // stopped turn cancels (the agent cancels an abandoned call itself, over MCP).
+  if (e.method === "turn/completed" && typeof e.params?.threadId === "string") {
+    const interrupted = e.params.turn?.status === "interrupted";
+    if (interrupted) agentTools.cancelThread(e.params.threadId, "The turn was stopped.");
+    else if (!coreKeepsBackgroundAgents()) agentTools.cancelThread(e.params.threadId, "The turn ended.");
+  }
   accountOperations.observe(e);
   desktopSettings?.observe(e);
   const p = e.params || {};
@@ -355,7 +1022,7 @@ function readCodeStats() {
     if (!core) {
       // Only initialize is needed to know the core, not the whole connect (model/list).
       try { await owner.start(); core = coreInfo(owner); }
-      catch (error) { if (resolveCore().kind === "deepseek") throw error; }
+      catch (error) { if (resolveCore().prefix?.length) throw error; }
     }
     if (core?.capabilities?.codeStats === true) {
       const stats = await owner.request("codeDesktop/stats/read", {});
@@ -380,28 +1047,95 @@ function save() {
   fs.renameSync(configPath + ".tmp", configPath);
 }
 // boot.core: initialize's engine report. A Codex app-server (and the UI
-// fixtures) reports none, so everything keyed on the core defaults to Codex.
+// fixtures) reports none, so everything keyed on the core defaults to Codex; a
+// native Extension Pack that reports none is named by the core it spawned
+// (codex.cjs reportedServerInfo), never Codex.
 function coreInfo(owner) {
-  const info = owner.serverInfo;
-  return { engine: info?.engine ?? "codex", engineVersion: info?.engineVersion ?? null, capabilities: info?.capabilities ?? {}, configPath: info?.configPath ?? null };
+  const info = owner.serverInfo, descriptor = coreForEngine(info?.engine);
+  // id/name: the core-registry.mjs descriptor (capabilities stay as reported; coreSupports adds the implied ones).
+  // A per-token account bills per token whatever the core (a Codex API key): the Usage copy says so (usage-model.mjs).
+  const account = owner === client ? accountOperations.accountSnapshot() : null;
+  const capabilities = { ...(info?.capabilities ?? {}), ...(perTokenAccount(account) ? { perTokenBilling: true } : {}),
+    ...(owner.connection?.enabledFeatures?.has("guardian_approval") ? { autoReview: true } : {}),
+    // Goals: Codex's feature flag, or a bridge that serves the agent's own goals (capabilities.goals: Qwen's /goal).
+    ...(owner.connection?.enabledFeatures?.has("goals") || info?.capabilities?.goals === true ? { nativeGoals: true } : {}) };
+  // Codex reports no engineVersion: its initialize userAgent ("<client>/0.155.1 (Mac OS …)") carries the version.
+  const agentVersion = typeof info?.userAgent === "string" ? /\/(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)/.exec(info.userAgent)?.[1] ?? null : null;
+  return { id: descriptor.id, name: descriptor.name, engine: info?.engine ?? "codex", engineVersion: info?.engineVersion ?? agentVersion, capabilities, configPath: info?.configPath ?? null,
+    ...(typeof info?.mcpConfigPath === "string" && info.mcpConfigPath ? { mcpConfigPath: info.mcpConfigPath } : {}),
+    // Where a core with a movable home really runs (Codex's codexHome under CODEX_HOME): its paths are shown there (corePath).
+    ...(descriptor.home && typeof info?.codexHome === "string" && info.codexHome ? { home: info.codexHome } : {}) };
 }
-// A (re)connected status carries boot.core for the renderer's connection handler.
+// Whether a connection's core has the Codex protocol's collaboration modes (turn/start collaborationMode): a core
+// that declares capabilities.collaborationModes, never one with permission hints (its mode travels as the hint),
+// else asked once per connection (collaborationMode/list lists a "plan" preset; any failure is no).
+function collaborationModes(owner) {
+  const info = owner?.serverInfo, connection = owner?.connection;
+  if (!info || !connection) return Promise.resolve(false);
+  if (coreSupports(info, "collaborationModes")) return Promise.resolve(true);
+  if (coreSupports(info, "permissionHints")) return Promise.resolve(false);
+  connection.collaborationModes ??= owner.request("collaborationMode/list", {}, 10000, connection)
+    .then((result) => Array.isArray(result?.data) && result.data.some((preset) => preset?.mode === "plan"), () => false);
+  return connection.collaborationModes;
+}
+// The Plan mode reasoning effort of a core with collaboration modes (Codex): the user's plan_mode_reasoning_effort
+// (config/read, the TUI's 'Always use X reasoning in Plan mode'), else the Plan preset's reasoning_effort from
+// collaborationMode/list (asked once per connection; medium in 0.155.1). undefined when neither answers.
+async function planModeEffort(owner, cwd) {
+  const connection = owner?.connection;
+  if (!connection) return undefined;
+  const configured = await owner.request("config/read", { includeLayers: false, ...(cwd ? { cwd } : {}) }, 5000, connection)
+    .then((result) => result?.config?.plan_mode_reasoning_effort, () => undefined);
+  if (typeof configured === "string" && configured) return configured;
+  connection.planPresetEffort ??= owner.request("collaborationMode/list", {}, 10000, connection)
+    .then((result) => { const preset = (Array.isArray(result?.data) ? result.data : []).find((entry) => entry?.mode === "plan"); return preset ? preset.reasoning_effort ?? null : undefined; }, () => undefined);
+  return connection.planPresetEffort;
+}
+// Codex's 'Approve for me' (approvalsReviewer auto_review; TUI /permissions): available where the core lists the
+// guardian_approval feature as enabled (experimentalFeature/list, stable and on in 0.155.1). Asked once per connection
+// on a core without permission hints; any failure is no. The answer lands in boot.core.capabilities.autoReview.
+// The same list says whether Codex's goals (thread/goal/*, /goal) are on: boot.core.capabilities.nativeGoals.
+function coreFeatures(owner) {
+  const info = owner?.serverInfo, connection = owner?.connection;
+  if (!info || !connection || coreSupports(info, "permissionHints")) return Promise.resolve(new Set());
+  connection.features ??= owner.request("experimentalFeature/list", { limit: 200 }, 10000, connection)
+    .then((result) => {
+      const features = (Array.isArray(result?.data) ? result.data : []).filter((feature) => typeof feature?.name === "string");
+      // Every flag this Codex knows, with its stage (defaultModeQuestions reads it when a thread starts).
+      connection.featureStages = new Map(features.map((feature) => [feature.name, { stage: feature.stage, enabled: feature.enabled === true }]));
+      return new Set(features.filter((feature) => feature.enabled === true).map((feature) => feature.name));
+    }, () => new Set())
+    .then((enabled) => { connection.enabledFeatures = enabled; return enabled; });
+  return connection.features;
+}
+// …and only where the core's requirements allow that reviewer (ConfigRequirements.allowedApprovalsReviewers).
+function autoReviewFeature(owner) {
+  const connection = owner?.connection;
+  if (!connection) return Promise.resolve(false);
+  connection.autoReviewAllowed ??= owner.request("configRequirements/read", {}, 10000, connection)
+    .then((result) => { const allowed = result?.requirements?.allowedApprovalsReviewers; return !Array.isArray(allowed) || allowed.includes("auto_review"); }, () => true);
+  return Promise.all([coreFeatures(owner), connection.autoReviewAllowed]).then(([features, allowed]) => features.has("guardian_approval") && allowed);
+}
+// A (re)connected status carries boot.core for the renderer's connection handler, and the assistant name the copy
+// uses now (the chosen core's, as the first-paint appearance answers): a window whose copy names another reloads.
 function connectionEvent(owner, status) {
-  return { kind: "connection", ...status, ...(status.connected ? { core: coreInfo(owner) } : {}) };
+  return { kind: "connection", ...status, ...(status.connected ? { core: coreInfo(owner), assistant: chosenAssistant() } : {}) };
 }
 async function connect() {
   const owner = client;
   if (connecting?.owner === owner) return connecting.promise;
   const attempt = { owner, promise: null };
   attempt.promise = (async () => {
+    const coreModel = await import("./prefs/core-model.mjs");
     // The API connection's env (and relay forwarder port) is in place before the core spawns.
     await modelSettings.ready?.();
     await owner.start();
     const [account, models] = await Promise.allSettled([
       accountOperations.refresh(owner),
       owner.request("model/list", { limit: 100 }),
+      autoReviewFeature(owner),
     ]);
-    if (owner !== client) throw new Error("DeepSeek connection changed. Reconnect to continue.");
+    if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
     initial = {
       connected: true,
       core: coreInfo(owner),
@@ -411,6 +1145,39 @@ async function connect() {
         .filter((x) => x.status === "rejected")
         .map((x) => x.reason.message),
     };
+    // A Codex custom endpoint launched without its catalog (`debug models` failed): model/list lists the bundled
+    // OpenAI models, which the endpoint doesn't serve, so the list (and the reconcile below) is its own ids.
+    const custom = initial.core.id === "codex" ? modelSettings.codexCustomModels?.() : null;
+    if (custom?.ids.length) initial.models = coreModel.customCatalogModels(custom.ids, initial.models, { template: custom.template });
+    // Codex otherwise runs the model and provider of the user's own config.toml (a relay, Azure, Ollama…), which
+    // model/list never lists: it is merged in as the default, so the reconcile below keeps it (config/read).
+    let configured = null;
+    if (initial.core.id === "codex" && !custom?.ids.length) {
+      const codexConfig = await owner.request("config/read", { includeLayers: false, cwd: config.cwd || null }, 10000).then((result) => result?.config, () => null);
+      if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
+      const { CODEX_PROVIDER_ID } = await import("./prefs/codex-provider.mjs");
+      configured = coreModel.configuredCatalogModels(initial.models, codexConfig, { appProvider: CODEX_PROVIDER_ID, label: i18n ? i18n.t("Set in your Codex config.toml") : "Set in your Codex config.toml" });
+      if (configured) initial.models = configured;
+    }
+    // The saved default model follows the running core (prefs/core-model.mjs): its remembered choice, else a
+    // model its catalog lists. A failed or empty catalog changes nothing; coreModels only seeds a missing entry.
+    if ((models.status === "fulfilled" || custom?.ids.length || configured) && initial.models.length) {
+      const patch = coreModel.reconcileCoreModel(config, initial.core.id, initial.models);
+      const seeded = patch ? null : coreModel.seedCoreModel(config, initial.core.id, initial.models);
+      if (patch || seeded) {
+        Object.assign(config, patch ?? {}, seeded ? { coreModels: seeded } : {});
+        try { save(); } catch (error) { initial.warnings.push(`Couldn’t save the default model: ${error.message}`); }
+      }
+    }
+    // Codex's own sidebar sections join the local pins and groups (codex-sections.cjs), then the renderer refreshes.
+    if (codexSections.sectionsCore(owner, { coreForEngine })) {
+      codexSections.importSections(owner, config).then((changed) => {
+        if (!changed || owner !== client) return;
+        config.sidebarRevision = (config.sidebarRevision || 0) + 1;
+        try { save(); } catch {}
+        emit({ kind: "sidebar-state", state: sidebarSnapshot() });
+      }, (error) => console.warn(`codex sections: ${error?.message ?? error}`));
+    }
     return initial;
   })();
   connecting = attempt;
@@ -426,7 +1193,8 @@ function popoutForSender(sender) {
   return null;
 }
 function validSender(e, action) {
-  if (e.sender === win?.webContents && e.senderFrame === win.webContents.mainFrame) return "primary";
+  // Any main window's top frame (multi-window); both split sides live in that one renderer.
+  if (windowRegistry.isMainSender(e)) return "primary";
   const popout = popoutForSender(e.sender);
   if (popout && e.senderFrame === e.sender.mainFrame && POPOUT_ACTIONS.has(action)) return "popout";
   throw new Error("Untrusted renderer.");
@@ -477,7 +1245,9 @@ function popoutKey(sessionId, pane) {
 }
 // Create (or focus) the pane window. The pane leaves the primary layout only
 // after this resolves; closing the window docks the pane back.
-async function openPopout({ sessionId, pane, position }) {
+// restore: a pane window reopened at launch (restorePopouts): its saved frame, placed on today's displays, and its
+// Keep window on top; never from a renderer.
+async function openPopout({ sessionId, pane, position }, owner = win, restore = null) {
   if (typeof sessionId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(sessionId)) throw new Error("Unknown session.");
   if (!POPOUT_KINDS.has(pane)) throw new Error("Unknown pane.");
   const key = popoutKey(sessionId, pane);
@@ -489,14 +1259,15 @@ async function openPopout({ sessionId, pane, position }) {
   const cwd = config.threadMetadata[sessionId]?.cwd;
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("The session working directory is not available yet.");
   const wantsPosition = position && Number.isFinite(position.x) && Number.isFinite(position.y);
-  const parentBounds = win && !win.isDestroyed() ? win.getBounds() : { x: 0, y: 0, ...DEFAULT_WINDOW_SIZE };
-  const size = { width: 640, height: 640 };
+  const parentBounds = owner && !owner.isDestroyed() ? owner.getBounds() : { x: 0, y: 0, ...DEFAULT_WINDOW_SIZE };
+  const restored = restore?.bounds && Number.isFinite(restore.bounds.x) && Number.isFinite(restore.bounds.y) ? restore.bounds : null;
+  const size = restored ? { width: Math.max(320, Math.round(restored.width)), height: Math.max(240, Math.round(restored.height)) } : { width: 640, height: 640 };
   const window = new BrowserWindow({
     ...size,
     minWidth: 320,
     minHeight: 240,
-    x: Math.round(wantsPosition ? position.x : parentBounds.x + (parentBounds.width - size.width) / 2),
-    y: Math.round(wantsPosition ? position.y : parentBounds.y + (parentBounds.height - size.height) / 2),
+    x: Math.round(restored ? restored.x : wantsPosition ? position.x : parentBounds.x + (parentBounds.width - size.width) / 2),
+    y: Math.round(restored ? restored.y : wantsPosition ? position.y : parentBounds.y + (parentBounds.height - size.height) / 2),
     title: "Code Desktop",
     titleBarStyle: "hiddenInset",
     // A new pane window opens at the main window's zoom (CNr gives every
@@ -510,8 +1281,10 @@ async function openPopout({ sessionId, pane, position }) {
       sandbox: true,
     },
   });
-  const entry = { window, sessionId, pane, docked: false, alwaysOnTop: false };
+  // ownerId: the main window that popped it out, where the pane docks back (windowRegistry window-scoped event).
+  const entry = { window, sessionId, pane, docked: false, alwaysOnTop: false, ownerId: owner && !owner.isDestroyed() ? owner.id : null };
   popouts.set(key, entry);
+  if (restore?.alwaysOnTop === true) { entry.alwaysOnTop = true; window.setAlwaysOnTop(true); }
   watchZoom(window);
   attachContextMenu(window);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -521,7 +1294,7 @@ async function openPopout({ sessionId, pane, position }) {
   window.webContents.once("destroyed", () => void fileSearch.cancelAll());
   window.on("closed", () => {
     if (popouts.get(key) === entry) popouts.delete(key);
-    emit({ kind: "popout-docked", sessionId, pane, entryPoint: entry.docked ? "dock" : "window-close" });
+    emit({ kind: "popout-docked", sessionId, pane, entryPoint: entry.docked ? "dock" : "window-close", ...(entry.ownerId !== null ? { windowId: entry.ownerId } : {}) });
     broadcastPopouts();
   });
   const query = { popout: sessionId, pane, cwd };
@@ -532,6 +1305,37 @@ async function openPopout({ sessionId, pane, position }) {
   } else await window.loadFile(path.join(__dirname, "../dist/index.html"), { query });
   broadcastPopouts();
   return { existing: false, windowId: window.id, bounds: window.getBounds() };
+}
+// Export's suggested file name: the session's title and the date (export-file-name.cjs).
+const { exportFileName } = require("./export-file-name.cjs");
+// A quit starting (before any window closes): the open pane windows, their frames and pins, for the next launch.
+function savePopoutsForRelaunch() {
+  const entries = [];
+  for (const entry of popouts.values()) {
+    const window = entry.window;
+    if (!window || window.isDestroyed() || entry.docked) continue;
+    let bounds = null, displayBounds = null, ownerKey = null;
+    try { bounds = window.isMaximized?.() || window.isFullScreen?.() ? window.getNormalBounds() : window.getBounds(); } catch { bounds = null; }
+    try { displayBounds = bounds ? (screen.getDisplayMatching(bounds) || screen.getPrimaryDisplay()).bounds : null; } catch { displayBounds = null; }
+    try { const owner = entry.ownerId !== null ? BrowserWindow.fromId(entry.ownerId) : null; ownerKey = owner ? windowRegistry.keyOf(owner) : null; } catch { ownerKey = null; }
+    entries.push({ sessionId: entry.sessionId, pane: entry.pane, alwaysOnTop: entry.alwaysOnTop === true, bounds, displayBounds, ownerKey });
+  }
+  popoutRestore.savePopouts(path.join(app.getPath("userData"), popoutRestore.POPOUTS_FILE), entries, { kinds: POPOUT_KINDS });
+}
+// Launch: the pane windows of the last quit whose sessions still exist, on the main window that popped them out (else
+// the first), each frame clamped onto today's displays (window-state.cjs placeOnDisplays) and its pin as it was.
+async function restorePopouts() {
+  const known = new Set([...(config?.threadIds ?? []), ...(config?.archivedThreadIds ?? [])]);
+  const list = popoutRestore.takeRestorablePopouts(path.join(app.getPath("userData"), popoutRestore.POPOUTS_FILE),
+    { kinds: POPOUT_KINDS, exists: (id) => known.has(id) && typeof config.threadMetadata?.[id]?.cwd === "string" });
+  for (const item of list) {
+    if (quitting) return;
+    try {
+      const placed = placeOnDisplays({ ...item.bounds, displayBounds: item.displayBounds }, screen);
+      const owner = (item.ownerKey && windowRegistry.byKey(item.ownerKey)) || win;
+      await openPopout({ sessionId: item.sessionId, pane: item.pane }, owner, { bounds: { x: placed.x, y: placed.y, width: placed.width, height: placed.height }, alwaysOnTop: item.alwaysOnTop });
+    } catch (error) { console.warn("Couldn’t reopen a pane window:", error?.message ?? error); }
+  }
 }
 function fileSearchScope(sender, pane = "main") {
   // "composer" is the @-mention lookup lane; it never supersedes a pane search.
@@ -561,6 +1365,32 @@ function fileSearchRoot(sessionId, homeWorkspace) {
     throw new Error("The session working directory is not available yet.");
   return cwd;
 }
+// Built-in terminal pane (terminal-service.cjs): login-shell PTYs per session, started in the folder fileSearchRoot
+// trusts for that session (or the New session page's folder) and ended with their session, their folder or the app.
+// CODE_DESKTOP_TERMINAL_SHELL (an absolute path) replaces the user's shell for automated runs, which then never read
+// the user's shell startup files for the proxy either. Agent tools reach it as ctx.terminals (agent-tools/terminal.mjs).
+/** The variables the app sets in its own environment for the cores only: saved keys and endpoints (never for shells). */
+function coreSecretEnvKeys() {
+  const keys = new Set();
+  try { for (const key of Object.keys(require("./codex.cjs").foreignCoreEnv())) keys.add(key); } catch { /* none */ }
+  try { for (const key of Object.keys(harnessProfile.coreEnvKeys())) keys.add(key); } catch { /* none */ }
+  return [...keys];
+}
+const terminalService = createTerminalService({
+  resolveOwner: ({ sessionId, homeWorkspace }) => fileSearchRoot(sessionId, homeWorkspace),
+  ownerAlive: (_owner, sessionId) => !sessionId || [...(config?.threadIds ?? []), ...(config?.archivedThreadIds ?? [])].includes(sessionId),
+  ...(process.env.CODE_DESKTOP_TERMINAL_SHELL ? { shell: process.env.CODE_DESKTOP_TERMINAL_SHELL, shellProxy: null } : {}),
+  version: app.getVersion(),
+  // The keys Settings › Models exports into the app's environment for the cores (DEEPSEEK_API_KEY, a relay's base URL,
+  // provider keys, the Codex endpoint key) never reach a shell, a command the agent types or a program run there.
+  stripEnv: () => coreSecretEnvKeys(),
+  // The agents this app installed (Qwen, Gemini… under the app's own Node) answer by name in the Terminal pane, so a
+  // core's "run it in a terminal" fallback works there (core-manager.cjs terminalShims).
+  appendPath: () => { const dir = coreManager.terminalShims?.(path.join(app.getPath("userData"), "terminal-bin")); return dir ? [dir] : []; },
+});
+// How long an automatic unread mark (a turn finished in a session the asking window does not show) waits for the
+// windows' layout reports before deciding (sidebar-state "metadata").
+const AUTOMATIC_UNREAD_SETTLE_MS = 400;
 // Set once desktop:call is registered: only then can a (re)created main
 // window's renderer initialise.
 let desktopReady = false;
@@ -568,11 +1398,19 @@ let desktopReady = false;
 // over Dfn 1200x800, placed on the current displays), with the source's
 // minWidth 600 / minHeight 400, titleBarStyle "hidden", trafficLightPosition
 // uun() ({17,17} at 100%) and backgroundColor jP().
-function createMainWindow() {
-  const stateFile = path.join(app.getPath("userData"), WINDOW_STATE_FILE);
-  const saved = loadWindowState(stateFile, screen);
+// Multi-window: `key` names the window's own frame file (window-state.cjs windowStateFile; the first window keeps
+// window-state.json) and its entry in open-windows.json; `layout` is what it shows (window-registry.cjs sanitizeLayout,
+// handed to its renderer by init); a new window without a frame cascades from `from`.
+function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } = {}) {
+  const stateFile = path.join(app.getPath("userData"), windowStateFile(key));
+  const stored = loadWindowState(stateFile, screen);
+  const saved = from && !from.isDestroyed() && !fs.existsSync(stateFile) ? cascadeWindowState(stored, from.getBounds(), screen) : stored;
+  // A window after the first opens once its page has painted (no blank frame); an automated offscreen launch
+  // (CODE_DESKTOP_OFFSCREEN_LAUNCH) keeps those extra windows hidden.
+  const deferShow = windowRegistry.mainWindows().length > 0;
   const window = new BrowserWindow({
     ...windowStateBounds(saved),
+    ...(deferShow ? { show: false } : {}),
     minWidth: 600,
     minHeight: 400,
     title: "Code Desktop",
@@ -586,31 +1424,51 @@ function createMainWindow() {
       sandbox: true,
     },
   });
-  win = window;
+  windowRegistry.register(window, { key, layout });
+  if (!liveContents(win)) win = window;
+  if (deferShow && !process.env.CODE_DESKTOP_OFFSCREEN_LAUNCH) window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   mainHidden = false;
   // Sbe manage(): stored maximize / full screen first, then the save listeners.
   restoreWindowState(window, saved);
   trackWindowState(window, { file: stateFile, screen, state: saved });
   const fullScreenState = () => {
-    emit({ kind: "window", fullScreen: window.isFullScreen() });
-    installAppMenu();
+    emit({ kind: "window", fullScreen: window.isFullScreen(), windowId: window.id });
+    if (window === win) installAppMenu();
   };
   window.on("enter-full-screen", fullScreenState);
   window.on("leave-full-screen", fullScreenState);
-  window.on("show", () => { mainHidden = false; });
+  window.on("show", () => { mainHidden = false; windowRegistry.setState(window, "hidden", false); });
+  window.on("focus", () => { adoptMainWindow(window); desktopSettings?.clearNotices?.(); });
+  // A reload (⌘R) restores what the window showed: taken before the new page reports its own (empty) layout.
+  window.webContents.on("did-start-loading", () => windowRegistry.captureLaunch(window));
   // index.chunk-ChZ67Jhw.js m.on("close"): unless the app is quitting the
   // close is prevented and the window hides (leaving full screen first); the
   // app keeps running and the Dock, Window > Show Main Window and the tray's
   // Show App bring it back.
+  // Multi-window (macOS): closing one of several main windows closes it for good; only the last one hides. A quit's
+  // first close writes the open windows and their layouts for the next launch (window-registry.cjs freeze).
   window.on("close", (event) => {
+    if (quitting) windowRegistry.freeze();
+    else if (windowRegistry.mainWindows().some((other) => other !== window)) return;
     const action = closeAction({ quitting, fullScreen: window.isFullScreen() });
     if (action === "close") return;
     event.preventDefault();
-    const hide = () => { if (window.isDestroyed()) return; mainHidden = true; window.hide(); };
+    const hide = () => { if (window.isDestroyed()) return; mainHidden = true; windowRegistry.setState(window, "hidden", true); window.hide(); };
     if (action === "leave-full-screen") { window.once("leave-full-screen", hide); window.setFullScreen(false); }
     else hide();
   });
-  window.on("closed", () => { if (win === window) win = null; });
+  window.on("closed", () => {
+    windowRegistry.unregister(window);
+    // Closed for good (not by a quit): its own frame file goes with it.
+    if (!quitting) forgetWindowState(stateFile);
+    if (win === window) {
+      win = null;
+      const next = windowRegistry.lastFocused();
+      if (next) return void adoptMainWindow(next);
+    }
+    // File › New Window is enabled again below MAX_WINDOWS (adoptMainWindow above rebuilds the menu itself).
+    if (!quitting) installAppMenu();
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   watchZoom(window);
   attachContextMenu(window);
@@ -626,19 +1484,42 @@ function loadMainWindow(window) {
   return window.loadFile(path.join(__dirname, "../dist/index.html"));
 }
 // "activate" / KK with no main window left: a fresh one over the same session state.
-async function openMainWindow() {
-  const window = createMainWindow();
+async function openMainWindow(options) {
+  const window = createMainWindow(options);
   installAppMenu();
   await loadMainWindow(window);
   return window;
 }
+// File › New Window and a session's "Open in new window": a new main window with its own sidebar selection and layout,
+// showing that session (or the new-session page). A session another window already shows brings that window forward.
+async function openWindow({ sessionId = null, from = win } = {}) {
+  if (quitting || !desktopReady) return null;
+  if (sessionId) {
+    const showing = windowRegistry.windowsShowing(sessionId).filter((window) => window !== from);
+    if (showing.length) { showWindow(showing[0]); return { windowId: showing[0].id, existing: true }; }
+  }
+  if (windowRegistry.mainWindows().length >= MAX_WINDOWS) throw new Error(i18n ? i18n.t("Close a window before opening another.") : "Close a window before opening another.");
+  const window = await openMainWindow({ key: newWindowKey(), layout: { current: sessionId, split: null }, from });
+  return { windowId: window.id, existing: false };
+}
 app.whenReady().then(async () => {
   const preferences = await import("./preferences.mjs");
   const { settingsPatch, validateServiceTier, DEFAULT_THEME } = preferences;
+  const { recordCoreModel, validateCoreModels } = await import("./prefs/core-model.mjs");
   themePreference = preferences.themePreference;
   i18n = await import("./i18n/index.mjs");
-  const { validateBypassRequest } = await import("./permission-policy.mjs");
+  const { validateBypassRequest, nativeCollaborationMode, backgroundTurnPermission } = await import("./permission-policy.mjs");
+  const { applyCodexPermissions, effectiveProfile, customProfiles, codexWorkflowArgs } = await import("./codex-permissions.mjs");
+  // Bypass across a user core switch (bypass-carry.mjs): a one-shot token from the select, bound by that switch's
+  // own reconnect; any other reconnect, an opt-out or the renderer's clear drops it. Memory only.
+  const { carryScope, requestCarry, bindCarry, carryFor } = await import("./bypass-carry.mjs");
+  let switchToken = null, bypassCarry = null;
   configPath = path.join(app.getPath("userData"), "preferences.json");
+  // DeepSeek core privacy (code-desktop-app cordis.patch.yml): '1' only when the user turned sharing on.
+  const syncPrivacyEnv = ({ pending = true } = {}) => {
+    harnessProfile.setCoreEnv("CODE_DESKTOP_SHARE_SESSION_LOG", config?.deepseekSessionLog === true ? "1" : null, { pending });
+    harnessProfile.setCoreEnv("CODE_DESKTOP_SHARE_FEEDBACK", config?.deepseekFeedbackSharing === true ? "1" : null, { pending });
+  };
   try {
     config = JSON.parse(fs.readFileSync(configPath, "utf8"));
   } catch {
@@ -672,6 +1553,10 @@ app.whenReady().then(async () => {
     projectOrder: [],
     rememberedActionCenterCounts: { sessions: 0, projects: 0, prs: 0 },
     worktreeBases: {},
+    // Per-session turned-off tools (prefs/tool-profiles.mjs), keyed by thread id.
+    threadTools: {},
+    toolProfiles: [],
+    defaultToolProfile: null,
     // Source settings default menuBarEnabled:true; profiles without it get the tray.
     menuBarEnabled: true,
     // Fidelity F14 (index.chunk-ChZ67Jhw.js preference defaults; c71860c77-yvGrrWO9.js:2270): unset notification
@@ -685,12 +1570,28 @@ app.whenReady().then(async () => {
   };
   // Task complete offers only Off/Banners (c71860c77:2004-2029); an older saved 'badge' reads as Banners.
   if (config.completeNotifications === "badge") config.completeNotifications = "banner";
+  syncPrivacyEnv({ pending: false });
   if (!config.worktreeBases || typeof config.worktreeBases !== "object") config.worktreeBases = {};
+  if (!config.threadTools || typeof config.threadTools !== "object" || Array.isArray(config.threadTools)) config.threadTools = {};
+  // Each core's chosen default model (prefs/core-model.mjs), owned by this process.
+  const coreModels = validateCoreModels(config.coreModels);
+  if (coreModels) config.coreModels = coreModels; else delete config.coreModels;
+  // Imported cores, then the chosen core (config.core), before the first spawn; the menus name its assistant.
+  extensionPacks.load();
+  // Codex became a bundled Extension Pack: a choice of it made before (or of any bundled pack not added yet) adds that
+  // pack now, so the choice holds instead of falling back to DeepSeek.
+  const chosenId = process.env.CODE_DESKTOP_CORE || config.core;
+  if (typeof chosenId === "string" && chosenId !== "deepseek" && !extensionPacks.descriptors().some((core) => core.id === chosenId))
+    await extensionPacks.installBundled(chosenId).catch((error) => console.warn("Bundled pack install failed:", error?.message ?? error));
+  coreManager.apply();
+  i18n.setAssistantName(chosenAssistant());
   // index.chunk-ChZ67Jhw.js startup nativeTheme.themeSource = userThemeMode,
   // before any window exists: native menus, dialogs, the window background and
   // every renderer's prefers-color-scheme follow the app's choice.
   nativeTheme.themeSource = themePreference(config.theme);
   i18n.setLocale(config.locale);
+  // Cores started from now on get the UI language (a bridge passes it on: Qwen's QWEN_CODE_LANG).
+  process.env.CODE_DESKTOP_LOCALE = i18n.getLocale();
   // jP / nativeTheme.on("updated"): every live window repaints its native
   // background with the resolved appearance (main and pane windows alike).
   nativeTheme.on("updated", () => {
@@ -699,6 +1600,38 @@ app.whenReady().then(async () => {
   });
   if (!fs.existsSync(config.cwd)) config.cwd = workspace;
   approvedWorkspaceRoots.add(config.cwd);
+  // The agent tools channel is up before the first core spawns (connect() runs on the renderer's init); every core
+  // then gets its variables, and a Codex child the -c overrides (codex.cjs setAgentToolsLaunch).
+  previewService = createPreviewService({
+    electron: { WebContentsView: require("electron").WebContentsView, BrowserWindow, session: require("electron").session, shell, nativeTheme, dialog },
+    getSession: agentToolSession,
+    // The window a pane request came from (main windows and pane popouts; window-registry.cjs), and app-wide notices
+    // (the agent revealing a session's preview) to every main window.
+    hostWindow: (sender) => windowRegistry.hostWindow(sender),
+    // Servers & settings › Keep cookies (config.previewKeepCookies; off: an in-memory session for this app run).
+    keepCookies: () => config?.previewKeepCookies === true,
+    setKeepCookies: (enabled) => { if (!config) return; if (enabled) config.previewKeepCookies = true; else delete config.previewKeepCookies; save(); },
+    broadcast: (event) => { windowRegistry.broadcast(event); },
+    spawnEnv: async () => {
+      const { loginShellVariables, loginShellProxy, proxyEnv } = require("./proxy-env.cjs");
+      // Fixture launches (CODEX_BINARY) never run the user's rc files, as codex.cjs.
+      const shell = process.env.CODEX_BINARY ? {} : await loginShellVariables(["PATH"]).catch(() => ({}));
+      const proxy = process.env.CODEX_BINARY ? {} : await loginShellProxy().catch(() => ({}));
+      const env = { ...process.env, ...proxyEnv(process.env, proxy) };
+      env.PATH = [shell.PATH, path.join(os.homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", process.env.PATH].filter(Boolean).join(":");
+      // No app secrets or internals reach a dev server (the search key and every other CODE_DESKTOP_* variable included).
+      for (const key of coreSecretEnvKeys()) delete env[key];
+      for (const key of Object.keys(env)) if (key.startsWith("CODE_DESKTOP_") || key.startsWith("ELECTRON_")) delete env[key];
+      return env;
+    },
+  });
+  windowRegistry.onWindowClosed((window) => previewService?.windowClosed(window));
+  try { await agentTools.start(); } catch (error) { console.warn(`Agent tools unavailable: ${error?.message ?? error}`); }
+  require("./codex.cjs").setAgentToolsLaunch(() => ({ env: agentTools.launchEnv(), codexArgs: agentTools.codexArgs() }));
+  // The first spawn of any client (often the Home stats card's, before connect() runs) waits for Settings › Models'
+  // launch: a saved Codex custom endpoint's -c args and the exported keys. Once: connect() refreshes it after that.
+  let launchPrepared = null;
+  require("./codex.cjs").setBeforeSpawn(() => (launchPrepared ??= Promise.resolve().then(() => modelSettings.ready?.()).catch((error) => { console.warn("Couldn’t prepare the core launch:", error?.message ?? error); })));
   client = new CodexClient();
   client.on("event", receive);
   const firstClient = client;
@@ -706,16 +1639,91 @@ app.whenReady().then(async () => {
     if (!s.connected) initial = null;
     receive(connectionEvent(firstClient, s));
   });
-  createMainWindow();
+  // Relaunch reopens the main windows of the last quit, each with its layout (window-registry.cjs open-windows.json;
+  // a first launch opens the one main window).
+  const restoredWindows = windowRegistry.read();
+  for (const entry of restoredWindows.windows) createMainWindow(entry);
   desktopSettings = createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,getConfig:()=>config,getClient:()=>client,sessionOperations,save,emit,getWindow:()=>win,gitStatus:workspaceGitStatus});
   desktopSettings.start();
   // Workflow agents run on the same core as sessions (the DeepSeek bridge by default).
-  const workflowCore=workflowCoreCommand(resolveCore(),process.env.CODE_DESKTOP_WORKFLOW_BINARY);
-  workflowService=createWorkflowService({root:path.join(app.getPath("userData"),"workflows"),getConfig:()=>config,emit,command:workflowCore.command,args:workflowCore.args,version:app.getVersion()});
+  // Read at each start, so a core switch or a Codex endpoint change reaches workflow agents too.
+  // A Codex core's workflow agents get the session's own Codex sandbox — its permission profile, Sandbox network
+  // access and writable roots — as -c launch overrides (codex-permissions.mjs codexWorkflowArgs; the runner is unchanged).
+  const workflowCore=(run={})=>{
+    const core=resolveCore();let launch=workflowCoreCommand(core,process.env.CODE_DESKTOP_WORKFLOW_BINARY);
+    // The core's own Claude tier map (descriptor workflowModelTiers): opus/sonnet/haiku in a script pick its models.
+    const tiers=coreForEngine(client?.serverInfo?.engine).workflowModelTiers;
+    if(tiers&&typeof tiers==='object')launch={...launch,env:{...(launch.env||{}),CODE_DESKTOP_WORKFLOW_MODEL_TIERS:JSON.stringify(tiers)}};
+    if(core.kind!=='codex'||process.env.CODE_DESKTOP_WORKFLOW_BINARY)return launch;
+    const extra=codexWorkflowArgs({access:run.access,turn:typeof run.threadId==='string'?workflowToolService?.turnOptions(run.threadId):null,networkAccess:config.sandboxNetworkAccess===true,profile:effectiveProfile(config.codexPermissionProfile,undefined)});
+    return extra.length?{...launch,args:[...(launch.args??['app-server','--stdio']),...extra]}:launch;
+  };
+  workflowService=createWorkflowService({root:path.join(app.getPath("userData"),"workflows"),getConfig:()=>config,emit,core:workflowCore,version:app.getVersion(),
+    enabled:()=>workflowSettings().enabled,runnerEnv:()=>workflowRunnerEnv(workflowSettings()),onSettled:run=>{void workflowToolService?.settled(run);},workflowFolders:coreWorkflowFolders});
+  // The model's Workflow tool: per-session scripts under the app's data (never ~/.claude/projects); its finished runs
+  // reach the model as a new turn with the session's last turn options (workflow-tool-service.cjs).
+  workflowToolService=createWorkflowToolService({workflowService,getConfig:()=>config,settings:workflowSettings,dataRoot:path.join(app.getPath("userData"),"sessions"),home:os.homedir(),
+    updateConfig:patch=>{config={...config,...patch};save();emitConfig();},
+    requestApproval:(session,request,options)=>agentToolAsk(session,request,options),
+    // A session's ultracode/size reminder state, kept with Code Desktop's own session metadata so a relaunch still sends
+    // "Ultracode is off" when the core's history says it was on (thread metadata is replaced by the core's).
+    reminderStore:{get:id=>config?.sessionMetadata?.[id]?.workflowReminders,set:(id,state)=>{if(!config?.threadIds?.includes(id))return;config.sessionMetadata??={};config.sessionMetadata[id]={...(config.sessionMetadata[id]??{}),workflowReminders:state};save();}},
+    core:()=>({structuredOutput:runnerStructuredOutput(),workflowFolders:coreWorkflowFolders()}),
+    // The ultracode reminders name the tool that runs this session's workflows: Code Desktop's Workflow tool, or on the
+    // core's own engine its own tool (descriptor workflowTool, e.g. ZCode's CreateWorkflow after its skill).
+    workflowTool:()=>{if(currentWorkflowEngine()!=="native")return {engine:"codeDesktop",...(agentToolsDeferred().includes("workflow")?{deferred:true}:{})};const tool=coreForEngine(client?.serverInfo?.engine).workflowTool;return {engine:"native",...(tool&&typeof tool==="object"?{name:tool.name,skill:tool.skill}:{})};},
+    validateAccess:async()=>{const owner=client;const {validateBypassRequest}=await import("./permission-policy.mjs");await validateBypassRequest({sandbox:"danger-full-access"},()=>config,()=>owner.request("configRequirements/read",{}));},
+    notify:run=>desktopSettings?.notifyWorkflow?.(run),
+    // Bypass for a session's background work only while it is still the Mode and its opt-in is on: a Mode change or an
+    // opt-out reaches the turns already scheduled, Monitor events and workflow notifications, and the app tools'
+    // Bypass auto-approval (sessionAccess), not just the next message the user sends.
+    bypassAllowed:()=>config?.allowBypassPermissions===true&&config?.permission==="bypass",
+    // A background turn: the session's last turn options with its permission as the Mode now allows (a recorded Bypass
+    // becomes Auto's workspace-write, with the chosen Codex profile), then checked like any turn/start (the opt-in and
+    // the core's requirements) before it is sent.
+    startTurn:async(threadId,params)=>{const owner=client;await owner.start();
+      const networkAccess=config.sandboxNetworkAccess===true;
+      let next=backgroundTurnPermission(params,{bypassAllowed:config?.allowBypassPermissions===true&&config?.permission==="bypass",networkAccess});
+      // A Bypass the core no longer allows (its requirements changed) runs as Auto too, rather than failing for ever.
+      try{await validateBypassRequest(next,()=>config,()=>owner.request("configRequirements/read",{}));}catch{next=backgroundTurnPermission(next,{bypassAllowed:false,networkAccess});}
+      if(next!==params&&coreForEngine(owner.serverInfo?.engine).kind==="native"&&owner.serverInfo?.capabilities?.permissionHints!==true)applyCodexPermissions("turn/start",next,{profile:effectiveProfile(config.codexPermissionProfile,undefined)});
+      if(owner!==client)throw coreError(owner,"The {core} connection changed. Try again.");
+      // The recorded options carry the tools and instructions of the session's last message; the turn gets the current
+      // ones (Tools menu, Settings › Instructions), so a change since then isn't undone by a background turn.
+      next={...next};
+      if(owner.serverInfo?.capabilities?.toolSelection===true){const hint=next.codeDesktop&&typeof next.codeDesktop==="object"?next.codeDesktop:{};next.codeDesktop={...hint,tools:normalizeSelection(config.threadTools[threadId])};}
+      instructionsService.decorate("turn/start",next);
+      const release=sessionOperations.reserveMessage(threadId);try{await owner.request("turn/start",next);}finally{release?.();}}});
+  terminalService.install(ipcMain, { trustedSender: (event) => { try { return !!validSender(event, "terminal"); } catch { return false; } } });
   ipcMain.handle("desktop:call", async (e, action, p = {}) => {
     const senderKind = validSender(e, action);
+    // The Preview pane (preview-service.cjs validates each action; the sender is the pane's own window).
+    if (typeof action === "string" && action.startsWith("preview-")) {
+      if (!previewService) throw new Error("The preview isn’t ready yet.");
+      if (typeof p?.sessionId !== "string" || !agentToolSession(p.sessionId)) throw new Error("Unknown session.");
+      return previewService.call(e.sender, action, p);
+    }
+    // The Background tasks pane's Monitor and scheduled-prompt rows (monitor-service.cjs, schedule-service.cjs).
+    if (["monitor-state", "monitor-stop", "schedule-state", "schedule-stop"].includes(action)) {
+      if (typeof p?.sessionId !== "string" || !agentToolSession(p.sessionId)) throw new Error("Unknown session.");
+      if (action === "monitor-state") return monitorService.list(p.sessionId);
+      if (action === "schedule-state") return scheduleService.list(p.sessionId);
+      if (typeof p.id !== "string" || !p.id) throw new Error("Unknown task.");
+      if (action === "monitor-stop") return monitorService.stop(p.sessionId, p.id, { by: "user" });
+      return { stopped: scheduleService.remove(p.sessionId, p.id) };
+    }
     switch (action) {
-      case "popout-open": return openPopout(p);
+      case "popout-open": return openPopout(p, windowRegistry.windowForSender(e.sender) ?? win);
+      // Multi-window and split view (window-registry.cjs): a new window (empty, or showing a session), this window's
+      // layout (its primary session and split side: menus, notification routing and relaunch follow it) and its View ›
+      // Split View state.
+      case "window-open": {
+        const sessionId = p.sessionId == null ? null : p.sessionId;
+        if (sessionId !== null && (typeof sessionId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(sessionId))) throw new Error("Unknown session.");
+        return openWindow({ sessionId, from: windowRegistry.windowForSender(e.sender) ?? win });
+      }
+      case "window-layout": return windowRegistry.setLayout(windowRegistry.windowForSender(e.sender), p);
+      case "split-menu-state": return setSplitMenuState(p, windowRegistry.windowForSender(e.sender));
       case "popout-dock": {
         const entry = senderKind === "popout" ? popoutForSender(e.sender) : popouts.get(popoutKey(p.sessionId, p.pane));
         if (!entry) throw new Error("Unknown pane window.");
@@ -743,27 +1751,39 @@ app.whenReady().then(async () => {
         try {
           const owner = client;
           const status = initial || (await connect());
-          if (owner !== client) throw new Error("DeepSeek connection changed. Reconnect to continue.");
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
           return {
             ...status,
             account: accountOperations.accountSnapshot(),
             config,
-            fullScreen: win.isFullScreen(),
-            zoomFactor: zoomFactorOf(win),
+            fullScreen: (windowRegistry.windowForSender(e.sender) ?? win).isFullScreen(),
+            zoomFactor: zoomFactorOf(windowRegistry.windowForSender(e.sender) ?? win),
+            // What this window showed (relaunch, or the session it was opened for): main.jsx restores it.
+            windowLayout: windowRegistry.launchLayoutOf(windowRegistry.windowForSender(e.sender)),
             approvalSnapshot: owner.approvalSnapshot(),
             sessionOperations: sessionOperations.snapshot(),
             auth: accountOperations.snapshot(),
+            extensionCores: extensionPacks.descriptors(),
+            // Settings › Code › Dynamic workflows: what the environment and managed settings decide (env wins).
+            workflowEnv: workflowEnvFacts(), workflowManaged: managedSettings(), workflowParallelism: os.availableParallelism?.() ?? os.cpus().length,
+            bypassCarry: carryFor(bypassCarry, owner.connection?.approvalConnectionId, config),
+            connectionNotices,
+            threadUsage: Object.fromEntries(threadUsage),
           };
         } catch (error) {
           return {
             connected: false,
             error: error.message,
+            extensionCores: extensionPacks.descriptors(),
             config,
             models: [],
           };
         }
       }
       case "reconnect": {
+        // Only the reconnect a core switch asked for takes the switch's token; every reconnect drops the old carry.
+        const token = p.carryBypass === true ? switchToken : null;
+        switchToken = null; bypassCarry = null;
         receive({ kind: "connection", connected: false });
         client.invalidateApprovals("manual_reconnect");
         client.removeAllListeners();
@@ -777,10 +1797,29 @@ app.whenReady().then(async () => {
         });
         initial = null;
         const status = await connect();
-        if (owner !== client) throw new Error("DeepSeek connection changed. Reconnect to continue.");
-        return { ...status, config, approvalSnapshot: owner.approvalSnapshot() };
+        if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
+        if (token) {
+          // The new core's requirements decide (a managed install refuses Bypass); every request still runs validateBypassRequest.
+          let bound = null;
+          try { bound = bindCarry(token, owner.connection?.approvalConnectionId, await owner.request("configRequirements/read", {}), carryScope(p)); } catch {}
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
+          bypassCarry = bound;
+        }
+        return { ...status, config, approvalSnapshot: owner.approvalSnapshot(), extensionCores: extensionPacks.descriptors(),
+          bypassCarry: carryFor(bypassCarry, owner.connection?.approvalConnectionId, config), connectionNotices };
       }
-      case "interrupt": return interruptTurn(client, p);
+      // The renderer applied the carry (consume-once): a later reload of the window starts from the saved default.
+      case "bypass-carry-clear": {
+        bypassCarry = null;
+        return true;
+      }
+      case "interrupt": {
+        const sent = interruptTurn(client, p);
+        // Stop closes the session's waiting Code Desktop tool sheets at once (the core's turn/completed follows): the
+        // calls of the turn it stops (a Codex sub-agent's go on, as Codex keeps the sub-agent running).
+        if (typeof p?.threadId === "string" && config.threadIds.includes(p.threadId)) agentTools.cancelThread(p.threadId);
+        return sent;
+      }
       case "steer": {
         // turn/steer against the live connection. The renderer needs to tell a
         // non-steerable active turn (review/compact: activeTurnNotSteerable) from
@@ -789,44 +1828,238 @@ app.whenReady().then(async () => {
         if (typeof p.threadId !== "string" || !p.threadId || typeof p.expectedTurnId !== "string" || !p.expectedTurnId || !Array.isArray(p.input))
           throw new Error("The steer target is unavailable.");
         await client.start();
+        // The "ultracode" keyword in a steered message (the composer's "Dynamic workflow requested for this turn").
+        const steerInput = p.keyword === true && workflowToolService && config.threadIds.includes(p.threadId) ? await workflowToolService.keywordInput(p.input) : p.input;
         try {
-          const result = await client.request("turn/steer", { threadId: p.threadId, expectedTurnId: p.expectedTurnId, input: p.input,
+          const result = await client.request("turn/steer", { threadId: p.threadId, expectedTurnId: p.expectedTurnId, input: steerInput,
             ...(typeof p.clientUserMessageId === "string" ? { clientUserMessageId: p.clientUserMessageId } : {}) });
+          // The steered message is the user's latest request: a workflow the model starts from now on relays it (and its
+          // "+500k" budget), not the message the turn started with. A queued message is taken from its turn's user
+          // message item instead (workflow-tool-service.cjs observe).
+          if (workflowToolService && config.threadIds.includes(p.threadId)) await workflowToolService.userInput(p.threadId, p.input).catch(() => {});
           return { ok: true, result };
         } catch (error) {
           return { ok: false, message: error.message, data: error.data ?? null, code: error.code ?? null };
         }
       }
-      case "session-action": return sessionOperations.run(p);
+      case "session-action": {
+        const result = await sessionOperations.run(p);
+        // A fork joins the other windows' session lists too.
+        if (p.operation === "fork" && result?.thread?.id && config.threadIds.includes(result.thread.id) && result.thread.id !== p.threadId) emitSessionList("added", { ...result.thread, ...(config.threadMetadata[result.thread.id]?.name ? { name: config.threadMetadata[result.thread.id].name } : {}) });
+        return result;
+      }
       case "customize": return customizeOperations.run(p);
+      case "codex-features": return codexFeatures.run(p);
       case "rpc": {
         if (deprecated.has(p.method)) throw new Error(deprecated.get(p.method));
         if (!allowed.has(p.method) || deprecated.has(p.method)) throw new Error("Unsupported operation.");
         await client.start();
         const params = { ...(p.params || {}) };
+        // The renderer's per-turn workflow facts (Mode, the "ultracode" keyword, ultracode mode) never reach a core:
+        // taken here, used once the request is otherwise ready (workflow-tool-service.cjs turnStart).
+        let workflowTurn = null;
+        if (params.codeDesktop && typeof params.codeDesktop === "object" && Object.hasOwn(params.codeDesktop, "workflowTurn")) {
+          const { workflowTurn: taken, ...rest } = params.codeDesktop;
+          workflowTurn = taken && typeof taken === "object" && ["turn/start", "thread/queue/add"].includes(p.method) ? { permission: taken.permission, mode: taken.mode, keyword: taken.keyword === true, ultracode: taken.ultracode === true } : null;
+          if (Object.keys(rest).length) params.codeDesktop = rest; else delete params.codeDesktop;
+        }
+        // A queued message the core starts as a turn by itself never passes turn/start here: the "ultracode" keyword's
+        // reminder goes with it now, as the composer promised ("Dynamic workflow requested for this turn").
+        if (p.method === "thread/queue/add" && workflowTurn?.keyword && workflowToolService && Array.isArray(params.input) && typeof params.threadId === "string" && config.threadIds.includes(params.threadId))
+          params.input = await workflowToolService.keywordInput(params.input);
+        // Multi-window: the connection is shared, so a session another window still shows stays subscribed when this
+        // window leaves it (the other split side of this window is checked by its renderer).
+        if (p.method === "thread/unsubscribe" && typeof params.threadId === "string"
+          && windowRegistry.windowsShowing(params.threadId).some((window) => window !== windowRegistry.windowForSender(e.sender))) return {};
+        if (p.method === "account/rateLimitResetCredit/consume") {
+          const key = params.idempotencyKey, credit = params.creditId;
+          if (typeof key !== "string" || !/^[A-Za-z0-9-]{8,128}$/.test(key) || (credit != null && (typeof credit !== "string" || !credit.trim() || credit.length > 512))) throw new Error("Unsupported operation.");
+          return client.request(p.method, { idempotencyKey: key, ...(credit != null ? { creditId: credit } : {}) });
+        }
+        if (p.method === "feedback/upload") {
+          if (!["bug", "bad_result", "good_result", "safety_check", "other"].includes(params.classification)) throw new Error("Unsupported operation.");
+          if (params.reason != null && (typeof params.reason !== "string" || params.reason.length > 4000)) throw new Error("Unsupported operation.");
+          if (params.threadId != null && (typeof params.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId))) throw new Error("Unknown session.");
+          return client.request(p.method, { classification: params.classification, reason: params.reason?.trim() || null, threadId: params.threadId ?? null, includeLogs: params.includeLogs === true });
+        }
+        if (p.method.startsWith("codeDesktop/messageFeedback/")) {
+          return client.request(p.method, messageFeedbackParams(p.method, params, client.serverInfo, [...config.threadIds, ...config.archivedThreadIds]));
+        }
+        if (p.method === "account/sendAddCreditsNudgeEmail") {
+          if (!["credits", "usage_limit"].includes(params.creditType)) throw new Error("Unsupported operation.");
+          return client.request(p.method, { creditType: params.creditType });
+        }
         if (["thread/start","thread/resume","turn/start"].includes(p.method) && Object.hasOwn(params,"serviceTier")) {
           params.serviceTier = validateServiceTier(initial?.models || [], params.model || config.model, params.serviceTier);
         }
-        if (["thread/start", "thread/resume", "turn/start", "codeDesktop/thread/permissions"].includes(p.method)) {
+        if (["thread/start", "thread/resume", "turn/start", "codeDesktop/thread/permissions", "codeDesktop/commands/execute"].includes(p.method)) {
           const owner = client;
           await validateBypassRequest(params, () => config, () => owner.request("configRequirements/read", {}));
-          if (owner !== client) throw new Error("The DeepSeek connection changed. Try again.");
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Try again.");
         }
         // The DeepSeek bridge shows the model its `workflow` tool only while Dynamic workflows is on
         // (harness structured.js workflowsAllowedBy); the setting lives here, so it is stamped here.
-        if (["thread/start", "thread/resume", "turn/start", "codeDesktop/thread/permissions"].includes(p.method) && params.codeDesktop && typeof params.codeDesktop === "object") {
-          params.codeDesktop = { ...params.codeDesktop, dynamicWorkflows: config.dynamicWorkflows === true };
+        if (["thread/start", "thread/resume", "turn/start", "codeDesktop/thread/permissions", "codeDesktop/commands/execute"].includes(p.method) && params.codeDesktop && typeof params.codeDesktop === "object") {
+          // Settings › Code › Dynamic workflows › Workflow engine: the core's own workflow tool only while its own engine is chosen.
+          const workflowsOn = workflowSettings().enabled;
+          // dynamicWorkflows false: the bridge withholds its own workflow tool (off, or Code Desktop's engine chosen).
+          params.codeDesktop = { ...params.codeDesktop, dynamicWorkflows: workflowsOn && currentWorkflowEngine() === "native" };
         }
-        if (p.method === "codeDesktop/workflow/stop" && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");
+        if (["codeDesktop/workflow/stop", "codeDesktop/workflow/member", "codeDesktop/workflow/pause", "codeDesktop/workflow/resume", "codeDesktop/workflow/artifact", "codeDesktop/workflow/settings"].includes(p.method) && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");
         if (p.method === "codeDesktop/sideQuestion" && (typeof params.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId))) throw new Error("Unknown session.");
+        if (p.method === "codeDesktop/sideQuestion" && nativeSideQuestions()) return nativeSideChat.ask(params);
+        if (p.method === "codeDesktop/sideQuestion/cancel" && nativeSideQuestions()) return nativeSideChat.cancel(params);
+        if (p.method.startsWith("remoteControl/")) {
+          if (coreForEngine(client?.serverInfo?.engine).kind !== "native") throw new Error("Unsupported operation.");
+          const text = (value, max = 512) => typeof value === "string" && value && value.length <= max && !/[\u0000-\u001f]/.test(value) ? value : null;
+          switch (p.method) {
+            case "remoteControl/status/read": return client.request(p.method, undefined);
+            case "remoteControl/enable": case "remoteControl/disable": return client.request(p.method, {});
+            case "remoteControl/pairing/start": return client.request(p.method, { ...(params.manualCode === true ? { manualCode: true } : {}) });
+            case "remoteControl/pairing/status": {
+              const pairingCode = text(params.pairingCode), manualPairingCode = text(params.manualPairingCode);
+              if (!pairingCode && !manualPairingCode) throw new Error("Unsupported operation.");
+              return client.request(p.method, { pairingCode, manualPairingCode });
+            }
+            case "remoteControl/client/list": {
+              const environmentId = text(params.environmentId);
+              if (!environmentId) throw new Error("Unsupported operation.");
+              return client.request(p.method, { environmentId, limit: 100, order: "desc" });
+            }
+            case "remoteControl/client/revoke": {
+              const environmentId = text(params.environmentId), clientId = text(params.clientId);
+              if (!environmentId || !clientId) throw new Error("Unsupported operation.");
+              return client.request(p.method, { environmentId, clientId });
+            }
+          }
+        }
+        if (p.method === "codeDesktop/thread/share") {
+          if (client.serverInfo?.capabilities?.threadShare !== true) throw new Error("Unsupported operation.");
+          if (typeof params.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId) || typeof params.enabled !== "boolean") throw new Error("Unknown session.");
+          return client.request(p.method, { threadId: params.threadId, enabled: params.enabled });
+        }
+        if (p.method === "codeDesktop/thread/move") {
+          if (client.serverInfo?.capabilities?.moveCwd !== true) throw new Error("Unsupported operation.");
+          if (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId)) throw new Error("Unknown session.");
+          if (params.check === true) return client.request(p.method, { threadId: params.threadId, check: true });
+          if (typeof params.cwd !== "string" || !params.cwd.trim() || params.cwd.length > 4096 || params.cwd.includes("\0")) throw new Error("Name a folder: /cd <path>.");
+          return client.request(p.method, { threadId: params.threadId, cwd: params.cwd, moveChanges: params.moveChanges === true }, 5 * 60 * 1000);
+        }
+        if (p.method === "codeDesktop/turn/continue") {
+          if (client.serverInfo?.capabilities?.continueTurn !== true) throw new Error("Unsupported operation.");
+          if (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId)) throw new Error("Unknown session.");
+          return client.request(p.method, { threadId: params.threadId });
+        }
+        if (p.method === "codeDesktop/migration/read" || p.method === "codeDesktop/migration/run") {
+          if (client.serverInfo?.capabilities?.legacyMigration !== true) throw new Error("Unsupported operation.");
+          return client.request(p.method, p.method === "codeDesktop/migration/run" ? { configOnly: params.configOnly === true } : {}, 11 * 60 * 1000);
+        }
+        if (p.method === "codeDesktop/threadTitle") {
+          if (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId)) throw new Error("Unknown session.");
+          if (coreForEngine(client?.serverInfo?.engine).kind !== "native") throw new Error("Unsupported operation.");
+          const text = typeof params.text === "string" ? params.text.slice(0, 4000) : "";
+          return nativeThreadTitles.generate({ text, cwd: typeof params.cwd === "string" && path.isAbsolute(params.cwd) ? params.cwd : undefined,
+            model: typeof params.model === "string" && params.model.length <= 200 ? params.model : undefined });
+        }
+        if (p.method === "codeDesktop/commands/execute" && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");
+        if (p.method === "codeDesktop/settings/write") {
+          if (typeof params.ns !== "string" || !/^[a-z0-9-]{1,64}$/.test(params.ns) || typeof params.key !== "string" || !/^[A-Za-z0-9]{1,64}$/.test(params.key)) throw new Error("Unsupported operation.");
+          if (params.value !== null && !Number.isSafeInteger(params.value) && (typeof params.value !== "string" || params.value.length > 512)) throw new Error("Unsupported operation.");
+          return client.request(p.method, { ns: params.ns, key: params.key, value: params.value });
+        }
+        if (p.method === "codeDesktop/settings/read") return client.request(p.method, {});
+        if (p.method === "thread/shellCommand") {
+          if (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId)) throw new Error("Unknown session.");
+          if (typeof params.command !== "string" || !params.command.trim() || params.command.length > 16000 || params.command.includes("\0")) throw new Error("Enter a command.");
+          return client.request(p.method, { threadId: params.threadId, command: params.command.trim() });
+        }
+        if (p.method === "thread/approveGuardianDeniedAction") {
+          if (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId)) throw new Error("Unknown session.");
+          const event = params.event;
+          if (!event || typeof event !== "object" || Array.isArray(event) || typeof event.id !== "string" || !event.id || event.status !== "denied"
+            || !event.action || typeof event.action !== "object" || typeof event.action.type !== "string" || JSON.stringify(event).length > 65536) throw new Error("Unsupported operation.");
+          return client.request(p.method, { threadId: params.threadId, event });
+        }
+        if (p.method.startsWith("thread/goal/")) {
+          if (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId)) throw new Error("Unknown session.");
+          if (p.method === "thread/goal/set") {
+            if (Object.keys(params).some((key) => !["threadId", "objective", "status", "tokenBudget", "codeDesktop"].includes(key))) throw new Error("Unsupported operation.");
+            // codeDesktop {edit: true} (/goal edit): change the current goal's objective in place. A bridge core reads it;
+            // a native core (Codex) gets the objective with the goal's own status, which edits the goal there.
+            if (params.codeDesktop !== undefined && (JSON.stringify(params.codeDesktop) !== JSON.stringify({ edit: true }) || typeof params.objective !== "string")) throw new Error("Unsupported operation.");
+            if (params.codeDesktop !== undefined && client.serverInfo?.capabilities?.permissionHints !== true) delete params.codeDesktop;
+            if (params.objective !== undefined && params.objective !== null && (typeof params.objective !== "string" || !params.objective.trim() || params.objective.length > 4000)) throw new Error("Enter a goal.");
+            if (params.status !== undefined && params.status !== null && !["active", "paused"].includes(params.status)) throw new Error("Unsupported operation.");
+            if (params.tokenBudget !== undefined && params.tokenBudget !== null && (!Number.isSafeInteger(params.tokenBudget) || params.tokenBudget <= 0)) throw new Error("Unsupported operation.");
+          }
+        }
+        if (p.method === "codeDesktop/commands/execute" && (typeof params.command !== "string" || !params.command.trim())) throw new Error("Unsupported operation.");
+        if (p.method === "codeDesktop/commands/list" && params.threadId !== undefined && (typeof params.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId))) throw new Error("Unknown session.");
+        // A core with capabilities.toolSelection (the DeepSeek bridge, harness tool-gate.js) gets the session's
+        // turned-off tools: thread/start carries the renderer's choice (else the default profile's), and
+        // thread/resume / turn/start the saved one unless the request names its own.
+        // thread/goal/set and codeDesktop/commands/execute start goal rounds on the agent, so they carry the saved
+        // selection as well: tools turned off since the last message stay off in every unattended round.
+        if (["thread/start", "thread/resume", "turn/start", "thread/goal/set", "codeDesktop/commands/execute"].includes(p.method) && client.serverInfo?.capabilities?.toolSelection === true) {
+          const hint = params.codeDesktop && typeof params.codeDesktop === "object" ? params.codeDesktop : {};
+          const tools = Object.hasOwn(hint, "tools") ? normalizeSelection(hint.tools)
+            : p.method === "thread/start" ? defaultProfile(config)?.tools ?? null : normalizeSelection(config.threadTools[params.threadId]);
+          params.codeDesktop = { ...hint, tools };
+        }
         modelSettings.decorate(p.method, params);
+        decorateAgentTools(p.method, params);
+        // The Codex core (native, no permission hints): Settings › Code › Web search and Response style. web_search is
+        // a thread config override (thread/start|resume config); personality goes on thread and turn requests, only
+        // for a model that reports supportsPersonality.
+        if (["thread/start", "thread/resume", "turn/start"].includes(p.method) && coreForEngine(client.serverInfo?.engine).id === "codex" && client.serverInfo?.capabilities?.permissionHints !== true) {
+          const search = ["disabled", "cached", "live"].includes(config.codexWebSearch) ? config.codexWebSearch : null;
+          if (search && p.method !== "turn/start") params.config = { ...(params.config && typeof params.config === "object" ? params.config : {}), web_search: search };
+          const style = ["none", "friendly", "pragmatic"].includes(config.codexPersonality) ? config.codexPersonality : null;
+          const modelId = typeof params.model === "string" && params.model ? params.model : config.model;
+          const model = (initial?.models || []).find((entry) => entry.model === modelId || entry.id === modelId);
+          if (style && model?.supportsPersonality === true && !Object.hasOwn(params, "personality")) params.personality = style;
+          // Codex's own permission settings (codex-permissions.mjs): a chosen or configured custom profile replaces
+          // the workspace-write sandbox of Auto / Manual / Accept edits; without one, config.toml's
+          // [sandbox_workspace_write] writable roots and network access are kept.
+          const owner = client, cwd = typeof params.cwd === "string" && params.cwd ? params.cwd : config.cwd || null;
+          const codexConfig = await owner.request("config/read", { includeLayers: false, cwd }, 5000).then((result) => result?.config ?? null, () => null);
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Try again.");
+          applyCodexPermissions(p.method, params, { profile: effectiveProfile(config.codexPermissionProfile, codexConfig?.default_permissions), workspaceWrite: codexConfig?.sandbox_workspace_write ?? null });
+          // The session's web search, for WebFetch (agentToolServedToCore): the override above, else config.toml's.
+          if (p.method !== "turn/start") {
+            const effective = typeof params.config?.web_search === "string" ? params.config.web_search : typeof codexConfig?.web_search === "string" ? codexConfig.web_search : null;
+            if (effective) rememberCodexWebSearch(params.config?.[AGENT_SESSION_KEY], effective);
+          }
+        }
+        // A core without permission hints gets the app's Mode as its own collaboration mode (permission-policy.mjs
+        // turnPermissionParams): completed with the turn's model and effort where the core lists collaboration
+        // modes, dropped where it doesn't (an unknown field must never reach it).
+        if (p.method === "turn/start" && Object.hasOwn(params, "collaborationMode")) {
+          const owner = client, supported = await collaborationModes(owner);
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Try again.");
+          const models = initial?.models || [], fallback = models.find((model) => model.isDefault) ?? models[0];
+          // Plan reasons at the core's own Plan effort (plan_mode_reasoning_effort, else its Plan preset), never the everyday one.
+          const planEffort = supported && params.collaborationMode?.mode === "plan" ? await planModeEffort(owner, typeof params.cwd === "string" ? params.cwd : null) : undefined;
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Try again.");
+          const native = supported ? nativeCollaborationMode(params, { model: config.model || fallback?.model || fallback?.id || null, effort: config.effort, planEffort }) : null;
+          if (native) params.collaborationMode = native; else delete params.collaborationMode;
+        }
         if (p.method === "turn/start") {
           config.stats[params.threadId] ??= { messages: 0, ids: [] };
           config.stats[params.threadId].model = params.model;
         }
         instructionsService.decorate(p.method, params);
+        // Approvals go to the user, except Codex's auto-review ('Approve for me', the renderer's Auto on a core that
+        // has it): kept only where this connection reported the feature and approvals can happen at all.
+        if (["thread/start", "thread/resume", "turn/start"].includes(p.method)) {
+          const owner = client;
+          const auto = params.approvalsReviewer === "auto_review" && (params.approvalPolicy ?? "on-request") === "on-request"
+            && params.sandbox !== "danger-full-access" && params.sandboxPolicy?.type !== "dangerFullAccess" && await autoReviewFeature(owner);
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Try again.");
+          if (auto) params.approvalsReviewer = "auto_review";
+          else if (p.method !== "turn/start" || Object.hasOwn(params, "approvalsReviewer")) params.approvalsReviewer = "user";
+        }
         if (p.method === "thread/start" || p.method === "thread/resume") {
-          params.approvalsReviewer = "user";
           params.approvalPolicy = params.approvalPolicy || "on-request";
         }
         if (p.method === "thread/archive") sessionOperations.assertAvailable(params.threadId);
@@ -834,10 +2067,25 @@ app.whenReady().then(async () => {
           if (typeof params.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId)) throw new Error("Unknown session.");
           sessionOperations.assertAvailable(params.threadId);
         }
+        // The Workflow tool's launch text tells the model to edit a run's saved script and re-run it with scriptPath:
+        // that folder (<userData>/sessions/<id>/workflows/scripts) is writable for the session's workspace-write
+        // sandbox, as the session folder is (else a sandboxed edit fails with EPERM outside Bypass).
+        if (p.method === "turn/start" && params.sandboxPolicy?.type === "workspaceWrite" && Array.isArray(params.sandboxPolicy.writableRoots) && typeof params.threadId === "string" && config.threadIds.includes(params.threadId)) {
+          const scripts = path.join(app.getPath("userData"), "sessions", params.threadId, "workflows", "scripts");
+          if (fs.existsSync(scripts) && !params.sandboxPolicy.writableRoots.includes(scripts)) params.sandboxPolicy = { ...params.sandboxPolicy, writableRoots: [...params.sandboxPolicy.writableRoots, scripts] };
+        }
+        if (p.method === "turn/start" && workflowToolService && typeof params.threadId === "string" && config.threadIds.includes(params.threadId)) await workflowToolService.turnStart(params, workflowTurn ?? {});
         const release = p.method === "turn/start" ? sessionOperations.reserveMessage(params.threadId) : null;
         let result;
+        const requester = client;
         try { result = await client.request(p.method, params); }
         catch (error) {
+          if (p.method === "turn/start") workflowToolService?.turnFailed(params.threadId);
+          // A per-token account (an API key, or a custom endpoint with no sign-in) has no plan limits or account
+          // usage: a native core's auth-required refusal becomes the empty state the Usage page explains, not a raw
+          // error. Only that refusal (account-operations perTokenRefusal): every other error still comes through.
+          const empty = requester === client ? perTokenRefusal(p.method, error, { serverInfo: requester.serverInfo, account: accountOperations.accountSnapshot() }) : null;
+          if (empty) return empty;
           // ipcRenderer.invoke keeps only the message of a thrown error, so a
           // JSON-RPC error from the core (numeric code) is returned whole and
           // rethrown by rpcResult (src/rpc-error.mjs) with its code and data
@@ -848,10 +2096,13 @@ app.whenReady().then(async () => {
         }
         finally { release?.(); }
         if (p.method === "thread/start") {
+          bindAgentTools(params, result.thread);
           config.threadIds = [
             ...new Set([result.thread.id, ...config.threadIds]),
           ];
           config.stats[result.thread.id] = { messages: 0, tokens: 0, observedTokens: 0, observedUsage: { input: 0, output: 0, cached: 0, cacheWrite: 0 }, ids: [] };
+          const tools = normalizeSelection(params.codeDesktop?.tools);
+          if (tools) config.threadTools[result.thread.id] = tools;
           save();
         }
         if (result.thread && (config.threadIds.includes(result.thread.id) || config.archivedThreadIds.includes(result.thread.id))) {
@@ -871,6 +2122,10 @@ app.whenReady().then(async () => {
           save();
         }
         if (p.method === "thread/archive") {
+          agentTools.cancelSession(params.threadId, "The session was archived.");
+          // Its monitors and scheduled prompts end with it (agent-tools/monitor.mjs, schedule.mjs).
+          monitorService.stopSession(params.threadId);
+          scheduleService.removeSession(params.threadId);
           config.threadIds = config.threadIds.filter((id) => id !== params.threadId);
           config.archivedThreadIds = [...new Set([params.threadId, ...config.archivedThreadIds])];
           save();
@@ -885,31 +2140,96 @@ app.whenReady().then(async () => {
         }
         if (p.method === "thread/delete") {
           const id = params.threadId;
+          monitorService.stopSession(id);
+          scheduleService.removeSession(id);
           config.threadIds = config.threadIds.filter((known) => known !== id);
           config.archivedThreadIds = config.archivedThreadIds.filter((known) => known !== id);
           delete config.threadMetadata[id];
           delete config.sessionMetadata[id];
           if (config.stats) delete config.stats[id];
           if (config.restoredAt) delete config.restoredAt[id];
+          delete config.threadTools[id];
           config.pinnedOrder = (config.pinnedOrder || []).filter((known) => known !== id);
           config.sidebarRevision = (config.sidebarRevision || 0) + 1;
           save();
         }
+        // The other windows (and the other split side) follow the session list (main.jsx "session-list").
+        if (p.method === "thread/start" && result?.thread?.id) emitSessionList("added", result.thread);
+        else if (p.method === "thread/name/set" && typeof params.threadId === "string" && typeof params.name === "string") emit({ kind: "session-list", op: "renamed", threadId: params.threadId, name: params.name });
+        else if (p.method === "thread/archive" || p.method === "thread/unarchive") emitSessionList(p.method === "thread/archive" ? "archived" : "unarchived", params.threadId);
+        else if (p.method === "thread/delete") emitSessionList("deleted", params.threadId);
         return result;
       }
       case "respond": {
+        // A plan card answered 'Accept and bypass permissions': the opt-in and the core's requirements decide,
+        // as for any Bypass turn. The owner is captured (and validated) synchronously through the wire write after.
+        if (p?.codeDesktop?.afterPlan === "bypass") {
+          try {
+            await validateBypassRequest({sandbox:"danger-full-access"}, () => config, () => client.request("configRequirements/read", {}));
+          } catch (error) {
+            return { ok: false, error: { code: "bypass_refused", message: error.message } };
+          }
+        }
+        // A Codex tool suggestion's 'Turn on' (approval-card-model toolSuggestion, enableSuggested): the app (connector)
+        // or plugin the request names is turned on first, as the TUI's AppLinkView does (clears apps.<id>.enabled /
+        // disabled_reason; plugins.<id> = {enabled: true}), then the suggestion is accepted.
+        if (p?.elicitation?.enableSuggested === true) {
+          const { enableSuggested, ...elicitation } = p.elicitation;
+          void enableSuggested;
+          let request;
+          try { request = client.getApproval(p.id, p.expected); } catch { return { ok: false, error: { code: "invalid_response", message: "This request is no longer waiting." } }; }
+          const meta = request?.params?._meta;
+          const toolId = typeof meta?.tool_id === "string" ? meta.tool_id.trim() : "";
+          if (request?.method !== "mcpServer/elicitation/request" || meta?.codex_approval_kind !== "tool_suggestion" || meta?.suggest_type !== "enable"
+            || !["connector", "plugin"].includes(meta?.tool_type) || !toolId || toolId.length > 256 || /[\u0000-\u001f]/.test(toolId))
+            return { ok: false, error: { code: "invalid_response", message: "Invalid response to this request." } };
+          const segment = `"${toolId.replace(/[\\"]/g, (ch) => "\\" + ch)}"`;
+          try {
+            const edits = meta.tool_type === "connector"
+              ? [{ keyPath: `apps.${segment}.enabled`, value: null, mergeStrategy: "replace" }, { keyPath: `apps.${segment}.disabled_reason`, value: null, mergeStrategy: "replace" }]
+              : [{ keyPath: `plugins.${segment}`, value: { enabled: true }, mergeStrategy: "upsert" }];
+            await client.request("config/batchWrite", { edits, reloadUserConfig: true });
+          } catch (error) {
+            return { ok: false, error: { code: "transport_error", message: `Couldn’t turn it on: ${error?.message || error}` } };
+          }
+          return respondToApproval(client, { ...p, elicitation });
+        }
         // Capture and validate one live owner synchronously through the wire write.
         return respondToApproval(client, p);
       }
       case "settings": {
-        if (p.allowBypassPermissions === true) {
+        if (p.allowBypassPermissions === true || p.permission === "bypass") {
+          // Turning the opt-in on, or remembering Bypass as the mode (preferences.mjs requires the opt-in too):
+          // the core's requirements must allow it. Every Bypass turn is still validated on its own.
           await client.start();
-          await validateBypassRequest({sandbox:"danger-full-access"}, {allowBypassPermissions:true}, () => client.request("configRequirements/read", {}));
+          await validateBypassRequest({sandbox:"danger-full-access"}, {allowBypassPermissions:p.allowBypassPermissions ?? config.allowBypassPermissions}, () => client.request("configRequirements/read", {}));
         }
         const previous = config;
         config = {...settingsPatch(config, p, initial?.models || []),...desktopPatch(p)};
-        if (config.locale !== previous.locale) { i18n.setLocale(config.locale); installAppMenu(); }
+        // An explicit model choice is remembered for the running core (never while disconnected).
+        if (["model", "effort", "fastMode"].some((key) => key in p) && initial?.core?.id) {
+          const recorded = recordCoreModel(config, initial.core.id);
+          if (recorded) config.coreModels = recorded;
+        }
+        if (config.locale !== previous.locale) { i18n.setLocale(config.locale); process.env.CODE_DESKTOP_LOCALE = i18n.getLocale(); installAppMenu(); }
         if(typeof p.dynamicWorkflows === "boolean")config.dynamicWorkflows=p.dynamicWorkflows;
+        // The Workflow tool's presence and description follow Dynamic workflows, the engine choice and the size guideline.
+        // Settings › Code › Preview: the running agent servers re-list their tools (notifications/tools/list_changed).
+        if (typeof p.agentPreview === "boolean") config.agentPreview = p.agentPreview;
+        // The Preview pane's "Open links in preview" (src/preview-links-model.mjs), for every window of the profile.
+        if (typeof p.previewLinks === "boolean") config.previewLinks = p.previewLinks;
+        if (["dynamicWorkflows","workflowEngines","workflowSizeGuideline"].some((key) => key in p) || typeof p.agentPreview === "boolean") {
+          agentTools.notifyListChanged();
+          // A bridge whose agent keeps the tool list it read when the session opened (ZCode, the ACP agents) reopens
+          // its sessions with the new list: an idle one before its next turn, a busy one once its turn ends.
+          if (client && coreForEngine(client.serverInfo?.engine).kind === "bridge") void client.request("codeDesktop/appTools/changed", { revision: agentTools.revision }).catch(() => {});
+        }
+        // Settings › Code › Sandbox network access (permission-policy.mjs turnPermissionParams networkAccess).
+        if (typeof p.sandboxNetworkAccess === "boolean") config.sandboxNetworkAccess = p.sandboxNetworkAccess;
+        if ("deepseekSessionLog" in p || "deepseekFeedbackSharing" in p) syncPrivacyEnv();
+        // First-run setup (src/source-onboarding.jsx) was finished or put off.
+        if (typeof p.onboarded === "boolean") config.onboarded = p.onboarded;
+        Object.assign(config, toolProfilesPatch(p, previous));
         // shared-2-C6aD8DvJ.js Km {MIN:200, MAX:420} / qm (src/sidebar-width-model.mjs).
         if (typeof p.sidebarWidth === "number" && Number.isFinite(p.sidebarWidth))
           config.sidebarWidth = Math.max(200, Math.min(420, p.sidebarWidth));
@@ -926,33 +2246,52 @@ app.whenReady().then(async () => {
           config.rememberedActionCenterCounts = { sessions: Number.isInteger(sessions) && sessions >= 0 ? Math.min(sessions, 999) : 0, projects: 0, prs: 0 };
         }
         try { save(); } catch (error) { config = previous; throw error; }
+        if (config.allowBypassPermissions !== true) switchToken = bypassCarry = null;
         // xh setThemeMode → setThemeMode(e){nativeTheme.themeSource=e}.
         if ("theme" in p) nativeTheme.themeSource = themePreference(config.theme);
         desktopSettings.power();
         menuBar?.update();
         if (typeof p.sidebarCollapsed === "boolean") installAppMenu();
+        emitConfig();
         return config;
       }
-      case "navigation-state": return setNavigationState(p);
-      case "menu-state": return setMenuState(p);
+      case "navigation-state": return setNavigationState(p, windowRegistry.windowForSender(e.sender));
+      case "menu-state": return setMenuState(p, windowRegistry.windowForSender(e.sender));
       case "repo-identities": {
         // Fidelity F08 Folder grouping (sidebar-session.js:20892-20903 IJ): cwd -> {isRepo, toplevel, owner,
         // name, parent} for the folders the sidebar shows, resolved read-only and cached per cwd
         // (git-status.cjs repoIdentity). The renderer keys on the cwd until an entry arrives.
         const cwds = Array.isArray(p.cwds) ? [...new Set(p.cwds.filter(cwd => typeof cwd === "string" && path.isAbsolute(cwd)))].slice(0, 200) : [];
         const { repoIdentity } = require("./git-status.cjs");
-        const identities = await Promise.all(cwds.map(cwd => repoIdentity(cwd, { home: os.homedir() })));
+        // fresh: the renderer saw the folder's repository state change (git init, a remote added): read it again.
+        const identities = await Promise.all(cwds.map(cwd => repoIdentity(cwd, { home: os.homedir(), fresh: p.fresh === true })));
         return Object.fromEntries(cwds.map((cwd, index) => [cwd, identities[index]]));
       }
       case "sidebar-state": {
         if (p.operation === "metadata") {
+          // A turn that finished in a session some window (or split side) shows is read there. Every window's primary
+          // side reports completions for rows it does not show itself, so an automatic unread mark waits a moment for
+          // the windows' layout reports (a session a window has just opened) and is dropped while any window shows it.
+          // The row menu's Mark as unread is not automatic.
+          if (p.automatic === true && p.patch?.unread === true) {
+            await new Promise((resolve) => setTimeout(resolve, AUTOMATIC_UNREAD_SETTLE_MS));
+            if (windowRegistry.windowsShowing(p.id).length) return sidebarSnapshot();
+          }
           if (![...config.threadIds, ...config.archivedThreadIds].includes(p.id)) throw new Error("Unknown session.");
           const previous = config.sessionMetadata[p.id] || {};
           const patch = {};
-          for (const key of ["pinned", "unread"]) if (typeof p.patch?.[key] === "boolean") patch[key] = p.patch[key];
+          // keepAwake: the row menu's 'Keep computer awake' (only for this session; desktop-settings power()).
+          for (const key of ["pinned", "unread", "keepAwake"]) if (typeof p.patch?.[key] === "boolean") patch[key] = p.patch[key];
           if (p.patch?.customGroupId === null || config.customGroups.some(group => group.id === p.patch?.customGroupId)) patch.customGroupId = p.patch.customGroupId;
           if (Array.isArray(p.patch?.additionalFolders)) patch.additionalFolders = [...new Set(p.patch.additionalFolders.filter(dir => typeof dir === "string" && path.isAbsolute(dir) && fs.existsSync(dir)))];
-          config.sessionMetadata[p.id] = { ...previous, ...patch };
+          // The session's own model and effort, picked in it (the Settings / Home model stays the default for new ones).
+          for (const [key, max] of [["model", 256], ["effort", 64]]) {
+            if (p.patch?.[key] === null) patch[key] = undefined;
+            else if (typeof p.patch?.[key] === "string" && p.patch[key] && p.patch[key].length <= max && !/[\u0000-\u001f]/.test(p.patch[key])) patch[key] = p.patch[key];
+          }
+          config.sessionMetadata[p.id] = Object.fromEntries(Object.entries({ ...previous, ...patch }).filter(([, value]) => value !== undefined));
+          if ("keepAwake" in patch) desktopSettings?.power();
+          if ("pinned" in patch || "customGroupId" in patch) mirrorSections((owner) => codexSections.placeSession(owner, config, p.id));
         } else if (p.operation === "create-group") {
           if (typeof p.name !== "string" || !p.name.trim()) throw new Error("Enter a group name.");
           const id = require("node:crypto").randomUUID();
@@ -961,10 +2300,14 @@ app.whenReady().then(async () => {
           const known = new Set([...config.threadIds, ...config.archivedThreadIds]);
           const assign = [...new Set([p.sessionId, ...(Array.isArray(p.sessionIds) ? p.sessionIds : [])])].filter(sessionId => typeof sessionId === "string" && known.has(sessionId));
           for (const sessionId of assign) config.sessionMetadata[sessionId] = { ...config.sessionMetadata[sessionId], customGroupId: id };
+          mirrorSections(async (owner) => { for (const sessionId of assign) await codexSections.placeSession(owner, config, sessionId); if (!assign.length) await codexSections.groupSection(owner, config, id); });
         } else if (p.operation === "rename-group") {
           if (typeof p.name !== "string" || !p.name.trim()) throw new Error("Enter a group name.");
           config.customGroups = config.customGroups.map(group => group.id === p.id ? { ...group, name: p.name.trim() } : group);
+          mirrorSections((owner) => codexSections.renameGroup(owner, config, p.id));
         } else if (p.operation === "delete-group") {
+          const sectionId = config.customGroups.find(group => group.id === p.id)?.codexSectionId;
+          mirrorSections((owner) => codexSections.deleteGroupSection(owner, sectionId));
           config.customGroups = config.customGroups.filter(group => group.id !== p.id);
           for (const meta of Object.values(config.sessionMetadata)) if (meta.customGroupId === p.id) meta.customGroupId = null;
           if (Array.isArray(config.projectOrder)) config.projectOrder = config.projectOrder.filter(key => key !== "ccg::" + p.id);
@@ -981,6 +2324,8 @@ app.whenReady().then(async () => {
         } else throw new Error("Unsupported sidebar operation.");
         config.sidebarRevision = (config.sidebarRevision || 0) + 1;
         save();
+        // Every window's sidebar (and the other split side) follows the change.
+        emit({ kind: "sidebar-state", state: sidebarSnapshot() });
         return sidebarSnapshot();
       }
       case "home-shape":
@@ -1006,6 +2351,8 @@ app.whenReady().then(async () => {
         config.sessionMetadata[p.id] = { ...config.sessionMetadata[p.id], ackedAt: Math.floor(p.ackedAt), unread: false };
         config.sidebarRevision = (config.sidebarRevision || 0) + 1;
         save();
+        // Every window's sidebar (and the other split side) follows the change.
+        emit({ kind: "sidebar-state", state: sidebarSnapshot() });
         return sidebarSnapshot();
       }
       case "workspace-git-status": {
@@ -1105,7 +2452,8 @@ app.whenReady().then(async () => {
         const cwd = fs.realpathSync(p.cwd || config.cwd);
         if (typeof p.branch !== "string" || p.branch.startsWith("-"))
           throw new Error("Invalid branch.");
-        const name = "codex/" + Date.now().toString(36);
+        // Named after the running core ("deepseek/…", "kimi/…"), never a hard-coded agent the user doesn't use.
+        const name = worktreeBranchPrefix(client?.serverInfo ?? config.core ?? "deepseek") + Date.now().toString(36);
         const base = config.worktreeLocation === "custom" ? config.worktreeDirectory : path.join(cwd,".code","worktrees");
         if(!base)throw new Error("Choose a custom worktree directory first.");
         const dest = path.join(base,path.basename(cwd)+"-"+Date.now().toString(36));
@@ -1121,28 +2469,113 @@ app.whenReady().then(async () => {
           p.branch || "HEAD",
         ]);
         approvedWorkspaceRoots.add(dest);
+        // Inside the repository (the default .code/worktrees): kept out of the main checkout's status.
+        await worktrees.excludeWorktreeRoot(run, cwd, base).catch(() => null);
         config.worktreeDirectories=[...new Set([...(config.worktreeDirectories||[]),dest])];save();
         // Persist the real creation base so the session's comparison never
         // silently falls back to the inferred default branch.
         if (p.branch) { config.worktreeBases[dest] = p.branch; save(); }
         return dest;
       }
+      // A session's own worktree before it is archived or deleted: its folder and uncommitted changes (the renderer
+      // confirms 'Archive/Delete session with uncommitted changes?'), and whether another session still works there.
+      case "worktree-status": {
+        if (typeof p.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(p.threadId)) throw new Error("Unknown session.");
+        const cwd = config.threadMetadata[p.threadId]?.cwd;
+        const dir = typeof cwd === "string" ? (config.worktreeDirectories || []).find((entry) => path.resolve(entry) === path.resolve(cwd)) : null;
+        if (!dir) return { worktree: null, changes: 0, shared: false };
+        const shared = [...config.threadIds, ...config.archivedThreadIds].some((id) => id !== p.threadId && !(p.leaving || []).includes(id) && path.resolve(config.threadMetadata[id]?.cwd || "") === path.resolve(dir));
+        return { worktree: dir, shared, ...(await worktrees.worktreeStatus(run, dir)) };
+      }
+      // After the session left: its worktree goes (git worktree remove --force; the branch stays), unless another uses it.
+      case "worktree-remove": {
+        const dir = typeof p.worktree === "string" ? (config.worktreeDirectories || []).find((entry) => path.resolve(entry) === path.resolve(p.worktree)) : null;
+        if (!dir) return { removed: false };
+        const users = [...config.threadIds, ...config.archivedThreadIds].filter((id) => path.resolve(config.threadMetadata[id]?.cwd || "") === path.resolve(dir) && config.threadIds.includes(id));
+        if (users.length) return { removed: false };
+        const removed = await worktrees.removeWorktree(run, dir);
+        if (removed) { worktrees.forgetWorktree(config, dir); save(); }
+        return { removed };
+      }
+      // Settings › Storage › Remove worktrees: every worktree no session works in and without uncommitted changes.
+      case "worktrees-clean": {
+        let removed = 0, kept = 0;
+        for (const dir of worktrees.unusedWorktrees(config)) {
+          const status = await worktrees.worktreeStatus(run, dir);
+          if (!status.exists) { worktrees.forgetWorktree(config, dir); continue; }
+          if (status.changes > 0 || status.unknown) { kept++; continue; }
+          if (await worktrees.removeWorktree(run, dir)) { worktrees.forgetWorktree(config, dir); removed++; } else kept++;
+        }
+        save();
+        return { removed, kept };
+      }
       case "workflow-list": return workflowService.list(p.threadId);
+      // Saved workflows of a known folder (~/.claude/workflows and the project's .claude/workflows up to its git root,
+      // nearest wins): the '/' menu offers each as /<name> (Claude Code getWorkflowCommands). Only their summary.
+      case "saved-workflows": {
+        let root;
+        try { root = workspaceQueryRoot(p.cwd); } catch { return []; }
+        // A core with a saved-workflow library of its own (capabilities.savedWorkflows: ZCode's .zcode/workflows), while
+        // its own engine runs this core's workflows: that library, which its engine runs by name (engine 'core').
+        if (coreSupports(client?.serverInfo, "savedWorkflows") && currentWorkflowEngine() === "native") {
+          const listed = await client.request("codeDesktop/workflows/list", { cwd: root }, 30000);
+          knownSavedWorkflowPaths.clear();
+          return (Array.isArray(listed?.workflows) ? listed.workflows : []).slice(0, 200).map((entry) => {
+            if (typeof entry.path === "string" && path.isAbsolute(entry.path)) knownSavedWorkflowPaths.add(entry.path);
+            return { name: entry.name, description: entry.description ?? "", whenToUse: entry.whenToUse ?? "", source: entry.scope === "global" ? "user" : "project",
+              scope: entry.scope === "global" ? "global" : "project", path: typeof entry.path === "string" ? entry.path : null, phases: [], engine: "core",
+              ...(entry.args && typeof entry.args === "object" ? { args: entry.args } : {}) };
+          });
+        }
+        const { savedWorkflows } = await import(require("node:url").pathToFileURL(path.join(__dirname, "workflow-tool-model.mjs")).href);
+        knownSavedWorkflowPaths.clear();
+        return savedWorkflows({ cwd: root, home: os.homedir(), folders: coreWorkflowFolders() }).workflows.slice(0, 200).map((entry) => {
+          if (typeof entry.path === "string" && path.isAbsolute(entry.path)) knownSavedWorkflowPaths.add(entry.path);
+          return {
+            name: entry.name, description: entry.description ?? "", whenToUse: entry.whenToUse ?? "", source: entry.source,
+            phases: (Array.isArray(entry.phases) ? entry.phases : []).filter((phase) => phase && typeof phase.title === "string").slice(0, 30).map((phase) => phase.title),
+            disableModelInvocation: entry.disableModelInvocation === true, ...(typeof entry.path === "string" ? { path: entry.path } : {}),
+          };
+        });
+      }
+      // Settings › Dynamic workflows' saved list: a listed workflow's file in Finder; a core library's own workflow deleted,
+      // or its run history read (codeDesktop/workflows/delete | runs, by name and scope, in a known folder).
+      case "saved-workflow-reveal": {
+        if (typeof p.path !== "string" || !knownSavedWorkflowPaths.has(p.path)) throw new Error("Unknown saved workflow.");
+        if (!fs.existsSync(p.path)) throw new Error(i18n.t("This saved workflow’s file no longer exists."));
+        shell.showItemInFolder(p.path);
+        return true;
+      }
+      case "saved-workflow-delete":
+      case "saved-workflow-runs": {
+        if (!coreSupports(client?.serverInfo, "savedWorkflows")) throw new Error("Unsupported operation.");
+        const root = workspaceQueryRoot(p.cwd);
+        if (typeof p.name !== "string" || !p.name || p.name.length > 128) throw new Error("Unknown saved workflow.");
+        const scope = p.scope === "global" ? "global" : "project";
+        if (action === "saved-workflow-delete") return client.request("codeDesktop/workflows/delete", { cwd: root, name: p.name, scope }, 30000);
+        return client.request("codeDesktop/workflows/runs", { cwd: root, name: p.name, scope, limit: 20 }, 30000);
+      }
       case "workflow-pick": { const picked=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:i18n.t('Workflow JavaScript'),extensions:['js','mjs','cjs']}]});return picked.canceled?null:picked.filePaths[0]; }
       case "workflow-start": {
-        if(!p.plan&&!initial?.models?.some(model=>(model.id===p.model||model.model===p.model)))throw Error('Choose an available DeepSeek model.');
-        if(p.effort&&!initial?.models?.find(model=>(model.id===p.model||model.model===p.model))?.supportedReasoningEfforts?.some(e=>e.reasoningEffort===p.effort))throw Error('Choose an available reasoning effort.');
+        if(!p.plan&&!initial?.models?.some(model=>(model.id===p.model||model.model===p.model)))throw Error(i18n.t('Choose an available model.'));
+        if(p.effort&&!initial?.models?.find(model=>(model.id===p.model||model.model===p.model))?.supportedReasoningEfforts?.some(e=>e.reasoningEffort===p.effort))throw Error(i18n.t('Choose an available reasoning effort.'));
         // Agents take the session Mode's access (permission-policy.mjs workflowAccess), derived here, never sent.
         const { workflowAccess, validateBypassRequest } = await import("./permission-policy.mjs");
         const access = workflowAccess({ permission: p.permission, mode: p.mode });
         if (access === "danger-full-access" && !p.plan) {
           const owner = client;
           await validateBypassRequest({ sandbox: "danger-full-access" }, () => config, () => owner.request("configRequirements/read", {}));
-          if (owner !== client) throw new Error("The DeepSeek connection changed. Try again.");
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Try again.");
         }
         const { permission, mode, ...options } = p;
-        return workflowService.start({...options,access,cwd:workspaceQueryRoot(p.cwd)});
+        // Settings' Workflow engine and the core's structured output decide how the runner treats this core.
+        const structuredMode = runnerStructuredOutput(), structured = structuredMode === undefined ? {} : { structuredOutput: structuredMode };
+        return workflowService.start({...options,access,cwd:workspaceQueryRoot(p.cwd),engine:currentWorkflowEngine(),...structured,origin:"user"});
       }
+      case "workflow-member": return workflowService.member(p.id,p.memberId,p.action);
+      case "workflow-pause": return workflowService.pause(p.id,p.paused===true);
+      case "workflow-save": return workflowService.save(p.id,{scope:p.scope==="user"?"user":"project",name:typeof p.name==="string"?p.name.slice(0,200):undefined,overwrite:p.overwrite===true});
+      case "workflow-settings": return workflowSettings();
       case "workflow-stop": return workflowService.stop(p.id);
       case "background-read": return backgroundOperations.read(p);
       case "background-terminate": return backgroundOperations.terminate(p);
@@ -1150,9 +2583,13 @@ app.whenReady().then(async () => {
         const owner=client;await owner.start();const connection=owner.connection;
         const requests=[['policy','config/read',{includeLayers:false,cwd:config.cwd}],['requirements','configRequirements/read',{}]];
         const result={desktop:desktopSettings.snapshot(),errors:{}};
-        await Promise.all(requests.map(async([key,method,params])=>{try{const value=await owner.request(method,params);if(key==='policy')result.mcpDefinitions=mcpDefinitions(value.config);result[key]=key==='policy'?{config:{sandbox_mode:value.config?.sandbox_mode,approval_policy:value.config?.approval_policy},origins:Object.fromEntries(Object.entries(value.origins||{}).filter(([name])=>['sandbox_mode','approval_policy'].includes(name)))}:value;}catch(error){recordSettingsFailure(result,key,error);}}));
-        try{let cursor;const servers=[],seen=new Set();do{const page=await owner.request('mcpServerStatus/list',{limit:100,...(config.threadIds.includes(p.threadId)?{threadId:p.threadId}:{}),...(cursor?{cursor}:{})});servers.push(...(page.data||[]));cursor=page.nextCursor;if(cursor&&seen.has(cursor))throw Error('MCP pagination did not advance.');if(cursor)seen.add(cursor);}while(cursor&&servers.length<1000&&seen.size<100);result.servers=servers;result.serversTruncated=!!cursor;}catch(error){recordSettingsFailure(result,'servers',error);}
-        if(owner!==client||owner.connection!==connection||connection?.closed)throw Error('DeepSeek connection changed. Reconnect to continue.');return result;
+        // Codex (native, no permission hints): its permission profiles for Settings › Code (codex-permissions.mjs).
+        const codexNative=coreForEngine(owner.serverInfo?.engine).id==='codex'&&owner.serverInfo?.capabilities?.permissionHints!==true;
+        if(codexNative)requests.push(['codexProfiles','permissionProfile/list',{cwd:config.cwd||null}]);
+        await Promise.all(requests.map(async([key,method,params])=>{try{const value=await owner.request(method,params);if(key==='codexProfiles'){result.codexPermissions={...result.codexPermissions,profiles:customProfiles(value),choice:config.codexPermissionProfile??null};return;}if(key==='policy'){result.mcpDefinitions=mcpDefinitions(value.config);if(codexNative)result.codexPermissions={...result.codexPermissions,configured:typeof value.config?.default_permissions==='string'?value.config.default_permissions:null,writableRoots:Array.isArray(value.config?.sandbox_workspace_write?.writable_roots)?value.config.sandbox_workspace_write.writable_roots:[],networkAccess:value.config?.sandbox_workspace_write?.network_access===true};}result[key]=key==='policy'?{config:{sandbox_mode:value.config?.sandbox_mode,approval_policy:value.config?.approval_policy},origins:Object.fromEntries(Object.entries(value.origins||{}).filter(([name])=>['sandbox_mode','approval_policy'].includes(name)))}:value;}catch(error){recordSettingsFailure(result,key,error);}}));
+        // servers:false (the Settings page's first, fast read): skip the MCP status list, which waits for MCP startup.
+        if(p.servers!==false)try{let cursor;const servers=[],seen=new Set();do{const page=await owner.request('mcpServerStatus/list',{limit:100,...(config.threadIds.includes(p.threadId)?{threadId:p.threadId}:{}),...(cursor?{cursor}:{})});servers.push(...(page.data||[]).filter(server=>server?.name!==agentTools.SERVER_NAME));cursor=page.nextCursor;if(cursor&&seen.has(cursor))throw Error('MCP pagination did not advance.');if(cursor)seen.add(cursor);}while(cursor&&servers.length<1000&&seen.size<100);result.servers=servers;result.serversTruncated=!!cursor;}catch(error){recordSettingsFailure(result,'servers',error);}
+        if(owner!==client||owner.connection!==connection||connection?.closed)throw coreError(owner,'The {core} connection changed. Reconnect to continue.');return result;
       }
       case "instructions": return instructionsService.run(p);
       case "desktop-startup": return desktopSettings.setStartup(p.enabled);
@@ -1167,15 +2604,89 @@ app.whenReady().then(async () => {
         // (index.chunk-ChZ67Jhw.js pfi/hfi; logs = app logs + crash dumps).
         const core=resolveCore(),info=client.serverInfo,logs=[];
         for(const name of ['logs','crashDumps'])try{logs.push(app.getPath(name));}catch{}
-        const coreName=info?(info.engine==='deepseek-harness'?'DeepSeek Harness':'Codex'):(core.kind==='deepseek'?'DeepSeek Harness':'Codex');
+        const coreName=coreNameOf(info?(info.engine??'codex'):core.kind==='override'?'codex':core.kind);
+        // sessionStore: where the running core keeps a session (its descriptor), so its own history is told from the rest.
+        const sessionStore=info?coreForEngine(info.engine??'codex').sessionStore??null:null;
         return storageReport({userData:app.getPath('userData'),logs,dshHome:info?.codexHome,coreRoot:storageCoreRoot(core),coreName,
-          threadIds:[...config.threadIds,...config.archivedThreadIds],worktreeDirs:config.worktreeDirectories||[]});
+          threadIds:[...config.threadIds,...config.archivedThreadIds],worktreeDirs:config.worktreeDirectories||[],sessionStore,userHome:os.homedir()});
       }
       case "theme-file": return themeFiles.run(p);
       case "desktop-edit-config": {
         const error=await shell.openPath(editConfigTarget(client.serverInfo));if(error)throw Error(error);return true;
       }
       case "harness-profile": return harnessProfile.run(p);
+      // Import from Claude Code on Codex (codex slash_command.rs Import; tui external_agent_config_migration): detect
+      // what can come over (AGENTS.md from CLAUDE.md, config, skills, MCP servers, hooks, commands, sessions…), then
+      // import the items the user kept. Only items this window detected are sent back.
+      case "codex-import": {
+        const owner = client;
+        await owner.start();
+        if (coreForEngine(owner.serverInfo?.engine).id !== "codex") throw new Error(i18n.t("Importing from Claude Code needs the Codex core."));
+        if (p.op === "detect") {
+          const cwds = [...new Set([config.cwd, ...(Array.isArray(p.cwds) ? p.cwds : [])].filter((value) => typeof value === "string" && path.isAbsolute(value)))].slice(0, 8);
+          const result = await owner.request("externalAgentConfig/detect", { includeHome: true, cwds }, 60000);
+          const items = (Array.isArray(result?.items) ? result.items : []).filter((item) => item && typeof item.itemType === "string" && typeof item.description === "string").slice(0, 200);
+          owner.connection.claudeImport = items;
+          return { items: items.map((item, index) => ({ index, itemType: item.itemType, description: item.description, cwd: typeof item.cwd === "string" && item.cwd ? item.cwd : null })) };
+        }
+        if (p.op === "import") {
+          const detected = owner.connection?.claudeImport;
+          if (!Array.isArray(detected)) throw new Error(i18n.t("Detect what to import first."));
+          const indices = Array.isArray(p.indices) ? [...new Set(p.indices.filter((index) => Number.isInteger(index) && index >= 0 && index < detected.length))] : [];
+          if (!indices.length) throw new Error(i18n.t("Choose at least one item to import."));
+          const { importId } = await owner.request("externalAgentConfig/import", { migrationItems: indices.map((index) => detected[index]), source: "code-desktop" }, 60000);
+          if (typeof importId !== "string") throw new Error(i18n.t("Codex didn’t start the import."));
+          const done = finishedImports.get(importId) ?? await new Promise((resolve) => {
+            const timer = setTimeout(() => { pendingImports.delete(importId); resolve(null); }, 300000);
+            pendingImports.set(importId, (params) => { clearTimeout(timer); pendingImports.delete(importId); resolve(params); });
+          });
+          const results = Array.isArray(done?.itemTypeResults) ? done.itemTypeResults : [];
+          return { importId, finished: !!done,
+            imported: results.reduce((sum, result) => sum + (Array.isArray(result?.successes) ? result.successes.length : 0), 0),
+            failures: results.flatMap((result) => (Array.isArray(result?.failures) ? result.failures : []).map((failure) => ({ itemType: failure?.itemType ?? result.itemType, message: typeof failure?.message === "string" ? failure.message : "" }))).slice(0, 50) };
+        }
+        throw new Error("Unsupported operation.");
+      }
+      case "cores": {
+        if (["select", "uninstall"].includes(p.op)) switchToken = bypassCarry = null;
+        const result = await coreManager.run(p);
+        // A successful select while Bypass is active mints the token its own reconnect({carryBypass}) consumes.
+        if (p.op === "select" && p.carryBypass === true) switchToken = requestCarry(config, carryScope(p));
+        // A new choice renames the assistant in the menus now; the renderer reloads for its own copy.
+        if (["select", "uninstall"].includes(p.op) && i18n.getAssistantName() !== chosenAssistant()) { i18n.setAssistantName(chosenAssistant()); installAppMenu(); }
+        return result;
+      }
+      case "extensions": {
+        if (p.op === "list") return { packs: extensionPacks.list(), bundled: extensionPacks.bundled(), cores: extensionPacks.descriptors() };
+        if (p.op === "pick") {
+          const chosen = extensionPacks.pickOverride();
+          if (chosen) return chosen;
+          const result = await dialog.showOpenDialog(win, { title: "Import extension pack", buttonLabel: "Import", properties: ["openFile", "openDirectory"], filters: [{ name: "Extension Pack", extensions: ["zip"] }] });
+          return result.canceled ? null : result.filePaths[0] ?? null;
+        }
+        if (p.op === "inspect") return extensionPacks.inspect(p.path);
+        if (p.op === "discard") return extensionPacks.discard(p.token);
+        // Installing or removing a pack can change the chosen core's assistant name (a pack core appears, renames,
+        // or goes away): the menus follow at once, as after a `cores` select.
+        const renamed = (result) => { if (i18n.getAssistantName() !== chosenAssistant()) { i18n.setAssistantName(chosenAssistant()); installAppMenu(); } return result; };
+        if (p.op === "install") return renamed({ ...await extensionPacks.install(p.token), cores: extensionPacks.descriptors() });
+        if (p.op === "remove") return renamed({ ...extensionPacks.remove(p.id), cores: extensionPacks.descriptors() });
+        throw new Error("Unsupported extension pack operation.");
+      }
+      // Per-session tools (prefs/tool-profiles.mjs): the core's list, and one session's turned-off set, which the
+      // core gets with that session's next turn/start or thread/resume.
+      case "tools-list": {
+        await client.start();
+        if (client.serverInfo?.capabilities?.toolSelection !== true) return { supported: false, tools: [], servers: [] };
+        return { supported: true, ...await client.request("codeDesktop/tools/list", {}) };
+      }
+      case "thread-tools": {
+        if (typeof p.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(p.threadId)) throw new Error("Unknown session.");
+        const tools = normalizeSelection(p.tools);
+        if (tools) config.threadTools[p.threadId] = tools; else delete config.threadTools[p.threadId];
+        save();
+        return tools;
+      }
       case "reveal-settings": {
         const error = await shell.openPath(app.getPath("userData"));
         if (error) throw new Error(error);
@@ -1194,15 +2705,196 @@ app.whenReady().then(async () => {
         shell.showItemInFolder(target);
         return true;
       }
+      // A deliverable card's Open (source-deliverables.jsx): the file in its default app, scoped like reveal-tool-file.
+      // Executables, launchers (.command, .terminal, .webloc…), installers and links to another type are refused, as
+      // 2.2553.1's openSessionFileInDefaultApp does (files.cjs openBlockReason); the card's Show in Finder still works.
+      case "open-tool-file": {
+        const root = fileSearchRoot(p.sessionId);
+        if (typeof p.path !== "string" || !p.path || p.path.includes("\0")) throw new Error("Invalid file path.");
+        const target = await scopedPath(root, p.path);
+        const blocked = await openBlockReason(path.resolve(root, p.path), target);
+        if (blocked) throw new Error(i18n ? i18n.t(blocked) : blocked);
+        const error = await shell.openPath(target);
+        if (error) throw new Error(error);
+        return true;
+      }
+      // The sidebar's 'N sessions could not be loaded' › Remove from sidebar: remembered ids the core can't read any
+      // more (deleted or lost outside the app) leave the session list. Each is read once more first: only one the core
+      // still can't read is dropped (its files, if they come back, are the core's; nothing is deleted there).
+      case "forget-sessions": {
+        const ids = Array.isArray(p.threadIds) ? [...new Set(p.threadIds.filter((id) => typeof id === "string" && config.threadIds.includes(id)))].slice(0, 500) : [];
+        if (!client?.serverInfo) throw new Error(i18n ? i18n.t("Connect {core} first.", { core: coreNameOf(config.core) }) : "Connect the core first.");
+        const owner = client;
+        const unreadable = [];
+        for (const id of ids) { try { await owner.request("thread/read", { threadId: id, includeTurns: false }); } catch { unreadable.push(id); } }
+        if (owner !== client) throw new Error("The core changed. Try again.");
+        for (const id of unreadable) {
+          config.threadIds = config.threadIds.filter((known) => known !== id);
+          delete config.threadMetadata[id];
+          delete config.sessionMetadata[id];
+          if (config.restoredAt) delete config.restoredAt[id];
+          config.pinnedOrder = (config.pinnedOrder || []).filter((known) => known !== id);
+        }
+        if (unreadable.length) { config.sidebarRevision = (config.sidebarRevision || 0) + 1; save(); for (const id of unreadable) emitSessionList("deleted", id); }
+        return { removed: unreadable, kept: ids.filter((id) => !unreadable.includes(id)) };
+      }
+      case "reveal-config-file": {
+        const target = p.path;
+        if (typeof target !== "string" || !configWarningPaths.has(target)) throw new Error("Unknown configuration file.");
+        if (!fs.existsSync(target)) throw new Error("The file no longer exists.");
+        shell.showItemInFolder(target);
+        return true;
+      }
+      // The effort popover's Plan mode row (a core with collaboration modes and no permission hints: Codex): read the
+      // Plan effort (configured, else the preset's) and save it as Codex's own plan_mode_reasoning_effort (null clears).
+      case "plan-effort": {
+        if (client.serverInfo?.capabilities?.permissionHints === true || !coreSupports(client.serverInfo, "collaborationModes")) throw new Error("Unsupported operation.");
+        const owner = client;
+        await owner.start();
+        if (p.op === "write") {
+          if (p.value !== null && (typeof p.value !== "string" || !/^[a-z]{1,16}$/.test(p.value))) throw new Error("Unsupported operation.");
+          await owner.request("config/value/write", { keyPath: "plan_mode_reasoning_effort", value: p.value, mergeStrategy: "replace" });
+        }
+        const configured = await owner.request("config/read", { includeLayers: false }, 5000).then((result) => result?.config?.plan_mode_reasoning_effort ?? null, () => null);
+        const preset = typeof configured === "string" && configured ? null : (await planModeEffort(owner, null)) ?? null;
+        return { configured: typeof configured === "string" && configured ? configured : null, preset };
+      }
+      // Settings › Models › Responses (Codex): model_reasoning_summary and model_verbosity in Codex's own config, as the
+      // CLI keeps them; null clears the key.
+      case "codex-model-style": {
+        if (client.serverInfo?.capabilities?.permissionHints === true || coreForEngine(client.serverInfo?.engine).id !== "codex") throw new Error("Unsupported operation.");
+        const owner = client;
+        await owner.start();
+        const keys = { summary: ["model_reasoning_summary", ["auto", "concise", "detailed", "none"]], verbosity: ["model_verbosity", ["low", "medium", "high"]] };
+        if (p.op === "write") {
+          const entry = keys[p.key];
+          if (!entry || (p.value !== null && !entry[1].includes(p.value))) throw new Error("Unsupported operation.");
+          await owner.request("config/value/write", { keyPath: entry[0], value: p.value, mergeStrategy: "replace" });
+        }
+        const read = await owner.request("config/read", { includeLayers: false }, 5000).then((result) => result?.config ?? {}, () => ({}));
+        return { summary: typeof read.model_reasoning_summary === "string" ? read.model_reasoning_summary : null, verbosity: typeof read.model_verbosity === "string" ? read.model_verbosity : null };
+      }
+      // Settings › Models › Sub-agents (Codex): its own agents.* settings in config.toml, as the CLI keeps them
+      // (config.schema.json AgentsToml): multi-agent tools on or off, the spawned agents' default model and effort, how
+      // many run at once per session and how deep they nest. null clears the key (Codex's default).
+      case "codex-subagents": {
+        if (client.serverInfo?.capabilities?.permissionHints === true || coreForEngine(client.serverInfo?.engine).id !== "codex") throw new Error("Unsupported operation.");
+        const owner = client;
+        await owner.start();
+        const keys = {
+          enabled: ["agents.enabled", (value) => typeof value === "boolean"],
+          model: ["agents.default_subagent_model", (value) => typeof value === "string" && value.length > 0 && value.length <= 200 && !/[\u0000-\u001f]/.test(value)],
+          effort: ["agents.default_subagent_reasoning_effort", (value) => ["minimal", "low", "medium", "high", "xhigh"].includes(value)],
+          concurrency: ["agents.max_concurrent_threads_per_session", (value) => Number.isInteger(value) && value >= 1 && value <= 64],
+          depth: ["agents.max_depth", (value) => Number.isInteger(value) && value >= 1 && value <= 10],
+        };
+        if (p.op === "write") {
+          const entry = keys[p.key];
+          if (!entry || (p.value !== null && !entry[1](p.value))) throw new Error("Unsupported operation.");
+          await owner.request("config/value/write", { keyPath: entry[0], value: p.value, mergeStrategy: "replace" });
+        }
+        const agents = await owner.request("config/read", { includeLayers: false }, 5000).then((result) => result?.config?.agents ?? {}, () => ({}));
+        const pick = (key, test) => (test(agents?.[key]) ? agents[key] : null);
+        return {
+          enabled: pick("enabled", (value) => typeof value === "boolean"),
+          model: pick("default_subagent_model", (value) => typeof value === "string" && value.length > 0),
+          effort: pick("default_subagent_reasoning_effort", (value) => typeof value === "string" && value.length > 0),
+          concurrency: pick("max_concurrent_threads_per_session", Number.isInteger),
+          depth: pick("max_depth", Number.isInteger),
+        };
+      }
+      case "codex-trust-project": {
+        // Codex disables a project's .codex config, hooks and exec policies until the folder is trusted (configWarning);
+        // the TUI's onboarding 'Do you trust the contents of this directory?' writes projects.<root>.trust_level, the Git
+        // repository root when the folder is inside one. Only a known workspace folder, only on a core whose own
+        // config holds that key (no permission hints: Codex's config/value/write).
+        if (client.serverInfo?.capabilities?.permissionHints === true || coreForEngine(client.serverInfo?.engine).id !== "codex") throw new Error("Unsupported operation.");
+        const cwd = workspaceQueryRoot(p.cwd);
+        if (!path.isAbsolute(cwd)) throw new Error("Unknown workspace directory.");
+        let target = fs.realpathSync(cwd);
+        try { const top = String((await run("git", ["-C", target, "rev-parse", "--show-toplevel"], { timeout: 5000 })).stdout).trim(); if (top && path.isAbsolute(top)) target = fs.realpathSync(top); } catch {}
+        const quoted = `"${target.replace(/[\\"]/g, (ch) => "\\" + ch)}"`;
+        const owner = client;
+        await owner.start();
+        await owner.request("config/value/write", { keyPath: `projects.${quoted}.trust_level`, value: "trusted", mergeStrategy: "replace" });
+        return { target };
+      }
       case "reveal-item": {
         // Settings › Skills "Show in Finder": reveal a file (SKILL.md) instead of
         // opening it. Only absolute, existing paths reported by skills/list.
         const target = p.path;
-        if (typeof target !== "string" || !path.isAbsolute(target) || target.includes("\0") || !customizeOperations.knownSkillPaths.has(target)) throw new Error("Unknown skill path.");
+        if (typeof target !== "string" || !path.isAbsolute(target) || target.includes("\0") || !(customizeOperations.knownSkillPaths.has(target) || customizeOperations.knownAgentPaths?.has(target))) throw new Error("Unknown skill path.");
         if (!fs.existsSync(target)) throw new Error("The skill file no longer exists.");
         shell.showItemInFolder(target);
         return true;
       }
+      case "resume-sessions": {
+        // 'Resume a session' (/resume): every session the core keeps (its own CLI's or app's included: thread/list),
+        // newest first, sub-agent threads left out; `added` marks the ones already in the sidebar.
+        await client.start();
+        const params = { limit: 50, sortKey: "updated_at" };
+        if (typeof p.cursor === "string" && p.cursor && p.cursor.length <= 256) params.cursor = p.cursor;
+        if (typeof p.searchTerm === "string" && p.searchTerm.trim()) params.searchTerm = p.searchTerm.trim().slice(0, 200);
+        if (typeof p.cwd === "string" && path.isAbsolute(p.cwd)) params.cwd = p.cwd;
+        // Codex with a custom endpoint lists every provider's threads (model-settings decorateThread modelProviders).
+        modelSettings.decorateThread("thread/list", params);
+        const result = await client.request("thread/list", params);
+        const known = new Set([...(config.threadIds || []), ...(config.archivedThreadIds || [])]);
+        const text = (value) => (typeof value === "string" ? value : "");
+        const row = (thread, snippet = null) => ({ id: thread.id, name: text(thread.name) || null, preview: text(thread.preview).slice(0, 300), cwd: text(thread.cwd), updatedAt: Number(thread.updatedAt) || null,
+          createdAt: Number(thread.createdAt) || null, cliVersion: text(thread.cliVersion) || null, importedFrom: text(thread.codeDesktop?.importedFrom) || null, added: known.has(thread.id),
+          ...(snippet ? { snippet } : {}) });
+        // Workflow agents' threads (the runs' workflowProgress agentId) are the runner's, never the user's sessions.
+        const workflowAgents = workflowService?.agentIds?.() ?? new Set();
+        const listed = (thread) => thread && typeof thread.id === "string" && !thread.parentThreadId && !thread.source?.subAgent && !workflowAgents.has(thread.id);
+        const data = (Array.isArray(result?.data) ? result.data : []).filter(listed).map((thread) => row(thread));
+        // A core with full-text search (capabilities.threadSearch: Codex thread/search) adds the sessions whose
+        // conversation matches, after the title matches, with the matching snippet (first page only).
+        if (params.searchTerm && !params.cursor && coreSupports(client.serverInfo, "threadSearch")) {
+          const found = await client.request("thread/search", { searchTerm: params.searchTerm, limit: 50 }, 15000).catch(() => null);
+          const seen = new Set(data.map((entry) => entry.id));
+          for (const match of Array.isArray(found?.data) ? found.data : []) {
+            if (!listed(match?.thread) || seen.has(match.thread.id)) continue;
+            if (params.cwd && match.thread.cwd !== params.cwd) continue;
+            seen.add(match.thread.id);
+            data.push(row(match.thread, text(match.snippet).slice(0, 300) || null));
+          }
+        }
+        return { data, nextCursor: typeof result?.nextCursor === "string" ? result.nextCursor : null };
+      }
+      case "thread-search": {
+        // Sidebar search on a core with full-text search (capabilities.threadSearch: Codex thread/search): the sessions
+        // whose conversation matches, by id, with their snippet. A short or empty term searches nothing.
+        const term = typeof p.searchTerm === "string" ? p.searchTerm.trim().slice(0, 200) : "";
+        if (term.length < 2) return { data: [] };
+        await client.start();
+        if (!coreSupports(client.serverInfo, "threadSearch")) return { data: [] };
+        const found = await client.request("thread/search", { searchTerm: term, limit: 100, ...(typeof p.archived === "boolean" ? { archived: p.archived } : {}) }, 15000);
+        return { data: (Array.isArray(found?.data) ? found.data : []).filter((match) => typeof match?.thread?.id === "string")
+          .map((match) => ({ id: match.thread.id, snippet: typeof match.snippet === "string" ? match.snippet.slice(0, 300) : "" })) };
+      }
+      case "resume-add": {
+        // A session picked in 'Resume a session': confirmed by the core (thread/read) and added to the sidebar.
+        if (typeof p.threadId !== "string" || !p.threadId || p.threadId.length > 200) throw new Error("Unknown session.");
+        await client.start();
+        const read = await client.request("thread/read", { threadId: p.threadId, includeTurns: false });
+        const thread = read?.thread;
+        if (!thread || thread.id !== p.threadId) throw new Error("That session can’t be opened.");
+        config.threadIds = [...new Set([thread.id, ...config.threadIds])];
+        config.archivedThreadIds = config.archivedThreadIds.filter((id) => id !== thread.id);
+        const { turns, ...metadata } = thread;
+        void turns;
+        config.threadMetadata[thread.id] = metadata;
+        config.stats[thread.id] ??= { messages: 0, tokens: 0, observedTokens: 0, observedUsage: { input: 0, output: 0, cached: 0, cacheWrite: 0 }, ids: [] };
+        if (typeof metadata.cwd === "string") observedThreadCwds.add(metadata.cwd);
+        save();
+        emitSessionList("added", metadata);
+        return { threadId: thread.id };
+      }
+      // Official getInstalledEditors / openInEditor (editors.cjs): the code editors on this Mac, and one opening a file
+      // or folder. The path must be absolute and exist; the editor must be one of the known, installed ones.
+      case "installed-editors": return require("./editors.cjs").installedEditors();
+      case "open-in-editor": return require("./editors.cjs").openInEditor(p.path, p.type);
       case "open-terminal": {
         // Official "Open in → Terminal" (c80a67939 Open in submenu). The folder
         // must be an absolute existing directory; nothing else is passed to open.
@@ -1216,8 +2908,18 @@ app.whenReady().then(async () => {
       }
       case "slash-export": {
         if (!config.threadIds.includes(p.threadId) || typeof p.markdown !== "string") throw new Error("Unknown session export.");
-        const chosen = await dialog.showSaveDialog(win, { title: i18n.t("Export conversation"), defaultPath: "conversation.md", filters: [{name:"Markdown",extensions:["md"]}] });
+        // A core that exports its whole session log (capabilities.sessionLogExport: DeepSeek's dsh-session-log-export ZIP with
+        // sub-agent sessions and attachments) is offered as a second format; the file type chosen decides.
+        const zip = coreSupports(client.serverInfo, "sessionLogExport");
+        // The session's title and today's date in Downloads ("Build script question 2026-10-09.md"), so one export never
+        // offers to replace another.
+        const chosen = await dialog.showSaveDialog(win, { title: i18n.t("Export conversation"), defaultPath: path.join(app.getPath("downloads"), exportFileName(config.threadMetadata?.[p.threadId], i18n.t("Conversation"))),
+          filters: [{name:i18n.t("Markdown transcript"),extensions:["md"]}, ...(zip ? [{name:i18n.t("Session log with sub-agents and attachments (ZIP)"),extensions:["zip"]}] : [])] });
         if (chosen.canceled || !chosen.filePath) return null;
+        if (zip && /\.zip$/i.test(chosen.filePath)) {
+          await client.request("codeDesktop/sessionLog/export", { threadId: p.threadId, path: chosen.filePath }, 10 * 60 * 1000);
+          return chosen.filePath;
+        }
         await fs.promises.writeFile(chosen.filePath, p.markdown, "utf8");
         return chosen.filePath;
       }
@@ -1230,7 +2932,9 @@ app.whenReady().then(async () => {
           const response=await owner.request("thread/read",{threadId:p.threadId,includeTurns:false});
           if(response.thread?.historyMode!=="paginated") throw new Error("Rewind is not available for legacy sessions.");
           if(!matches())throw new Error("Connection changed before rewind.");
-          return await owner.request("thread/revert",{threadId:p.threadId,beforeTurnId:p.beforeTurnId});
+          // Rewind conversation and code: only where the core reports capabilities.rewindFiles (Gemini's file restore).
+          const restoreFiles=p.restoreFiles===true&&owner.serverInfo?.capabilities?.rewindFiles===true;
+          return await owner.request("thread/revert",{threadId:p.threadId,beforeTurnId:p.beforeTurnId,...(restoreFiles?{codeDesktop:{restoreFiles:true}}:{})});
         } finally {release();}
       }
       case "folder": {
@@ -1259,6 +2963,21 @@ app.whenReady().then(async () => {
         save();
         return config.cwd;
       }
+      // File › Open File… (ZCr): a file chosen in the dialog. One inside the open session's folder (p.inside) opens there;
+      // another makes its folder the new session's folder, as Open Folder… does.
+      case "open-file-dialog": {
+        const r = await dialog.showOpenDialog(win, { title: i18n.t("Open File"), properties: ["openFile"], defaultPath: typeof p.inside === "string" && path.isAbsolute(p.inside) ? p.inside : config.cwd });
+        if (r.canceled || !r.filePaths?.[0]) return null;
+        const file = await fs.promises.realpath(r.filePaths[0]);
+        const inside = typeof p.inside === "string" && path.isAbsolute(p.inside) ? await fs.promises.realpath(p.inside).catch(() => p.inside) : null;
+        if (inside && file.startsWith(inside.endsWith(path.sep) ? inside : inside + path.sep)) return { path: file, folder: inside, inside: true };
+        const folder = path.dirname(file);
+        await fileSearch.cancelAll();
+        config.cwd = folder;
+        approvedWorkspaceRoots.add(folder);
+        save();
+        return { path: file, folder, inside: false };
+      }
       case "dismiss-recent-folder": {
         // lH 'Remove from recent' (cc43287c9 :21652, :21921-21928 → c749529a1 dismiss): one dismissedAt (ms) per
         // path; the Recent list hides the folder until a session is created there afterwards.
@@ -1286,6 +3005,7 @@ app.whenReady().then(async () => {
           requestId: p.requestId,
           root: fileSearchRoot(p.sessionId, p.homeWorkspace),
           query: p.query,
+          browse: p.browse === true,
         });
       case "files:search:cancel": {
         if (typeof p.requestId !== "string" || !p.requestId || p.requestId.length > 128)
@@ -1305,7 +3025,7 @@ app.whenReady().then(async () => {
         await shell.openExternal(url.href);
         return true;
       }
-      case "login": return accountOperations.start(p.type || 'chatgpt');
+      case "login": return accountOperations.start(p.type || 'chatgpt', { apiKey: p.apiKey, codeDesktop: p.codeDesktop });
       case "account-auth": return accountOperations.run(p);
       default:
         throw new Error("Unknown operation.");
@@ -1313,21 +3033,53 @@ app.whenReady().then(async () => {
   });
   installAppMenu();
   desktopReady = true;
-  await loadMainWindow(win);
+  const [firstWindow, ...otherWindows] = windowRegistry.mainWindows();
+  for (const window of otherWindows) loadMainWindow(window).catch(() => {});
+  await loadMainWindow(firstWindow);
+  // The window focused at the last quit comes back in front.
+  const lastFocusedWindow = windowRegistry.byKey(restoredWindows.focused);
+  if (otherWindows.length && lastFocusedWindow && lastFocusedWindow.isVisible()) lastFocusedWindow.focus();
   menuBar = createMenuBar({Tray,Menu,nativeImage,app,iconPath:path.join(__dirname,"assets/TrayIconTemplate.png"),menuModel:await import("./tray-menu.mjs"),
     getWindow:()=>win,getEnabled:()=>config.menuBarEnabled!==false,getAccount:()=>accountOperations.accountSnapshot(),getClient:()=>client});
   menuBar.update();
+  void restorePopouts().catch((error) => console.warn("Pane windows:", error?.message ?? error));
 });
-// Registered before installShutdownHandler: the first before-quit marks the
-// quit even though the shutdown handler defers it, so the deferred quit's
-// window close is let through.
-app.on("before-quit", () => { quitting = true; });
+// index.chunk-ChZ67Jhw.js installQuitSessionGuard: a quit while a session has a running turn, workflow or background
+// commands first asks (Quit anyway / Wait for DeepSeek / Cancel). Automated launches (Playwright's remote debugging
+// port, the offscreen verification adapter) quit without asking, like the original's skip predicate.
+const quitGuard = createQuitGuard({
+  app, dialog, getWindow: () => win,
+  t: (source, values) => i18n ? i18n.t(source, values) : String(source).replace(/\{(\w+)\}/g, (match, key) => values?.[key] ?? match),
+  countNow: () => liveWork.sessions().size,
+  terminalsNow: () => terminalService.runningCommands().length,
+  mayFindMore: () => Boolean(client?.connection && liveWork.touchedSessions().length),
+  count: async () => {
+    const sessions = liveWork.sessions();
+    for (const id of await backgroundSessions({ client, ids: liveWork.touchedSessions().filter((id) => !sessions.has(id)) })) sessions.add(id);
+    return sessions.size;
+  },
+  onChange: (listener) => liveWork.onChange(listener),
+  skip: () => app.commandLine.hasSwitch("remote-debugging-port") || Boolean(process.env.CODE_DESKTOP_OFFSCREEN_LAUNCH),
+  onError: (error) => console.warn("Quit guard:", error),
+});
+// quitting is set once shutdown starts (onStart), so the deferred quit's window close is let through; a quit the guard
+// holds (or the user cancels) leaves the window's close-hides behavior alone.
 installShutdownHandler(app, {
+  guard: (event) => quitGuard.handle(event),
+  onStart: () => { quitting = true; try { savePopoutsForRelaunch(); } catch (error) { console.warn("Pane windows:", error?.message ?? error); } },
   stop: async () => {
     customCommands.dispose();
+    const terminalsStopped = terminalService.dispose();
     desktopSettings?.dispose();
     menuBar?.dispose();
+    // Dev servers get TERM, a moment to exit, then KILL for what is left of their process group (preview-service.cjs).
+    const previewsStopped = Promise.resolve(previewService?.dispose()).catch(() => {});
+    monitorService.dispose();
+    scheduleService.dispose();
+    await pauseActiveGoals().catch(() => {});
     await Promise.all([stopAllCodexClients(), fileSearch.dispose(), workflowService?.dispose()]);
+    agentTools.stop();
+    await Promise.all([terminalsStopped, previewsStopped]);
   },
 });
 // index.chunk-ChZ67Jhw.js: window-all-closed does nothing (the app keeps

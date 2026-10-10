@@ -135,7 +135,10 @@ try{
  step('view-menu');await page.getByRole('button',{name:'Session options',exact:true}).click();const files=page.getByRole('menuitemcheckbox',{name:'Files',exact:true});await files.waitFor();
  const row=await files.evaluate(n=>({keys:n.getAttribute('aria-keyshortcuts'),caps:(c=>c&&[...c.querySelectorAll('kbd')].map(k=>(k.querySelector('[aria-hidden="true"]')??k).textContent).join(''))(n.querySelector('.smenu-shortcut'))}));report.metrics.filesRow=row;
  assert.equal(row.keys,'Meta+Shift+F');assert.equal(row.caps,'⇧⌘F');
- const others=await page.locator('.st-view-item').evaluateAll(nodes=>nodes.filter(n=>!/Files/.test(n.textContent)).map(n=>!!n.querySelector('.smenu-shortcut')));assert.ok(others.every(v=>!v));
+ // Besides Files, only the Preview (⇧⌘P) and Terminal (⌘J) rows carry their pane chords.
+ const others=await page.locator('.st-view-item').evaluateAll(nodes=>nodes.filter(n=>!/Files|Preview|Terminal/.test(n.textContent)).map(n=>!!n.querySelector('.smenu-shortcut')));assert.ok(others.every(v=>!v));
+ report.metrics.viewRows=await page.locator('.st-view-item').evaluateAll(nodes=>nodes.map(n=>[n.textContent.replace(/[⇧⌘⌃⌥].*$/,'').trim(),n.getAttribute('aria-keyshortcuts')]));
+ for(const [label,keys] of report.metrics.viewRows){if(label==='Terminal')assert.equal(keys,'Meta+J');if(label==='Preview')assert.equal(keys,'Meta+Shift+P');}
  await shot('view-menu-files');await page.keyboard.press('Escape');await files.waitFor({state:'detached'});
  report.checks.push('The view menu Files row shows the ⇧⌘F caps (aria-keyshortcuts Meta+Shift+F); no other pane row carries a shortcut');
  step('settings-guard');await page.keyboard.press('Meta+,');const settings=page.getByRole('dialog',{name:'Settings',exact:true});await settings.waitFor();

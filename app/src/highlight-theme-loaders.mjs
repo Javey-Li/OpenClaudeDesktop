@@ -54,3 +54,11 @@ export async function ensureTheme(instance, id) {
   await instance.loadTheme(theme);
   return name;
 }
+
+/** A catalog theme's VS Code colour map (the terminal pane's xterm theme); null for the built-in Claude themes. */
+export async function themeColors(id) {
+  const loader = Object.hasOwn(loaders, id) ? loaders[id] : null;
+  if (!loader) return null;
+  const module = await loader();
+  return module.default?.colors ?? null;
+}

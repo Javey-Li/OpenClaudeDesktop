@@ -31,7 +31,8 @@
 .ss-error { color:var(--cds-text-danger,#bc3636); }
 /* desktop-settings-read lost the core: one short notice, never the raw RPC text. */
 .ss-connection-notice { margin:0 0 var(--cds-gap-md,12px); color:var(--cds-text-muted); }
-.ss-dialog :is(button:not(.ss-switch):not(.source-settings-button),input,select):focus-visible { outline:2px solid var(--cds-fill-accent); outline-offset:2px; }
+/* Search fields (the nav search, Customize's collapsible search) ring their wrapper instead; :where keeps the specificity. */
+.ss-dialog :is(button:not(.ss-switch):not(.source-settings-button),input:not(:where(.ss-search,.cz-search) input),select):focus-visible { outline:2px solid var(--cds-fill-accent); outline-offset:2px; }
 .ss-search-summary { margin:0 0 24px; color:var(--cds-text-muted); }
 /* Official shared-styles: :root[data-dyslexic-font] .cds-root[data-font=system]{--cds-font-sans:var(--font-ui-dyslexic)}.
    The local html element is itself the outer cds-root (portaled dialogs and menus inherit from it), so the same
@@ -141,6 +142,24 @@ html[data-reduce-motion="true"] .feature-anchor-highlight:after, html[data-reduc
 .ss-nav li>button>[data-cds=Icon] { color:var(--cds-text-secondary); }
 /* c71860c77:1820-1840 below slot: text-body text-muted. */
 .ss-row-error { color:var(--cds-text-muted); font-size:var(--cds-font-size-body,14px); line-height:var(--cds-leading-body,20px); }
+/* A value the field refused (not a failed save): the danger text the CDS field error uses, in light and dark alike. */
+.ss-row-error[data-validation] { color:var(--cds-text-danger); font-size:var(--cds-font-size-footnote,13px); line-height:var(--cds-leading-footnote,18px); }
+/* Settings › Dynamic workflows › Allowed workflows: one row per Workflow(<name>) rule. */
+.ss-workflow-rules { list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--cds-gap-xs,4px); }
+.ss-workflow-rules>li { display:flex;align-items:center;justify-content:space-between;gap:var(--cds-gap-md,12px);min-height:var(--cds-h-control,32px); }
+.ss-workflow-rule-name { min-width:0;overflow-wrap:anywhere;font-family:var(--cds-font-mono,ui-monospace,monospace);font-size:var(--cds-font-size-footnote,13px);color:var(--cds-text-primary); }
+.ss-workflow-rule-kind,.ss-workflow-rules-empty { color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote,13px); }
+/* Settings › Dynamic workflows › Saved workflows (source-saved-workflows.jsx). */
+.ss-saved-workflows { list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--cds-gap-md,12px); }
+.ss-saved-workflows>li { display:flex;flex-direction:column;gap:2px;min-width:0; }
+.ss-saved-workflow-head { display:flex;align-items:center;gap:var(--cds-gap-sm,8px);min-height:var(--cds-h-control,32px); }
+.ss-saved-workflow-actions { display:flex;align-items:center;gap:4px;margin-left:auto; }
+.ss-saved-workflow-description,.ss-saved-workflows-empty { margin:0;color:var(--cds-text-secondary);font-size:var(--cds-font-size-footnote,13px); }
+.ss-saved-workflows-empty { color:var(--cds-text-muted); }
+.ss-saved-workflow-args,.ss-saved-workflow-runs { list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;color:var(--cds-text-muted);font-size:var(--cds-font-size-footnote,13px); }
+.ss-saved-workflow-args code { font-family:var(--cds-font-mono,ui-monospace,monospace);color:var(--cds-text-secondary); }
+.ss-saved-workflow-runs>li { display:flex;gap:var(--cds-gap-sm,8px); }
+.ss-saved-workflow-confirm { display:flex;justify-content:flex-end;gap:var(--cds-gap-sm,8px);margin-top:var(--cds-gap-md,12px); }
 /* shared-21 Nv: group children that are not rows get py-md (the General fallback skeleton rows). */
 .settings-group-dividers>.ss-skeleton-row { padding-block:var(--cds-pad-md,8px); }
 .ss-narrow { flex-shrink:0;display:flex;flex-direction:column;gap:var(--cds-gap-sm,8px);background:var(--cds-surface-1);padding:var(--cds-pad-md,8px) var(--cds-pad-md,8px) var(--cds-pad-sm,6px);border-bottom:1px solid var(--cds-alpha-2); }
@@ -187,3 +206,11 @@ html[data-reduce-motion="true"] .ss-licenses { animation: none; }
 .ss-settings-dialog[data-nested-dialog-open]::after { opacity:1; }
 @media(prefers-reduced-motion:reduce) { .ss-settings-dialog, .ss-settings-dialog::after { transition:none; } }
 html[data-reduce-motion="true"] .ss-settings-dialog, html[data-reduce-motion="true"] .ss-settings-dialog::after { transition: none; }
+/* DeepSeek settings rows (harnessSettingCopy): a short number field, its unit and Reset. */
+.ss-dsh-setting { display:inline-flex; align-items:center; gap:6px; }
+/* Remote control's pairing code: large monospace digits beside Cancel. */
+.ss-remote-code { display:inline-flex; align-items:center; gap:8px; }
+.ss-remote-code code { padding:2px 8px; border-radius:6px; background:var(--cds-alpha-2, rgba(127,127,127,.12)); color:var(--cds-text-primary);
+  font-family:var(--cds-font-mono, ui-monospace, monospace); font-size:15px; letter-spacing:.12em; user-select:all; }
+.ss-dsh-setting .cds-input { width:120px; }
+.ss-dsh-unit { color:var(--cds-text-secondary); font-size:12px; }

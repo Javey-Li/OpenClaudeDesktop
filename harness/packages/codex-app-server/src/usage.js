@@ -3,7 +3,8 @@
  * folded from Harness session logs (every session under DSH_HOME, so DeepSeek
  * Harness App sessions count too).
  *
- *   tokens   usage.inputTokens + usage.outputTokens of each assistant/message,
+ *   tokens   usage.inputTokens + usage.outputTokens of each buffered message
+ *            or streamed response's complete assistant/attempt,
  *            bucketed by the event's local day. Harness TokenUsage is
  *            disjoint (inputTokens is uncached input only), so prefix-cache
  *            reads and writes are never added: the original's input + output.
@@ -17,12 +18,14 @@
  *
  * The response's extra `deepseek` field (bridge extension; Codex readers ignore
  * it) is the Usage page's estimated cost: foldSessionBilling keeps each
- * assistant/message's tokens by local day, model, price tier and category, and
+ * response's tokens by local day, model, price tier and category, and
  * deepseekUsage prices them with pricing.js.
  *
  * Folds are cached per session by the persistence revision, in memory and in
  * `<stateDir>/usage-cache.json`, so a refresh re-reads only changed logs.
  */
+import { AssistantUsageFold } from './assistant-response.js'
+
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEEPSEEK_PRICES, PRICING_URL, costCny, modelDisplayName, priceTable, pricedModel, pricingTier } from './pricing.js'
@@ -43,12 +46,22 @@ export function localDayKey(time) {
  * @returns {{days: Record<string, number>, longestTurnSec: number}}
  */
 export function foldSessionUsage(events) {
+  const responses = new AssistantUsageFold()
   let days = {}
   let starts = new Map()
   let longestTurnSec = 0
   for (const event of events ?? []) {
     if (!event || typeof event !== 'object') continue
+    const response = responses.push(event)
     const time = event.time
+    const usage = response?.usage
+    if (usage && Number.isFinite(time)) {
+      const tokens = add(count(usage.inputTokens), count(usage.outputTokens))
+      if (tokens > 0) {
+        const key = localDayKey(time)
+        days[key] = add(days[key] ?? 0, tokens)
+      }
+    }
     switch (event.type) {
       case 'session/end-seed':
         // Everything before the fork cut is the parent's (already counted there).
@@ -65,15 +78,6 @@ export function foldSessionUsage(events) {
         const start = starts.get(event.data?.turn)
         starts.delete(event.data?.turn)
         if (Number.isFinite(start) && Number.isFinite(time) && time >= start) longestTurnSec = Math.max(longestTurnSec, Math.min(MAX, Math.floor((time - start) / 1000)))
-        break
-      }
-      case 'assistant/message': {
-        const usage = event.data?.usage
-        if (!usage || !Number.isFinite(time)) break
-        const tokens = add(count(usage.inputTokens), count(usage.outputTokens))
-        if (tokens <= 0) break
-        const key = localDayKey(time)
-        days[key] = add(days[key] ?? 0, tokens)
         break
       }
     }
@@ -94,15 +98,16 @@ const humanPrompt = (event) => event.data?.source?.kind === 'user'
  *   sessions   1 on the day of the session's first human prompt (codeStats
  *              ignores it for a sub-agent child, whose delegated prompt has
  *              the same source.kind 'user')
- *   messages   human prompts + assistant messages (app/electron/activity.cjs:39 rule)
+ *   messages   human prompts + assistant responses (segments count once)
  *   toolCalls  tool/call events
  *   hours      messages by local hour of day
- *   models     uncached input + output tokens by assistant/message.data.message.source.model
+ *   models     uncached input + output tokens by the response's source model
  * and `models` sums each model's input / output / cache-read / cache-write usage.
  * @param {readonly object[]} events - the session's raw event log
  * @returns {{days: Record<string, {sessions: number, messages: number, toolCalls: number, hours: Record<string, number>, models: Record<string, number>}>, models: Record<string, {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}}
  */
 export function foldSessionStats(events) {
+  const responses = new AssistantUsageFold()
   let days = {}
   let models = {}
   let started = false
@@ -116,7 +121,23 @@ export function foldSessionStats(events) {
   }
   for (const event of events ?? []) {
     if (!event || typeof event !== 'object') continue
+    const response = responses.push(event)
     const time = event.time
+    if (response && Number.isFinite(time) && (response.message || response.usage)) {
+      const entry = response.message ? message(time) : day(time)
+      const usage = response.usage
+      const model = modelKey(response.model)
+      if (usage && model) {
+        const input = count(usage.inputTokens), output = count(usage.outputTokens)
+        const tokens = add(input, output)
+        if (tokens > 0) entry.models[model] = add(entry.models[model] ?? 0, tokens)
+        const record = (models[model] ??= emptyModelUsage())
+        record.inputTokens = add(record.inputTokens, input)
+        record.outputTokens = add(record.outputTokens, output)
+        record.cacheReadInputTokens = add(record.cacheReadInputTokens, count(usage.cacheReadTokens))
+        record.cacheCreationInputTokens = add(record.cacheCreationInputTokens, count(usage.cacheWriteTokens))
+      }
+    }
     switch (event.type) {
       case 'session/end-seed':
         // Everything before the fork cut is the parent's (already counted there).
@@ -131,22 +152,6 @@ export function foldSessionStats(events) {
         const entry = message(time)
         if (!started) entry.sessions = add(entry.sessions, 1)
         started = true
-        break
-      }
-      case 'assistant/message': {
-        if (!Number.isFinite(time)) break
-        const entry = message(time)
-        const usage = event.data?.usage
-        const model = modelKey(event.data?.message?.source?.model)
-        if (!usage || !model) break
-        const input = count(usage.inputTokens), output = count(usage.outputTokens)
-        const tokens = add(input, output)
-        if (tokens > 0) entry.models[model] = add(entry.models[model] ?? 0, tokens)
-        const record = (models[model] ??= emptyModelUsage())
-        record.inputTokens = add(record.inputTokens, input)
-        record.outputTokens = add(record.outputTokens, output)
-        record.cacheReadInputTokens = add(record.cacheReadInputTokens, count(usage.cacheReadTokens))
-        record.cacheCreationInputTokens = add(record.cacheCreationInputTokens, count(usage.cacheWriteTokens))
         break
       }
       case 'tool/call': {
@@ -243,17 +248,18 @@ export const UNKNOWN_MODEL = 'unknown'
  * @returns {Record<string, Record<string, Partial<Record<'offPeak' | 'peak', number[]>>>>}
  */
 export function foldSessionBilling(events) {
+  const responses = new AssistantUsageFold()
   let days = {}
   for (const event of events ?? []) {
     if (!event || typeof event !== 'object') continue
+    const response = responses.push(event)
     if (event.type === 'session/end-seed' && event.data?.inherited === true) days = {}
-    if (event.type !== 'assistant/message') continue
-    const usage = event.data?.usage
+    const usage = response?.usage
     const time = event.time
     if (!usage || !Number.isFinite(time)) continue
     const counts = CATEGORIES.map((field) => count(usage[field]))
     if (counts.every((value) => value === 0)) continue
-    const model = modelKey(event.data?.message?.source?.model) ?? UNKNOWN_MODEL
+    const model = modelKey(response?.model) ?? UNKNOWN_MODEL
     const day = (days[localDayKey(time)] ??= {})
     const byTier = (day[model] ??= {})
     const cell = (byTier[pricingTier(time)] ??= [0, 0, 0, 0])
@@ -437,13 +443,14 @@ const validSummary = (summary) =>
   && Object.values(summary.billing).every((day) => isRecord(day) && Object.values(day).every((byTier) =>
     isRecord(byTier) && Object.entries(byTier).every(([tier, cell]) => TIERS.includes(tier) && validCell(cell))))
 
+// Version 4 joins streamed response segments and bills full attempts.
 // Version 2 added the per-session `stats` fold, version 3 the `billing` fold
 // (foldSession); an older file is refolded once.
-const CACHE_VERSION = 3
+const CACHE_VERSION = 4
 
 /**
  * Per-session folds keyed by persistence revision, persisted as
- * {version:3, timeZone, sessions:{id:{revision, summary}}}. Day keys are
+ * {version:4, timeZone, sessions:{id:{revision, summary}}}. Day keys are
  * local, so a file written in another time zone is dropped.
  */
 export class UsageCache {

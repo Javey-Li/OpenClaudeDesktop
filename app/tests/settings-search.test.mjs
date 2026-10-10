@@ -44,10 +44,14 @@ test('nav-hidden sections leave the nav and the narrow tabs but stay searchable'
  const fs=await import('node:fs'),path=await import('node:path');
  const text=fs.readFileSync(path.resolve(import.meta.dirname,'../src/source-settings.jsx'),'utf8');
  assert.match(text,/\{id:'usage',label:'Usage',icon:'UsageGaugeMiddle',group:'Settings',navHidden:true\}/);
- assert.match(text,/const navTabs = settingsNavSections\(tabs\);/);
+ assert.match(text,/const baseNavTabs = settingsNavSections\(tabs\);/);
+ // Harness is listed only on a core with harnessProfile (or while its page is open).
+ // Hooks only on a core with hooksList (or while its page is open).
+ assert.match(text,/const navTabs=baseNavTabs\.filter\(section=>\(section\.id!=='harness'\|\|tab==='harness'\|\|coreSupports\(engine,'harnessProfile'\)\)&&\(section\.id!=='customize-hooks'\|\|tab==='customize-hooks'\|\|coreSupports\(engine,'hooksList'\)\)\);/);
  assert.match(text,/\{navTabs\.map\(t=><button role="tab"/,'narrow tablist');
  assert.match(text,/<ul>\{navTabs\.filter\(t=>t\.group===group\)\.map\(/,'wide nav');
- assert.match(text,/settingsSearch\(tabs,/,'search receives the unfiltered sections');
+ assert.match(text,/settingsSearch\(searchTabs,/,'search receives the unfiltered sections');
+ assert.match(text,/const searchTabs=[^\n]*\?tabs:tabs\.map\(/,'every section, only the Models keywords narrowed per core');
  const main=fs.readFileSync(path.resolve(import.meta.dirname,'../src/main.jsx'),'utf8');
  const settingsItem=main.indexOf('data-testid="user-menu-settings"'),usageItem=main.indexOf('data-testid="user-menu-usage"');
  assert.ok(settingsItem>0&&usageItem>settingsItem&&main.slice(settingsItem,usageItem).split('<SourceMenu.Item').length===2,'Usage follows Settings in the account menu');

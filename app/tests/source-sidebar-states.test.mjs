@@ -69,9 +69,9 @@ test('no-sessions empty variant: OO copy and the xO pictogram at scale .55', () 
   assert.doesNotMatch(direct, /Show all sessions/, 'no button without a handler');
 });
 
-test('search keeps the local no-match line; loading shows the AO skeleton instead of an empty state', () => {
+test('the ⌘K palette query never filters the list; loading shows the AO skeleton instead of an empty state', () => {
   const search = render({ search: 'zzz' });
-  assert.match(search, /No matching sessions/); assert.doesNotMatch(search, /data-empty-variant/);
+  assert.match(search, /Session s1/); assert.doesNotMatch(search, /No matching sessions|data-empty-variant/);
   const loading = render({ sessions: [], loading: true });
   assert.doesNotMatch(loading, /data-empty-variant/);
   assert.match(loading, /<div class="df-placeholder-rows source-sidebar-skeleton" data-testid="sidebar-rows-skeleton" role="status" aria-label="Loading sessions">/);
@@ -112,9 +112,11 @@ test('no native titles in the sidebar; the row More button is tabindex -1 with d
   // sidebar-groups.js:5352-5377 _w: the header search button is "Search" with the search_palette ⇧⌘K tooltip.
   const search = tag(/<button[^>]*aria-label="Search"[^>]*>/);
   assert.ok(search, 'Search button renders'); assert.doesNotMatch(search, /title=/);
-  assert.equal(html.includes('aria-label="Search sessions" placeholder'), true, 'the inline field keeps its name');
+  // The ⌘K palette replaced the inline field: no search input or 'Close search' in the sidebar, and no pressed state.
+  assert.doesNotMatch(html, /Search sessions|Close search|session-search-wrap/);
   const source = readFileSync(path.resolve(import.meta.dirname, '../src/source-sidebar.jsx'), 'utf8');
-  assert.match(source, /<ToolButton label="Search" icon="Search" active=\{showSearch\} tooltip=\{\{ content: "Search", shortcut: "cmd\+shift\+k", hoverable: false \}\}/);
+  assert.match(source, /<ToolButton label="Search" icon="Search" tooltip=\{\{ content: "Search", shortcut: "cmd\+shift\+k", hoverable: false \}\}\s*onClick=\{\(\) => setShowSearch\("search"\)\}/);
+  assert.match(source, /<SourceSidebarPalette open=\{!!showSearch\} entry=\{showSearch === "search" \? "search" : "default"\}/);
 });
 
 test('eO scroller inset: 4px start/top inset with matching negative margins and pb-2', () => {
@@ -139,9 +141,12 @@ test('New leading slot holds the df-new-circle Add glyph; no other nav row has i
 
 // sidebar-groups.js:5225-5310 pw inside sidebar-main.js:14187-14202 hL / :14970 df-bottom-tray.
 test('account footer is the pw df-user-menu-btn: df-on-rail Spark, name, muted dot + suffix, xs caret', () => {
-  const html = render({ displayName: 'Fixture Person', accountLabel: 'plus' });
+  const html = render({ displayName: 'Fixture Person', accountLabel: 'plus', connectionIssue: true });
   const tray = html.match(/<div class="df-bottom-tray shrink-0"><div class="df-footer-row account-footer shrink-0 flex items-center gap-\[var\(--df-footer-gap\)\]"><div class="min-w-0 flex-1">(<button[^>]*>)(.*?)<\/button><\/div><div class="df-footer-aux ml-auto flex shrink-0 items-center"><button[^>]*aria-label="Connection settings"/s);
-  assert.ok(tray, 'tray > footer row > min-w-0 flex-1 button, then the aux holding the local Connection settings control');
+  assert.ok(tray, 'tray > footer row > min-w-0 flex-1 button, then the aux holding the local Connection settings control while the core is down');
+  // hL aux (sidebar-main.js:14185-14235) is empty in code mode: a healthy core shows no footer control.
+  assert.match(render({ displayName: 'Fixture Person' }), /<div class="df-footer-aux ml-auto flex shrink-0 items-center"><\/div>/);
+  assert.doesNotMatch(readFileSync(path.resolve(import.meta.dirname, '../src/source-sidebar.jsx'), 'utf8'), /icon="Ant"/, 'no Anthropic-internal Ant glyph');
   const [, open, body] = tray;
   assert.match(open, /class="df-user-menu-btn account-button cds-reset flex h-\[max\(28px,var\(--df-footer-btn-size\)\)\] max-w-full items-center gap-\[var\(--df-row-gap\)\] rounded-\[var\(--df-radius-pill\)\] pl-\[var\(--df-row-px\)\] pr-2 text-left outline-none hover:bg-\[var\(--df-hover\)\] focus-visible:shadow-focus"/);
   assert.match(open, /type="button"/); assert.match(open, /data-testid="user-menu-button"/); assert.match(open, /aria-label="Account menu"/); assert.match(open, /aria-haspopup="menu"/);
@@ -154,27 +159,50 @@ test('account footer is the pw df-user-menu-btn: df-on-rail Spark, name, muted d
 });
 
 // sidebar-session.js:13916/13924 and sidebar-groups.js:18641-18669 promise a
-// permanent delete, which is true for Codex. The DeepSeek core's thread/delete
-// only hides the session (Harness keeps ~/.dsh/sessions), so it says remove.
-test('delete confirm copy: Codex keeps the source strings, DeepSeek says remove', () => {
+// permanent delete, which is true for Codex. A core whose thread/delete also
+// removes its own history (capabilities.deleteHistory, implied or reported)
+// names that core, and the folder when it is known.
+test('delete confirm copy: Codex keeps the source strings; a core that deletes its own history names it', () => {
   const one = [thread('s1', { name: 'Middle task' })], two = [thread('s1'), thread('s2')];
   assert.deepEqual(deleteConfirmCopy(one), { title: 'Delete session?', body: '“Middle task” will be permanently deleted. This can’t be undone.', confirmLabel: 'Delete', danger: true });
   assert.deepEqual(deleteConfirmCopy(one, { engine: 'codex' }), deleteConfirmCopy(one));
   assert.equal(deleteConfirmCopy(two).body, 'These 2 sessions will be permanently deleted. This can’t be undone.');
-  for (const engine of ['deepseek', 'deepseek-harness']) {
+  // A core whose delete also removes its own history (capabilities.deleteHistory) says so and names
+  // that core — the boot.core object (main.jsx) or the core id (sidebar) — never another product.
+  // The DeepSeek core keeps telling users where its history lives (the Harness sessions folder).
+  const harness = 'DeepSeek Harness (~/.dsh/sessions)';
+  for (const [engine, core] of [['deepseek', harness], ['deepseek-harness', harness], [{ engine: 'deepseek-harness', capabilities: {} }, harness],
+    ['zcode', 'ZCode (~/.zcode/cli/db)'], [{ engine: 'zcode', capabilities: { deleteHistory: true } }, 'ZCode (~/.zcode/cli/db)'],
+    ['opencode', 'OpenCode (~/.local/share/opencode)'], ['mimo', 'MiMo Code (~/.local/share/mimocode)'],
+    // Reported capabilities count (boot.core): MiniMax doesn't imply deleteHistory, but its bridge reports it.
+    [{ engine: 'minimax', capabilities: { deleteHistory: true } }, 'MiniMax Code'],
+    // A folder the core reports itself is named too.
+    [{ engine: 'kimi', capabilities: { deleteHistory: true, historyLocation: '~/.kimi/sessions' } }, 'Kimi Code (~/.kimi/sessions)']]) {
     const single = deleteConfirmCopy(one, { engine }), plural = deleteConfirmCopy(two, { engine });
-    // The DeepSeek core's delete also removes the Harness history, and says so.
-    assert.deepEqual(single, { title: 'Delete session?', body: '“Middle task” and its history in DeepSeek Harness (~/.dsh/sessions) will be permanently deleted. This can’t be undone.', confirmLabel: 'Delete', danger: true });
-    assert.deepEqual(plural, { title: 'Delete 2 sessions?', body: 'These 2 sessions and their history in DeepSeek Harness (~/.dsh/sessions) will be permanently deleted. This can’t be undone.', confirmLabel: 'Delete', danger: true });
+    assert.deepEqual(single, { title: 'Delete session?', body: `“Middle task” and its history in ${core} will be permanently deleted. This can’t be undone.`, confirmLabel: 'Delete', danger: true });
+    assert.deepEqual(plural, { title: 'Delete 2 sessions?', body: `These 2 sessions and their history in ${core} will be permanently deleted. This can’t be undone.`, confirmLabel: 'Delete', danger: true });
+    assert.equal(olderConfirmCopy('delete', 1, { engine }).body, `This will permanently delete 1 session older than a week, including its history in ${core}. Pinned sessions aren’t affected. This can’t be undone.`);
+    assert.equal(olderConfirmCopy('delete', 2, { engine }).body, `This will permanently delete 2 sessions older than a week, including their history in ${core}. Pinned sessions aren’t affected. This can’t be undone.`);
   }
+  // A core that does not report deleteHistory keeps the plain copy (what it reports wins over what it implies).
+  assert.deepEqual(deleteConfirmCopy(one, { engine: { engine: 'opencode', capabilities: { deleteHistory: false } } }), deleteConfirmCopy(one));
   assert.deepEqual(olderConfirmCopy('delete', 3), { title: 'Delete older sessions?', body: 'This will permanently delete 3 sessions older than a week. Pinned sessions aren’t affected. This can’t be undone.', confirmLabel: 'Delete all', danger: true });
-  assert.deepEqual(olderConfirmCopy('delete', 1, { engine: 'deepseek' }), { title: 'Delete older sessions?', body: 'This will permanently delete 1 session older than a week, including its DeepSeek Harness history. Pinned sessions aren’t affected. This can’t be undone.', confirmLabel: 'Delete all', danger: true });
   assert.deepEqual(olderConfirmCopy('archive', 2, { engine: 'deepseek' }), olderConfirmCopy('archive', 2));
 });
 
+test('a nested sub-agent row names the running assistant, never a fixed one', () => {
+  const source = readFileSync(path.resolve(import.meta.dirname, '../src/source-sidebar.jsx'), 'utf8');
+  assert.doesNotMatch(source, /Started by Claude/);
+  assert.match(source, /t\("Started by \{assistant\} from \{name\}", \{ assistant: getAssistantName\(\)/);
+});
+
 test('hidden sessions: only load failures get a notice; other-core sessions stay silent', () => {
-  const html = render({ engine: 'deepseek', hiddenSessions: { otherEngine: 10, missing: 1 } });
-  assert.match(html, /data-sidebar-notice="hidden-sessions">1 session could not be loaded\.<\/p>/);
+  const html = render({ engine: 'deepseek', hiddenSessions: { otherEngine: 10, missing: 1, missingIds: ['gone'] } });
+  assert.match(html, /data-sidebar-notice="hidden-sessions"><p>1 session could not be loaded\. Its files were deleted or can’t be read by DeepSeek Harness\.<\/p><\/div>/);
+  // With a connected core the notice offers Try again and Remove from sidebar (main.cjs forget-sessions).
+  const actionable = render({ engine: 'deepseek', hiddenSessions: { otherEngine: 0, missing: 2, missingIds: ['a', 'b'] }, onRetryHidden() {}, onForgetHidden() {} });
+  assert.match(actionable, /2 sessions could not be loaded\. Their files were deleted/);
+  assert.match(actionable, /<button type="button" class="source-sidebar-hidden-action">Try again<\/button><button type="button" class="source-sidebar-hidden-action">Remove from sidebar<\/button>/);
   assert.doesNotMatch(html, /Codex session/);
   for (const props of [{}, { hiddenSessions: null }, { engine: 'deepseek', hiddenSessions: { otherEngine: 10, missing: 0 } }]) assert.doesNotMatch(render(props), /data-sidebar-notice/);
 });
@@ -182,8 +210,8 @@ test('hidden sessions: only load failures get a notice; other-core sessions stay
 test('row menu Fork: the core reason disables it before the running/archived reasons', () => {
   const menu = (props) => renderToStaticMarkup(React.createElement(SourceSidebarSessionMenu, { session: thread('s1'), onAction() {}, onClose() {}, onRename() {}, onFork() {}, onDelete() {}, ...props }));
   const fork = (html) => html.match(/<div role="none" class="smenu-reason"><div role="menuitem"[^>]*data-label="Fork"[^>]*>.*?<span id="[^"]+" hidden="" data-cds-disabled-reason="">([^<]+)<\/span><\/div>/)?.[1];
-  assert.equal(fork(menu({ forkUnavailable: 'Not available with the DeepSeek core yet' })), 'Not available with the DeepSeek core yet');
-  assert.equal(fork(menu({ forkUnavailable: 'Not available with the DeepSeek core yet', session: thread('s1', { archived: true }) })), 'Not available with the DeepSeek core yet');
+  assert.equal(fork(menu({ forkUnavailable: 'Not available with Codex yet' })), 'Not available with Codex yet');
+  assert.equal(fork(menu({ forkUnavailable: 'Not available with Codex yet', session: thread('s1', { archived: true }) })), 'Not available with Codex yet');
   assert.equal(fork(menu({ session: thread('s1', { archived: true }) })), 'Restore this session before forking it.');
   const enabled = menu({});
   assert.equal(fork(enabled), undefined);

@@ -54,6 +54,7 @@ export const SKILL_ROW = 'skill-filesystem';
 const ROW_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,128}$/;
 const absolute = value => typeof value === 'string' && value.startsWith('/') && value.length <= 1024 && !value.includes('\0');
 const MAX_ROWS = 200, MAX_INSERTS = 50, MAX_DIRS = 32;
 
@@ -127,13 +128,25 @@ export function mcpInsert(params, state) {
     const env = object(params.env) ? params.env : {};
     const entries = Object.entries(env);
     if (entries.length > 64 || entries.some(([key, value]) => !ENV_NAME.test(key) || typeof value !== 'string' || value.length > 8192)) throw new Error(t('Environment variables need NAME=value lines.'));
-    config = { transport: 'stdio', serverName, command, args: [...args], env: Object.fromEntries(entries) };
+    // dsh-mcp-client stdio `cwd` (README config table): an absolute folder, optional.
+    const cwd = typeof params.cwd === 'string' ? params.cwd.trim() : '';
+    if (cwd && !absolute(cwd)) throw new Error(t('Enter the full path of the working folder.'));
+    config = { transport: 'stdio', serverName, command, args: [...args], env: Object.fromEntries(entries), ...(cwd ? { cwd } : {}) };
   } else if (params?.transport === 'streamable-http') {
     let url;
     try { url = new URL(String(params.url ?? '').trim()); } catch { throw new Error(t('Enter an http or https URL.')); }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(t('Enter an http or https URL.'));
-    config = { transport: 'streamable-http', serverName, url: url.href };
+    // dsh-mcp-client `headers`: the only way to authenticate a remote server (it has no OAuth), e.g. Authorization.
+    const headers = object(params.headers) ? Object.entries(params.headers) : [];
+    if (headers.length > 32 || headers.some(([key, value]) => !HEADER_NAME.test(key) || typeof value !== 'string' || value.length > 8192 || /[\r\n\0]/.test(value))) throw new Error(t('Headers need Name: value lines.'));
+    config = { transport: 'streamable-http', serverName, url: url.href, ...(headers.length ? { headers: Object.fromEntries(headers) } : {}) };
   } else throw new Error(t('Choose stdio or HTTP.'));
+  // dsh-mcp-client toolCallTimeoutMs, optional: seconds in the form.
+  if (params?.toolCallTimeoutMs !== undefined && params.toolCallTimeoutMs !== null) {
+    const ms = params.toolCallTimeoutMs;
+    if (!Number.isInteger(ms) || ms < 1000 || ms > 3_600_000) throw new Error(t('Enter a tool timeout between 1 and 3600 seconds.'));
+    config.toolCallTimeoutMs = ms;
+  }
   return { ...current, inserts: [...current.inserts, { id, name: MCP_CLIENT, config }] };
 }
 
@@ -229,3 +242,16 @@ export function splitArgs(text) {
 }
 
 export { HARNESS_PROFILE_DEFAULT as DEFAULT, normalizeHarnessProfile as normalize, validateHarnessProfile as validate };
+
+/** Header lines from the Add server form ('Name: value' per line, blank lines skipped). */
+export function parseHeaderLines(text) {
+  const headers = {};
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const at = line.indexOf(':');
+    if (at <= 0) throw new Error(t('Headers need Name: value lines.'));
+    headers[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  return headers;
+}

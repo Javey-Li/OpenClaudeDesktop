@@ -9,7 +9,7 @@ test('official aliases and argument errors preserve host routing',()=>{
  for(const [input,id] of [['stats','usage'],['new','clear'],['settings','config'],['name','rename'],['continue','resume'],['bashes','tasks'],['allowed-tools','permissions'],['plugins','plugin']])assert.equal(parse('/'+input).id,id);
  assert.equal(parse('/fork A new path').args,'A new path');
  assert.match(parse('/review first\nthen second').error,/only works on a single line/);
- assert.match(parse('/unknown').error,/isn’t a command here/);assert.match(parse('/compact now').error,/doesn’t take arguments here/);
+ assert.match(parse('/unknown').error,/isn’t a command here/);assert.match(parse('/status now').error,/doesn’t take arguments here/);assert.equal(parse('/compact keep the API decisions').args,'keep the API decisions');
  assert.equal(parse('/compac').suggestion,'compact');assert.equal(parse('/zzzzzz').suggestion,null);
 });
 test('catalog contains only executable host actions; unavailable rows disappear',()=>{
@@ -46,20 +46,25 @@ test('operation events belong to current connection; real compaction start stays
 // boot.core.capabilities.unsupportedMethods (DeepSeek bridge initialize): the
 // command's core request is unavailable, checked before every other gate.
 test('unsupported core methods disable fork, review and rewind first; the slash menu drops them',()=>{
- const reason='Not available with the DeepSeek core yet';
+ // The reason names the running core (context.coreName), never a hardcoded vendor; without a name, "this core".
+ const reason='Not available with DeepSeek Harness yet',unnamed='Not available with this core yet';
  assert.ok(commandUnavailable({id:'rewind',session:true,idle:true},{current:'t',connected:true,hasHistory:true,unsupportedMethods:['thread/revert']}));
- const deepseek={current:'t',connected:true,hasHistory:true,unsupportedMethods:['thread/fork','review/start','thread/revert']};
+ const deepseek={current:'t',connected:true,hasHistory:true,coreName:'DeepSeek Harness',unsupportedMethods:['thread/fork','review/start','thread/revert']};
  for(const [id,method] of [['fork','thread/fork'],['review','review/start'],['rewind','thread/revert']]){
   const command=sessionCommands.find(c=>c.id===id);
-  assert.equal(commandUnavailable(command,{current:'t',connected:true,hasHistory:true,unsupportedMethods:[method]}),reason,id);
+  assert.equal(commandUnavailable(command,{current:'t',connected:true,hasHistory:true,unsupportedMethods:[method]}),unnamed,id);
+  assert.equal(commandUnavailable(command,{current:'t',connected:true,hasHistory:true,coreName:'GLM Code',unsupportedMethods:[method]}),'Not available with GLM Code yet',id);
   assert.equal(commandUnavailable(command,{...deepseek,unsupportedMethods:[]}),'',id+' with a capable core');
-  assert.equal(commandUnavailable(command,{unsupportedMethods:[method]}),reason,id+' is checked before the session gates');
+  assert.equal(commandUnavailable(command,{unsupportedMethods:[method]}),unnamed,id+' is checked before the session gates');
   assert.equal(unsupportedCommand(id,deepseek),reason);assert.equal(unsupportedCommand(id,{}),'');
  }
  assert.deepEqual(matchCommands('rew',deepseek),[]);assert.equal(matchCommands('rew',ready)[0].id,'rewind');
  assert.deepEqual(matchCommands('fork',deepseek),[]);assert.deepEqual(matchCommands('review',deepseek),[]);
  for(const id of ['compact','status','export'])assert.equal(commandUnavailable(sessionCommands.find(c=>c.id===id),deepseek),'',id+' stays available');
- assert.equal(unsupportedCommand('compact',{unsupportedMethods:['thread/compact/start']}),'','only fork, review and rewind map to core methods');
+ // A core that can't compact on request (Gemini CLI lists thread/compact/start) shows /compact as unavailable, not as an
+ // enabled row whose every use fails.
+ assert.equal(unsupportedCommand('compact',{unsupportedMethods:['thread/compact/start'],coreName:'Gemini CLI'}),'Not available with Gemini CLI yet');
+ assert.equal(commandUnavailable(sessionCommands.find(c=>c.id==='compact'),{current:'t',connected:true,hasHistory:true,unsupportedMethods:['thread/compact/start']}),'Not available with this core yet');
 });
 
 // Fidelity F05: skills in '/' (cc183b3ab-BNeMUZS1.js:619-700 supported commands include user-invocable skills).
@@ -101,4 +106,13 @@ test('/plan follows vG: switch, pane, draft and the already-in-plan notices',()=
   assert.deepEqual(plan('',{planSelectable:false}),{kind:'unavailable'});
   assert.deepEqual(plan('',{planSelectable:false,hasPlan:true}),run(false,true,null,null));
   assert.deepEqual(plan('Explain',{planSelectable:false,hasPlan:true}),{kind:'unavailable'});
+});
+
+test("/usage promises plan usage and rate limits only on a core that reports them", async () => {
+  const { matchCommands: match, sessionCommandDescription, sessionCommands: commands } = await import("../src/session-command-model.mjs");
+  const usage = commands.find((command) => command.id === "usage");
+  assert.equal(sessionCommandDescription(usage, {}), "Show plan usage, credits and rate limits");
+  assert.equal(sessionCommandDescription(usage, { perTokenBilling: true }), "Show the tokens used on this Mac");
+  assert.equal(match("usage", { perTokenBilling: true }).find((row) => row.id === "usage").description, "Show the tokens used on this Mac");
+  assert.equal(match("usage", {}).find((row) => row.id === "usage").description, "Show plan usage, credits and rate limits");
 });

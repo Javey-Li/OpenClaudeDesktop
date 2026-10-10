@@ -176,7 +176,7 @@ try {
   const available = metrics.geometry.hostWidth - 16 - 12;
   near(metrics.geometry.files, Math.round(available * 3 / 5), "files width = 3/5 of available", 1);
   near(metrics.geometry.chat + metrics.geometry.files, available, "chat + files fill the available width", 1);
-  assert.deepEqual(metrics.geometry.sepAria, { orientation: "vertical", now: "40", label: "Resize 1 and 2" });
+  assert.deepEqual(metrics.geometry.sepAria, { orientation: "vertical", now: "40", label: "Resize Chat and Files" });
   assert.equal(metrics.geometry.radius, "10px");
   assert.notEqual(metrics.geometry.shadow, "none");
   assert.equal(metrics.geometry.containerType, "inline-size");
@@ -198,7 +198,7 @@ try {
   assert.deepEqual([metrics.planDocument.heading, metrics.planDocument.tasksAfter, metrics.planDocument.steps], ["Plan fixture heading", true, 3], "plan document heading, then Tasks");
   assert.equal(metrics.planDocument.trailing[0], "Copy plan", "Copy plan leads the Plan trailing controls");
   await closePane("plan");
-  checks.push("Files opens at chat 2 : side 3 inside 8px padding with a 12px separator (3x56 affordance, aria 'Resize 1 and 2' = 40); Plan opens 2 : 1");
+  checks.push("Files opens at chat 2 : side 3 inside 8px padding with a 12px separator (3x56 affordance, aria 'Resize Chat and Files' = 40); Plan opens 2 : 1");
 
   // 2. Third pane: Plan stacks under Files; with chat last it appends.
   await openFiles();

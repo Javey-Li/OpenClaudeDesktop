@@ -317,12 +317,15 @@ try {
       items: [...menu.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
       separators: menu.querySelectorAll('[role="separator"]').length, expanded: pill.getAttribute("aria-expanded"),
       below: box.top >= anchor.bottom, startGap: Math.abs(Math.round(box.left - anchor.left)),
-      highlighted: menu.querySelector("[data-highlighted]")?.textContent,
+      highlighted: menu.querySelector("[data-highlighted]")?.textContent ?? null,
     };
   });
   assert.deepEqual(metrics.folderMenu, { cds: "Menu", side: "bottom", align: "start", label: "Working directory", labelledBy: true,
-    // F12: the shared repo items use the c18ab0d94 b() reveal label "Show in Finder".
-    items: ["Show in Finder", "Copy path"], separators: 1, expanded: "true", below: true, startGap: 0, highlighted: "Show in Finder" });
+    // F12: the shared repo items use the c18ab0d94 b() reveal label "Show in Finder"; the last group is Open in terminal.
+    // focusItemOnOpen "auto" (vendor-frame-BmPfNbgY.js:20180-20190): a mouse open highlights nothing; ArrowDown starts at the first row.
+    items: ["Show in Finder", "Copy path", "Open in terminal"], separators: 2, expanded: "true", below: true, startGap: 0, highlighted: null });
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]')?.textContent === "Show in Finder");
   await page.keyboard.press("ArrowDown");
   await page.waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]')?.textContent === "Copy path");
   await page.keyboard.press("s");
@@ -332,7 +335,7 @@ try {
   await page.waitForFunction(() => document.activeElement === document.querySelector(".st-toolbar .st-folder"));
   assert.equal(await folderPill.getAttribute("aria-expanded"), "false");
   checks.push(
-    "F03 folder pill: role=menu 'Working directory' below the pill (side bottom, align start) with a Group labelled 'Working directory' over Show in Finder / separator / Copy path; first item highlighted, ArrowDown and typeahead move the highlight, Escape closes and refocuses the pill",
+    "F03 folder pill: role=menu 'Working directory' below the pill (side bottom, align start) with a Group labelled 'Working directory' over Show in Finder / separator / Copy path; nothing highlighted after a mouse open, ArrowDown and typeahead move the highlight, Escape closes and refocuses the pill",
   );
   // R03 (c856385e2 X0Ntx9olgx; sidebar-groups.js:15393-15402 addError): a failed session action is a danger toast with
   // the catalog copy, never the composer banner with Electron's "Error invoking remote method" text. The offscreen
@@ -420,7 +423,7 @@ try {
   assert.equal(metrics.release.date, releaseNoteDate(releaseEntry.date));
   assert.deepEqual(metrics.release.groups, ["New", "Improved", "Fixed"].filter((label, index) => releaseEntry.items.some((item) => item.kind === ["feat", "improvement", "fix"][index])));
   assert.equal(await dialog.getByRole("button", { name: "Close release notes" }).count(), 0);
-  assert.match(await dialog.innerText(), /local Code Desktop client is now powered by DeepSeek Harness/);
+  assert.match(await dialog.innerText(), /Code Desktop is now a frame for agent cores/);
   assert.doesNotMatch(await dialog.innerText(), /Codex/);
   assert.doesNotMatch(await dialog.innerText(), /Native model menu/);
   await dialog.press("Tab");

@@ -40,6 +40,8 @@
 .sft-details > [role=group] { min-width:0; flex:1; display:flex; flex-direction:column; gap:5px; max-height:400px; overflow-y:auto; }
 .sft-key { font-family:var(--cds-font-mono); opacity:.7; }
 .sft-command { font-family:var(--cds-font-mono); word-break:break-all; }
+/* An exec-backed step's output (Codex 'Listed …' / 'Searched …') reads in the mono code face, as under 'Ran …'. */
+.sft-details .src-cmd-output { font-family:var(--cds-font-mono); font-size:var(--cds-font-size-code, 12px); line-height:var(--cds-leading-code, 17px); }
 .sft-step[data-state=failed] .source-step-label { color:var(--cds-text-danger); }
 
 /* File/default unified gutter from ca7ba268c; response Read/Edit options leave

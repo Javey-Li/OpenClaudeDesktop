@@ -32,6 +32,8 @@
 .su-footer{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:32px}
 .su-note,.su-footer>span,.su-empty,.su-loading{color:var(--cds-text-secondary)}
 .su-footer>.su-updated{color:var(--cds-text-muted)}
+/* The empty limits list keeps a row's block padding under the list's top rule (it sat flush against the rule). */
+.su-empty{margin:0;padding-block:calc(1rem * var(--cds-rem-scale,1))}
 .su-daily tfoot :is(th,td){border-bottom:0}
 .su-error{color:var(--cds-text-danger);overflow-wrap:anywhere;margin-top:20px}
 .su-loading{border-top:1px solid var(--cds-alpha-1);padding-top:16px}
@@ -94,3 +96,42 @@ html[data-reduce-motion="true"] .su-indicator { transition: none; }
 @media(max-width:520px){.su-tiles{grid-template-columns:minmax(0,1fr)}}
 /* SourceTimestamp is display:flex (AO); keep it on the label's line. */
 .su-footer>.su-updated{display:inline-flex;align-items:center;gap:.25em;white-space:nowrap}
+/* Limit notice: Claude's inline callout (rounded-lg, tinted background, footnote body) above the meters. Tones use the
+   CDS danger/accent backgrounds, so light and dark follow the theme tokens. */
+.su-notice{display:flex;align-items:flex-start;justify-content:space-between;gap:calc(1rem * var(--cds-rem-scale,1));margin:calc(-1rem * var(--cds-rem-scale,1)) 0 calc(1.5rem * var(--cds-rem-scale,1));padding:calc(.75rem * var(--cds-rem-scale,1)) calc(1rem * var(--cds-rem-scale,1));border-radius:calc(var(--cds-radius,.5rem) + .125rem);background:var(--cds-bg-accent);box-shadow:inset 0 0 0 1px var(--cds-alpha-1);color:var(--cds-text-primary)}
+.su-notice[data-tone=danger]{background:var(--cds-bg-danger);box-shadow:inset 0 0 0 1px var(--cds-border-danger,var(--cds-alpha-1))}
+.su-notice-copy{min-width:0;overflow-wrap:anywhere}
+.su-notice-copy p{margin:calc(.25rem * var(--cds-rem-scale,1)) 0 0;font-size:var(--cds-font-size-footnote);line-height:var(--cds-leading-footnote);color:var(--cds-text-secondary)}
+.su-notice-copy .su-notice-result{color:var(--cds-text-primary)}
+.su-notice-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;flex-shrink:0}
+/* Credits: the balance is the group's value; a spend limit is one more meter row inside the group. */
+.su-credits .su-section-heading strong[data-state=none]{color:var(--cds-text-secondary);font-weight:500}
+.su-credit-limit{margin-top:calc(.75rem * var(--cds-rem-scale,1))}
+p.su-credit-limit{color:var(--cds-text-secondary)}
+/* Earned resets: the count, a start button, then an inline confirmation panel (radio cards when there is a choice). */
+.su-reset-start{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:calc(.75rem * var(--cds-rem-scale,1))}
+.su-reset-hint,.su-reset-note{font-size:var(--cds-font-size-footnote);line-height:var(--cds-leading-footnote);color:var(--cds-text-secondary)}
+.su-reset-confirm{margin-top:calc(.75rem * var(--cds-rem-scale,1));padding:calc(1rem * var(--cds-rem-scale,1));border-radius:calc(var(--cds-radius,.5rem) + .125rem);background:var(--cds-surface-1,transparent);box-shadow:inset 0 0 0 1px var(--cds-border-strong,var(--cds-alpha-2))}
+.su-reset-confirm h4{margin:0 0 calc(.75rem * var(--cds-rem-scale,1))}
+.su-reset-options{display:flex;flex-direction:column;gap:8px}
+.su-reset-option{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:var(--cds-radius,.5rem);box-shadow:inset 0 0 0 1px var(--cds-alpha-2);transition:box-shadow var(--cds-dur-base,.2s) var(--cds-ease-out,ease-out),background-color var(--cds-dur-base,.2s) var(--cds-ease-out,ease-out)}
+.su-reset-option[data-checked]{box-shadow:inset 0 0 0 1px var(--cds-border-accent,var(--cds-fill-accent));background:var(--cds-bg-accent-muted,transparent)}
+.su-reset-option input{margin:3px 0 0;accent-color:var(--cds-fill-accent)}
+.su-reset-option input:focus-visible{outline:none;box-shadow:var(--cds-focus-shadow);border-radius:50%}
+.su-reset-option-copy{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.su-reset-option-title{font-weight:500;color:var(--cds-text-primary)}
+.su-reset-option-detail{font-size:var(--cds-font-size-footnote);line-height:var(--cds-leading-footnote);color:var(--cds-text-secondary)}
+.su-reset-note{margin:calc(.75rem * var(--cds-rem-scale,1)) 0 0}
+.su-reset-error{margin:8px 0 0;color:var(--cds-text-danger);font-size:var(--cds-font-size-footnote)}
+.su-reset-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:calc(1rem * var(--cds-rem-scale,1))}
+.su-section>p.su-reset-result{color:var(--cds-text-primary)}
+@media(max-width:767px){.su-notice{flex-direction:column}.su-notice-actions{justify-content:flex-start}}
+@media(prefers-reduced-motion:reduce){.su-reset-option{transition:none}}
+/* Tokens counted on this Mac (LocalUsage): no cost column; the daily table's caption is a muted label above it. */
+/* One column grid for every model row (li display:contents), so each bar starts at the same x whatever its label's
+   width; the bars are the plan meters' 4px Track/Indicator on bg-accent. */
+.su-models.su-local-models{--usage-bg:var(--cds-bg-accent);--usage-fill:var(--cds-fill-accent);display:grid;grid-template-columns:max-content minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:6px}
+.su-models.su-local-models li{display:contents}
+.su-local-models .su-legend-name{max-width:calc(14rem * var(--cds-rem-scale,1))}
+.su-local-models .su-meter,.su-local-models .su-indicator{display:block;min-width:0}
+.su-local-caption{caption-side:top;text-align:start;padding-top:12px;font-weight:500;color:var(--cds-text-secondary)}

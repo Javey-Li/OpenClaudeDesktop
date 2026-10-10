@@ -1,4 +1,5 @@
-import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CodeBlockActionsContext, isShellLanguage } from "./code-block-actions.mjs";
 import { Icon } from "./icons.jsx";
 import { SourceTooltip } from "./source-tooltip";
 import { createPlainCodeScheduler } from "./plain-code-scheduler.mjs";
@@ -80,10 +81,21 @@ export function SourceCodeBlock({ text = "", language = "text", isFrontier = fal
     controller.current?.setText(shown);
   }, [shown, isFrontier, languageSettled]);
 
+  // "Run in terminal" (2.2553.1 cbd5abfdb Play): a settled shell block of a session with a terminal; never while its
+  // secrets are masked (the user would run what they haven't seen).
+  const actions = useContext(CodeBlockActionsContext);
+  const runnable = !!actions?.runInTerminal && isShellLanguage(language) && !masked && !!text.trim();
+  const [runState, setRunState] = useState("idle");
+  const run = async () => {
+    if (runState === "running") return;
+    setRunState("running");
+    try { await actions.runInTerminal(text, language); setRunState("idle"); }
+    catch { setRunState("error"); }
+  };
   const copied = copyState === "copied";
   const failed = copyState === "error";
   const singleLine = !/[\r\n]/.test(text.trimEnd()); // Geometry only; never the copy payload.
-  const message = copied ? t("Copied") : failed ? t("Couldn’t copy to the clipboard. Try again.") : "";
+  const message = copied ? t("Copied") : failed ? t("Couldn’t copy to the clipboard. Try again.") : runState === "error" ? t("The terminal wasn’t ready, so the command wasn’t run") : "";
   return <div className="scb-flow" data-not-prose="">
     {!languageSettled ? <pre className="scb-language-placeholder" aria-hidden="true" /> :
       <div className="scb-block" data-language={language} data-frontier={isFrontier || undefined}
@@ -96,6 +108,12 @@ export function SourceCodeBlock({ text = "", language = "text", isFrontier = fal
         {!isFrontier && <div className="scb-actions-track">
           <div className={`scb-actions${singleLine ? " scb-single-line" : ""}`}>
             {secrets && <SecretToggle revealed={revealed} count={secrets.length} onToggle={() => setRevealed((value) => !value)} />}
+            {runnable && <SourceTooltip content={t("Run in terminal")} automatic={true} hoverable={false}>
+              <button type="button" className="scb-copy scb-run" aria-label={t("Run in terminal")} aria-busy={runState === "running" || undefined}
+                onMouseDown={(event) => event.preventDefault()} onClick={() => { void run(); }}>
+                <Icon name="Play" size={16} />
+              </button>
+            </SourceTooltip>}
             <SourceTooltip content={message || t("Copy code")} automatic={true} hoverable={false}>
             <button type="button" className="scb-copy" aria-label={copied ? t("Copied") : t("Copy code")}
               aria-busy={copyState === "pending" || undefined} aria-describedby={failed ? statusId : undefined}

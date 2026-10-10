@@ -1,8 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SourceSwitch as SettingSwitch } from "./source-switch.jsx";
 import { SourceMenu } from "./source-menu";
-import { modelMenuSections } from "./model-menu-model.mjs";
+import { filterModels, modelMenuSections } from "./model-menu-model.mjs";
 import "./source-model-menu.css";
 import { t } from "../electron/i18n/index.mjs";
 
@@ -25,9 +25,15 @@ const modelName = (model) => model.displayName || model.name || modelKey(model);
  */
 export function SourceModelMenu({
   anchor, models = [], selected, onSelect, onClose, fastTier, fastMode = false, fastDisabled = false,
-  fastSaving = false, onFastModeChange, initialHighlight,
+  fastSaving = false, onFastModeChange, initialHighlight, scopeNote = null,
 }) {
-  const { primary, overflow, showFast } = useMemo(() => modelMenuSections({ models, fastTier }), [models, fastTier]);
+  const { primary, overflow, showFast, searchable } = useMemo(() => modelMenuSections({ models, fastTier, selected }), [models, fastTier, selected]);
+  // A long catalog (more than MODEL_SEARCH_THRESHOLD models) is searched by name, provider or id: typing filters a flat
+  // list of matches in place of the sections; Enter picks the first, Escape clears the query first.
+  const [query, setQuery] = useState(""), searchRef = useRef(null);
+  const matches = useMemo(() => (searchable ? filterModels(models, query) : []), [searchable, models, query]);
+  const searching = searchable && query.trim() !== "";
+  useEffect(() => { if (searchable) { const timer = setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 0); return () => clearTimeout(timer); } return undefined; }, [searchable]);
   const primaryDigits = useMemo(() => {
     const digits = new Map();
     let digit = 1;
@@ -58,8 +64,23 @@ export function SourceModelMenu({
     </SourceMenu.Item>;
   };
 
+  const searchKeyDown = (event) => {
+    if (event.target !== searchRef.current || event.nativeEvent?.isComposing) return;
+    if (event.key === "Enter" && searching) { event.preventDefault(); if (matches[0]) { pick(matches[0]); onClose?.(); } }
+    else if (event.key === "Escape" && query) { event.preventDefault(); event.stopPropagation(); setQuery(""); }
+  };
   return <SourceMenu.Popup anchor={anchor} side="top" align="end" label={t("Models")} dataCds="ModelSelector"
-    className="sm-model-menu" onClose={onClose} initialHighlight={initialHighlight}>
+    className="sm-model-menu" onClose={onClose} initialHighlight={searchable ? null : initialHighlight} onKeyDown={searchable ? searchKeyDown : undefined}>
+    {searchable && <div className="sm-model-search">
+      <Icon name="Search" size={14} aria-hidden="true" />
+      <input ref={searchRef} type="text" className="sm-model-search-input cds-reset" aria-label={t("Search models")} placeholder={t("Search models")}
+        value={query} spellCheck={false} autoComplete="off" onChange={(event) => setQuery(event.target.value)} />
+    </div>}
+    {searching ? <>
+      {matches.length > 0
+        ? <SourceMenu.Group>{matches.map((model) => row(model, false))}</SourceMenu.Group>
+        : <div className="sm-model-empty" role="status">{t("No matching models")}</div>}
+    </> : <>
     <SourceMenu.Group>{primary.map((model) => row(model, true))}</SourceMenu.Group>
     {!primary.length && !overflow.length && <div className="sm-model-empty" role="status">{t("No models available")}</div>}
     {overflow.length > 0 && <>
@@ -70,6 +91,7 @@ export function SourceModelMenu({
           <SourceMenu.Group>{overflow.map((model) => row(model, false))}</SourceMenu.Group>
         </SourceMenu.Popup>
       </SourceMenu.Submenu>
+    </>}
     </>}
     {showFast && onFastModeChange && <>
       <SourceMenu.Separator />
@@ -84,5 +106,6 @@ export function SourceModelMenu({
         </span>
       </SourceMenu.Item>
     </>}
+    {scopeNote && <div className="sm-model-scope" data-model-scope="">{scopeNote}</div>}
   </SourceMenu.Popup>;
 }

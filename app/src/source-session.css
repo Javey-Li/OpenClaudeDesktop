@@ -58,6 +58,14 @@
   background: none;
   white-space: normal;
 }
+/* A prompt the agent's scheduler fired (MiMo cron / loop): a muted clock row above its bubble. */
+.source-user-group > .source-user-scheduled {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cds-text-muted);
+  font-size: var(--cds-font-size-footnote, 12px);
+}
 .source-user-group > .source-user-bubble {
   max-width: 85%;
   padding: var(--cds-pad-md, 8px) var(--cds-pad-lg, 12px);
@@ -628,6 +636,11 @@ html[data-reduce-motion="true"] .source-user-attachment-picture { transition: no
   justify-content: flex-end;
   color: var(--cds-text-primary);
 }
+/* A tab lifted by a pointer drag (use-tab-drag-reorder.mjs, Files and Terminal strips): above its neighbours, its
+   opaque backdrop set inline from the strip's surface. */
+.source-file-tab[data-tab-dragging] {
+  z-index: 2;
+}
 .source-file-tab:has(:focus-visible) {
   box-shadow: var(--cds-focus-shadow);
 }
@@ -1012,6 +1025,11 @@ html[data-reduce-motion="true"] .source-step-caret { transition: none; }
 /* Pc/Kn/Bn: keyboard file chips in response Markdown; no link inside a link. */
 .source-markdown .smd-file-ref { display:inline-block; border-radius:4px; cursor:var(--cds-cursor-interactive,default); }
 .source-markdown .smd-file-ref:focus-visible { outline:none; box-shadow:var(--cds-focus-shadow); }
+/* A Codex review finding's priority (::code-comment priority / '[P1]' title): P0 and P1 stand out, P2 and P3 stay quiet. */
+.source-markdown .smd-priority { display:inline-block; margin-right:2px; padding:0 5px; border-radius:4px; font-size:0.85em; font-weight:600; line-height:1.5; vertical-align:baseline;
+  color:var(--cds-text-secondary); background:var(--cds-alpha-2, rgba(127,127,127,.12)); font-variant-numeric:tabular-nums; }
+.source-markdown .smd-priority[data-priority="0"] { color:var(--cds-text-danger); background:var(--cds-bg-danger); }
+.source-markdown .smd-priority[data-priority="1"] { color:var(--cds-text-warning); background:var(--cds-bg-warning); }
 
 /* code-block-current.js:1043-1100 Dr: a masked secret in inline code
    ('inline-flex max-w-full items-baseline gap-[2px] align-baseline'; the value
@@ -1040,3 +1058,20 @@ html[data-reduce-motion="true"] .source-step-caret { transition: none; }
   color: var(--cds-text-accent);
   background: var(--cds-bg-accent);
 }
+
+/* Codex imageGeneration / imageView / sleep / hookPrompt rows (media-item-model.mjs): the revised prompt or the
+   hook's context as muted body text, a failure in the danger tone. */
+.source-media-detail { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
+.source-media-caption, .source-media-error { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-media-caption { color: var(--cds-text-secondary); }
+.source-media-error { color: var(--cds-text-danger, #b44338); }
+.source-memory-citation { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--cds-text-secondary); overflow-wrap: anywhere; }
+.source-memory-citation > span:first-child { font-weight: 500; }
+
+/* Language-server errors after an edit (OpenCode diagnostics): muted, monospace locations, danger-tinted marker. */
+.source-diagnostics { margin-top: 6px; padding: 6px 10px; border-radius: var(--cds-radius, 6px); background: var(--cds-fill-ghost-hover); font-size: var(--cds-font-size-footnote, 12px); }
+.source-diagnostics-title { color: var(--cds-text-danger); margin-bottom: 4px; }
+.source-diagnostics ul { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.source-diagnostics li { display: flex; gap: 8px; min-width: 0; }
+.source-diagnostics-where { flex: none; color: var(--cds-text-secondary); font-family: var(--cds-font-mono); }
+.source-diagnostics-message { min-width: 0; color: var(--cds-text-primary); overflow-wrap: anywhere; }

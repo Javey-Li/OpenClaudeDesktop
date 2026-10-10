@@ -33,12 +33,13 @@ export const storagePercent=value=>Number((value*100).toFixed(3));
 // colour on the opacity ramp in order; muted and outside kinds take the muted colour at full opacity. The
 // 4px bar holds only the counted kinds, each as its share of their total.
 export const KIND_OPACITY_RAMP=Object.freeze([1,.72,.5,.32,.2]);
+// A kind the core can't measure per session (unmeasured: its sessions sit in one database) is listed with no bytes.
 export function storageKinds(items,{color,mutedColor}) {
-  const painted=items.filter(item=>item.bytes>0).reduce((list,item)=>{
+  const painted=items.filter(item=>item.bytes>0||item.unmeasured===true).reduce((list,item)=>{
     const rank=list.filter(other=>!other.muted&&!other.outside).length;
     list.push({...item,paint:item.muted||item.outside?{backgroundColor:mutedColor,opacity:1}:{backgroundColor:color,opacity:KIND_OPACITY_RAMP[Math.min(rank,KIND_OPACITY_RAMP.length-1)]}});
     return list;
   },[]);
-  const counted=painted.filter(item=>!item.outside),total=counted.reduce((sum,item)=>sum+item.bytes,0);
+  const counted=painted.filter(item=>!item.outside&&item.unmeasured!==true),total=counted.reduce((sum,item)=>sum+item.bytes,0);
   return {items:painted,bar:counted.map(item=>({...item,width:total>0?item.bytes/total*100:0})),total};
 }

@@ -16,7 +16,8 @@
  * dsh-llm's LlmCallConfig has no top_p, so none is offered.
  */
 
-const MODEL_ID = /^[A-Za-z0-9_.:/-]{1,128}$/
+// The app's isModelId (prefs/model-settings.mjs): custom provider ids may carry `@` or `+`, catalog ids `( )`.
+const MODEL_ID = /^[A-Za-z0-9_.:/()@+-]{1,128}$/
 const MAX_ENTRIES = 50
 export const MAX_TOKENS_MIN = 256
 export const MAX_TOKENS_MAX = 1000000

@@ -27,7 +27,7 @@ export function SourceGenericToolBody({item,state,cwd,onOpenFileRef,inCard=false
   {entry.answer!=null&&<div className="sgt-qa-answer">{entry.answer}</div>}
  </div>)}</div>;
  const detail=genericToolDetails(item);
- if(!detail.hasDetails)return null;
+ if(!detail.hasDetails&&!item.codeDesktop?.mcpApp)return null;
  // KO :6943-6944 i = onlyBody && !inCard && mcp__: a group row's MCP body is not standalone.
  const failed=state==='failed',standalone=item.type==='mcpToolCall'&&!inCard;
  const result=<>{detail.error&&<div className="sgt-error"><SourceAnsiText text={detail.error}/></div>}{detail.text&&<div className={failed?'sgt-error':undefined}><SourceAnsiText text={detail.text}/></div>}</>;
@@ -35,6 +35,7 @@ export function SourceGenericToolBody({item,state,cwd,onOpenFileRef,inCard=false
  return <div className="sgt-body" data-standalone={standalone||undefined}><div className="sgt-body-inner">
   <div className="sgt-details" role="group" aria-label={t("Tool call details")} tabIndex={0}>
    {failed?result:args}{failed?args:result}
+   {item.codeDesktop?.mcpApp&&<div className="sgt-note" data-mcp-app="">{t("This connector also has an interactive view, which Code Desktop can’t show yet.")}</div>}
   </div><CommandCopyButton text={detail.copyText}/>
  </div></div>;
 }

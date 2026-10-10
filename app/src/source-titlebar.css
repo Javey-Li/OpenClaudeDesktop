@@ -18,6 +18,9 @@
   display: flex;
   align-items: center;
   min-width: 0;
+  /* Never paint over the actions when the row is narrower than the lead's floor. */
+  overflow: clip;
+  overflow-clip-margin: 3px;
   -webkit-app-region: no-drag;
 }
 .st-origin {
@@ -130,6 +133,9 @@
 .st-lead[data-pills-compact] .st-folder-label {
   display: none;
 }
+.st-lead[data-folder-hidden] .st-folder {
+  display: none;
+}
 .st-toolbar .st-folder:hover:not(:disabled),
 .st-folder[aria-expanded="true"] {
   background: var(--cds-alpha-3);
@@ -145,6 +151,13 @@
   flex: none;
   gap: 4px;
   -webkit-app-region: no-drag;
+}
+/* Cramped (see SourceTitlebar): Preview and Terminal stay reachable from ⋯ Session options and their shortcuts. */
+.st-toolbar .st-trailing[data-cramped] {
+  padding-left: 8px;
+}
+.st-toolbar .st-trailing[data-cramped] [data-pane-toggle] {
+  display: none;
 }
 .st-toolbar .code-icon-button {
   width: var(--cds-h-control, 24px);

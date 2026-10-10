@@ -513,7 +513,7 @@ try {
   const userMenu = page.getByRole("menu", { name: "Message actions", exact: true });
   await userMenu.waitFor();
   metrics.userMenu = await userMenu.locator('[role="menuitem"]').allTextContents();
-  assert.deepEqual(metrics.userMenu.map(text => text.replace(/[\uE000-\uF8FF⌘⇧]/g, "").trim()), ["Copy message", "Copy message as Markdown", "Attach message as context"]);
+  assert.deepEqual(metrics.userMenu.map(text => text.replace(/[\uE000-\uF8FF⌘⇧]/g, "").trim()), ["Copy message", "Copy message as Markdown", "Attach message as context", "Rewind to here", "Fork from here"]);
   await userMenu.getByRole("menuitem", { name: "Copy message as Markdown", exact: true }).click();
   await userMenu.waitFor({ state: "detached" });
   for (let attempt = 0; attempt < 40 && await readClipboard() !== CODE; attempt += 1) await new Promise(resolve => setTimeout(resolve, 50));
@@ -559,13 +559,13 @@ try {
   await forgeChip.click();
   await page.waitForTimeout(300);
   assert.deepEqual(await app.evaluate(() => globalThis.umOpened), ["https://example.com/x", FORGE_PR], "the chip opens externally exactly once");
-  await page.getByRole("button", { name: "Account menu", exact: true }).click(); await page.getByRole("menuitem", { name: "Dark appearance", exact: true }).click();
+  await page.evaluate((theme) => window.desktop.call("settings", { theme }), "dark"); /* the account menu has no appearance items (Claude parity); Settings › Appearance or this preference call switch it */
   await page.waitForFunction(() => document.documentElement.dataset.mode === "dark");
   await page.mouse.move(100, 700); await frames(4);
   metrics.forgeDark = await forgeView(); assertForge(metrics.forgeDark, "dark");
   assert.ok(metrics.forgeDark.color !== metrics.forgeLight.color || metrics.forgeDark.background !== metrics.forgeLight.background, "dark tokens apply");
   await forgeAnswer.screenshot({ path: path.join(directory, "forge-chip-dark.png") });
-  await page.getByRole("button", { name: "Account menu", exact: true }).click(); await page.getByRole("menuitem", { name: "Light appearance", exact: true }).click();
+  await page.evaluate((theme) => window.desktop.call("settings", { theme }), "light"); /* the account menu has no appearance items (Claude parity); Settings › Appearance or this preference call switch it */
   await page.waitForFunction(() => document.documentElement.dataset.mode === "light");
   checks.push("R08: a bare other-repo PR URL in assistant text is the rc pill (acme/widgets#42, text-accent on bg-accent-muted, rounded-sm, px-1.5, hover bg-accent, link pointer) with the 12px GitPullRequest glyph slot in light and dark; the labelled link stays plain; the chip opens externally once");
 

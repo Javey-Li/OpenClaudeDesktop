@@ -2,8 +2,8 @@
 // Show App, the account's greyed plan/usage rows, then Quit {appName}. The rich
 // usage popover is a native Swift module with no local equivalent, so this is
 // the source's own fallback menu branch.
-import { usagePresentation } from './usage-model.mjs';
-import { t } from './i18n/index.mjs';
+import { usagePresentation, isPlanId } from './usage-model.mjs';
+import { t, getLocale } from './i18n/index.mjs';
 
 // QDr: rows only for a signed-in account with a plan. API-key and Bedrock
 // credentials have no plan usage, so they get none rather than "unavailable".
@@ -11,11 +11,15 @@ export function trayUsageEligible(account) {
   return ['chatgpt', 'chatgptAuthTokens'].includes(account?.account?.type);
 }
 
-export function trayUsageRows({ account, limits, limitsFailed }, locale) {
+// The app's UI language (preferences locale): menu-bar.cjs formats the rows in it, not in the OS locale.
+export const uiLocale = () => getLocale();
+export function trayUsageRows({ account, limits, limitsFailed }, locale = getLocale()) {
   if (!trayUsageEligible(account)) return [];
-  const { rows, plan } = usagePresentation({ account, limits });
+  const { rows, plan } = usagePresentation({ account, limits }, { locale });
   const result = [];
-  if (plan) result.push({ label: t('{plan} plan', { plan }), enabled: false });
+  // A Codex plan id reads 'Pro plan'; a bridge's own sign-in name ('Z.ai Coding Plan') is shown as it is.
+  const rawPlan = account?.account?.planType;
+  if (plan) result.push({ label: isPlanId(rawPlan) || (!rawPlan && plan) ? t('{plan} plan', { plan }) : plan, enabled: false });
   // sOr: without any snapshot a failed read is "unavailable"; never read is none.
   if (!limits && limitsFailed) result.push({ label: t('Usage unavailable'), enabled: false });
   const peak = rows.reduce((max, row) => max === null ? row.used : Math.max(max, row.used), null);

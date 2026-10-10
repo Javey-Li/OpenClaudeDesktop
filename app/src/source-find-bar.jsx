@@ -39,7 +39,9 @@ function rootInert() {
   return typeof document !== "undefined" && !!document.getElementById("root")?.closest("[inert]");
 }
 
-export const SourceFindBar = forwardRef(function SourceFindBar({ enabled = true, getScope, scroll, sessionKey = null }, ref) {
+// shortcuts: false while this bar's split side is not the focused one (source-split-view.jsx): the bar stays as it is,
+// but ⌘F / ⌘G / Escape belong to the focused side's bar.
+export const SourceFindBar = forwardRef(function SourceFindBar({ enabled = true, shortcuts = true, getScope, scroll, sessionKey = null }, ref) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(ZERO);
@@ -161,7 +163,7 @@ export const SourceFindBar = forwardRef(function SourceFindBar({ enabled = true,
   // ZB :17838-17860 / :17968-17985: one window keydown listener, re-added when
   // the bar opens or closes, standing down under a modal (an inert #root).
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled || !shortcuts) return undefined;
     const onKey = (event) => {
       const action = findShortcut(event, { open, mac: isMac() });
       if (!action) return;
@@ -173,7 +175,7 @@ export const SourceFindBar = forwardRef(function SourceFindBar({ enabled = true,
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, open]);
+  }, [enabled, open, shortcuts]);
   // ZB: Escape inside the bar is the bar's own (stopPropagation first).
   useEffect(() => {
     const root = rootRef.current;

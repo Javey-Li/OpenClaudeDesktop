@@ -329,3 +329,49 @@ test("reentry grace suppresses only grant chords, never Escape or ordinary focus
   assert.deepEqual(approvalKeyIntent({ key: "Escape" }, context), { type: "action", action: "decline" });
   assert.deepEqual(approvalKeyIntent(enter(), context), { type: "focus-primary" });
 });
+
+test("Codex availableDecisions build the buttons: a prefix rule is 'Always allow', an unlisted session grant and decline are not offered", async () => {
+  const offered = ["accept", { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["npm", "test"] } }, "cancel"];
+  const model = approvalCardModel(command({ command: "npm test", availableDecisions: offered }));
+  assert.deepEqual(model.allows.map(allow => allow.key), ["decision:1", "accept"]);
+  assert.equal(model.allows[0].label, "Always allow commands that start with “npm test”");
+  assert.match(model.allows[0].title, /every session and project/);
+  assert.equal(model.allows[0].persistent, true);
+  assert.deepEqual(model.deny, { key: "cancel", label: "Deny", primary: false }, "decline isn't offered: Deny is cancel");
+  // ⇧⌘↵ picks the persistent allow.
+  assert.deepEqual(approvalKeyIntent(enter({ metaKey: true, shiftKey: true }), { target: "card", model }), { type: "action", action: "decision:1" });
+  const host = approvalCardModel(command({ command: "curl x", availableDecisions: ["accept", "acceptForSession",
+    { applyNetworkPolicyAmendment: { network_policy_amendment: { host: "registry.npmjs.org", action: "allow" } } }, "decline", "cancel"] }));
+  assert.deepEqual(host.allows.map(allow => [allow.key, allow.label]), [["decision:2", "Always allow registry.npmjs.org"], ["acceptForSession", "Allow for this session"], ["accept", "Allow once"]]);
+  assert.equal(host.deny.key, "decline");
+  // No list (the bridges): the fixed set.
+  assert.deepEqual(approvalCardModel(command({ command: "ls" })).allows.map(allow => allow.key), ["acceptForSession", "accept"]);
+  const { createRequire } = await import("node:module");
+  const { approvalResponse } = createRequire(import.meta.url)("../electron/respond-approval.cjs");
+  const request = command({ command: "npm test", availableDecisions: offered });
+  assert.deepEqual(approvalResponse(request, { decisionIndex: 1 }), { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["npm", "test"] } } });
+  for (const bad of [{ decisionIndex: 0 }, { decisionIndex: 9 }, { decisionIndex: "1" }, { decisionIndex: 1, decision: "accept" }])
+    assert.throws(() => approvalResponse(request, bad), /Invalid decision/);
+  assert.deepEqual(approvalResponse(request, { decision: "cancel" }), { decision: "cancel" });
+});
+
+test("ZCode's dynamic workflow run: one card with the bridge's script summary and its reason", () => {
+  const summary = "Workflow: review-changes — Review changed files\nPhases: 1. Find  2. Verify";
+  const model = approvalCardModel(command({ command: summary, reason: "Run this workflow? Its agents will run without asking for approval." }),
+    { type: "dynamicToolCall", tool: "CreateWorkflow", arguments: { script: "export const meta={name:'review-changes'}" } });
+  assert.equal(model.heading.action, "run a dynamic workflow");
+  assert.equal(model.detail.text, summary);
+  assert.equal(model.reason, "Run this workflow? Its agents will run without asking for approval.");
+  // Other tools keep the generic copy.
+  assert.equal(approvalCardModel(command({ command: "x" }), { type: "dynamicToolCall", tool: "Other", arguments: {} }).heading.action, "use Other");
+});
+
+test("preview site and dev server cards say the approval lasts for the session, and quote the server's name", () => {
+  const request = (agentTool, extra = {}) => ({ method: "item/commandExecution/requestApproval", params: { threadId: "t", turnId: "", itemId: "i", cwd: "/w", codeDesktop: { agentTool }, ...extra } });
+  const site = approvalCardModel(request({ kind: "preview-site", host: "example.org", url: "https://example.org/" }));
+  assert.deepEqual(site.allows.map((allow) => [allow.key, allow.label]), [["accept", "Allow for this session"]]);
+  const server = approvalCardModel(request({ kind: "preview-server", name: "site" }, { command: "npm run dev" }));
+  assert.deepEqual(server.allows.map((allow) => [allow.key, allow.label]), [["accept", "Allow for this session"]]);
+  assert.match(server.title, /start the dev server “site”\?$/);
+  assert.match(approvalCardModel(request({ kind: "preview-server" }, { command: "npm run dev" })).title, /start a dev server\?$/);
+});

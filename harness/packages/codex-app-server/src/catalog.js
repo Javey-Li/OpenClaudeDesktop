@@ -209,12 +209,43 @@ export function mcpServerStatuses(entries, tools = []) {
 // LocalizedText: a literal, or translations with a required English entry.
 const localized = (text) => (typeof text === 'string' ? text : typeof text?.en === 'string' ? text.en : '')
 
+// A LocalizedText kept whole for the client ({en, zh, …} or a literal), or null.
+function localizedMeta(text) {
+  if (typeof text === 'string') return text || null
+  if (!text || typeof text !== 'object') return null
+  const entries = Object.entries(text).filter(([key, value]) => /^[a-z]{2}(?:-[A-Za-z]{2,4})?$/u.test(key) && typeof value === 'string' && value)
+  return entries.length ? Object.fromEntries(entries) : null
+}
+
 function bundleDescription(bundle) {
   return (typeof bundle?.description === 'string' && bundle.description) || localized(bundle?.meta?.description)
 }
 
-/** Codex PluginSummary for one Harness bundle (BundleInfo). */
-export function pluginSummary(bundle, dir) {
+/**
+ * Official bundles that can't work in Code Desktop, whatever their switch says (codeDesktop.unavailable):
+ * - Schedule delivers reminders through the DeepSeek app's own Web Session controller (dsh-schedule README), which the
+ *   Code Desktop profile doesn't mount, so its entry stays pending and its tools never register;
+ * - Agent Team replaces DeepSeek's sub-agents with team tools Code Desktop has no member or task view for;
+ * - Auto review's review step isn't connected here, so turning it on would only look like a safety net.
+ */
+export const UNAVAILABLE_BUNDLES = Object.freeze({
+  '@deepseek-ai/dsh-experimental-schedule-bundle': 'needsHost',
+  '@deepseek-ai/dsh-experimental-agent-team-profile': 'notSupported',
+  '@deepseek-ai/dsh-experimental-auto-review': 'notSupported',
+})
+
+/**
+ * Why a bundle can't run in Code Desktop, or null: a known one (UNAVAILABLE_BUNDLES), or an enabled bundle one of whose
+ * rows the loader still holds pending (waiting for a service this host never provides). phases: rowId → fiber phase.
+ */
+export function bundleUnavailable(bundle, phases = null) {
+  if (Object.hasOwn(UNAVAILABLE_BUNDLES, bundle?.name)) return UNAVAILABLE_BUNDLES[bundle.name]
+  if (bundle?.enabled !== true || !(phases instanceof Map) || !Array.isArray(bundle.rows)) return null
+  return bundle.rows.some((row) => row && phases.get(row.rowId) === 'pending') ? 'needsHost' : null
+}
+
+/** Codex PluginSummary for one Harness bundle (BundleInfo). phases: rowId → loader fiber phase (bundleUnavailable). */
+export function pluginSummary(bundle, dir, phases = null) {
   const version = typeof bundle.version === 'string' ? bundle.version : null
   return {
     id: bundle.name,
@@ -240,7 +271,7 @@ export function pluginSummary(bundle, dir) {
       shortDescription: bundleDescription(bundle),
       longDescription: null, developerName: null, category: null, capabilities: [],
       websiteUrl: null, privacyPolicyUrl: null, termsOfServiceUrl: null, defaultPrompt: null, brandColor: null,
-      composerIcon: null, composerIconUrl: null, logo: null, logoDark: null, logoUrl: null, logoUrlDark: null,
+      composerIcon: null, composerIconUrl: null, logo: typeof bundle.meta?.icon === 'string' && bundle.meta.icon.startsWith('data:image/') ? bundle.meta.icon : null, logoDark: null, logoUrl: null, logoUrlDark: null,
       screenshots: [], screenshotUrls: [],
     },
     keywords: [],
@@ -249,8 +280,18 @@ export function pluginSummary(bundle, dir) {
     codeDesktop: {
       removable: bundle.removable === true,
       optional: bundle.optional === true,
+      // Held by the profile (installed through the plugin manager) rather than shipped by the installation.
+      held: bundle.installed === true,
+      // dsh-client-ui-plugin-manager's "Experimental" tag.
+      experimental: bundle.name.startsWith('@deepseek-ai/dsh-experimental-'),
+      // PluginLocalizedMeta as shipped (title/description: a string or {en, zh, …}); the app picks its locale.
+      title: localizedMeta(bundle.meta?.title),
+      description: localizedMeta(bundle.meta?.description),
+      icon: typeof bundle.meta?.icon === 'string' && bundle.meta.icon.startsWith('data:image/') ? bundle.meta.icon : null,
+      components: Array.isArray(bundle.rows) ? bundle.rows.length : 0,
       readOnlyReason: typeof bundle.readOnlyReason === 'string' ? bundle.readOnlyReason : null,
       loadError: bundle.error ? (bundle.error.diagnostic || bundle.error.code || 'This plugin could not load.') : null,
+      unavailable: bundleUnavailable(bundle, phases),
     },
   }
 }
@@ -262,9 +303,9 @@ export function pluginSummary(bundle, dir) {
  * @param {object[] | undefined} bundles - pluginManager.listBundles()
  * @param {string | null | undefined} dir - profileContext.dir
  */
-export function pluginsInstalledResponse(bundles, dir) {
+export function pluginsInstalledResponse(bundles, dir, { phases = null } = {}) {
   if (!Array.isArray(bundles)) return { marketplaces: [], marketplaceLoadErrors: [] }
-  const plugins = bundles.filter((bundle) => typeof bundle?.name === 'string' && bundle.name).map((bundle) => pluginSummary(bundle, dir))
+  const plugins = bundles.filter((bundle) => typeof bundle?.name === 'string' && bundle.name).map((bundle) => pluginSummary(bundle, dir, phases))
   return {
     marketplaces: [{ name: PROFILE_MARKETPLACE, path: dir ?? null, interface: { displayName: 'DeepSeek Harness profile' }, plugins }],
     marketplaceLoadErrors: [],

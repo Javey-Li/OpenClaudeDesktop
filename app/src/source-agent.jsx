@@ -6,6 +6,7 @@ import {commandRowState} from './command-row-model.mjs';
 import {groupFileTools} from './file-tool-model.mjs';
 import {reasoningPlacement} from './reasoning-model.mjs';
 import './source-agent.css';
+import {SourceSettingsButton} from './source-settings-button.jsx';
 import {t} from '../electron/i18n/index.mjs';
 
 export function SourceAgentTool({item,context,inGroup,Step,defaultOpen,forcedOpen,sessionKey,pendingApprovalItemIds}) {
@@ -65,7 +66,23 @@ function AgentTranscript({agent,item,renderItem,loading,error,transcriptView}) {
     {running || loading ? <div role="status" className="sag-thinking"><SourceSpark size={18} state="thinking"/><span className="source-sr-only">{t("Thinking…")}</span></div> : !visible.length && !agent.result && <p className="sag-empty">{agent.status==='unknown'?t('No activity yet'):t(agent.status==='failed'?'No result — task failed':agent.status==='stopped'?'No result — task stopped':'No result — task ended')}</p>}
   </div></div>;
 }
-export function SourceTasksPane({transcriptView="normal",state,sessionId,views=[],onBack,onClose,onOpen,onLoad,renderItem,headerCenter,controls,background}) {
+// A continuable sub-agent's follow-up box (the DeepSeek app's continuable conversations take follow-up prompts in
+// submission order while they run): sent as turn/start on the child's id; Stop stays where it is.
+function AgentComposer({name,onSend}) {
+  const [text,setText]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const label=t('Message {name}…',{name:name||t('sub-agent')});
+  const send=async()=>{const value=text.trim();if(!value||busy)return;setBusy(true);setError('');
+    try{await onSend(value);setText('');}catch(failure){setError(failure?.message||String(failure));}finally{setBusy(false);}};
+  return <form className="sag-composer" onSubmit={event=>{event.preventDefault();void send();}}>
+    <div className="sag-composer-box">
+      <textarea aria-label={label} placeholder={label} rows={1} value={text} disabled={busy} onChange={event=>setText(event.target.value)}
+        onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void send();}}}/>
+      <SourceSettingsButton type="submit" size="sm" variant="primary" icon="ArrowUp" iconOnly aria-label={t('Send')} busy={busy} disabled={!text.trim()||busy}/>
+    </div>
+    {error&&<p role="alert" className="source-tool-error">{error}</p>}
+  </form>;
+}
+export function SourceTasksPane({transcriptView="normal",state,sessionId,views=[],onBack,onClose,onOpen,onLoad,onMessage,canMessage,renderItem,headerCenter,controls,background}) {
   const current=views.at(-1),pane=useRef(null),load=useRef(onLoad);load.current=onLoad;
   const [loadState,setLoadState]=useState({id:null,pending:false,error:null});
   useEffect(()=>{
@@ -89,5 +106,6 @@ export function SourceTasksPane({transcriptView="normal",state,sessionId,views=[
       {current ? <p className="sag-empty">{t("No activity yet")}</p> : spawns.map(item=><React.Fragment key={item.id}>{renderItem(item,sessionId)}</React.Fragment>)}
       {!current && !spawns.length && <p className="sag-empty">{t("No activity yet")}</p>}
     </div>}
+    {agent && onMessage && canMessage?.(current.threadId) && <AgentComposer key={`composer-${current.threadId}`} name={agent.name} onSend={text=>onMessage(current.threadId,text)}/>}
   </aside>;
 }

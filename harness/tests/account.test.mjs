@@ -43,3 +43,10 @@ test('the key reference is the one llm-deepseek-api-key resolves by default', ()
   assert.equal(DEEPSEEK_KEY_REF, 'DEEPSEEK_API_KEY')
   assert.equal(String(credentialRef(DEEPSEEK_KEY_REF)), 'DEEPSEEK_API_KEY')
 })
+
+test('a custom provider key alone counts as configured; the DeepSeek key still reads as missing', () => {
+  const custom = accountReadResponse({ keyInfo: { configured: false }, otherProviders: true })
+  assert.deepEqual(custom.account, { type: 'apiKey' })
+  assert.deepEqual(custom.deepseek.apiKey, { configured: false, source: null })
+  assert.equal(accountReadResponse({ keyInfo: { configured: false }, otherProviders: 'yes' }).account, null)
+})

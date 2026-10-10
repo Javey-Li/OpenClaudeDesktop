@@ -1,3 +1,4 @@
+import { AddServerDialog } from "./source-settings-harness.jsx";
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { bindCustomizeScroll } from './customize-scroll.mjs';
 import { BUILTIN_PLUGINS, builtinPluginRow, filterBuiltinPlugins } from './builtin-plugins.mjs';
@@ -7,18 +8,21 @@ import { SourceSkillFile } from './source-skill-file.jsx';
 import { SourceSwitch as Switch } from './source-switch.jsx';
 import { SourceSettingsButton as Button } from './source-settings-button.jsx';
 import { SourceTooltip } from './source-tooltip.jsx';
+import { localizeBridgeText } from './bridge-text-model.mjs';
+import { cleanErrorReason } from './action-error-model.mjs';
 import { SourceMenu, menuTriggerProps } from './source-menu.jsx';
 import { SourceSegments } from './source-segments.jsx';
 import { SourcePictogram } from './source-pictogram.jsx';
 import { SourceDisclosure } from './source-disclosure.jsx';
-import { SourceConfirmationDialog } from './source-dialog.jsx';
+import { SourceSelect } from './source-select.jsx';
+import { SourceConfirmationDialog, SourceDialog, SourceDialogFooter } from './source-dialog.jsx';
 import { useSourceToasts } from './source-toast.jsx';
-import {
-  CONNECTOR_TOASTS, MCP_CLIENT_PACKAGE, MCP_STATUS_FILTERS, MCP_STATUS_LABELS, connectorDetailMessage, connectorDetailState, connectorsListView, customizeCore,
-  filterErrors, filterMcp, filterMcpByStatus, filterPlugins, filterSkills, mcpServerConfigValue, pluginChangeOutcome, pluginDisplayNames, pluginInstallStatus,
-  shortDate, skillAuthor, skillGroupOptions, skillInvocable, skillTrigger, splitArguments, validateServerName,
+import { appsView, connectorPairs, connectorApprovalItems, connectorToolRows, pluginAppsNeedingAuth,
+  CONNECTOR_TOASTS, MCP_STATUS_FILTERS, MCP_STATUS_LABELS, connectorDetailMessage, connectorDetailState, connectorsListView, customizeCore,
+  filterErrors, filterMcp, filterMcpByStatus, filterPlugins, filterSkills, mcpServerConfigValue, nativePluginActions, officialSubtitleFor, pluginChangeOutcome, pluginDisplayNames, pluginInstallStatus,
+  shortDate, skillAuthor, skillGroupOptions, skillInvocable, skillTrigger, splitArguments, joinArguments, validateServerName,
 } from "./customize-model.mjs";
-import { t, tn } from '../electron/i18n/index.mjs';
+import { getAssistantName, t, tn } from '../electron/i18n/index.mjs';
 import "./source-customize.css";
 
 // Fills {placeholders} of a translated template with React nodes, so a
@@ -102,7 +106,7 @@ function PageSearch({ label, value, onChange }) {
   );
 }
 
-function PageHeader({ title, searchLabel, searchValue, onSearch, actions }) {
+export function PageHeader({ title, searchLabel, searchValue, onSearch, actions }) {
   return (
     <header className="cz-header">
       <h2 className="cz-title text-heading-medium">{title}</h2>
@@ -112,7 +116,7 @@ function PageHeader({ title, searchLabel, searchValue, onSearch, actions }) {
   );
 }
 
-function PageBody({ children, memory, scrollKey = 'list' }) {
+export function PageBody({ children, memory, scrollKey = 'list' }) {
   const root = useRef(null);
   useLayoutEffect(() => memory ? bindCustomizeScroll(root.current, memory, scrollKey) : undefined, [memory, scrollKey]);
   return <div ref={root} className="cz-page-body scroll-fade-y scroll-fade-size-6">{children}</div>;
@@ -127,7 +131,7 @@ function FilterSegments({ label, value, options, onChange, className = "self-sta
 
 // `flush` drops q's mt-sm: the connectors table sits in its own gap-sm block
 // right under the status filter (customize-connectors :3582-3600, ln without mt-sm).
-function ListTable({ columns, children, label, flush = false }) {
+export function ListTable({ columns, children, label, flush = false }) {
   return (
     <div className="cz-scroller">
       <table className={flush ? "cz-table cz-table-flush" : "cz-table"} data-cds="Table" aria-label={label}>
@@ -171,8 +175,8 @@ function Row({ id, name, selected, onSelect, children, ...rest }) {
   );
 }
 
-function Badge({ children, variant = "default" }) {
-  return <span className="cz-badge" data-variant={variant} data-size="xs">{children}</span>;
+export function Badge({ children, variant = "default", title }) {
+  return <span className="cz-badge" data-variant={variant} data-size="xs" title={title}>{children}</span>;
 }
 
 function Dash() {
@@ -183,7 +187,7 @@ function Dash() {
 // match is the plain p (searchActions are null on every local page); otherwise
 // a flex-1 column centred in the page body: CDS pictogram, max-w-xs secondary
 // copy, then the page's actions.
-function EmptyState({ searchValue = "", noMatchMessage, emptyMessage, pictogram, actions }) {
+export function EmptyState({ searchValue = "", noMatchMessage, emptyMessage, pictogram, actions }) {
   if (searchValue) return <p className="cz-empty-search py-lg text-center text-body text-secondary">{noMatchMessage}</p>;
   return (
     <div className="cz-empty flex flex-1 flex-col items-center justify-center gap-lg py-lg text-center" data-cz-empty="">
@@ -219,6 +223,24 @@ function MoreMenu({ label, size, items, className, hideWhenEmpty = false }) {
     {menu && <SourceMenu.Popup anchor={trigger.current} side="bottom" align="end" label={label} initialHighlight={menu.entry}
       layerBase={menu.layerBase} onClose={() => setMenu(null)}>
       {items.map((item) => <SourceMenu.Item key={item.label} icon={item.icon} variant={item.variant} disabled={item.disabled} onClick={item.onClick}>{item.label}</SourceMenu.Item>)}
+    </SourceMenu.Popup>}
+  </>;
+}
+
+// Official add-menu trigger (c8963aace ie, shared by every Customize page): a menu TriggerButton whose visible text is
+// "Add" (alWu/MbgXB) and whose aria-label names what it adds (Skills "Add skill" tnEMvwSDlT, Plugins "Add plugin"
+// 9knX1qH3f1), over a Popup aligned end. Items: {label, icon, onClick, disabled}.
+function MenuButton({ label, children, items, variant = "primary", size }) {
+  const trigger = useRef(null);
+  const [menu, setMenu] = useState(null);
+  const open = (entry) => setMenu({ entry, layerBase: Number.parseInt(getComputedStyle(trigger.current).getPropertyValue("--cds-layer-base"), 10) || 0 });
+  return <>
+    <Button ref={trigger} variant={variant} size={size} aria-label={label} disabled={!items.length}
+      {...menuTriggerProps({ open: !!menu, disabled: !items.length, onOpen: (entry) => open(entry) })}
+      onClick={() => (menu ? setMenu(null) : open(undefined))}>{children}</Button>
+    {menu && <SourceMenu.Popup anchor={trigger.current} side="bottom" align="end" label={label} initialHighlight={menu.entry}
+      layerBase={menu.layerBase} onClose={() => setMenu(null)}>
+      {items.map((item) => <SourceMenu.Item key={item.label} icon={item.icon} disabled={item.disabled} onClick={item.onClick}>{item.label}</SourceMenu.Item>)}
     </SourceMenu.Popup>}
   </>;
 }
@@ -410,7 +432,35 @@ function SkillFiles({ state }) {
 // tooltip explains the invocation policy.
 const TRIGGER_VALUE = "font-base text-primary whitespace-nowrap cursor-help underline decoration-dotted decoration-alpha-2 underline-offset-4";
 
-function SkillDetail({ skill, author, file, toggling, toggleError, onToggle, onBack, onRevealPath, onUseSkill, copy, backLabel=t("Skills") }) {
+// A skill the core installed for the user (~/.qwen/skills/<slug>/SKILL.md, copy.skillInstall): its slug, else null.
+export function managedSkillSlug(skill, copy) {
+  if (!copy?.skillInstall || typeof skill?.path !== "string") return null;
+  const match = /\/\.qwen\/skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/.exec(skill.path);
+  return match && skill.scope === "user" ? match[1] : null;
+}
+
+// Customize › Skills › Add skill from URL (copy.skillInstall: Qwen's qwen/skills/install): a name and a SKILL.md address.
+function AddSkillForm({ onSubmit, onCancel, busy }) {
+  const [slug, setSlug] = useState(""), [url, setUrl] = useState(""), [error, setError] = useState("");
+  return <form className="cz-form" aria-label={t("Add skill from URL")} onSubmit={async (event) => {
+    event.preventDefault();
+    setError("");
+    try { await onSubmit({ slug: slug.trim(), url: url.trim() }); }
+    catch (reason) { setError(reason?.message || t("The skill could not be added.")); }
+  }}>
+    <h3>{t("Add skill from URL")}</h3>
+    <p className="cz-muted">{t("Downloads the SKILL.md at this address into your skills folder.")}</p>
+    <label className="cz-field"><span>{t("Name")}</span><input aria-label={t("Skill name")} value={slug} placeholder="my-skill" autoFocus spellCheck={false} onChange={(event) => { setSlug(event.target.value); setError(""); }} /></label>
+    <label className="cz-field"><span>URL</span><input aria-label={t("SKILL.md address")} value={url} placeholder="https://example.com/skills/my-skill/SKILL.md" spellCheck={false} onChange={(event) => { setUrl(event.target.value); setError(""); }} /></label>
+    {error && <p className="cz-error" role="alert">{error}</p>}
+    <div className="cz-form-actions">
+      <Button variant="secondary" onClick={onCancel} disabled={busy}>{t("Cancel")}</Button>
+      <Button type="submit" variant="primary" busy={busy} disabled={busy || !slug.trim() || !url.trim()}>{t("Add skill")}</Button>
+    </div>
+  </form>;
+}
+
+function SkillDetail({ skill, author, file, toggling, toggleError, onToggle, onBack, onRevealPath, onUseSkill, onDelete = null, copy, backLabel=t("Skills") }) {
   const toggleLabel = t("Enable skill");
   // A core without a per-skill switch (copy.skillToggle false) gates Try in
   // chat on user invocation alone; Codex keeps `enabled`.
@@ -436,15 +486,18 @@ function SkillDetail({ skill, author, file, toggling, toggleError, onToggle, onB
             </SourceTooltip>
             {/* wt: Switch size sm, aria-label "Enable skill", no visible label,
                 only when the skill can be toggled (cfaabd194 `Ce && Switch`): the
-                DeepSeek core has no per-skill switch, so none is drawn. */}
-            {copy.skillToggle && <Switch label={toggleLabel} size="sm" checked={skill.enabled} disabled={toggling} onChange={(value) => onToggle(skill, value)} />}
+                DeepSeek core has no per-skill switch, and a row the core cannot
+                switch (a bridge's slash command) gets none either. */}
+            {copy.skillToggle && skill.toggleable !== false && <Switch label={toggleLabel} size="sm" checked={skill.enabled} disabled={toggling} onChange={(value) => onToggle(skill, value)} />}
             {/* ct: ghost icon-only DotsVertical (size sm outside pageLayout) whose
                 menu holds "Show in Folder" (the reveal of SKILL.md). */}
             <MoreMenu label={t("More options for {name}", { name: skill.name })} size={DIALOG_BUTTON_SIZE}
-              items={onRevealPath ? [{ label: t("Show in Folder"), icon: "Folder", onClick: () => onRevealPath(skill.path) }] : []} />
+              items={[...(onRevealPath ? [{ label: t("Show in Folder"), icon: "Folder", onClick: () => onRevealPath(skill.path) }] : []),
+                ...(onDelete ? [{ label: t("Delete skill"), variant: "danger", onClick: () => onDelete(skill) }] : [])]} />
           </div>
         </div>
-        {toggleError && <p className="cz-error" role="alert">{toggleError}</p>}
+        {toggleError && <p className="cz-error" role="alert">{localizeBridgeText(toggleError)}</p>}
+        {skill.disabledReason && <p className="cz-muted" role="note" data-skill-disabled-reason="">{localizeBridgeText(skill.disabledReason)}</p>}
         {/* ccb4abbdf r: Added by / Version (SKILL.md metadata.version, when
             reported) / Last updated / Trigger (when the core reports the
             invocation policy; a Codex core does not). */}
@@ -494,6 +547,11 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
   const [group,setGroup]=useState("all");
   useEffect(()=>{if(focus)setGroup("all");},[focus]);
   const [toggleError, setToggleError] = useState(""), [toggling, setToggling] = useState(false);
+  // Add skill from URL / Delete (copy.skillInstall).
+  const [adding, setAdding] = useState(false), [skillBusy, setSkillBusy] = useState(false), [deleting, setDeleting] = useState(null);
+  // Create a skill (CreateSkillDialog) in the first of your own skill folders.
+  const [creating, setCreating] = useState(false);
+  const toasts = useSourceToasts();
   const callRef = useRef(call);
   callRef.current = call;
   useEffect(() => { store.loadSkills({ cwd }); store.loadPlugins({ cwd }); }, [store, cwd]);
@@ -521,12 +579,37 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
   if (current) {
     return (
       <div className="cz-page" data-cz-page="skills" data-detail="">
-        <SkillDetail skill={current} author={skillAuthor(current, plugins)} file={file} toggling={toggling} toggleError={toggleError}
-          onToggle={toggle} onBack={() => { setToggleError(""); setSelected(null); }} onRevealPath={onRevealPath} onUseSkill={onUseSkill} copy={copy} />
+        <SkillDetail skill={current} author={skillAuthor(current, plugins, copy)} file={file} toggling={toggling} toggleError={toggleError}
+          onToggle={toggle} onBack={() => { setToggleError(""); setSelected(null); }} onRevealPath={onRevealPath} onUseSkill={onUseSkill} copy={copy}
+          onDelete={managedSkillSlug(current, copy) ? (skill) => setDeleting(skill) : null} />
+        <SourceConfirmationDialog open={!!deleting} title={t("Delete {name}?", { name: deleting?.name ?? "" })} confirmLabel={t("Delete")} confirmVariant="danger" pending={skillBusy}
+          body={t("The skill’s folder is removed from your skills. Sessions stop offering it.")}
+          onCancel={() => setDeleting(null)} onConfirm={async () => {
+            setSkillBusy(true); setToggleError("");
+            try { await call({ operation: "skill-delete", slug: managedSkillSlug(deleting, copy) }); setDeleting(null); setSelected(null); await store.loadSkills({ cwd, force: true }); }
+            catch (reason) { setDeleting(null); setToggleError(reason?.message || t("The skill could not be deleted.")); }
+            finally { setSkillBusy(false); }
+          }} />
       </div>
     );
   }
-  const header = <PageHeader title={t("Skills")} searchLabel={t("Search skills")} searchValue={query} onSearch={setQuery} />;
+  // customize-skills :3057-3075 / :1120-1200: the header's Add skill menu (Upload skill / Create a skill / Create with
+  // Claude). Locally: Create a skill in your own skill folder, Add skill from URL where the core installs skills
+  // (copy.skillInstall), and Open skills folder for a skill made by hand.
+  const ownRoot = skillOwnRoot(copy.skillRoots);
+  const openSkillsFolder = async () => {
+    try { await call({ operation: "skill-root", cwd: cwd || undefined, root: ownRoot, action: "open" }); }
+    catch (failure) { toasts?.add?.(failure?.message || String(failure), { variant: "danger" }); }
+  };
+  const addItems = [
+    ...(ownRoot && call ? [{ label: t("Create a skill"), icon: "Edit", onClick: () => setCreating(true) }] : []),
+    ...(copy.skillInstall ? [{ label: t("Add skill from URL"), icon: "Globe", disabled: adding, onClick: () => setAdding(true) }] : []),
+    ...(ownRoot && call ? [{ label: t("Open skills folder"), icon: "FolderOpen", onClick: () => void openSkillsFolder() }] : []),
+  ];
+  const addMenu = addItems.length ? <MenuButton label={t("Add skill")} items={addItems}>{t("Add")}</MenuButton> : null;
+  const createDialog = creating && ownRoot && call ? <CreateSkillDialog root={ownRoot} call={call} cwd={cwd} onClose={() => setCreating(false)}
+    onCreated={() => void store.loadSkills?.({ cwd, force: true })} /> : null;
+  const header = <PageHeader title={t("Skills")} searchLabel={t("Search skills")} searchValue={query} onSearch={setQuery} actions={addMenu || undefined} />;
   if (status === "error" || (retrying && status === "loading"))
     return <div className="cz-page" data-cz-page="skills">{header}<CatalogLoadError section="skills" busy={retrying} onRetry={retry} /></div>;
   // customize-connectors :3136-3147 (the shared page-shell pattern): G "loading"
@@ -536,9 +619,15 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
   return (
     <div className="cz-page" data-cz-page="skills">
       {header}
+      {createDialog}
       {/* customize-skills :3075-3127: [code-execution banner (none locally)], De
           owner segments, the q table (mt-sm), else Ee as the flex-1 body child. */}
       <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, effectiveGroup, query])}>
+      {adding && <AddSkillForm busy={skillBusy} onCancel={() => setAdding(false)} onSubmit={async ({ slug, url }) => {
+        setSkillBusy(true);
+        try { await call({ operation: "skill-install", slug, url }); setAdding(false); await store.loadSkills({ cwd, force: true }); }
+        finally { setSkillBusy(false); }
+      }} />}
       {groups.show && <FilterSegments label={t("Filter by owner")} value={effectiveGroup} options={groups.options} onChange={setGroup} />}
           {!empty && (
             <ListTable columns={SKILL_COLUMNS} label={t("Skills")}>
@@ -549,13 +638,13 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
                     <div className="cz-name">
                       <span className="cz-truncate">{row.name}</span>
                       {row.pluginId && <button type="button" className="cz-chip" onClick={(event) => { event.stopPropagation(); onNavigate?.("customize-plugins", { pluginId: row.pluginId }); }}
-                        title={t("Open plugin")}>{skillAuthor(row, plugins)}</button>}
+                        title={t("Open plugin")}>{skillAuthor(row, plugins, copy)}</button>}
                       {/* customize-skills :3130-3131: the badge needs the toggle capability. */}
                       {copy.skillToggle && !row.enabled && <Badge>{t("Disabled")}</Badge>}
                     </div>
                   </td>
                   <td className="cz-cell-secondary">{row.updatedAt ? <time dateTime={new Date(row.updatedAt * 1000).toISOString()}>{shortDate(row.updatedAt)}</time> : <Dash />}</td>
-                  <td className="cz-cell-secondary"><span className="cz-truncate cz-block">{skillAuthor(row, plugins)}</span></td>
+                  <td className="cz-cell-secondary"><span className="cz-truncate cz-block">{skillAuthor(row, plugins, copy)}</span></td>
                 </Row>
               ))}
               {errorRows.map((row) => (
@@ -573,14 +662,154 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
               ))}
             </ListTable>
           )}
-          {/* ObjectBulb; the actions slot lists the core's skill folders (the
-              source's Add skill / Learn more have no local backend). */}
+          {/* A list that is never empty (Codex's bundled skills) still says where your own skills go: a muted footnote. */}
+          {!empty && !query.trim() && copy.skillRoots.length > 0 && <SkillFoldersNote roots={copy.skillRoots} call={call} cwd={cwd} />}
+          {/* ObjectBulb (customize-skills :1440-1462): the actions repeat the header's Add skill menu; the core's skill
+              folders follow as the muted footnote, so a beginner also sees where a skill made by hand goes. */}
           {empty && <EmptyState searchValue={query.trim() || (effectiveGroup !== "all" ? effectiveGroup : "")} noMatchMessage={t("No skills match your search")}
             pictogram="ObjectBulb" emptyMessage={copy.skillsEmpty}
-            actions={<ul className="cz-roots" aria-label={t("Skill folders")}>{copy.skillRoots.map((root) => <li key={root}><code>{root}</code></li>)}</ul>} />}
+            actions={addMenu || copy.skillRoots.length > 0 ? <div className="flex flex-col items-center gap-3">
+              {addMenu}
+              {copy.skillRoots.length > 0 && <SkillFoldersNote roots={copy.skillRoots} call={call} cwd={cwd} />}
+            </div> : null} />}
+          {copy.agentsList && <AgentsSection store={store} cwd={cwd} query={query} onRevealPath={onRevealPath} copy={copy} />}
       </PageBody>
     </div>
   );
+}
+
+// The first of your own skill folders (a ~/ root), else the core's first: where Create a skill starts a SKILL.md.
+export const skillOwnRoot = (roots = []) => roots.find((root) => root.startsWith("~/")) ?? roots[0] ?? null;
+
+// Below a non-empty skill list and in the empty state: the core's skill folders (descriptor skillRoots) as a muted
+// footnote, so a core that always lists bundled skills still tells a beginner where to put their own. call / cwd: each
+// folder's Open (creating the folder when missing) through the customize skill-root operation; without them the
+// folders are listed as text. Making a skill is the Add skill menu's Create a skill.
+export function SkillFoldersNote({ roots, call = null, cwd = null, lead = true }) {
+  const [busy, setBusy] = useState(""), [error, setError] = useState("");
+  const run = async (key, payload) => {
+    setBusy(key); setError("");
+    try { await call({ operation: "skill-root", cwd: cwd || undefined, ...payload }); }
+    catch (failure) { setError(failure?.message || String(failure)); }
+    finally { setBusy(""); }
+  };
+  return <section className="cz-skill-roots" aria-label={t("Skill folders")} data-cz-skill-roots="">
+    {lead && <p className="cz-muted">{t("To add your own skill, put a folder with a SKILL.md file in one of these folders:")}</p>}
+    <ul className="cz-roots">{roots.map((root) => <li key={root} className="cz-root-row"><code>{root}</code>
+      {call && <Button size="sm" variant="ghost" busy={busy === root} disabled={!!busy || (/^<(project|workspace)>/.test(root) && !cwd)} onClick={() => void run(root, { root, action: "open" })}>{t("Open")}</Button>}
+    </li>)}</ul>
+    {error && <p className="cz-error" role="alert">{error}</p>}
+  </section>;
+}
+
+// Create a skill (the Add skill menu's item, oSuR6WVQY6): a small dialog naming the skill's folder; a SKILL.md is started
+// in `root` and opened (customize skill-root new-skill). Layered over the Settings dialog like the page's confirms.
+export function CreateSkillForm({ root, call, cwd = null, onClose, onCreated = null }) {
+  const [name, setName] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();
+    if (busy || !name.trim()) return;
+    setBusy(true); setError("");
+    try { await call({ operation: "skill-root", cwd: cwd || undefined, root, action: "new-skill", name: name.trim() }); onCreated?.(); onClose(); }
+    catch (failure) { setError(failure?.message || String(failure)); setBusy(false); }
+  };
+  return <form className="cz-dialog-form" aria-label={t("Create a skill")} onSubmit={submit} data-cz-create-skill="">
+    <label className="cz-dialog-field">
+      <input data-autofocus data-cds="TextInput" className="cds-input cds-reset" aria-label={t("Skill name")} placeholder={t("Skill name")} value={name}
+        spellCheck={false} autoCapitalize="off" autoComplete="off" disabled={busy}
+        onChange={(event) => { setName(event.target.value.toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "")); setError(""); }} />
+      <small className="cz-dialog-hint">{t("Creates {path}/<name>/SKILL.md and opens it.", { path: root })}</small>
+    </label>
+    {error && <p className="cz-error" role="alert">{error}</p>}
+    <SourceDialogFooter>
+      <Button variant="secondary" disabled={busy} onClick={onClose}>{t("Cancel")}</Button>
+      <Button type="submit" variant="primary" busy={busy} disabled={busy || !name.trim()}>{t("Create skill")}</Button>
+    </SourceDialogFooter>
+  </form>;
+}
+function CreateSkillDialog(props) {
+  return <SourceDialog title={t("Create a skill")} size="sm" layer={SETTINGS_CONFIRM_LAYER} className="cz-dialog" onClose={props.onClose}>
+    <CreateSkillForm {...props} />
+  </SourceDialog>;
+}
+
+// A core's own sub-agents (Qwen: built-in ones and the .qwen/agents files; codeDesktop/agents/list): read-only rows with
+// where each comes from. Its own /agents create and manage are TUI-only, so a file is opened in Finder to edit.
+export function AgentsSection({ store, cwd, query = "", onRevealPath, copy }) {
+  const snapshot = useStore(store);
+  useEffect(() => { store.loadAgents?.({ cwd }); }, [store, cwd]);
+  const [creating, setCreating] = useState(false), [deleting, setDeleting] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const agents = snapshot.agents?.cwd === cwd ? snapshot.agents.rows : [];
+  const term = query.trim().toLowerCase();
+  const shown = term ? agents.filter((agent) => `${agent.name} ${agent.displayName ?? ""} ${agent.description}`.toLowerCase().includes(term)) : agents;
+  const writable = copy.agentsWrite === true && typeof store.writeAgent === "function";
+  if (!shown.length && !(writable && !term)) return null;
+  const scopeLabel = (scope) => scope === "builtin" ? t("Built in") : scope === "project" ? t("This project") : t("Your agents");
+  const remove = async () => {
+    setBusy(true); setError("");
+    try { await store.removeAgent(cwd, deleting.name); setDeleting(null); } catch (failure) { setError(cleanErrorReason(failure?.message || "") || t("Couldn’t delete the agent.")); } finally { setBusy(false); }
+  };
+  return <section className="cz-builtin cz-agents" aria-label={t("Agents")} data-cz-agents="">
+    <div className="cz-builtin-head"><h3>{t("Agents")}</h3>{writable && <Button variant="secondary" size="sm" onClick={() => { setError(""); setCreating(true); }}>{t("Create agent")}</Button>}</div>
+    {creating && <AgentCreateDialog cwd={cwd} copy={copy} onClose={() => setCreating(false)} onCreate={(agent) => store.writeAgent(cwd, agent)} />}
+    <SourceConfirmationDialog open={!!deleting} title={t("Delete {name}?", { name: deleting?.name ?? "" })} confirmLabel={t("Delete")} confirmVariant="danger" pending={busy}
+      body={t("The agent’s file is removed. {core} stops offering it.", { core: copy.name })} onCancel={() => { setDeleting(null); setError(""); }} onConfirm={() => void remove()}>
+      {error && <p className="cz-error" role="alert">{error}</p>}
+    </SourceConfirmationDialog>
+    <p className="cz-muted">{t("Sub-agents {core} can hand work to. Ask for one by name in a message.", { core: copy.name })}</p>
+    <ul className="cz-builtin-list" role="list">
+      {shown.map((agent) => <li key={`${agent.scope}:${agent.name}`} className="cz-builtin-row" data-agent={agent.name}>
+        <div className="cz-builtin-text">
+          {/* A display name of the agent's own (MiniMax), else its name; the tools it may use when it lists them. */}
+          <span className="cz-builtin-name"><span className="cz-truncate" title={agent.displayName ? agent.name : undefined}>{agent.displayName || agent.name}</span>{agent.model && <span className="cz-builtin-version">{agent.model}</span>}</span>
+          {agent.description && <span className="cz-builtin-description">{agent.description}</span>}
+          {Array.isArray(agent.tools) && agent.tools.length > 0 && <span className="cz-builtin-description" data-agent-tools="">{t("Tools: {tools}", { tools: agent.tools.filter((tool) => typeof tool === "string").slice(0, 12).join(", ") + (agent.tools.length > 12 ? "…" : "") })}</span>}
+          <span className="cz-builtin-source" title={agent.path || undefined}>{scopeLabel(agent.scope)}</span>
+        </div>
+        {(agent.path && onRevealPath || writable && agent.removable) && <div className="cz-builtin-action">
+          {agent.path && onRevealPath && <Button variant="ghost" size="sm" onClick={() => onRevealPath(agent.path)}>{t("Show in Finder")}</Button>}
+          {writable && agent.removable && <Button variant="ghost" size="sm" aria-label={t("Delete {name}", { name: agent.name })} onClick={() => { setError(""); setDeleting(agent); }}>{t("Delete")}</Button>}
+        </div>}
+      </li>)}
+    </ul>
+  </section>;
+}
+
+// Create agent (OpenCode / MiMo: `opencode agent create`'s file): a name, when to use it, what it may do, its
+// instructions, and where it lives. Every permission starts allowed; unticking one denies it in the file.
+const AGENT_PERMISSION_LABELS = [["bash", "Run commands"], ["read", "Read files"], ["edit", "Edit files"], ["glob", "Find files"], ["grep", "Search file contents"],
+  ["webfetch", "Fetch web pages"], ["websearch", "Search the web"], ["task", "Start sub-agents"], ["todowrite", "Keep a to-do list"], ["lsp", "Code intelligence"], ["skill", "Use skills"]];
+function AgentCreateDialog({ cwd, copy, onCreate, onClose }) {
+  const [name, setName] = useState(""), [description, setDescription] = useState(""), [mode, setMode] = useState("subagent"), [scope, setScope] = useState(cwd ? "project" : "user");
+  const [model, setModel] = useState(""), [prompt, setPrompt] = useState(""), [denied, setDenied] = useState(() => new Set()), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const nameOk = /^[a-z0-9][a-z0-9-]{0,63}$/.test(name);
+  const ready = nameOk && description.trim() && prompt.trim() && !busy;
+  const submit = async (event) => {
+    event?.preventDefault?.();
+    if (!ready) return;
+    setBusy(true); setError("");
+    try { await onCreate({ name, description, mode, scope, ...(model.trim() ? { model: model.trim() } : {}), prompt, deny: [...denied] }); onClose(); }
+    catch (failure) { setError(localizeBridgeText(cleanErrorReason(failure?.message || "")) || t("Couldn’t create the agent.")); setBusy(false); }
+  };
+  const toggle = (key) => setDenied((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  return <SourceDialog open title={t("Create agent")} onClose={() => { if (!busy) onClose(); }} size="md"
+    footer={<><Button variant="secondary" disabled={busy} onClick={onClose}>{t("Cancel")}</Button><Button variant="primary" busy={busy} disabled={!ready} onClick={() => void submit()}>{t("Create")}</Button></>}>
+    <form className="cz-agent-form" onSubmit={(event) => void submit(event)}>
+      <label>{t("Name")}<input value={name} placeholder="reviewer" spellCheck={false} aria-invalid={!!name && !nameOk} onChange={(event) => setName(event.target.value.toLowerCase())} /></label>
+      {name && !nameOk && <p className="cz-muted">{t("Use lowercase letters, digits and dashes for the agent name.")}</p>}
+      <label>{t("When to use it")}<input value={description} placeholder={t("Reviews code changes for bugs")} onChange={(event) => setDescription(event.target.value)} /></label>
+      <div className="cz-agent-field"><span>{t("Kind")}</span><SourceSelect label={t("Kind")} value={mode} onChange={setMode}
+        items={[{ value: "subagent", label: t("Sub-agent"), description: t("{core} hands work to it", { core: copy.name }) }, { value: "primary", label: t("Main agent"), description: t("You can start sessions with it") }, { value: "all", label: t("Both") }]} /></div>
+      <div className="cz-agent-field"><span>{t("Save in")}</span><SourceSelect label={t("Save in")} value={scope} onChange={setScope}
+        items={[...(cwd ? [{ value: "project", label: t("This project") }] : []), { value: "user", label: t("All projects") }]} /></div>
+      <label>{t("Model (optional)")}<input value={model} placeholder={t("Same as the session")} spellCheck={false} onChange={(event) => setModel(event.target.value)} /></label>
+      <fieldset className="cz-agent-permissions"><legend>{t("What it may do")}</legend>
+        {AGENT_PERMISSION_LABELS.map(([key, label]) => <label key={key}><input type="checkbox" checked={!denied.has(key)} onChange={() => toggle(key)} />{t(label)}</label>)}
+      </fieldset>
+      <label>{t("Instructions")}<textarea value={prompt} rows={6} placeholder={t("You review code changes. Point out bugs and risky changes, most important first.")} onChange={(event) => setPrompt(event.target.value)} /></label>
+      {error && <p className="cz-error" role="alert">{error}</p>}
+    </form>
+  </SourceDialog>;
 }
 
 // ---------------------------------------------------------------------------
@@ -696,37 +925,101 @@ function BrokenConnectorsCard({ broken, expired, busy, onReconnectAll, onReconne
   );
 }
 
-function AddConnectorForm({ onSubmit, onCancel, busy, existingNames, copy }) {
+// Official custom connector dialog (ion-dist ce99eb202): a Dialog Popup size md (!max-w-[33.5rem]) with the Header
+// "Add custom connector", stacked full-width TextInputs whose placeholder is the label, each with its hint ("Name" →
+// "Shown in the connectors list.", "MCP server URL" → the address hint), the OAuth client fields under "Advanced
+// settings", and footer Cancel / Add. A local core also runs a server from a command (config mcp_servers.<name>
+// command/args), so a segmented control picks URL or Command; env lines (command) or headers (URL) sit under Advanced
+// settings and the file the server is saved to is the muted footnote. The form is exported for window-free tests.
+export function AddConnectorForm({ onSubmit, onCancel, busy, existingNames, copy }) {
+  const [transport, setTransport] = useState("url");
   const [name, setName] = useState(""), [command, setCommand] = useState(""), [args, setArgs] = useState(""), [url, setUrl] = useState(""), [error, setError] = useState("");
-  const nameId = useId();
+  // Advanced: a stdio server's environment and an HTTP server's headers (tokens most real servers need).
+  const [env, setEnv] = useState(""), [headers, setHeaders] = useState("");
+  // A remote server's pre-registered OAuth client (copy.mcpOAuthClient), for servers without dynamic registration.
+  const [clientId, setClientId] = useState(""), [clientSecret, setClientSecret] = useState(""), [scope, setScope] = useState("");
+  const local = transport === "command";
+  const edit = (setter) => (event) => { setter(event.target.value); setError(""); };
+  const ready = !!name.trim() && !!(local ? command.trim() : url.trim());
   return (
-    <form className="cz-form" aria-label={t("Add custom connector")} onSubmit={async (event) => {
+    <form className="cz-dialog-form" aria-label={t("Add custom connector")} onSubmit={async (event) => {
       event.preventDefault();
+      if (busy) return;
       const problem = validateServerName(name.trim());
       if (problem) { setError(problem); return; }
-      // ~/.codex/config.toml is shared with the CLI: an upsert on an existing
+      // The core's config may be shared with its CLI: an upsert on an existing
       // mcp_servers.<name> would silently replace that server's command/url.
-      if (existingNames.includes(name.trim())) { setError(t("A connector named {name} is already in {file}. Remove it first or choose another name.", { name: name.trim(), file: copy.configFile })); return; }
+      if (existingNames.includes(name.trim())) { setError(copy.duplicateConnector(name.trim())); return; }
       let value;
-      try { value = mcpServerConfigValue({ command, args: splitArguments(args), url }); }
+      try { value = mcpServerConfigValue(local
+        ? { command, args: splitArguments(args), env: connectorPairs(env, "env") }
+        : { url, headers: connectorPairs(headers, "headers"), oauth: copy.mcpOAuthClient ? { clientId, clientSecret, scope } : null }); }
       catch (reason) { setError(reason.message); return; }
       setError("");
       try { await onSubmit({ name: name.trim(), ...value }); }
       catch (reason) { setError(reason.message || t("The connector could not be added.")); }
     }}>
-      <h3 id={nameId}>{t("Add custom connector")}</h3>
-      <p className="cz-muted">{t("A stdio server needs a command (and optional arguments); a streamable HTTP server needs a URL.")} {copy.addConnectorNote}</p>
-      <label className="cz-field"><span>{t("Name")}</span><input aria-label={t("Connector name")} value={name} onChange={(event) => { setName(event.target.value); setError(""); }} autoFocus /></label>
-      <label className="cz-field"><span>{t("Command")}</span><input aria-label={t("Command")} value={command} placeholder="npx" onChange={(event) => { setCommand(event.target.value); setError(""); }} /></label>
-      <label className="cz-field"><span>{t("Arguments")}</span><input aria-label={t("Arguments")} value={args} placeholder="-y my-mcp-server" onChange={(event) => { setArgs(event.target.value); setError(""); }} /></label>
-      <label className="cz-field"><span>URL</span><input aria-label="URL" value={url} placeholder="https://example.com/mcp" onChange={(event) => { setUrl(event.target.value); setError(""); }} /></label>
+      <SourceSegments label={t("Connector type")} value={transport} disabled={busy} className="cz-dialog-segments"
+        options={[{ value: "url", label: t("URL") }, { value: "command", label: t("Command") }]} onChange={(value) => { setTransport(value); setError(""); }} />
+      <label className="cz-dialog-field">
+        <input data-autofocus data-cds="TextInput" className="cds-input cds-reset" aria-label={t("Connector name")} placeholder={t("Name")} value={name} disabled={busy} autoComplete="off" spellCheck={false} onChange={edit(setName)} />
+        <small className="cz-dialog-hint">{t("Shown in the connectors list.")}</small>
+      </label>
+      {local ? <>
+        <label className="cz-dialog-field">
+          <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t("Command")} placeholder={t("Command")} value={command} disabled={busy} autoComplete="off" spellCheck={false} onChange={edit(setCommand)} />
+          <small className="cz-dialog-hint">{t("The program that starts the server, for example npx.")}</small>
+        </label>
+        <label className="cz-dialog-field">
+          <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t("Arguments")} placeholder={t("Arguments")} value={args} disabled={busy} autoComplete="off" spellCheck={false} onChange={edit(setArgs)} />
+          <small className="cz-dialog-hint">{t("Separated by spaces, for example -y my-mcp-server. Quote an argument that contains spaces.")}</small>
+        </label>
+      </> : <label className="cz-dialog-field">
+        <input data-cds="TextInput" className="cds-input cds-reset" aria-label="URL" placeholder={t("MCP server URL")} value={url} disabled={busy} autoComplete="off" spellCheck={false} onChange={edit(setUrl)} />
+        <small className="cz-dialog-hint">{t("The HTTPS address where the server accepts MCP requests, for example https://mcp.example.com/mcp.")}</small>
+      </label>}
+      <SourceDisclosure label={t("Advanced settings")} className="cz-dialog-advanced">
+        <div className="cz-dialog-advanced-body">
+          {local
+            ? <label className="cz-dialog-field">
+                <textarea data-cds="TextArea" className="cz-dialog-textarea" aria-label={t("Environment variables")} placeholder={t("Environment variables")} rows={2} value={env} disabled={busy} spellCheck={false} onChange={edit(setEnv)} />
+                <small className="cz-dialog-hint">{t("For a command: one NAME=value per line.")}</small>
+              </label>
+            : <>
+              <label className="cz-dialog-field">
+                <textarea data-cds="TextArea" className="cz-dialog-textarea" aria-label={t("HTTP headers")} placeholder={t("Headers")} rows={2} value={headers} disabled={busy} spellCheck={false} onChange={edit(setHeaders)} />
+                <small className="cz-dialog-hint">{t("For a URL: one Name: value per line.")}</small>
+              </label>
+              {copy.mcpOAuthClient && <>
+                <label className="cz-dialog-field">
+                  <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t("OAuth client ID")} placeholder={t("OAuth client ID (optional)")} value={clientId} disabled={busy} autoComplete="off" spellCheck={false} onChange={edit(setClientId)} />
+                  <small className="cz-dialog-hint">{t("For a URL whose sign-in needs an app registered with the server (it doesn’t register apps automatically).")}</small>
+                </label>
+                <label className="cz-dialog-field">
+                  <input type="password" data-cds="TextInput" className="cds-input cds-reset" aria-label={t("OAuth client secret")} placeholder={t("OAuth client secret (optional)")} value={clientSecret} disabled={busy} autoComplete="off" onChange={edit(setClientSecret)} />
+                  <small className="cz-dialog-hint">{t("Optional. Saved in {core}’s configuration on this Mac.", { core: copy.name })}</small>
+                </label>
+                <label className="cz-dialog-field">
+                  <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t("OAuth scopes")} placeholder={t("OAuth scopes")} value={scope} disabled={busy} autoComplete="off" spellCheck={false} onChange={edit(setScope)} />
+                  <small className="cz-dialog-hint">{t("Optional, separated by spaces.")}</small>
+                </label>
+              </>}
+            </>}
+        </div>
+      </SourceDisclosure>
       {error && <p className="cz-error" role="alert">{error}</p>}
-      <div className="cz-form-actions">
+      <p className="cz-dialog-note">{copy.addConnectorNote}</p>
+      <SourceDialogFooter>
         <Button variant="secondary" onClick={onCancel} disabled={busy}>{t("Cancel")}</Button>
-        <Button type="submit" variant="primary" disabled={busy}>{t("Add connector")}</Button>
-      </div>
+        <Button type="submit" variant="primary" busy={busy} disabled={busy || !ready}>{t("Add")}</Button>
+      </SourceDialogFooter>
     </form>
   );
+}
+function AddConnectorDialog({ onCancel, busy, ...props }) {
+  return <SourceDialog title={t("Add custom connector")} size="md" layer={SETTINGS_CONFIRM_LAYER} className="cz-dialog cz-connector-dialog" onClose={busy ? undefined : onCancel}>
+    <AddConnectorForm onCancel={onCancel} busy={busy} {...props} />
+  </SourceDialog>;
 }
 
 // Local server config, c2e7fd468 export t (_) in En's `mt-4` slot (c08e79e85):
@@ -752,7 +1045,7 @@ function LocalConfig({ definition }) {
   return <div className="mt-4" data-cz-local-config=""><div className="space-y-4">
     {command ? <LocalConfigSection title={t("Command")}><code className={LOCAL_CONFIG_CODE}>{command}</code></LocalConfigSection>
       : <LocalConfigSection title="URL"><code className={LOCAL_CONFIG_CODE}>{url}</code></LocalConfigSection>}
-    {args.length > 0 && <LocalConfigSection title={t("Arguments")}><code className={LOCAL_CONFIG_CODE}>{args.join(" ")}</code></LocalConfigSection>}
+    {args.length > 0 && <LocalConfigSection title={t("Arguments")}><code className={LOCAL_CONFIG_CODE}>{joinArguments(args)}</code></LocalConfigSection>}
     {names.length > 0 && <LocalConfigSection title={t("Environment variables")}><code className={`${LOCAL_CONFIG_CODE} space-y-1`}>
       {names.map((name) => <span key={name} className="block"><span className="text-secondary">{name}</span>{LOCAL_CONFIG_MASK}</span>)}
     </code></LocalConfigSection>}
@@ -786,10 +1079,14 @@ export function connectorActions({ call, store, toasts, threadId = null, onOpenE
       const result = await call({ operation: "mcp-login", name: row.name, threadId: threadId ?? null });
       await onOpenExternal(result.authorizationUrl);
     }, CONNECTOR_TOASTS.connectFailed),
+    signOut: (row) => run(`sign out of ${row.name}`, async () => {
+      await call({ operation: "mcp-logout", name: row.name });
+      await store.loadMcp({ force: true });
+    }, t("Couldn’t sign out of {name}.", { name: row.title ?? row.name }), t("Signed out of {name}.", { name: row.title ?? row.name })),
     remove: (row) => run(`remove ${row.name}`, async () => {
       await call({ operation: "mcp-remove", name: row.name });
       await store.loadMcp({ force: true });
-    }, CONNECTOR_TOASTS.removeFailed, t("Removed {name} from {file}.", { name: row.name, file: copy.configFile })),
+    }, CONNECTOR_TOASTS.removeFailed, copy.connectorRemoved(row.name)),
     // Edit config opens the core's own file; its failure is app copy (main.cjs editConfigTarget).
     editConfig: () => run("edit config", () => onEditConfig(), (reason) => reason?.message || null),
   };
@@ -807,9 +1104,89 @@ const SETTINGS_CONFIRM_LAYER = Object.freeze({ base: 520, z: 560 });
 // connection…". Otherwise the centred column with the 56/40 tile, the warning
 // "Connection issue" title for a failure, the font-large muted message and one
 // primary Reconnect / Sign in / Connect.
-function ConnectorDetail({ row, busy, menuItems, onAction, definition }) {
+// A native core's connector settings (copy.connectorSettings): the connector's on/off switch, its default approval and
+// one row per tool with its approval choice and switch (Codex mcp_servers.<name>, written to the core's config.toml).
+function ConnectorToolSettings({ row, settings, busy, onSetting }) {
+  const tools = connectorToolRows(row, settings);
+  const editable = settings?.editable === true && !busy;
+  const toolItems = connectorApprovalItems({ tool: true, inherited: settings?.defaultMode ?? null });
+  return <>
+    <div className="cz-connector-setting" data-connector-setting="default-approval">
+      <div className="cz-connector-setting-text">
+        <span className="text-sm text-primary">{t("Approval")}</span>
+        <span className="text-xs text-muted">{t("When {core} asks before using this connector’s tools. A tool can have its own setting.", { core: getAssistantName() })}</span>
+      </div>
+      <SourceSelect label={t("Approval for {name}", { name: row.title })} value={settings?.defaultMode ?? ""} disabled={!editable} align="end"
+        items={connectorApprovalItems()} onChange={(mode) => onSetting("mcp-tool", { mode: mode || null })} />
+    </div>
+    {tools.length > 0
+      ? <div className="relative mt-4 isolate"><ul className="cz-tool-list" aria-label={t("{name} tools", { name: row.title })}>
+          {tools.map((tool) => <li key={tool.name} className="cz-tool-row flex gap-2.5 items-center py-2 border-b last:border-b-0" data-tool={tool.name} data-tool-enabled={tool.enabled || undefined}>
+            <span className={`text-sm font-normal min-w-0 flex-1 [overflow-wrap:anywhere] ${tool.enabled ? "text-primary" : "text-muted"}`}>{tool.name}</span>
+            <SourceSelect className="cz-tool-approval" label={t("Approval for {tool}", { tool: tool.name })} value={tool.mode} disabled={!editable || !tool.enabled} align="end"
+              items={toolItems} onChange={(mode) => onSetting("mcp-tool", { tool: tool.name, mode: mode || null })} />
+            <Switch label={t("Use {tool}", { tool: tool.name })} checked={tool.enabled} disabled={!editable}
+              onChange={(enabled) => onSetting("mcp-tool", { tool: tool.name, enabled })} />
+          </li>)}
+        </ul></div>
+      : <p className="font-base text-muted mt-4">{t("This connector has no tools available.")}</p>}
+    {settings && !settings.editable && <p className="text-xs text-muted mt-3" data-connector-readonly="">{t("This connector is defined outside your own config file, so its settings can’t be changed here.")}</p>}
+  </>;
+}
+
+function ConnectorDetail({ row, busy, menuItems, onAction, definition, settings = null, onSetting = null, onSampling = null, startupError = null, onDeveloper = null, onEditConfig = null }) {
   const state = connectorDetailState(row);
   const more = <MoreMenu label={t("More options for {name}", { name: row.title })} items={menuItems} hideWhenEmpty />;
+  // A project connector of an untrusted folder (Kimi loads them only once the folder is trusted): never run until then.
+  if (state.view === "trust") return (
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-4" data-connector-view="trust">
+      <ConnectorTile size={56} />
+      <div className="text-center flex flex-col gap-2 px-6 max-w-xl">
+        <p className="font-large-bold text-primary [overflow-wrap:anywhere]">{t("{name} comes from this folder", { name: row.title })}</p>
+        <p className="font-base text-muted">{t("{core} starts a folder’s own connectors only after you trust the folder. Trust it only if you trust everything this folder would run.", { core: getAssistantName() })}</p>
+        {row.trust?.launch && <code className="cz-trust-launch text-xs [overflow-wrap:anywhere]" data-trust-launch="">{row.trust.launch}</code>}
+      </div>
+      <div className="flex flex-wrap items-start justify-center gap-2">
+        <Button variant="primary" disabled={busy || state.disabled} onClick={() => onAction("trust", row)}>{state.label}</Button>
+      </div>
+    </div>
+  );
+  // A connector the core won't load (row.blocked: Gemini's organization / settings / folder-trust rules).
+  if (row.blocked) return (
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-4" data-connector-view="blocked" data-blocked={row.blocked.kind}>
+      {menuItems.length > 0 && <div className="absolute top-3 right-6">{more}</div>}
+      <ConnectorTile size={56} />
+      <div className="text-center flex flex-col gap-2 px-6 max-w-xl">
+        <p className="font-large-bold text-primary [overflow-wrap:anywhere]">{t("{name} is blocked", { name: row.title })}</p>
+        <p className="font-base text-muted">{row.blocked.reason ? t(row.blocked.reason) : t("{core} won’t load this connector.", { core: getAssistantName() })}</p>
+      </div>
+    </div>
+  );
+  // A server that refuses dynamic client registration: Sign in can't work until the connector names its OAuth client.
+  if (row.oauthClient) return (
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-4" data-connector-view="oauth-client">
+      {menuItems.length > 0 && <div className="absolute top-3 right-6">{more}</div>}
+      <ConnectorTile size={56} />
+      <div className="text-center flex flex-col gap-2 px-6 max-w-xl">
+        <p className="font-large-bold text-primary [overflow-wrap:anywhere]">{t("{name} needs an OAuth client ID", { name: row.title })}</p>
+        <p className="font-base text-muted">{t("This server doesn’t register apps automatically, so signing in needs the client ID from its developer settings. Remove the connector, then add it again with the client ID under Advanced.")}</p>
+      </div>
+    </div>
+  );
+  // Turned off in the core's config (mcp_servers.<name>.enabled = false): its tools are unavailable until turned on.
+  if (settings && settings.enabled === false) return (
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-4" data-connector-view="off">
+      {menuItems.length > 0 && <div className="absolute top-3 right-6">{more}</div>}
+      <ConnectorTile size={56} />
+      <div className="text-center flex flex-col gap-2 px-6">
+        <p className="font-large-bold text-primary [overflow-wrap:anywhere]">{t("{name} is turned off", { name: row.title })}</p>
+        <p className="font-base text-muted">{t("{core} can’t use its tools while it’s off.", { core: getAssistantName() })}</p>
+      </div>
+      <div className="flex flex-wrap items-start justify-center gap-2">
+        <Button variant="primary" disabled={busy || !settings.editable} onClick={() => onSetting?.("mcp-enable", { enabled: true })}>{t("Turn on")}</Button>
+      </div>
+    </div>
+  );
   if (state.view === "checking") return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4" data-connector-view="checking">
       <ConnectorTile size={56} />
@@ -830,7 +1207,20 @@ function ConnectorDetail({ row, busy, menuItems, onAction, definition }) {
       </div>
       <div className="flex flex-wrap items-start justify-center gap-2">
         <Button variant="primary" disabled={busy || state.disabled} onClick={() => onAction(state.action, row)}>{state.label}</Button>
+        {/* A failing connector: Reconnect alone fails again, so the saved config can be opened from here too. */}
+        {state.issue && onEditConfig && <Button variant="secondary" disabled={busy} onClick={onEditConfig}>{t("Edit config")}</Button>}
       </div>
+      {/* What failed and what was saved: the core's startup error (the same text Settings › Developer shows, translated
+          when it is a known one) and the command / URL, arguments and environment names, so a typo is visible here. */}
+      {(state.issue && startupError) || definition ? <div className="cz-connector-failure w-full max-w-xl px-6 text-left" data-connector-failure="">
+        {state.issue && startupError && <div className="cz-connector-error" data-connector-error="">
+          <span className="font-small-bold text-secondary">{t("Error")}</span>
+          <code className="cz-connector-error-text">{t(startupError)}</code>
+          {onDeveloper && <p className="cz-connector-error-more">{t("Settings › Developer lists every connector’s status and error.")}{" "}
+            <button type="button" className="cz-text-button" onClick={onDeveloper}>{t("Open Developer settings")}</button></p>}
+        </div>}
+        <LocalConfig definition={definition} />
+      </div> : null}
     </div>
   );
   return (
@@ -841,13 +1231,17 @@ function ConnectorDetail({ row, busy, menuItems, onAction, definition }) {
           <div className="flex items-center gap-2 min-w-0"><h2 className="font-large-bold text-primary [overflow-wrap:anywhere]">{row.title}</h2></div>
         </div>
         <div className="flex items-center gap-2">
+          {settings && <Switch label={t("Turn {name} on or off", { name: row.title })} checked={settings.enabled !== false} disabled={busy || !settings.editable}
+            onChange={(enabled) => onSetting?.("mcp-enable", { enabled })} />}
           <Button variant="secondary" disabled={busy} onClick={() => onAction("refresh", row)}>{t("Reconnect")}</Button>
           {more}
         </div>
       </div>
       {row.description && <p className="font-base text-secondary">{row.description}</p>}
       <LocalConfig definition={definition} />
-      {row.tools.length > 0
+      {row.sampling && onSampling && <ConnectorSampling row={row} busy={busy} onChange={onSampling} />}
+      {settings && onSetting && settings.perTool !== false ? <ConnectorToolSettings row={row} settings={settings} busy={busy} onSetting={onSetting} />
+      : row.tools.length > 0
         ? <div className="relative mt-6 isolate"><ul className="cz-tool-list" aria-label={t("{name} tools", { name: row.title })}>
             {row.tools.map((tool) => <li key={tool} className="flex gap-2.5 items-center py-2 border-b last:border-b-0"><span className="text-sm font-normal text-primary">{tool}</span></li>)}
           </ul></div>
@@ -856,7 +1250,11 @@ function ConnectorDetail({ row, busy, menuItems, onAction, definition }) {
   );
 }
 
-function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate, focus, copy, onEditConfig, mcpDefinitions }) {
+function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate, focus, copy, onEditConfig, mcpDefinitions, mcpServers, onHarnessCall, onRestartCore }) {
+  // The DeepSeek core (harnessProfile) can't write MCP config through the core, but the app overlay can
+  // (harness-profile.cjs mcp-add, the same Add server form as Settings › Harness): a restart connects it.
+  const [harnessAdding, setHarnessAdding] = useState(false), [harnessRestart, setHarnessRestart] = useState(false);
+  const harnessAdd = !copy.mcpConfigWrite && copy.deepseek && typeof onHarnessCall === "function";
   const scrollMemory = useRef(new Map());
   const snapshot = useStore(store);
   const ownsCatalog = snapshot.mcp.cwd === cwd && snapshot.mcp.threadId === (threadId ?? null);
@@ -869,6 +1267,12 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
   const toasts = useSourceToasts();
   useEffect(()=>{setAdding(false);setConfirmRemove(null);if(focus)setStatusFilter("all");},[focus]);
   useEffect(() => { store.loadMcp({ threadId: threadId ?? null, cwd }); }, [store, threadId, cwd]);
+  // A native core's connector settings (on/off, per-tool approval), read with the list.
+  useEffect(() => { if (copy.connectorSettings) store.loadMcpConfig?.({ cwd }); }, [store, cwd, copy.connectorSettings]);
+  const connectorSettings = copy.connectorSettings && snapshot.mcpConfig?.status === "ready" ? snapshot.mcpConfig.servers ?? {} : null;
+  // A bridge's on/off only (no per-tool settings): on unless its status says disabled.
+  const settingsFor = (row) => connectorSettings ? connectorSettings[row.name] ?? null
+    : copy.connectorToggle && row ? { enabled: row.kind !== "disabled", editable: true, perTool: false } : null;
   const searched = useMemo(() => filterMcp(rows, { query }), [rows, query]);
   const shown = useMemo(() => filterMcpByStatus(searched, statusFilter), [searched, statusFilter]);
   const current = selected ? rows.find((row) => row.name === selected) : null;
@@ -891,6 +1295,21 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
     setAdding(false);
     await store.loadMcp({ force: true });
   });
+  // Trust the folder an untrusted project connector comes from (customize mcp-trust → codeDesktop/workspace/trust).
+  const trustFolder = (row) => act(`trust:${row.name}`, async () => {
+    try { await call({ operation: "mcp-trust", cwd: row.trust?.cwd }); await store.loadMcp({ force: true }); }
+    catch (reason) { toasts?.add?.(reason?.message || t("The folder couldn’t be trusted."), { variant: "danger" }); }
+  });
+  // A connector setting (customize mcp-enable / mcp-tool): one at a time, a failure is a toast.
+  const changeSetting = (operation, payload) => act(`setting:${current?.name}`, async () => {
+    try { await (operation === "mcp-enable" ? store.setMcpEnabled(current.name, payload.enabled) : store.setMcpTool(current.name, payload.tool ?? null, { ...("enabled" in payload ? { enabled: payload.enabled } : {}), ...("mode" in payload ? { mode: payload.mode } : {}) })); }
+    catch (reason) { toasts?.add?.(reason?.message || t("The setting couldn’t be saved."), { variant: "danger" }); }
+  });
+  // MiMo: whether this connector may ask for model calls on the user's account (customize mcp-sampling), then re-listed.
+  const changeSampling = (policy) => act(`sampling:${current?.name}`, async () => {
+    try { await call({ operation: "mcp-sampling", name: current.name, policy }); await store.loadMcp?.({ force: true, cwd, threadId: threadId ?? null }); }
+    catch (reason) { toasts?.add?.(reason?.message || t("The setting couldn’t be saved."), { variant: "danger" }); }
+  });
   const remove = (row) => act(`remove:${row.name}`, async () => {
     const removed = await actions.remove(row);
     setConfirmRemove(null);
@@ -912,7 +1331,18 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
   const header = <PageHeader title={t("Connectors")} searchLabel={t("Search connectors")} searchValue={query} onSearch={setQuery}
     actions={copy.mcpConfigWrite
       ? <Button variant="primary" onClick={startAdding} disabled={!!busy || adding}>{t("Add custom connector")}</Button>
+      : harnessAdd ? <>
+        <Button variant="secondary" disabled={!!busy || !onEditConfig} onClick={editConfig}>{t("Edit config")}</Button>
+        <Button variant="primary" disabled={!!busy || harnessAdding} onClick={() => setHarnessAdding(true)}>{t("Add custom connector")}</Button>
+      </>
       : <Button variant="secondary" disabled={!!busy || !onEditConfig} onClick={editConfig}>{t("Edit config")}</Button>} />;
+  const harnessBits = harnessAdd ? <>
+    {harnessRestart && <div className="cz-plugin-restart" role="status" data-connector-restart="">
+      <span>{t("The connector starts after DeepSeek restarts. Restarting stops sessions that are running.")}</span>
+      {onRestartCore && <Button size="sm" variant="secondary" onClick={async () => { await onRestartCore(); setHarnessRestart(false); }}>{t("Restart DeepSeek")}</Button>}
+    </div>}
+    {harnessAdding && <AddServerDialog onClose={() => setHarnessAdding(false)} onAdd={async (params) => { await onHarnessCall({ op: "mcp-add", ...params }); setHarnessRestart(true); }} />}
+  </> : null;
   // :3136-3147: G "error" renders the page header and so() alone. Mt retries
   // the catalog query; locally that is a forced mcpServerStatus/list.
   if (status === "error")
@@ -927,18 +1357,29 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
   if (current) {
     const closeDetail = () => { setSelected(null); setConfirmRemove(null); };
     // Sn ⋮ items: Remove (danger) when the core writes MCP config and the
-    // server is not plugin-owned; the DeepSeek core edits its profile instead.
-    const menuItems = copy.mcpConfigWrite
-      ? (current.pluginId ? [] : [{ label: t("Remove connector"), variant: "danger", disabled: !!busy, onClick: () => setConfirmRemove(current.name) }])
-      : [{ label: t("Edit config"), disabled: !!busy || !onEditConfig, onClick: editConfig }];
-    const runAction = (action, row) => (action === "signIn" ? signIn(row) : action === "refresh" ? refresh(row) : reconnect(row));
+    // server is not plugin-owned; a core without MCP writes edits its config instead.
+    const menuItems = [
+      // A connector the core signed in to (OAuth tokens it keeps): Sign out where the core can (capabilities.mcpLogout).
+      ...(copy.mcpLogout && current.authStatus === "oAuth" ? [{ label: t("Sign out"), disabled: !!busy, onClick: () => act(`logout:${current.name}`, () => actions.signOut(current)) }] : []),
+      // A connector saved in the user's config: Edit config opens that file (fix a command or URL in place), then Remove.
+      ...(copy.mcpConfigWrite
+        ? (current.pluginId ? [] : [...(onEditConfig ? [{ label: t("Edit config"), disabled: !!busy, onClick: editConfig }] : []),
+          { label: t("Remove connector"), variant: "danger", disabled: !!busy, onClick: () => setConfirmRemove(current.name) }])
+        : [{ label: t("Edit config"), disabled: !!busy || !onEditConfig, onClick: editConfig }])];
+    const runAction = (action, row) => (action === "signIn" ? signIn(row) : action === "refresh" ? refresh(row) : action === "trust" ? trustFolder(row) : reconnect(row));
     const definition = Array.isArray(mcpDefinitions) ? mcpDefinitions.find((entry) => entry?.name === current.name) : undefined;
+    // Why it fails: the startup error the core reported for this row, else the one Settings › Developer has for it.
+    const startupError = current.error || (Array.isArray(mcpServers) ? mcpServers.find((server) => server?.name === current.name)?.toolsError : null) || null;
     return (
       <div className="cz-page" data-cz-page="connectors" data-detail="">
         <div className="cz-drill" data-cz-detail="connector">
           <div className="cz-drill-header"><BackButton onClick={closeDetail}>{t("Connectors")}</BackButton></div>
           <div className="cz-drill-scroll scroll-fade-y scroll-fade-size-6"><div className="cz-connector-detail flex min-h-full flex-col">
-            <ConnectorDetail key={current.name} row={current} busy={!!busy} menuItems={menuItems} onAction={runAction} definition={definition} />
+            <ConnectorDetail key={current.name} row={current} busy={!!busy} menuItems={menuItems} onAction={runAction} definition={definition}
+              startupError={typeof startupError === "string" ? startupError : null} onDeveloper={onNavigate ? () => onNavigate("developer") : null}
+              onEditConfig={onEditConfig && !current.pluginId ? editConfig : null}
+              settings={settingsFor(current)} onSetting={connectorSettings || copy.connectorToggle ? changeSetting : null}
+              onSampling={copy.mcpSampling && call ? changeSampling : null} />
           </div></div>
         </div>
         {/* c5fb58ef0 (c08e79e85 Sn ⋮ Remove → ut): the personal "Remove {serverName}?"
@@ -956,6 +1397,7 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
   return (
     <div className="cz-page" data-cz-page="connectors">
       {header}
+      {harnessBits}
       {/* :3546-3740: the bands block "flex shrink-0 flex-col gap-lg pt-sm" (the
           stopped-working card), then the body "flex flex-1 flex-col gap-lg" (pt-lg
           below bands, else pt-sm) with the gap-sm filter + table block and Ee. */}
@@ -964,7 +1406,7 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
         <BrokenConnectorsCard broken={broken} expired={expired} busy={!!busy} onReconnectAll={reconnectAll} onReconnect={reconnect} onSignIn={signIn} />
       </div>}
       <div className={`cz-connectors-body flex flex-1 flex-col gap-lg ${broken.length > 0 ? "pt-lg" : "pt-sm"}`}>
-        {adding && copy.mcpConfigWrite && <AddConnectorForm busy={busy === "add"} existingNames={rows.map((row) => row.name)} copy={copy} onSubmit={add} onCancel={() => setAdding(false)} />}
+        {adding && copy.mcpConfigWrite && <AddConnectorDialog busy={busy === "add"} existingNames={rows.map((row) => row.name)} copy={copy} onSubmit={add} onCancel={() => setAdding(false)} />}
         {(view.filter || view.table) && <div className="flex shrink-0 flex-col gap-sm">
           {view.filter && <FilterSegments label={t("Filter by status")} value={statusFilter} options={MCP_STATUS_FILTERS} onChange={setStatusFilter} className="shrink-0 self-start" />}
           {view.table && (
@@ -990,18 +1432,74 @@ function ConnectorsPage({ store, threadId, cwd, onOpenExternal, call, onNavigate
           {view.filterEmpty && <p className="py-lg text-center text-body text-muted" data-cz-filter-empty="">{view.filterEmpty}</p>}
         </div>}
         {/* Ee NodeShapes. Actions as in :3698-3733: Codex keeps the secondary
-            Add custom connector; the DeepSeek core cannot add one, so the body
-            names the profile entry and the action is Edit config. */}
+            Add custom connector; a core that does not write MCP config cannot
+            add one, so the body names its config entry and the action is Edit
+            config. */}
         {view.empty && <EmptyState searchValue={query.trim()} noMatchMessage={t("No connectors match your search")}
           pictogram="NodeShapes"
-          emptyMessage={copy.mcpConfigWrite ? copy.connectorsEmpty : <>{copy.connectorsEmpty}<span className="block" data-cz-config-hint="">{richText(t("Add a {package} entry to {file}, then Reconnect."), { package: <code>{MCP_CLIENT_PACKAGE}</code>, file: <code>{copy.configFile}</code> })}</span></>}
+          emptyMessage={copy.mcpConfigWrite ? copy.connectorsEmpty : <>{copy.connectorsEmpty}<span className="block" data-cz-config-hint="">{richText(harnessAdd ? t("Choose Add custom connector, or add a {package} entry to {file} and Reconnect.") : copy.connectorConfigHint.text, { package: <code>{copy.connectorConfigHint.package}</code>, file: <code>{copy.configFile}</code> })}</span></>}
           actions={copy.mcpConfigWrite
             ? <div className="flex flex-col items-center gap-3"><Button variant="secondary" onClick={startAdding} disabled={!!busy || adding}>{t("Add custom connector")}</Button></div>
             : <div className="flex flex-col items-center gap-3"><Button variant="secondary" disabled={!!busy || !onEditConfig} onClick={editConfig}>{t("Edit config")}</Button></div>} />}
+        {copy.apps && call && !query.trim() && <AppsSection call={call} onOpenExternal={onOpenExternal} />}
       </div>
       </PageBody>
     </div>
   );
+}
+
+// MiMo's per-connector model requests (MCP sampling, mcp.<name>.sampling): the connector asks MiMo to run a model call on
+// the user's account, for example to transcribe audio it sends. Ask (MiMo's default) shows a card each time.
+export function ConnectorSampling({ row, busy = false, onChange }) {
+  return <div className="cz-sampling" data-cz-sampling={row.sampling}>
+    <div className="cz-sampling-copy"><span className="cz-sampling-title">{t("Model requests from this connector")}</span>
+      <span className="cz-muted">{t("{name} can ask to run a model call on your account, billed like your own messages.", { name: row.title })}</span></div>
+    <SourceSelect label={t("Model requests from this connector")} align="end" value={row.sampling} disabled={busy}
+      items={[{ value: "ask", label: t("Ask every time") }, { value: "allow", label: t("Always allow") }, { value: "deny", label: t("Never allow") }]} onChange={onChange} />
+  </div>;
+}
+
+// ChatGPT Apps on Codex (/apps): what app/list offers to this account — installed, off, or installable in the browser —
+// with Connect / Manage (the app's page), an on/off switch (config.toml apps.<id>.enabled) and Reload (forceRefetch).
+// Shown only when the account has apps to list (a ChatGPT sign-in); an API key lists none.
+export function AppsSection({ call, onOpenExternal, initial = null }) {
+  const [state, setState] = useState(() => initial ? { status: "ready", view: appsView(initial), error: "" } : { status: "loading", view: null, error: "" });
+  const [busy, setBusy] = useState(""), [rowError, setRowError] = useState(null);
+  const load = async (reload = false) => {
+    setState((current) => ({ ...current, status: current.view ? "refreshing" : "loading", error: "" }));
+    try { const result = await call({ operation: "apps", ...(reload ? { reload: true } : {}) }); setState({ status: "ready", view: appsView(result), error: "" }); }
+    catch (error) { setState((current) => ({ status: "error", view: current.view, error: localizeBridgeText(cleanErrorReason(error)) })); }
+  };
+  useEffect(() => { if (!initial) void load(); }, []);
+  const toggle = async (app, enabled) => {
+    setBusy(app.id); setRowError(null);
+    try { await call({ operation: "app-enabled", id: app.id, enabled }); await load(); }
+    catch (error) { setRowError({ id: app.id, message: localizeBridgeText(cleanErrorReason(error)) }); }
+    finally { setBusy(""); }
+  };
+  const view = state.view;
+  if (!view?.total && state.status !== "error") return null;
+  return <section className="cz-apps" aria-label={t("Apps")} data-cz-apps="">
+    <div className="cz-section-head cz-apps-head"><h3>{t("Apps")}</h3>
+      <Button size="sm" variant="ghost" busy={state.status === "refreshing"} disabled={state.status === "loading"} onClick={() => void load(true)}>{t("Reload")}</Button></div>
+    {view?.summary && <p className="cz-muted">{view.summary} · {t("Connect an app in your browser, then reload.")}</p>}
+    {state.error && <p className="cz-error" role="alert">{state.error}</p>}
+    {view?.total > 0 && <ul className="cz-apps-list" role="list">
+      {view.apps.map((app) => <li key={app.id} className="cz-apps-row" data-app-id={app.id} data-installed={app.installed || undefined}>
+        {app.icon ? <picture className="cz-apps-icon" aria-hidden="true">{app.iconDark && <source srcSet={app.iconDark} media="(prefers-color-scheme: dark)" />}<img src={app.icon} alt="" width={24} height={24} /></picture>
+          : <span className="cz-apps-icon cz-apps-icon-empty" aria-hidden="true"><ConnectorTile size={24} /></span>}
+        <div className="cz-apps-text">
+          <span className="cz-apps-name">{app.name}</span>
+          <span className="cz-apps-meta">{[app.status, app.description].filter(Boolean).join(" · ")}</span>
+          {rowError?.id === app.id && <span className="cz-error" role="alert">{rowError.message}</span>}
+        </div>
+        <div className="cz-apps-actions">
+          {app.url && onOpenExternal && <Button size="sm" variant={app.installed ? "ghost" : "secondary"} onClick={() => void onOpenExternal(app.url)}>{app.installed ? t("Manage") : t("Connect")}</Button>}
+          {app.installed && <Switch label={t("Use {name}", { name: app.name })} checked={app.enabled} disabled={!!busy} onChange={(value) => void toggle(app, value)} />}
+        </div>
+      </li>)}
+    </ul>}
+  </section>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,37 +1516,96 @@ const PLUGIN_COLUMNS = [
 // (opacity-50 unless enabled), the server title, its status as the font-small
 // muted description, text-muted unless connected; selecting it opens the
 // connector drill (pe onSelect → Z).
-function PluginConnectorRow({ item, onSelect }) {
+function PluginConnectorRow({ item, onSelect, onToggle = null, busy = false }) {
   const content = <>
     <span className={`flex-shrink-0 flex items-center justify-center size-6 text-secondary${item.connected ? "" : " opacity-50"}`}><ConnectorTile size={24} /></span>
     <div className="flex flex-col flex-1 min-w-0">
       <span className="flex items-center gap-1.5 min-w-0"><span className="truncate">{item.label}</span></span>
-      {item.description && <span className="font-small text-muted truncate" title={item.description}>{item.description}</span>}
+      {item.description && <span className="font-small text-muted truncate" title={t(item.description)}>{t(item.description)}</span>}
     </div>
   </>;
   const tone = `rounded-lg text-sm w-full${onSelect ? " hover:bg-surface-0" : ""} ${item.connected ? "text-primary" : "text-muted"}`;
-  return onSelect
+  const row = onSelect
     ? <button type="button" className={`flex items-center gap-3 px-3 py-1.5 text-left cursor-pointer ${tone}`} data-connector-name={item.connectorName} onClick={() => onSelect(item.connectorName)}>{content}</button>
     : <div className={`flex items-center gap-3 px-3 py-1.5 text-left ${tone}`} data-connector-name={item.connectorName}>{content}</div>;
+  // A plugin server the core switches on its own (Kimi's /plugins mcp enable|disable): its switch beside the row.
+  if (!onToggle || typeof item.enabled !== "boolean") return row;
+  return <div className="cz-plugin-server">{row}<Switch label={t("Run {name}", { name: item.label })} checked={item.enabled} disabled={busy} onChange={(value) => onToggle(item, value)} /></div>;
 }
 
 // c36b3644c pe: two h-control skeleton bars while the connector rows load,
 // "This plugin has no required connectors." without any, the tab's no-match
 // line for a search without results, else the rows. Exported for tests.
-export function PluginConnectors({ tab, items, loading, onSelect }) {
+export function PluginConnectors({ tab, items, loading, onSelect, onToggle = null, busy = false }) {
   if (loading) return <div className="flex flex-col gap-sm" data-plugin-mcp-loading=""><SkeletonBar className="h-control w-full" /><SkeletonBar className="h-control w-full" /></div>;
   if (!tab.items.length) return <p className="py-md text-body text-muted">{t("This plugin has no required connectors.")}</p>;
   if (!items.length) return <p className="cz-plugin-no-match">{t("No connectors match your search")}</p>;
-  return <ul className="cz-plugin-items" data-plugin-mcp="">{items.map((item) => <li key={item.key}><PluginConnectorRow item={item} onSelect={onSelect} /></li>)}</ul>;
+  return <ul className="cz-plugin-items" data-plugin-mcp="">{items.map((item) => <li key={item.key}><PluginConnectorRow item={item} onSelect={onSelect} onToggle={onToggle} busy={busy} /></li>)}</ul>;
 }
 
 const DEFAULT_COPY = customizeCore();
+
+// Plugin icon tile (Claude c27f32a39 row tile size-9 / ca0e5677a card tile size-10 /
+// c24c8737b detail size-11): rounded-lg, bordered, surface-1, the bundle's own icon
+// (PluginLocalizedMeta.icon, an image data URL) or the Plugin glyph.
+export function PluginIcon({ icon, size = "md" }) {
+  const glyph = size === "lg" ? 24 : size === "sm" ? 14 : 20;
+  return <span className={`cz-plugin-icon cz-plugin-icon-${size}`} aria-hidden="true" data-plugin-icon="">
+    {icon ? <img src={icon} alt="" draggable={false} /> : <Icon name="Plugin" size={glyph} />}
+  </span>;
+}
+
+// "Official" bundles (shipped with the running core's installation — the Harness's dsh-app-boot
+// OPTIONAL_BUNDLES —, offered switched off, not removable; ZCode's built-in plugins, on by default) as Claude
+// Directory cards (ca0e5677a: 2-column grid,
+// rounded-2xl bordered surface-3 card, icon tile + title + muted meta line, 2-line
+// description). The trailing control is the bundle's on/off switch (setBundleEnabled);
+// the rest of the card opens its detail; the subtitle and byline name the running core
+// (officialSubtitleFor: off until turned on, on until turned off, or plain; officialBy). Exported for rendering tests.
+export function OfficialPlugins({ rows, store, manage = false, onOpen, copy = DEFAULT_COPY }) {
+  const [busy, setBusy] = useState(""), [error, setError] = useState("");
+  if (!rows.length) return null;
+  async function toggle(row, enabled) {
+    if (busy) return;
+    setBusy(row.id); setError("");
+    try { const outcome = await store.setPluginEnabled(row.pluginName, enabled); if (outcome && !outcome.ok) setError(outcome.message); }
+    catch (reason) { setError(reason?.message || t("The plugin could not be changed.")); }
+    finally { setBusy(""); }
+  }
+  return <section className="cz-official" aria-label={t("Official")} data-cz-official="">
+    <div className="cz-section-head"><h3>{t("Official")}</h3><span>{officialSubtitleFor(rows, copy)}</span></div>
+    <ul className="cz-official-grid" role="list">
+      {rows.map((row) => <li key={row.id} className="cz-official-card" data-official-plugin={row.id} data-plugin-enabled={row.enabled ? "true" : "false"}>
+        {onOpen && <button type="button" className="cz-official-open" aria-label={t("View {name}", { name: row.name })} onClick={() => onOpen(row.id)} />}
+        <div className="cz-official-top">
+          <PluginIcon icon={row.icon} />
+          <div className="cz-official-title">
+            <span className="cz-official-name">{row.name}</span>
+            <span className="cz-official-meta">{[copy.officialBy, row.version ? `v${row.version}` : null].filter(Boolean).join(" · ")}</span>
+          </div>
+          {/* A plugin that can't run here gets no switch unless it is on, so it can still be turned off. */}
+          {manage && row.manageable && (!row.unavailable || row.enabled) && <div className="cz-official-action">
+            <Switch label={t(row.enabled ? "Turn {name} off" : "Turn {name} on", { name: row.name })} size="sm" checked={row.enabled} disabled={!!busy} onChange={(value) => toggle(row, value)} />
+          </div>}
+        </div>
+        {row.description && <p className="cz-official-description" title={row.description}>{row.description}</p>}
+        {(row.experimental || row.loadError || row.unavailable) && <div className="cz-official-badges">
+          {row.experimental && <Badge>{t("Experimental")}</Badge>}
+          {row.unavailable && <Badge title={row.unavailable}>{t("Unavailable here")}</Badge>}
+          {row.loadError && <Badge variant="danger">{t("Failed to load")}</Badge>}
+        </div>}
+      </li>)}
+    </ul>
+    {error && <p className="cz-error" role="alert" data-official-error="">{error}</p>}
+  </section>;
+}
 
 // Classic plugin detail: customize-plugins-current Dt/Kt -> c36b3644c ye/_e.
 // Exported for window-free rendering tests of the actual production surface.
 // `mcp` = {rows, loading} of the Customize connectors catalog (connector rows'
 // titles and status); `onConnector(name)` opens a connector's drill.
-export function PluginDetail({ plugin, detail, error, skills, view, onView, onBack, onSkill, onConnector, scrollMemory, copy = DEFAULT_COPY, mcp = null, manage = null }) {
+// `manage` = the header actions (PluginManageControls), `notices` = the row below the header (workspace sharing).
+export function PluginDetail({ plugin, detail, error, skills, view, onView, onBack, onSkill, onConnector, scrollMemory, copy = DEFAULT_COPY, mcp = null, manage = null, notices = null, onServerToggle = null, serverBusy = false }) {
   const id = useId();
   const scroll = useRef(null);
   const mcpRows = mcp?.rows;
@@ -1065,15 +1622,30 @@ export function PluginDetail({ plugin, detail, error, skills, view, onView, onBa
       {/* c36b3644c be: `s || !a ? q` — until plugin/read answers, the whole page is the c9d36aa51 skeleton. */}
       {!detail && !error ? <PluginPageSkeleton /> :
       <section className="cz-plugin-detail" aria-label={plugin.name}>
-        <header className="cz-plugin-head"><h2 className="text-heading-semibold">{plugin.name}</h2>{!plugin.enabled && <Badge>{t("Disabled")}</Badge>}{manage}</header>
-        {plugin.loadError && <p className="cz-error cz-plugin-message" role="alert" data-plugin-load-error="">{t("This plugin could not load: {error}", { error: plugin.loadError })}</p>}
+        <header className="cz-plugin-head">
+          {(plugin.icon || plugin.official) && <PluginIcon icon={plugin.icon} size="lg" />}
+          <div className="cz-plugin-title">
+            <div className="cz-plugin-title-row"><h2 className="text-heading-semibold">{plugin.name}</h2>{plugin.official && <Badge>{t("Official")}</Badge>}{plugin.experimental && <Badge>{t("Experimental")}</Badge>}{!plugin.enabled && <Badge>{t("Disabled")}</Badge>}</div>
+            {(plugin.pluginName && plugin.pluginName !== plugin.name) || plugin.components ? <p className="cz-plugin-byline">{[plugin.pluginName !== plugin.name ? plugin.pluginName : null, plugin.components ? tn(plugin.components, "{count} component", "{count} components") : null].filter(Boolean).join(" · ")}</p> : null}
+          </div>
+          {manage}
+        </header>
+        {/* c36b3644c :563-590 notices slot "flex flex-col gap-sm px-xl pt-lg pb-md empty:hidden", between the header
+            and the metadata. */}
+        {(plugin.loadError || plugin.unavailable || notices) && <div className="cz-plugin-notices" data-plugin-notices="">
+          {plugin.loadError && <p className="cz-error cz-plugin-message" role="alert" data-plugin-load-error="">{t("This plugin could not load: {error}", { error: plugin.loadError })}</p>}
+          {plugin.unavailable && <p className="cz-muted cz-plugin-message" role="status" data-plugin-unavailable="">{plugin.unavailable}</p>}
+          {notices}
+        </div>}
         <div className="cz-plugin-metadata">
           {plugin.marketplaceName && <div><span>{t("Source")}</span><div>{richText(t("Marketplace ({name})"), { name: <button type="button" className="cz-text-button" onClick={onBack}>{plugin.marketplaceName}</button> })}</div></div>}
           {plugin.author && <div><span>{t("Author")}</span><div className="cz-truncate" title={plugin.author}>{plugin.author}</div></div>}
+          {plugin.version && <div><span>{t("Version")}</span><div className="cz-tabular">{plugin.version}</div></div>}
           {/* c26e90ba3 qt `!local && Last updated`: no backend timestamp, so the muted "—". */}
           {plugin.source !== "local" && <div><span>{t("Last updated")}</span><div><span className="text-muted">—</span></div></div>}
         </div>
-        {(detail?.description || plugin.description) && <div className="cz-plugin-description"><span>{t("Description")}</span><p>{detail?.description || plugin.description}</p></div>}
+        {/* The row's description is the bundle's localized meta when it ships one (catalog.js), else the same package text plugin/read has. */}
+        {(plugin.description || detail?.description) && <div className="cz-plugin-description"><span>{t("Description")}</span><p>{plugin.description || detail?.description}</p></div>}
         {error ? <p className="cz-error cz-plugin-message" role="alert">{error}</p> :
           <div className="cz-plugin-contents">
             <div className="cz-plugin-controls">
@@ -1090,7 +1662,7 @@ export function PluginDetail({ plugin, detail, error, skills, view, onView, onBa
             </div>
             {tab ? <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${tab.id}`}>
               <p className="cz-plugin-tab-description">{tab.description}</p>
-              {tab.id === 'connectors' ? <PluginConnectors tab={tab} items={items} loading={!!mcp?.loading} onSelect={onConnector} /> : items.length ? <ul className="cz-plugin-items" {...{ [`data-plugin-${tab.id}`]: '' }}>
+              {tab.id === 'connectors' ? <PluginConnectors tab={tab} items={items} loading={!!mcp?.loading} onSelect={onConnector} onToggle={onServerToggle} busy={serverBusy} /> : items.length ? <ul className="cz-plugin-items" {...{ [`data-plugin-${tab.id}`]: '' }}>
                 {items.map(item => <li key={item.key}>{item.path ? <button type="button" className="cz-plugin-item" onClick={() => onSkill(item.path)}><span>{item.label}</span>{item.description.trim().length > 1 && <small title={item.description}>{item.description}</small>}{item.disabled && <Badge>{t("Disabled")}</Badge>}</button> :
                   <div className="cz-plugin-item"><span>{item.label}</span>{item.description.trim().length > 1 && <small title={item.description}>{item.description}</small>}{item.disabled && <Badge>{t("Disabled")}</Badge>}</div>}</li>)}
               </ul> : <p className="cz-plugin-no-match">{t(`No ${tab.id} match your search`)}</p>}
@@ -1105,9 +1677,11 @@ export function PluginDetail({ plugin, detail, error, skills, view, onView, onBa
 }
 
 // ---------------------------------------------------------------------------
-// Plugin management (DeepSeek core: customize-store plugin ops → harness
-// plugins.js over dsh-plugin-manager). The source page has no install flow
-// for local bundles; this follows the Connectors page's inline add form.
+// Plugin management: a core's codeDesktop/plugin/* manager (customize-store
+// plugin ops → the DeepSeek core's harness plugins.js over dsh-plugin-manager,
+// or a bridge's own), or a native core's protocol plugin management
+// (marketplaces, install, uninstall, on/off). The source page has no install
+// flow for local bundles; this follows the Connectors page's inline add form.
 
 // The core loads plugin changes when it starts (its profile runs without hot reload).
 export function PluginRestartBanner({ onRestartCore }) {
@@ -1118,8 +1692,15 @@ export function PluginRestartBanner({ onRestartCore }) {
   </div>;
 }
 
-export function AddPluginForm({ store, install, onClose }) {
+export const PLUGIN_REGISTRY_OPTIONS = [
+  { value: "", label: "Automatic" },
+  { value: "https://registry.npmjs.org/", label: "Official npm registry" },
+  { value: "https://registry.npmmirror.com/", label: "Mainland China mirror" },
+];
+// The form's copy and the npm install source picker follow the core's plugin manager (copy.pluginForm).
+export function AddPluginForm({ store, install, onClose, copy = DEFAULT_COPY }) {
   const [spec, setSpec] = useState(install?.spec || ""), [inspection, setInspection] = useState(null), [checking, setChecking] = useState(false), [error, setError] = useState("");
+  const [registry, setRegistry] = useState(install?.registry || "");
   const running = install?.status === "running";
   const outcome = install?.outcome;
   const pending = outcome?.pendingBuilds?.length ? outcome.pendingBuilds : null;
@@ -1128,12 +1709,12 @@ export function AddPluginForm({ store, install, onClose }) {
     if (running || checking || !spec.trim()) return;
     setError(""); setInspection(null); setChecking(true);
     try {
-      const found = await store.inspectPlugin(spec.trim());
+      const found = await store.inspectPlugin(spec.trim(), { registry: registry || undefined });
       setInspection(found);
       if (found?.status !== "accepted") { setError(found?.reason || t("This package cannot be installed.")); return; }
-      if (found.bundle === false) { setError(t("This package is not a DeepSeek Harness plugin.")); return; }
+      if (found.bundle === false) { setError(copy.notPluginMessage); return; }
       setChecking(false);
-      await store.installPlugin(spec.trim());
+      await store.installPlugin(spec.trim(), { registry: registry || undefined });
     } catch (reason) { setError(reason?.message || t("The plugin could not be installed.")); }
     finally { setChecking(false); }
   }
@@ -1141,9 +1722,14 @@ export function AddPluginForm({ store, install, onClose }) {
   return (
     <form className="cz-form" aria-label={t("Add plugin")} onSubmit={submit} data-plugin-install={install?.status || "idle"}>
       <h3>{t("Add plugin")}</h3>
-      <p className="cz-muted">{t("Install a DeepSeek Harness plugin from npm, a local folder (absolute path), a git URL or a tarball. Plugins run inside DeepSeek with your user permissions; install only ones you trust.")}</p>
-      <label className="cz-field"><span>{t("Package")}</span><input aria-label={t("Plugin package")} value={spec} placeholder={t("@scope/dsh-plugin or /path/to/plugin")} disabled={running}
+      <p className="cz-muted">{copy.pluginForm.intro}</p>
+      <label className="cz-field"><span>{t("Package")}</span><input aria-label={t("Plugin package")} value={spec} placeholder={copy.pluginForm.placeholder} disabled={running}
         onChange={(event) => { setSpec(event.target.value); setError(""); setInspection(null); }} autoFocus /></label>
+      {copy.pluginForm.registries && <div className="cz-field"><span>{t("Source")}</span>
+        <div className="ss-control cz-registry-control"><SourceSegments label={t("Install source")} value={registry} disabled={running || checking} options={PLUGIN_REGISTRY_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
+          onChange={(value) => { setRegistry(value); setError(""); setInspection(null); }} /></div>
+        <small className="cz-muted">{t("Automatic tries the official npm registry, then the mainland China mirror.")}</small>
+      </div>}
       {inspection?.status === "accepted" && inspection.name && <p className="cz-muted" data-plugin-inspection="">
         <strong>{inspection.name}</strong>{inspection.version ? ` ${inspection.version}` : ""}{inspection.description ? ` — ${inspection.description}` : ""}</p>}
       {running && <p className="cz-muted" role="status">{checking ? t("Checking…") : pluginInstallStatus(install)}</p>}
@@ -1153,7 +1739,7 @@ export function AddPluginForm({ store, install, onClose }) {
       {outcome?.cancelled && <p className="cz-muted" role="status">{outcome.message}</p>}
       {pending && <div className="cz-plugin-builds" data-plugin-pending-builds="">
         <p>{richText(t("These packages want to run build scripts: {packages}. Build scripts run with your user permissions."), { packages: <strong>{pending.join(", ")}</strong> })}</p>
-        <Button size="sm" variant="secondary" onClick={() => store.installPlugin(install.spec, { approvedBuilds: pending })}>{t("Allow these scripts and retry")}</Button>
+        <Button size="sm" variant="secondary" onClick={() => store.installPlugin(install.spec, { approvedBuilds: pending, registry: install.registry || undefined })}>{t("Allow these scripts and retry")}</Button>
       </div>}
       {error && <p className="cz-error" role="alert">{error}</p>}
       <div className="cz-form-actions">
@@ -1166,32 +1752,67 @@ export function AddPluginForm({ store, install, onClose }) {
   );
 }
 
-// Detail-page controls: on/off and Remove for a bundle the manager may change.
-function PluginManageControls({ plugin, store, onRemoved }) {
-  const [busy, setBusy] = useState(""), [error, setError] = useState(""), [confirm, setConfirm] = useState(false);
+// Detail-page controls: on/off and Remove for a bundle the manager may change. `actions`
+// = {canToggle, canRemove, toggle(enabled), remove()} (the codeDesktop/plugin/* manager by
+// default; PluginsPage passes the native protocol ones on a native core).
+export function PluginManageControls({ plugin, store, onRemoved, copy = DEFAULT_COPY, actions = null }) {
+  const manager = actions ?? { canToggle: plugin.manageable && (!plugin.unavailable || plugin.enabled), canRemove: plugin.removable, toggle: (value) => store.setPluginEnabled(plugin.pluginName, value), remove: () => store.removePlugin(plugin.pluginName),
+    // A core that updates an installed plugin from its source (copy.pluginUpdate: Qwen's `extensions update`).
+    ...(copy.pluginUpdate && plugin.removable ? { canUpdate: true, update: () => store.updatePlugin(plugin.pluginName) } : {}) };
+  // c26e90ba3 :1380-1490 header actions ("flex items-center gap-md shrink-0"): a ⋯ "More options for {label}" menu
+  // holding the update and uninstall items, then the on/off Switch; the plugin name truncates before these shrink.
+  // Outcomes are toasts, so nothing else is drawn in the title row.
+  const toasts = useSourceToasts();
+  const [busy, setBusy] = useState(""), [confirm, setConfirm] = useState(false);
+  async function run(kind, action) {
+    setBusy(kind);
+    try { const outcome = await action(); if (!outcome.ok) toasts?.add?.(outcome.message, { variant: "danger" }); return outcome; }
+    catch (reason) { toasts?.add?.(reason?.message || t("The plugin change failed."), { variant: "danger" }); return null; }
+    finally { setBusy(""); }
+  }
+  const items = [
+    ...(manager.canUpdate ? [{ label: t("Update"), disabled: !!busy, onClick: async () => { const outcome = await run("update", () => manager.update()); if (outcome?.ok) toasts?.add?.(t("Updated. New sessions use the new version."), { variant: "neutral" }); } }] : []),
+    ...(manager.canRemove ? [{ label: t("Remove"), variant: "danger", disabled: !!busy, onClick: () => setConfirm(true) }] : []),
+  ];
+  return <div className="cz-plugin-manage" data-plugin-manage="">
+    <MoreMenu label={t("More options for {name}", { name: plugin.name })} size={DIALOG_BUTTON_SIZE} items={items} hideWhenEmpty />
+    {manager.canToggle && <Switch label={t(plugin.enabled ? "Turn {name} off" : "Turn {name} on", { name: plugin.name })} size="sm" checked={plugin.enabled} disabled={!!busy}
+      onChange={(value) => run("toggle", () => manager.toggle(value))} />}
+    <SourceConfirmationDialog open={confirm} title={t("Remove {name}?", { name: plugin.name })} confirmLabel={t("Remove")} confirmVariant="danger" pending={busy === "remove"} layer={SETTINGS_CONFIRM_LAYER}
+      body={copy.pluginRemoveBody}
+      onCancel={() => setConfirm(false)} onConfirm={async () => { const outcome = await run("remove", () => manager.remove()); setConfirm(false); if (outcome?.ok) onRemoved?.(); }} />
+  </div>;
+}
+
+// Workspace sharing of a local plugin on Codex (plugin/share/save | delete; the TUI catalog's share context): an unlisted
+// link or the workspace directory, the link to copy, and Stop sharing.
+export function PluginShareControls({ plugin, store }) {
+  const [busy, setBusy] = useState(""), [error, setError] = useState(""), [link, setLink] = useState(plugin.share?.url ?? null), [mode, setMode] = useState(plugin.share?.discoverability === "LISTED" ? "LISTED" : "UNLISTED");
+  const shared = !!(plugin.share || link);
   async function run(kind, action) {
     setBusy(kind); setError("");
     try { const outcome = await action(); if (!outcome.ok) setError(outcome.message); return outcome; }
-    catch (reason) { setError(reason?.message || t("The plugin change failed.")); return null; }
     finally { setBusy(""); }
   }
-  return <div className="cz-plugin-manage" data-plugin-manage="">
-    {plugin.manageable && <Switch label={t(plugin.enabled ? "Turn {name} off" : "Turn {name} on", { name: plugin.name })} size="sm" checked={plugin.enabled} disabled={!!busy}
-      onChange={(value) => run("toggle", () => store.setPluginEnabled(plugin.pluginName, value))} />}
-    {plugin.removable && <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => setConfirm(true)}>{t("Remove")}</Button>}
+  return <div className="cz-plugin-share" data-plugin-share="">
+    <span className="text-sm text-secondary">{shared ? (plugin.share?.creator ? t("Shared with your workspace by {name}.", { name: plugin.share.creator }) : t("Shared with your workspace.")) : t("Share this plugin with your ChatGPT workspace.")}</span>
+    {plugin.sourcePath && <SourceSelect label={t("Who can find it")} value={mode} align="end" items={[{ value: "UNLISTED", label: t("Anyone with the link") }, { value: "LISTED", label: t("Listed in your workspace") }]} onChange={setMode} />}
+    {plugin.sourcePath && <Button size="sm" variant="secondary" busy={busy === "share"} disabled={!!busy} onClick={async () => {
+      const outcome = await run("share", () => store.sharePlugin({ pluginPath: plugin.sourcePath, discoverability: mode, remotePluginId: plugin.share?.remotePluginId }));
+      if (outcome?.ok && typeof outcome.result?.shareUrl === "string") setLink(outcome.result.shareUrl);
+    }}>{shared ? t("Update sharing") : t("Share")}</Button>}
+    {link && <Button size="sm" variant="ghost" onClick={() => void globalThis.navigator?.clipboard?.writeText(link).catch(() => {})}>{t("Copy link")}</Button>}
+    {plugin.share?.remotePluginId && <Button size="sm" variant="ghost" busy={busy === "unshare"} disabled={!!busy} onClick={async () => { const outcome = await run("unshare", () => store.unsharePlugin(plugin.share.remotePluginId)); if (outcome?.ok) setLink(null); }}>{t("Stop sharing")}</Button>}
     {error && <p className="cz-error" role="alert">{error}</p>}
-    <SourceConfirmationDialog open={confirm} title={t("Remove {name}?", { name: plugin.name })} confirmLabel={t("Remove")} confirmVariant="danger" pending={busy === "remove"}
-      body={t("The plugin is uninstalled from the DeepSeek core’s profile. You can install it again later.")}
-      onCancel={() => setConfirm(false)} onConfirm={async () => { const outcome = await run("remove", () => store.removePlugin(plugin.pluginName)); setConfirm(false); if (outcome?.ok) onRemoved?.(); }} />
   </div>;
 }
 
 // Built-in plugins: bundles this app can install itself, listed above the
 // installed table so a person can add one without typing a package spec. Only
-// a core that manages plugins draws the section. A finished install flows into
-// the page's AddPluginForm (store.install) so progress and output stay in one
-// place. Exported for rendering tests.
-export function BuiltinPlugins({ entries, rows, store, onInstalled }) {
+// the core each entry is for draws it (filterBuiltinPlugins `core`). A finished
+// install flows into the page's AddPluginForm (store.install) so progress and
+// output stay in one place. Exported for rendering tests.
+export function BuiltinPlugins({ entries, rows, store, onInstalled, copy = DEFAULT_COPY }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   if (!entries.length) return null;
@@ -1201,7 +1822,7 @@ export function BuiltinPlugins({ entries, rows, store, onInstalled }) {
     try {
       const found = await store.inspectPlugin(entry.spec);
       if (found?.status !== "accepted" || found.bundle === false) {
-        setError(found?.reason || t("This package is not a DeepSeek Harness plugin."));
+        setError(found?.reason || copy.notPluginMessage);
         return;
       }
       const outcome = await store.installPlugin(entry.spec);
@@ -1245,7 +1866,156 @@ export function BuiltinPlugins({ entries, rows, store, onInstalled }) {
   </section>;
 }
 
-function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPath, onNavigate, copy, onRestartCore }) {
+// Native core (copy.nativePlugins): add a plugin marketplace (marketplace/add: a git URL, owner/repo or a
+// local folder), whose plugins then appear under Available. The Add plugin menu's "Add marketplace" (cf0e8a0d3 Ya,
+// UYlPDbWMZe) opens it as a dialog (AddMarketplaceDialog): one full-width input whose placeholder says what it takes,
+// the trust note as the muted footnote, Cancel / Add. The form is exported for rendering tests.
+export function AddMarketplaceForm({ store, onClose, copy = DEFAULT_COPY }) {
+  const [source, setSource] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState(""), [added, setAdded] = useState("");
+  async function submit(event) {
+    event.preventDefault();
+    if (busy || !source.trim()) return;
+    setBusy(true); setError(""); setAdded("");
+    try {
+      const outcome = await store.addMarketplace(source.trim());
+      if (!outcome.ok) { setError(outcome.message); return; }
+      const name = outcome.result?.marketplaceName || source.trim();
+      setAdded(outcome.result?.alreadyAdded ? t("{name} was already added.", { name }) : t("Added {name}. Its plugins are listed under Available.", { name }));
+      setSource("");
+    } catch (reason) { setError(reason?.message || t("The marketplace could not be added.")); }
+    finally { setBusy(false); }
+  }
+  return (
+    <form className="cz-dialog-form" aria-label={t("Add marketplace")} onSubmit={submit} data-plugin-marketplace-add="">
+      <label className="cz-dialog-field">
+        <input data-autofocus data-cds="TextInput" className="cds-input cds-reset" aria-label={t("Marketplace source")} value={source} placeholder={t("owner/repo, a git URL or /path/to/marketplace")} disabled={busy}
+          autoComplete="off" spellCheck={false} onChange={(event) => { setSource(event.target.value); setError(""); setAdded(""); }} />
+      </label>
+      {added && <p className="cz-muted" role="status">{added}</p>}
+      {error && <p className="cz-error" role="alert">{error}</p>}
+      <p className="cz-dialog-note">{t("Add a plugin marketplace to {core} from a git URL, owner/repo or a local folder. Plugins run inside {core} with your user permissions; install only ones you trust.", { core: copy.name })}</p>
+      <SourceDialogFooter>
+        <Button variant="secondary" disabled={busy} onClick={onClose}>{added ? t("Close") : t("Cancel")}</Button>
+        <Button type="submit" variant="primary" busy={busy} disabled={busy || !source.trim()}>{t("Add")}</Button>
+      </SourceDialogFooter>
+    </form>
+  );
+}
+function AddMarketplaceDialog(props) {
+  return <SourceDialog title={t("Add marketplace")} size="md" layer={SETTINGS_CONFIRM_LAYER} className="cz-dialog cz-connector-dialog" onClose={props.onClose}>
+    <AddMarketplaceForm {...props} />
+  </SourceDialog>;
+}
+
+// After a Codex plugin install: the apps it bundles that still need connecting (PluginInstallResponse
+// appsNeedingAuth), each with its install page, as the TUI walks through them (chatwidget/plugins.rs).
+export function PluginAppsFollowUp({ plugin, apps, onUse, onOpenExternal, onDone }) {
+  return <div className="cz-plugin-apps" role="status" data-plugin-apps="">
+    <p className="cz-plugin-apps-title">{tn(apps.length, "Connect {app} to finish setting up {plugin}.", "Connect these apps to finish setting up {plugin}:", { app: apps[0]?.name ?? "", plugin })}</p>
+    {onUse && <p className="cz-muted">{t("You can also connect it later: {core} asks when the plugin first needs it.", { core: getAssistantName() })}</p>}
+    <ul className="cz-plugin-apps-list">
+      {apps.map((app) => <li key={app.id} data-plugin-app={app.id}>
+        <span className="cz-truncate">{app.name}</span>
+        {app.installUrl && onOpenExternal && <Button size="sm" variant="secondary" onClick={() => onOpenExternal(app.installUrl)}>{t("Open")}</Button>}
+      </li>)}
+    </ul>
+    <div className="cz-form-actions"><Button size="sm" variant="primary" onClick={onDone}>{t("Done")}</Button></div>
+  </div>;
+}
+
+// Native core: the plugins its marketplaces offer that are not installed (plugin/list), each with Install
+// (plugin/install). Drawn like the built-in list. Exported for rendering tests.
+export function AvailablePlugins({ rows, store, onOpenExternal = null, coreName = "" }) {
+  const [busy, setBusy] = useState(""), [error, setError] = useState(""), [followUp, setFollowUp] = useState(null);
+  if (!rows.length && !followUp) return null;
+  async function install(row) {
+    if (busy) return;
+    setBusy(row.id); setError(""); setFollowUp(null);
+    try {
+      const outcome = row.installName ? await store.installPlugin(row.installName) : await store.installMarketplacePlugin({ marketplacePath: row.marketplacePath, pluginName: row.pluginName, remoteMarketplaceName: row.remoteMarketplaceName });
+      if (!outcome.ok) setError(outcome.message);
+      else if (row.installName) void store.loadPluginCatalog?.({ force: true });
+      else { const needs = pluginAppsNeedingAuth(outcome.result); if (needs.apps.length) setFollowUp({ plugin: row.name, ...needs }); }
+    }
+    catch (reason) { setError(reason?.message || t("The plugin could not be installed.")); }
+    finally { setBusy(""); }
+  }
+  return <section className="cz-builtin" aria-label={t("Available")} data-cz-available="">
+    {followUp && <PluginAppsFollowUp plugin={followUp.plugin} apps={followUp.apps} onUse={followUp.onUse} onOpenExternal={onOpenExternal}
+      onDone={() => { setFollowUp(null); void store.loadPlugins?.({ force: true }); }} />}
+    {rows.length > 0 && <>
+    <div className="cz-builtin-head"><h3>{t("Available")}</h3></div>
+    <ul className="cz-builtin-list" role="list">
+      {rows.map((row) => <li key={row.id} className="cz-builtin-row" data-available-plugin={row.id}>
+        <div className="cz-builtin-text">
+          <span className="cz-builtin-name"><span className="cz-truncate">{row.name}</span>{row.version && <span className="cz-builtin-version">v{row.version}</span>}</span>
+          {row.description && <span className="cz-builtin-description">{row.description}</span>}
+          <span className="cz-builtin-source" title={row.marketplacePath}>{row.marketplaceName}</span>
+          {row.signInRequired && <span className="cz-builtin-description" data-available-signin="">{coreName ? t("Sign in with your {core} account in Settings › Account to install it.", { core: coreName }) : t("Sign in to your account in Settings › Account to install it.")}</span>}
+        </div>
+        <div className="cz-builtin-action">
+          <Button variant="primary" size="sm" busy={busy === row.id} disabled={!!busy || row.signInRequired === true} onClick={() => install(row)}>{t("Install")}</Button>
+        </div>
+      </li>)}
+    </ul>
+    </>}
+    {error && <p className="cz-error" role="alert" data-available-error="">{localizeBridgeText(error)}</p>}
+  </section>;
+}
+
+// Native core: the marketplaces the user added (customize marketplaces), with Update for a git one
+// (marketplace/upgrade) and Remove (marketplace/remove, confirmed: its plugins go with it), and the marketplaces
+// that failed to load (plugin/list marketplaceLoadErrors) as a warning.
+export function MarketplacesSection({ store, rows, loadErrors = [] }) {
+  const [busy, setBusy] = useState(""), [message, setMessage] = useState(null), [confirm, setConfirm] = useState(null);
+  if (!rows.length && !loadErrors.length) return null;
+  async function upgrade(row) {
+    if (busy) return;
+    setBusy(`upgrade:${row.name}`); setMessage(null);
+    const outcome = await store.upgradeMarketplace(row.name);
+    setBusy("");
+    if (!outcome.ok) { setMessage({ error: true, text: outcome.message }); return; }
+    const errors = Array.isArray(outcome.result?.errors) ? outcome.result.errors : [];
+    if (errors.length) setMessage({ error: true, text: errors.map((entry) => entry?.message).filter(Boolean).join(" ") || t("{name} couldn’t be updated.", { name: row.name }) });
+    else setMessage({ error: false, text: outcome.result?.upgradedRoots?.length ? t("Updated {name}.", { name: row.name }) : t("{name} is up to date.", { name: row.name }) });
+  }
+  async function remove(row) {
+    setBusy(`remove:${row.name}`); setMessage(null);
+    const outcome = await store.removeMarketplace(row.name);
+    setBusy(""); setConfirm(null);
+    setMessage(outcome.ok ? { error: false, text: t("Removed {name}.", { name: row.name }) } : { error: true, text: outcome.message });
+  }
+  return <section className="cz-builtin" aria-label={t("Marketplaces")} data-cz-marketplaces="">
+    {loadErrors.length > 0 && <div className="cz-marketplace-errors" role="alert" data-marketplace-errors="">
+      <Icon name="Warning" size={16} />
+      <div className="flex flex-col gap-1 min-w-0">
+        <span className="text-sm text-primary">{tn(loadErrors.length, "A marketplace couldn’t be loaded, so its plugins aren’t listed.", "{count} marketplaces couldn’t be loaded, so their plugins aren’t listed.", { count: loadErrors.length })}</span>
+        {loadErrors.map((entry) => <span key={entry.key} className="text-xs text-muted [overflow-wrap:anywhere]">{entry.path ? `${entry.path}: ` : ""}{entry.message}</span>)}
+      </div>
+    </div>}
+    {rows.length > 0 && <>
+      <div className="cz-builtin-head"><h3>{t("Marketplaces")}</h3></div>
+      <ul className="cz-builtin-list" role="list">
+        {rows.map((row) => <li key={row.name} className="cz-builtin-row" data-marketplace={row.name}>
+          <div className="cz-builtin-text">
+            <span className="cz-builtin-name"><span className="cz-truncate">{row.name}</span></span>
+            {row.source && <span className="cz-builtin-source" title={row.source}>{row.source}</span>}
+          </div>
+          <div className="cz-builtin-action">
+            {row.sourceType === "git" && <Button variant="secondary" size="sm" busy={busy === `upgrade:${row.name}`} disabled={!!busy} onClick={() => upgrade(row)}>{t("Update")}</Button>}
+            <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => setConfirm(row)}>{t("Remove")}</Button>
+          </div>
+        </li>)}
+      </ul>
+    </>}
+    {message && <p className={message.error ? "cz-error" : "cz-muted"} role={message.error ? "alert" : "status"} data-marketplace-message="">{message.text}</p>}
+    {confirm && <SourceConfirmationDialog title={t("Remove {name}?", { name: confirm.name })} confirmLabel={t("Remove")} confirmVariant="danger" layer={SETTINGS_CONFIRM_LAYER}
+      pending={busy === `remove:${confirm.name}`} onCancel={() => setConfirm(null)} onConfirm={() => remove(confirm)}
+      body={t("Its plugins are no longer offered, and plugins you installed from it are removed from {core}.", { core: getAssistantName() })} />}
+  </section>;
+}
+
+function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPath, onNavigate, copy, onRestartCore, onOpenExternal }) {
   const scrollMemory = useRef(new Map());
   const [ownedView, setOwnedView] = useState(null);
   const snapshot = useStore(store);
@@ -1264,6 +2034,8 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
   const callRef = useRef(call);
   callRef.current = call;
   useEffect(() => { store.loadPlugins({ cwd }); store.loadSkills({ cwd }); }, [store, cwd]);
+  // A native core's marketplaces (plugin/list) feed the Available section.
+  useEffect(() => { if (copy.nativePlugins) { store.loadPluginCatalog?.({ cwd }); store.loadMarketplaces?.(); } else if (copy.pluginCatalog) store.loadPluginCatalog?.({ cwd }); }, [store, cwd, copy.nativePlugins, copy.pluginCatalog]);
   useLoadFailureLog("plugins", status, error);
   useEffect(() => {setSkillPath(focus?.skillPath||null);setToggleError('');},[focus]);
   const shown = useMemo(() => filterPlugins(rows, { query }), [rows, query]);
@@ -1275,7 +2047,7 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
     if(!current)return;
     let live=true;
     setOwnedDetail(null);setOwnedError(null);
-    callRef.current({operation:'plugin-read',pluginName:current.pluginName,marketplacePath:current.marketplacePath})
+    callRef.current({operation:'plugin-read',pluginName:current.pluginName,marketplacePath:current.marketplacePath,cwd})
       .then(result=>{if(live&&id===request.current){if(result?.plugin)setOwnedDetail({id:current.id,value:result.plugin});else setOwnedError({id:current.id,message:t('Plugin details are unavailable.')});}})
       .catch(reason=>{if(live&&id===request.current)setOwnedError({id:current.id,message:reason.message||t('Plugin details are unavailable.')});});
     return()=>{live=false;};
@@ -1287,26 +2059,56 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
   const mcp=useMemo(()=>({rows:ownsMcp&&snapshot.mcp.status==='ready'?snapshot.mcp.rows:[],loading:wantsMcp&&(!ownsMcp||snapshot.mcp.status==='loading'||snapshot.mcp.status==='idle')}),[ownsMcp,wantsMcp,snapshot.mcp.rows,snapshot.mcp.status]);
   const currentSkill=current&&snapshot.skills.status==='ready'&&snapshot.skills.cwd===cwd?snapshot.skills.skills.find(skill=>skill.path===skillPath&&skill.pluginId===current.id):null;
   const file=useSkillFile(callRef,currentSkill?.path||null);
+  // Hooks stay above the skill drill's early return (React needs the same hook order on every render).
+  const [serverBusy,setServerBusy]=useState(false),[serverError,setServerError]=useState('');
   async function toggleSkill(skill,enabled){setToggleError('');setToggling(true);try{await store.setSkillEnabled(skill.path,enabled);}catch(error){setToggleError(error.message);}finally{setToggling(false);}}
   if(currentSkill)return <div className="cz-page" data-cz-page="plugins" data-detail="">
     <SkillDetail skill={currentSkill} author={current.name} backLabel={current.name} file={file} toggling={toggling} toggleError={toggleError}
       onToggle={toggleSkill} onBack={()=>setSkillPath(null)} onUseSkill={onUseSkill} onRevealPath={onRevealPath} copy={copy}/>
   </div>;
+  const closeRemoved=()=>{setSelected(null);setSkillPath(null);};
+  // One of the plugin's MCP servers on or off (capabilities.pluginServerToggle: Kimi), then the detail and connectors re-read.
+  async function toggleServer(item,enabled){
+    if(!current||serverBusy)return;setServerBusy(true);setServerError('');
+    try{await callRef.current({operation:'plugin-mcp-server',pluginName:current.pluginName,server:item.server,enabled});
+      const result=await callRef.current({operation:'plugin-read',pluginName:current.pluginName,marketplacePath:current.marketplacePath,cwd});
+      if(result?.plugin)setOwnedDetail({id:current.id,value:result.plugin});
+      void store.loadMcp?.({force:true,threadId:threadId??null,cwd});}
+    catch(error){setServerError(localizeBridgeText(error?.message||String(error)));}
+    finally{setServerBusy(false);}
+  }
+  // Detail controls: the codeDesktop/plugin/* manager's, or a native core's uninstall and on/off.
+  const manageControls=!current?null:copy.pluginManage?((current.manageable||current.removable)?<PluginManageControls plugin={current} store={store} copy={copy} onRemoved={closeRemoved}/>:null)
+    :copy.nativePlugins?<PluginManageControls plugin={current} store={store} copy={copy} onRemoved={closeRemoved}
+      actions={{...nativePluginActions(current),toggle:(value)=>store.setNativePluginEnabled(current.id,value),remove:()=>store.uninstallPlugin(current.id)}}/>:null;
+  // Workspace sharing (a native core's local plugin) is a notice row below the header, never in the title row.
+  const pluginNotices=current&&copy.nativePlugins&&(current.sourcePath||current.share)&&store.sharePlugin?<PluginShareControls plugin={current} store={store}/>:null;
   if(current)return <div className="cz-page" data-cz-page="plugins" data-detail="">
     {banner}
-    <PluginDetail plugin={current} manage={copy.pluginManage&&(current.manageable||current.removable)?<PluginManageControls plugin={current} store={store} onRemoved={()=>{setSelected(null);setSkillPath(null);}}/>:null} detail={detail} error={detailError}
+    <PluginDetail plugin={current} manage={manageControls} notices={pluginNotices} detail={detail} error={detailError}
       skills={snapshot.skills.cwd===cwd&&snapshot.skills.status==='ready'?snapshot.skills.skills:[]}
       view={ownedView?.id===current.id?ownedView:null} onView={value=>setOwnedView({id:current.id,...value})}
       onBack={()=>{setSelected(null);setSkillPath(null);}} onSkill={setSkillPath} scrollMemory={scrollMemory.current} copy={copy} mcp={mcp}
-      onConnector={onNavigate?connectorName=>onNavigate('customize-connectors',{connectorName}):undefined}/>
+      onConnector={onNavigate?connectorName=>onNavigate('customize-connectors',{connectorName}):undefined}
+      onServerToggle={copy.pluginServerToggle?toggleServer:null} serverBusy={serverBusy}/>
+    {serverError&&<p className="cz-error" role="alert">{serverError}</p>}
   </div>;
-  // Built-in plugins live only where the core lets the app install bundles.
-  const builtin = copy.pluginManage ? filterBuiltinPlugins(BUILTIN_PLUGINS, { query }) : [];
-  const empty = status === "ready" && shown.length === 0 && builtin.length === 0;
+  // Built-in plugins: the entries for the running core, where the core lets the app install bundles.
+  const builtin = copy.pluginManage ? filterBuiltinPlugins(BUILTIN_PLUGINS, { query, core: copy.id }) : [];
+  // A native core: its marketplaces' plugins that are not installed yet.
+  const catalog = snapshot.catalog;
+  const available = (copy.nativePlugins || copy.pluginCatalog) && catalog?.cwd === cwd && catalog.status === "ready" ? filterPlugins(catalog.rows, { query }) : [];
+  // dsh-client-ui-plugin-manager: Official bundles get their own group, and the profile's fixed core layers are hidden.
+  const official = shown.filter((row) => row.official), listed = shown.filter((row) => !row.official && !row.core);
+  const empty = status === "ready" && official.length === 0 && listed.length === 0 && builtin.length === 0 && available.length === 0;
   const names = pluginDisplayNames(rows);
+  // A native core's header action is the official Add plugin menu (cf0e8a0d3 Ya: addLabel "Add plugin", items
+  // "Add marketplace" …); its marketplaces' plugins are installed from the Available list.
   const header = <PageHeader title={t("Plugins")} searchLabel={t("Search plugins")} searchValue={query} onSearch={setQuery}
-    actions={copy.pluginManage ? <Button variant="primary" onClick={() => setAdding(true)} disabled={adding || !!pluginOps.install}>{t("Add plugin")}</Button> : null} />;
-  const addForm = copy.pluginManage && (adding || pluginOps.install) ? <AddPluginForm store={store} install={pluginOps.install} onClose={() => setAdding(false)} /> : null;
+    actions={copy.pluginManage ? <Button variant="primary" onClick={() => setAdding(true)} disabled={adding || !!pluginOps.install}>{t("Add plugin")}</Button>
+      : copy.nativePlugins ? <MenuButton label={t("Add plugin")} items={[{ label: t("Add marketplace"), icon: "Globe", onClick: () => setAdding(true) }]}>{t("Add")}</MenuButton> : null} />;
+  const addForm = copy.pluginManage && (adding || pluginOps.install) ? <AddPluginForm store={store} install={pluginOps.install} copy={copy} onClose={() => setAdding(false)} />
+    : copy.nativePlugins && adding ? <AddMarketplaceDialog store={store} copy={copy} onClose={() => setAdding(false)} /> : null;
   if (status === "error")
     return <div className="cz-page" data-cz-page="plugins">{header}<CatalogLoadError section="plugins" onRetry={() => { store.loadPlugins({ cwd, force: true }); }} /></div>;
   if (status === "loading")
@@ -1317,19 +2119,26 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
       <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, query])}>
           {banner}
           {addForm}
-          {builtin.length > 0 && <BuiltinPlugins entries={builtin} rows={rows} store={store} />}
-          {shown.length > 0 && (
+          <OfficialPlugins rows={official} store={store} manage={!!copy.pluginManage} copy={copy} onOpen={(id) => { setSelected(id); setSkillPath(null); }} />
+          {builtin.length > 0 && <BuiltinPlugins entries={builtin} rows={rows} store={store} copy={copy} />}
+          <AvailablePlugins rows={available} store={store} onOpenExternal={onOpenExternal} coreName={copy.vendor} />
+          {copy.nativePlugins && <MarketplacesSection store={store} rows={snapshot.marketplaces?.rows ?? []} loadErrors={catalog?.cwd === cwd ? catalog.loadErrors ?? [] : []} />}
+          {listed.length > 0 && (official.length > 0 || builtin.length > 0 || available.length > 0) && <div className="cz-section-head cz-section-head-table"><h3>{t("Installed")}</h3></div>}
+          {listed.length > 0 && (
             <ListTable columns={PLUGIN_COLUMNS} label={t("Plugins")}>
-              {shown.map((row) => {
+              {listed.map((row) => {
                 // sn :1499-1505: the muted "(marketplace)" suffix only on a display-name collision (_L).
                 const display = names.get(row.id) ?? { name: row.name };
                 return (
                 <Row key={row.id} id={row.id} name={row.name} selected={current?.id === row.id} onSelect={() => {setSelected(row.id);setSkillPath(null);}} data-plugin-id={row.id} data-plugin-enabled={row.enabled ? "true" : "false"}>
                   <td className="cz-cell-primary">
                     <div className="cz-name">
+                      {row.icon && <PluginIcon icon={row.icon} size="sm" />}
                       <span className="cz-truncate">{display.name}</span>
                       {display.suffix && <span className="cz-muted cz-truncate" data-plugin-suffix="">{display.suffix}</span>}
+                      {row.experimental && <Badge>{t("Experimental")}</Badge>}
                       {!row.enabled && <Badge>{t("Disabled")}</Badge>}
+                      {row.unavailable && <Badge title={row.unavailable}>{t("Unavailable here")}</Badge>}
                       {row.loadError && <Badge variant="danger">{t("Failed to load")}</Badge>}
                     </div>
                   </td>
@@ -1352,10 +2161,10 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
 // pages keep the Codex copy and every control.
 // `mcpDefinitions` is desktop-settings-read's (command/url/args/env names) for
 // the connector drill's LocalConfig.
-export function SourceCustomize({ section, store, threadId, cwd, call, core, onUseSkill, onOpenExternal, onRevealPath, onEditConfig, onNavigate, focus, mcpDefinitions, onRestartCore }) {
+export function SourceCustomize({ section, store, threadId, cwd, call, core, onUseSkill, onOpenExternal, onRevealPath, onEditConfig, onNavigate, focus, mcpDefinitions, mcpServers, onRestartCore, onHarnessCall }) {
   const copy = useMemo(() => customizeCore(core), [core]);
   if (section === "customize-skills") return <SkillsPage store={store} cwd={cwd} call={call} onUseSkill={onUseSkill} onRevealPath={onRevealPath} onNavigate={onNavigate} focus={focus} copy={copy} />;
-  if (section === "customize-connectors") return <ConnectorsPage store={store} threadId={threadId} cwd={cwd} onOpenExternal={onOpenExternal} call={call} onNavigate={onNavigate} focus={focus} copy={copy} onEditConfig={onEditConfig} mcpDefinitions={mcpDefinitions} />;
-  if (section === "customize-plugins") return <PluginsPage store={store} threadId={threadId} cwd={cwd} call={call} focus={focus} onUseSkill={onUseSkill} onRevealPath={onRevealPath} onNavigate={onNavigate} copy={copy} onRestartCore={onRestartCore} />;
+  if (section === "customize-connectors") return <ConnectorsPage store={store} threadId={threadId} cwd={cwd} onOpenExternal={onOpenExternal} call={call} onNavigate={onNavigate} focus={focus} copy={copy} onEditConfig={onEditConfig} mcpDefinitions={mcpDefinitions} mcpServers={mcpServers} onHarnessCall={onHarnessCall} onRestartCore={onRestartCore} />;
+  if (section === "customize-plugins") return <PluginsPage store={store} threadId={threadId} cwd={cwd} call={call} focus={focus} onUseSkill={onUseSkill} onRevealPath={onRevealPath} onNavigate={onNavigate} copy={copy} onRestartCore={onRestartCore} onOpenExternal={onOpenExternal} />;
   return null;
 }

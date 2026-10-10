@@ -225,7 +225,7 @@ try {
   // <560px, so use the source Mh divider's actual 120px Shift+Arrow step to
   // enter that scenario. Keep the window size and 560px boundary unchanged.
   const diffView = changes.locator('.sdiff-view');
-  const divider = page.getByRole('separator', { name: 'Resize 1 and 2', exact: true });
+  const divider = page.getByRole('separator', { name: /^Resize Chat and / });
   await divider.focus();
   await page.keyboard.press('Shift+ArrowRight');
   await page.keyboard.press('Shift+ArrowRight');

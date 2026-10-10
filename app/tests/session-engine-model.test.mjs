@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sessionEngine, coreEngine, partitionSessions, hiddenSessionsNotice } from "../src/session-engine-model.mjs";
+import { sessionEngine, coreEngine, bootEngine, partitionSessions, hiddenSessionsNotice } from "../src/session-engine-model.mjs";
 
 // Thread metadata as main.cjs records it (thread minus turns): a real Codex
 // 0.155.1 rollout and a DeepSeek bridge session.
@@ -42,8 +42,8 @@ test("Codex core keeps the previous behaviour; DeepSeek sessions become the othe
   assert.deepEqual({ otherEngine: out.otherEngine, missing: out.missing }, { otherEngine: 2, missing: 0 });
   // Fixture servers carry no cliVersion: nothing is attributed, reads that fail are just missing.
   const fixture = partitionSessions({ ids: ["x", "y"], results: [read({ id: "x", updatedAt: 1 }), { status: "rejected", reason: new Error("boom") }], metadata: { x: { id: "x" }, y: { id: "y" } }, archivedIds: [] });
-  assert.deepEqual({ active: fixture.active.map((thread) => thread.id), otherEngine: fixture.otherEngine, missing: fixture.missing }, { active: ["x"], otherEngine: 0, missing: 1 });
-  assert.deepEqual(partitionSessions(), { active: [], archived: [], otherEngine: 0, missing: 0 });
+  assert.deepEqual({ active: fixture.active.map((thread) => thread.id), otherEngine: fixture.otherEngine, missing: fixture.missing, missingIds: fixture.missingIds }, { active: ["x"], otherEngine: 0, missing: 1, missingIds: ["y"] });
+  assert.deepEqual(partitionSessions(), { active: [], archived: [], otherEngine: 0, missing: 0, missingIds: [] });
 });
 
 test("hidden-sessions notice copy: other-core sessions stay silent, only load failures are noted", () => {
@@ -51,4 +51,23 @@ test("hidden-sessions notice copy: other-core sessions stay silent, only load fa
   assert.equal(hiddenSessionsNotice({ otherEngine: 1, missing: 2 }, "deepseek"), "2 sessions could not be loaded.");
   assert.equal(hiddenSessionsNotice({ otherEngine: 0, missing: 1 }, "codex"), "1 session could not be loaded.");
   for (const none of [undefined, null, {}, { otherEngine: 0, missing: 0 }, { otherEngine: 3 }]) assert.equal(hiddenSessionsNotice(none, "deepseek"), "");
+});
+
+test("bootEngine: a reported core wins; a failed start names the chosen core (else DeepSeek); no boot or no report is Codex", () => {
+  assert.equal(bootEngine({ connected: true, core: { engine: "deepseek" } }), "deepseek");
+  assert.equal(bootEngine({ connected: false, core: { engine: "zcode" }, config: { core: "kimi" } }), "zcode");
+  assert.equal(bootEngine({ connected: false, config: { core: "kimi" } }), "kimi");
+  assert.equal(bootEngine({ connected: false, config: {} }), "deepseek");
+  assert.equal(bootEngine({ connected: false, config: { core: "my-pack-core" } }), "my-pack-core");
+  assert.equal(bootEngine({ connected: true, config: { core: "kimi" } }), "codex");
+  assert.equal(bootEngine(null), "codex");
+});
+test("a failed Kimi start titles the sidebar connection menu after Kimi, not Codex (main.jsx engine = bootEngine(boot))", async () => {
+  const { connectionMenuHeader } = await import("../src/account-label-model.mjs");
+  const header = connectionMenuHeader(bootEngine({ connected: false, config: { core: "kimi" } }), false);
+  assert.match(header, /Kimi/); assert.doesNotMatch(header, /Codex/);
+  const fs = await import("node:fs/promises"), path = await import("node:path");
+  const main = await fs.readFile(path.resolve(import.meta.dirname, "../src/main.jsx"), "utf8");
+  assert.match(main, /const engine = bootEngine\(boot\);/);
+  assert.match(main, /connectionMenuHeader\(engine, !!boot\?\.connected\)/);
 });

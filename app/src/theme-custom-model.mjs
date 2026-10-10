@@ -53,7 +53,39 @@ const ACCENT_STEPS = Object.freeze([
 export const ROOT_PROPS = Object.freeze([
   '--cds-rem-scale',
   ...['50', '100', '250', '300', '400', '450', '600', '700', '800', '850', 'fill', 'fill-hover', 'on'].map(step => `--cds-role-accent-${step}`),
+  '--accent-100', '--accent-200',
 ]);
+
+/** sRGB mix of a hex colour toward white/black; `amount` is the share of the colour (0-1). */
+export function mixHex(hex, amount, base) {
+  const target = base === 'black' ? 0 : 255;
+  return '#' + rgb(hex).map(v => Math.round(v * amount + target * (1 - amount)).toString(16).padStart(2, '0')).join('');
+}
+/** "#2f855a" → "150 47.8% 35.3%": the HSL triplet form of the design-system's --accent-* tokens
+    (c6a992d55 [data-theme=claude] --accent-100:210 70.9% 51.6%, read as hsl(var(--accent-100))). */
+export function hslTriplet(hex) {
+  const [r, g, b] = rgb(hex).map(v => v / 255), max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  let h = 0, s = 0;
+  if (d) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const one = value => String(Math.round(value * 10) / 10);
+  return `${one(h)} ${one(s * 100)}% ${one(l * 100)}%`;
+}
+// Claude's legacy accent family, which the base layer's focus outline (*{outline-color:hsl(var(--accent-100))}),
+// markdown/ProseMirror link hover and accent-tinted surfaces read. 100/200 are the accent in both modes; 000 is the
+// text-strength step (darker in light, lighter in dark) and 900 the tinted surface, with the same light/dark ratios
+// as Claude's blue (51.6% → 40.2% / 67.1% lightness; 900 at 90% / 24.6%).
+export function accentFamily(hex) {
+  return {
+    100: hslTriplet(hex),
+    light: { '000': hslTriplet(mixHex(hex, 0.78, 'black')), 900: hslTriplet(mixHex(hex, 0.2, 'white')) },
+    dark: { '000': hslTriplet(mixHex(hex, 0.68, 'white')), 900: hslTriplet(mixHex(hex, 0.48, 'black')) },
+  };
+}
 
 /** Inline style for document.documentElement. Empty for the default theme. */
 export function themeRootStyle(value) {
@@ -70,6 +102,7 @@ export function themeRootStyle(value) {
     style['--cds-role-accent-fill'] = accent;
     style['--cds-role-accent-fill-hover'] = `color-mix(in oklab, ${accent} 85%, white)`;
     style['--cds-role-accent-on'] = onAccent(accent);
+    style['--accent-100'] = style['--accent-200'] = accentFamily(accent)[100];
   }
   return style;
 }
@@ -109,6 +142,16 @@ export function themeCss(value) {
     const stack = `${fontStack(theme.uiFont)}, var(--cds-font-system)`;
     // html:root…[data-font] is (0,4,1), above the dyslexic rule's (0,4,0).
     rules.push(`html${SCOPE},html${SCOPE}[data-font],html${SCOPE} .cds-root,html${SCOPE} .cds-root[data-font]{--font-ui:${stack};--cds-font-sans:${stack};}`);
+  }
+  if (theme.accent) {
+    // The mode-dependent steps of the legacy accent family. (0,2,1)/(0,3,1) beat the loaded
+    // [data-color-version=v2][data-theme=claude] (0,2,0) and its [data-mode=dark] (0,3,0) blocks.
+    const family = accentFamily(theme.accent), steps = map => `--accent-000:${map['000']};--accent-900:${map[900]};`;
+    rules.push(`html${SCOPE}{${steps(family.light)}}`);
+    rules.push(`html${SCOPE}[data-mode=dark]{${steps(family.dark)}}`);
+    // Page text selection follows the accent (the same 30% tint as the theme preview). :where() keeps it at
+    // (0,0,1) so ProseMirror-hideselection and transparent-selection rules still win.
+    rules.push(`:where(${SCOPE}) ::selection{background-color:color-mix(in srgb, ${theme.accent} 30%, transparent);}`);
   }
   if (theme.radiusScale !== 1) {
     const scaled = (base, unit) => Object.fromEntries(Object.entries(base).map(([prop, value]) => [prop, unit(value * theme.radiusScale)]));

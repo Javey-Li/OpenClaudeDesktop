@@ -20,8 +20,10 @@ test("classic settings reject sessionList-only options and preserve only valid c
   assert.deepEqual(CLASSIC_GROUP_OPTIONS.map(([key]) => key), ["date", "project", "state", "custom", "none"]);
   assert.deepEqual(CLASSIC_SORT_OPTIONS.map(([key]) => key), ["alpha", "created", "recency"]);
   assert.deepEqual(normalizeSidebarPreferences({ groupBy: "status", sortBy: "lastUpdated", status: "running", stateActivityDays: 14 }), {
-    groupBy: "project", sortBy: "recency", status: "active", stateActivityDays: 7, showEmptyGroups: false, collapsedNested: [],
+    groupBy: "project", sortBy: "recency", status: "active", stateActivityDays: 7, showEmptyGroups: false, showPrStatus: true, collapsedNested: [],
   });
+  // lI 'Show PR status' (show_pr_status): on by default, off only when saved false.
+  assert.equal(normalizeSidebarPreferences({ showPrStatus: false }).showPrStatus, false);
   // sidebar-groups vc().keys: folded nested heads are string ids, deduplicated.
   assert.deepEqual(normalizeSidebarPreferences({ collapsedNested: ["p", "p", 3, "", "q"] }).collapsedNested, ["p", "q"]);
 });

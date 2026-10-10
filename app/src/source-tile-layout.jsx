@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { SourceTooltip } from "./source-tooltip";
 import { t } from "../electron/i18n/index.mjs";
 import {
-  TILE_CONFIG, adjustFlexes, cloneNode, distributeFlex, findStack, findTilePath, layoutsEqual, minSize, moveTile, nodeKey,
-  orderedTileIds, parentAtPath, resolveLayout,
+  CHAT_TILE_ID, TILE_CONFIG, adjustFlexes, chatContentInset, cloneNode, coveredWidth, distributeFlex, findStack, findTilePath, layoutsEqual, minSize, moveTile, nodeKey,
+  orderedTileIds, parentAtPath, resolveLayout, withChatMinimum,
 } from "./tile-layout-model.mjs";
 import { createDragSnapshot, hitTest, indicatorOutset } from "./tile-drop-zones.mjs";
 import "./source-tile-layout.css";
@@ -112,15 +112,37 @@ function TileWrap({ node, flex, config, minWidthSize, edgeHandles, engine, tileB
     ? edgeFromPlacement(target.index === 0 ? "main-start" : "main-end", target.direction)
     : null;
   const isDragged = engine.dragVisualTileId === node.tileId;
+  // The part of an overflowing shell (2.2553.1 overflowMin) that its neighbour covers: the shell keeps its minimum
+  // width. Its content is inset by the covered part (--tile-covered-content-end / -start, the side away from the
+  // anchor) only while the transcript and composer keep a usable width (chatContentInset); below that they stay that
+  // wide under the pane, as the official shell does, and only the titlebar takes the rest (--tile-covered-extra-*)
+  // so its title and actions stay in the visible part.
+  const [covered, setCovered] = useState(0);
+  const wrapEl = useRef(null);
+  const register = engine.registerNodeEl(node.tileId);
+  const wrapRef = useCallback((element) => { wrapEl.current = element; register?.(element); }, [register]);
+  const minimum = overflowMin?.width ?? 0;
+  useLayoutEffect(() => {
+    const element = wrapEl.current;
+    if (!minimum || !element || typeof ResizeObserver !== "function") { setCovered(0); return undefined; }
+    const measure = () => setCovered(coveredWidth(minimum, element.getBoundingClientRect().width, config.gap));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [minimum, config.gap]);
+  const inset = chatContentInset(covered, minimum);
+  const coveredSide = overflowMin?.anchor === "right" ? "start" : "end";
   const shellStyle = overflowMin
-    ? { position: "absolute", top: 0, bottom: 0, [overflowMin.anchor]: 0, width: "100%", minWidth: overflowMin.width, "--tile-overflow-min": `${overflowMin.width}px` }
+    ? { position: "absolute", top: 0, bottom: 0, [overflowMin.anchor]: 0, width: "100%", minWidth: overflowMin.width, "--tile-overflow-min": `${overflowMin.width}px`,
+      [`--tile-covered-content-${coveredSide}`]: `${inset.content}px`, [`--tile-covered-extra-${coveredSide}`]: `${inset.extra}px` }
     : undefined;
   const adopt = useCallback((element) => {
     if (element) hosts.adopt(node.tileId, element);
   }, [hosts, node.tileId]);
   return (
     <div
-      ref={engine.registerNodeEl(node.tileId)}
+      ref={wrapRef}
       className={`tiles-tile-wrap ${node.tileId === "chat" ? "source-chat-tile" : "source-side-tile shadow-panel-sm"}`}
       data-tile-id={node.tileId}
       data-tile-active={isDragged || undefined}
@@ -133,6 +155,20 @@ function TileWrap({ node, flex, config, minWidthSize, edgeHandles, engine, tileB
   );
 }
 
+// What a resize handle's sides are called (2.2553.1 xh/Sh, 'Resize {left} and {right}'): each side's tile names
+// (tiles[].name; a stack's joined with ", "), else — a side without names, or both the same — their positions.
+function nodeName(node, tileById) {
+  if (!node) return null;
+  if (node.tileId !== undefined) return tileById(node.tileId)?.name?.trim() || null;
+  const names = [];
+  for (const child of node.children ?? []) { const name = nodeName(child, tileById); if (!name) return null; names.push(name); }
+  return names.length ? names.join(t(", ")) : null;
+}
+function resizeLabel(node, index, tileById) {
+  const left = nodeName(node.children[index], tileById), right = nodeName(node.children[index + 1], tileById);
+  const named = left !== null && right !== null && left !== right;
+  return t("Resize {left} and {right}", { left: named ? left : index + 1, right: named ? right : index + 2 });
+}
 function Stack({ node, depth, config, engine, resolved, tileById, hosts, parentDirection, edgeHandles, topTileId }) {
   const info = resolved.get(nodeKey(node));
   const flex = info?.resolvedFlex ?? node.flex;
@@ -183,7 +219,7 @@ function Stack({ node, depth, config, engine, resolved, tileById, hosts, parentD
               size={config.gap}
               depth={depth}
               valueNow={Math.round((flexes[index] / (flexes[index] + flexes[index + 1])) * 100)}
-              ariaLabel={t("Resize {first} and {second}", { first: index + 1, second: index + 2 })}
+              ariaLabel={resizeLabel(node, index, tileById)}
               cornerStart={cornerStart ? engine.getCornerProps({ stackId: node.id, boundaryIndex: index }, cornerStart) : undefined}
               cornerEnd={cornerEnd ? engine.getCornerProps({ stackId: node.id, boundaryIndex: index }, cornerEnd) : undefined}
               {...engine.getHandleProps(node.id, index)}
@@ -222,7 +258,7 @@ function useContentHosts() {
   }), []);
 }
 
-export function SourceTileLayout({ layout, onLayoutChange, tiles, renderTile, config = TILE_CONFIG, onTileTearOff, hasPane = true, dataAttributes }) {
+export function SourceTileLayout({ layout, onLayoutChange, tiles, renderTile, config = TILE_CONFIG, onTileTearOff, hasPane = true, dataAttributes, restoreKey = null, onRestoreLayout }) {
   const containerRef = useRef(null);
   const viewportRef = useRef(null);
   const nodeEls = useRef(new Map());
@@ -270,6 +306,22 @@ export function SourceTileLayout({ layout, onLayoutChange, tiles, renderTile, co
     });
     return map;
   }, [layout, containerSize, tileById, config]);
+
+  // Reopening a layout (another session, a relaunch: restoreKey changes) gives a chat dragged below its overflowMin
+  // its width back, once per key and only once it has a neighbour, so a saved 100 px chat never comes back as a
+  // stub composer. A drag in this view is left as the user made it.
+  const restoredFor = useRef(undefined);
+  useLayoutEffect(() => {
+    if (!containerSize || restoredFor.current === restoreKey || interaction.current.mode !== "idle") return;
+    if (!orderedTileIds(layout).some((id) => id !== CHAT_TILE_ID)) return;
+    restoredFor.current = restoreKey;
+    const next = withChatMinimum(layout, containerSize, tileById, config);
+    if (next === layout) return;
+    // Saved under the key it was read for: the host's own "current session" may not have caught up yet.
+    layoutRef.current = next;
+    if (onRestoreLayout) onRestoreLayout(next, restoreKey);
+    else onLayoutChange(next, [CHAT_TILE_ID]);
+  }, [restoreKey, layout, containerSize, tileById, config, onRestoreLayout, onLayoutChange]);
 
   const registerNodeEl = useCallback((key) => (element) => {
     if (element) nodeEls.current.set(key, element);

@@ -141,6 +141,12 @@ function enumerateFilesystem(root, identity, limits, output, add) {
   }
 }
 
+// An empty browse query (the composer's bare '@', like the official provider's empty fetchOptions): every file, the
+// shallowest and shortest paths first, with nothing highlighted.
+function browseRank(relative) {
+  return { rankScore: -(relative.split('/').length * 4096 + relative.length), positions: [] };
+}
+
 async function run(request, limits) {
   const output = {
     requestId: request.requestId, scope: request.scope, requestedRoot: request.root,
@@ -154,7 +160,7 @@ async function run(request, limits) {
     if (!identity.isDirectory()) throw failure('INVALID_ROOT', 'The workspace root is not a directory.');
     if (root === path.parse(root).root) throw failure('ROOT_TOO_BROAD', 'Choose a project directory, not the filesystem root.');
     if (request.query.startsWith('?')) throw failure('CONTENT_SEARCH_UNSUPPORTED', 'This API searches filenames only.');
-    if (!request.query) { output.complete = true; return output; }
+    if (!request.query && !request.browse) { output.complete = true; return output; }
     const candidates = new Set();
     let indexBytes = 0;
     function add(relative) {
@@ -169,7 +175,7 @@ async function run(request, limits) {
     output.scanned.candidates = candidates.size;
     const ranked = [];
     for (const relative of candidates) {
-      const matched = matchPath(relative, request.query);
+      const matched = request.query ? matchPath(relative, request.query) : browseRank(relative);
       if (matched) ranked.push({ path: relative, name: path.basename(relative), directory: false, ...matched });
     }
     ranked.sort(compareMatches);

@@ -53,7 +53,10 @@ try{
  const cardView=await card.evaluate(node=>{const s=getComputedStyle(node),icon=node.querySelector('.ste-header [data-cds=Icon]'),headline=node.querySelector('.ste-headline');return {category:node.dataset.errorCategory,headline:headline.textContent,hint:node.querySelector('.ste-hint').textContent,icon:icon.textContent.codePointAt(0),iconColor:getComputedStyle(icon).color,iconSize:getComputedStyle(icon).fontSize,headlineWeight:getComputedStyle(headline).fontWeight,
   minWidth:s.minWidth,maxWidth:s.maxWidth,width:node.getBoundingClientRect().width,parent:node.parentElement.getBoundingClientRect().width,padding:[s.paddingTop,s.paddingRight,s.paddingBottom,s.paddingLeft],gap:s.rowGap,radius:s.borderRadius,shadow:s.boxShadow,userSelect:s.userSelect};});
  report.metrics.card=cardView;
- assert.deepEqual([cardView.category,cardView.headline,cardView.hint],['rate_limit','Usage limit reached','You’ve reached your usage limit. Try again after your limit resets.']);
+ // source-turn-error.jsx usageLimitView: Codex's own usage-limit text (upgrade / credits / reset time) replaces the generic hint,
+ // and a non-per-token core adds View usage (Settings › Usage) beside Try again.
+ assert.deepEqual([cardView.category,cardView.headline,cardView.hint],['rate_limit','Usage limit reached',"You've hit your usage limit. Upgrade to Pro, or try again at 3:05 PM."]);
+ assert.equal(await card.getByRole('button',{name:'View usage'}).count(),1,'usage-limit card links to Settings › Usage');
  assert.equal(cardView.icon,glyphs.UsageGaugeHigh);assert.equal(cardView.iconSize,'16px');assert.equal(cardView.headlineWeight,'500');
  assert.equal(cardView.minWidth,'min(480px, 100%)');assert.equal(cardView.maxWidth,'100%');assert.ok(cardView.width>=Math.min(480,cardView.parent)-0.5&&cardView.width<=cardView.parent+0.5,'min(480px,100%) <= width <= parent');
  const padLg=await token(card,'var(--cds-pad-lg)'),gapMd=await token(card,'var(--cds-gap-md)'),radiusLg=await token(card,'var(--radius-lg)');report.metrics.tokens={padLg,gapMd,radiusLg};
@@ -69,7 +72,7 @@ try{
  const panelFirst=await card.evaluate(node=>{const root=node.querySelector('.ste-details'),panel=root.querySelector('.source-disclosure-panel'),trigger=root.querySelector('.ste-details-trigger');return panel.getBoundingClientRect().bottom<=trigger.getBoundingClientRect().top+0.5&&getComputedStyle(trigger).fontSize;});
  assert.equal(panelFirst,await card.evaluate(node=>{const p=document.createElement('span');p.style.fontSize='var(--cds-font-size-footnote)';node.append(p);const f=getComputedStyle(p).fontSize;p.remove();return f;}),'details panel sits above the footnote trigger (order-first)');
  await shot('failed-card-light');report.metrics.lightOverflow=await overflow();assert.equal(report.metrics.lightOverflow.doc,0);assert.equal(report.metrics.lightOverflow.body,0);
- report.checks.push('TurnCompleted failed (usageLimitExceeded) renders the source card after the turn: usage icon, Usage limit reached, source hint, min(480px,100%), p-lg/gap-md/rounded-lg tokens, inset outline, View details with message + additionalDetails above the trigger, Copy details present (not clicked)');
+ report.checks.push('TurnCompleted failed (usageLimitExceeded) renders the source card after the turn: usage icon, Usage limit reached, Codex’s own limit text as the hint, View usage, min(480px,100%), p-lg/gap-md/rounded-lg tokens, inset outline, View details with message + additionalDetails above the trigger, Copy details present (not clicked)');
  step('try-again');const retryButton=card.getByRole('button',{name:'Try again'});await retryButton.waitFor();const before=(await requests()).filter(r=>r.method==='turn/start').length;
  await retryButton.click();await poll(async()=>(await requests()).filter(r=>r.method==='turn/start').length===before+1,'retry turn/start');
  const resent=(await requests()).filter(r=>r.method==='turn/start').at(-1).params;assert.equal(resent.threadId,RC);assert.deepEqual(resent.input.map(part=>[part.type,part.text]),[['text','fixture:turn-error:usage']]);
@@ -111,7 +114,9 @@ try{
  assert.equal(await limitMarker.locator('.ste-marker-label').textContent(),'Response exceeded the output limit');assert.equal(await limitMarker.getByRole('button',{name:'View details'}).count(),0);
  await limitMarker.scrollIntoViewIfNeeded();await shot('output-limit-marker-light');
  const contextCard=page.locator('[data-turn-error="card"]');
- assert.equal(await contextCard.locator('.ste-headline').textContent(),'Your context window is full');assert.equal(await contextCard.locator('.ste-hint').textContent(),'This chat is too long to continue. Start a new chat.');
+ assert.equal(await contextCard.locator('.ste-headline').textContent(),'Your context window is full');// A core that serves thread/revert adds Rewind and the rewind hint (c70db48e3 X.contextLength); one without keeps the no-rewind hint.
+ const contextRewind=await contextCard.getByRole('button',{name:'Rewind',exact:true}).count()>0;
+ assert.equal(await contextCard.locator('.ste-hint').textContent(),contextRewind?'Compact it to summarize earlier messages and keep going, rewind to an earlier point, or start a new chat.':'This chat is too long to continue. Start a new chat.');
  assert.equal(await contextCard.getByRole('button',{name:'Try again'}).count(),0);
  const compactButton=contextCard.getByRole('button',{name:'Compact session',exact:true});await compactButton.waitFor();
  report.metrics.compactButton=await compactButton.evaluate(node=>({cds:node.dataset.cds,variant:node.dataset.variant??null,size:node.dataset.size??null,inActions:!!node.closest('.ste-actions'),cursor:getComputedStyle(node).cursor}));

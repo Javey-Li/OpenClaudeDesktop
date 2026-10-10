@@ -541,8 +541,12 @@ try {
 
   // Isolated geometry-race regression: growth and a scroll position change in
   // one JS task, before RO delivery. No transcript data or production state is
-  // fabricated here. Native scrollbars may omit DOM pointerdown entirely.
+  // fabricated here. Chromium dispatches mousedown on the viewport for its own
+  // scrollbar (dragActive); without that intent an upward clamp during a layout
+  // change keeps following pinned (use-transcript-scroll.js isUserScrollMovement:
+  // a placeholder shrink-and-regrow must not release it).
   const dragTarget = await page.locator(".transcript").evaluate((viewport) => {
+    viewport.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     viewport.querySelector(".source-transcript-content").style.paddingBottom =
       "80px";
     viewport.scrollTop -= 140;
@@ -557,6 +561,9 @@ try {
     "Same-frame growth and upward scrollbar position",
   );
   assert.equal((await state()).following, "false");
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
   await page.locator(".source-transcript-content").evaluate((node) => {
     node.style.paddingBottom = "";
   });

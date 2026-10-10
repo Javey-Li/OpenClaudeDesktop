@@ -5,9 +5,12 @@
 .ss-theme-custom-actions>.ss-error { overflow-wrap:anywhere; }
 .ss-theme-custom-accent { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:var(--cds-gap-sm,8px); max-width:320px; }
 .ss-theme-custom-accent>.ss-error, .ss-theme-custom-font>.ss-error { flex-basis:100%; text-align:end; overflow-wrap:anywhere; }
-.ss-control input.ss-theme-custom-swatch { box-sizing:border-box; width:var(--cds-h-control,28px); height:var(--cds-h-control,28px); min-height:0; padding:2px; border:0; border-radius:var(--cds-radius); background:var(--cds-fill-field); box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring); cursor:var(--cds-cursor-interactive,default); }
-.ss-theme-custom-swatch::-webkit-color-swatch-wrapper { padding:0; }
-.ss-theme-custom-swatch::-webkit-color-swatch { border:0; border-radius:calc(var(--cds-radius) - 2px); }
+/* The accent swatch button (a field-styled square holding the colour) and the popover's swatch dots. */
+.ss-control button.ss-theme-custom-swatch { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; width:var(--cds-h-control,28px); height:var(--cds-h-control,28px); min-height:0; padding:3px; border:0; border-radius:var(--cds-radius); background:var(--cds-fill-field); box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring); outline:none; transition:box-shadow var(--cds-dur-fast); }
+.ss-control button.ss-theme-custom-swatch:hover { box-shadow:inset 0 0 0 1px var(--cds-border-strong); }
+.ss-control button.ss-theme-custom-swatch:focus-visible, .ss-control button.ss-theme-custom-swatch[aria-expanded=true] { box-shadow:var(--cds-focus-shadow); }
+.ss-theme-custom-swatch-fill { display:block; width:100%; height:100%; border-radius:calc(var(--cds-radius) - 2px); box-shadow:inset 0 0 0 1px var(--cds-alpha-1); }
+.ss-theme-custom-swatch-dot { display:inline-block; flex-shrink:0; width:14px; height:14px; border-radius:9999px; box-shadow:inset 0 0 0 1px var(--cds-alpha-2); }
 .ss-theme-custom-font { display:flex; flex-direction:column; gap:var(--cds-gap-sm,8px); width:224px; max-width:100%; }
 .ss-control input.ss-theme-custom-field { box-sizing:border-box; width:224px; max-width:100%; min-width:0; height:var(--cds-h-control); min-height:0; padding:0 var(--cds-pad-md); border:0; border-radius:var(--cds-radius); background:var(--cds-fill-field); box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring); color:var(--cds-text-primary); font:400 var(--cds-font-size-body)/var(--cds-leading-body) var(--cds-font-sans); outline:none; transition:box-shadow var(--cds-dur-fast); }
 .ss-control input.ss-theme-custom-hex { width:96px; font-family:var(--cds-font-mono); }

@@ -1,22 +1,28 @@
 import {t} from '../electron/i18n/index.mjs';
+import {coreCapabilities,coreForEngine} from '../electron/core-registry.mjs';
 // Host actions mapped to real Codex 0.155.1 capabilities. Claude 2.2553.1
 // cc183b3ab supplies names/aliases; there is no app-server CLI command catalog.
 export const sessionCommands = [
-  {id:'compact',label:t('Compact conversation'),description:t('Summarize earlier context in this session'),session:true,idle:true,icon:'Archive'},
+  {id:'compact',label:t('Compact conversation'),description:t('Summarize earlier context in this session'),argumentHint:'[instructions]',session:true,idle:true,icon:'Archive'},
   {id:'clear',aliases:['reset','new'],label:t('New session'),description:t('Clear conversation history and free up context')},
   // /btw (cc183b3ab btw, 4Iu0xDY9v4): not idle-only, a side question never interrupts the running turn.
+  // Codex /recap (tui app/recap.rs): a short catch-up, asked on the side (side questions) so nothing joins the session.
+  {id:'recap',label:t('Recap'),description:t('Get a short catch-up on this session'),session:true,icon:'Chat'},
   {id:'btw',label:t('Side question'),description:t('Ask a quick side question without adding to the session'),argumentHint:'[question]',session:true,icon:'Chat'},
   {id:'review',label:t('Review code'),description:t('Review changes, a branch, commit, or instructions'),argumentHint:'[instructions]',session:true,idle:true,icon:'Search'},
   {id:'fork',label:t('Fork session'),description:t('Fork this session into a new one'),argumentHint:'[prompt]',session:true,idle:true,icon:'GitBranch'},
+  // Codex /cd (tui app/working_directory.rs): the session continues in another folder, as a fork that keeps its history.
+  {id:'cd',label:t('Change directory'),description:t('Continue this session in another folder'),argumentHint:'[path]',session:true,idle:true,icon:'Folder'},
   {id:'rename',aliases:['name'],label:t('Rename session'),description:t('Rename this session'),argumentHint:'[new title]',session:true},
   {id:'model',label:t('Choose model'),description:t('Set the model for this session'),argumentHint:'[model-id]',connected:true,idle:true},
   {id:'effort',label:t('Reasoning effort'),description:t('Set the effort level for this session'),argumentHint:'[level]',connected:true,idle:true},
   {id:'fast',label:t('Fast mode'),description:t('Turn fast mode on or off'),argumentHint:'[on|off]',connected:true,idle:true},
   {id:'plan',label:t('Plan mode'),description:t('Switch to plan mode or view this session’s plan'),argumentHint:'[open|<description>]',idle:true},
   {id:'permissions',aliases:['allowed-tools'],label:t('Permission mode'),description:t('Change the permission mode'),idle:true},
-  {id:'resume',aliases:['continue'],label:t('Find a session'),description:t('Search and continue a DeepSeek session from this computer'),argumentHint:'[search]'},
+  {id:'resume',aliases:['continue'],label:t('Resume a session'),description:t('Continue a DeepSeek session from this computer, including ones started outside Code Desktop'),argumentHint:'[search]'},
   {id:'status',label:t('Session status'),description:t('Show this session’s version, model, environment, and account'),session:true,idle:true,icon:'UsageGaugeMiddle'},
-  {id:'usage',aliases:['stats','cost'],label:t('Usage'),description:t('Show plan usage and rate limits')},
+  // usage-credits / extra-usage: Claude Code's credit commands open the same page, which shows the core's credits.
+  {id:'usage',aliases:['stats','cost','usage-credits','extra-usage','credits'],label:t('Usage'),description:t('Show plan usage, credits and rate limits')},
   {id:'diff',label:t('Show changes'),description:t('Show or hide this session’s changes'),session:true},
   {id:'workflow',label:t('Run workflow'),description:t('Run a local dynamic workflow'),argumentHint:'[path] [--plan] [--resume run-id] [--args JSON]',session:true},
   {id:'workflows',label:t('Workflows'),description:t('Show workflows in background tasks'),session:true},
@@ -32,8 +38,38 @@ export const sessionCommands = [
   // Existing local plugin management is real; unsupported /plugin install is not advertised.
   {id:'plugin',aliases:['plugins','marketplace'],label:t('Plugins'),description:t('Manage plugins')},
   {id:'help',label:t('Help'),description:t('Get help and support')},
+  // Sign-in and core updates belong to the frame (Settings › Preferences account, Settings › Cores): an agent's own
+  // /auth, /login, /connect or /update would send a beginner to a terminal or npm (Qwen Code's ACP mode does).
+  {id:'login',aliases:['auth','connect'],label:t('Sign in'),description:t('Sign in or add an API key in account settings')},
+  {id:'update',label:t('Update core'),description:t('Check for core updates in Settings › Cores')},
+  // Codex's /import (slash_command.rs Import): bring the Claude Code setup over (main.cjs codex-import).
+  {id:'import',label:t('Import from Claude Code'),description:t('Bring your Claude Code setup and recent sessions into Codex'),connected:true},
 ];
 const findCommand = name => sessionCommands.find(c => c.id === name || c.aliases?.includes(name));
+// A built-in command's argument hint for the running core. '/compact [instructions]' only reaches a core with
+// capabilities.compactInstructions (context.compactInstructions, from coreSupports): elsewhere the instructions are
+// refused, so the menu row, chip and inline hint offer none and Enter runs it as is.
+export function sessionCommandHint(command, context={}) {
+  if(!command?.argumentHint)return '';
+  if(command.id==='compact'&&context?.compactInstructions!==true)return '';
+  if(command.id==='workflow'&&context?.workflowEngine==='agent'){
+    // A core with its own /workflow command (ZCode: '/workflow [what the workflow should accomplish]') takes a task.
+    const own=coreWorkflowCommand(context.skills);
+    if(own)return own.argumentHint||t('[what the workflow should accomplish]');
+    // A core whose model starts the run takes a saved workflow's name or a script path; --plan/--resume are the launcher's.
+    return '[name|path] [--args JSON]';
+  }
+  return command.argumentHint;
+}
+// A built-in command's description for the running core. /usage promises plan usage, credits and rate limits only
+// where the account reports them: a core billed per token (context.perTokenBilling: capabilities.perTokenBilling —
+// DeepSeek Harness, OpenCode, MiMo, Codex on a custom endpoint) has none, and its Usage page shows the tokens used.
+export function sessionCommandDescription(command, context={}) {
+  if(command?.id==='usage'&&context?.perTokenBilling===true)return t('Show the tokens used on this Mac');
+  // The list is built when the module loads, before the running core's assistant name is known: /resume names it now.
+  if(command?.id==='resume')return t('Continue a DeepSeek session from this computer, including ones started outside Code Desktop');
+  return command?.description??'';
+}
 export function commandSuggestion(name) {
   const distance = (a,b) => { let row=Array.from({length:b.length+1},(_,i)=>i); for(let i=1;i<=a.length;i++){const next=[i];for(let j=1;j<=b.length;j++)next[j]=Math.min(next[j-1]+1,row[j]+1,row[j-1]+(a[i-1]===b[j-1]?0:1));row=next;}return row[b.length]; };
   const ranked=sessionCommands.map(c=>({id:c.id,d:Math.min(...[c.id,...c.aliases||[]].map(n=>distance(name,n)))})).sort((a,b)=>a.d-b.d);
@@ -67,6 +103,28 @@ export function slashCustomCommands(customCommands=[]) {
   return out;
 }
 const findCustom=(name,context)=>slashCustomCommands(context?.customCommands).find(command=>command.name.toLowerCase()===name);
+// The running core's own slash commands (context.coreCommands: a core with capabilities.coreCommands answers
+// codeDesktop/commands/list with {name, description, inputHint}; the DeepSeek Harness command registry: /goal, /feedback).
+// They run on the core (codeDesktop/commands/execute), never as a model message. Built-in, custom and skill names win.
+// Cores that serve their commands as skills/list rows (path "command:<name>": OpenCode, MiMo, the ACP agents) reach
+// the slash list through slashSkills instead.
+// The DeepSeek core's own commands (codeDesktop/commands/list definitionId) in the UI language; any other command
+// keeps the core's text.
+const KNOWN_CORE_COMMANDS={
+  '@deepseek-ai/dsh-command-goal':()=>({description:t('Set or view the goal for a long-running task')}),
+  '@deepseek-ai/dsh-command-feedback':()=>({description:t('Record feedback about this session')}),
+};
+export function slashCoreCommands(coreCommands=[],context={}) {
+  const taken=new Set([...slashCustomCommands(context.customCommands),...slashSkills(context.skills,context.customCommands)].map(row=>row.name.toLowerCase())),seen=new Set(),out=[];
+  for(const row of Array.isArray(coreCommands)?coreCommands:[]){
+    const name=typeof row?.name==='string'?row.name.trim().replace(/^\//,''):'',key=name.toLowerCase();
+    if(!CUSTOM_NAME.test(name)||findCommand(key)||taken.has(key)||seen.has(key))continue;
+    const definitionId=typeof row.definitionId==='string'?row.definitionId:null,known=definitionId&&Object.hasOwn(KNOWN_CORE_COMMANDS,definitionId)?KNOWN_CORE_COMMANDS[definitionId]():{};
+    seen.add(key);out.push({name,description:known.description??(typeof row.description==='string'?row.description:''),argumentHint:typeof row.inputHint==='string'?row.inputHint:typeof row.argumentHint==='string'?row.argumentHint:'',...(definitionId?{definitionId}:{})});
+  }
+  return out;
+}
+const findCore=(name,context)=>slashCoreCommands(context?.coreCommands,context).find(command=>command.name.toLowerCase()===name);
 // A known skill parses as {skill, args} with no error: send() treats it as a message, whose leading
 // '/name' becomes the {type:'skill'} input item.
 export function parseSessionCommand(text, context={}) {
@@ -75,21 +133,80 @@ export function parseSessionCommand(text, context={}) {
   if(custom)return {id:custom.name,args:value.slice(named[0].length).trim(),requested:named[1].toLowerCase(),command:null,skill:null,custom,suggestion:null,error:null};
   const skill=named&&!findCommand(named[1].toLowerCase())?findSkill(named[1].toLowerCase(),context):null;
   if(skill)return {id:skill.name,args:value.slice(named[0].length).trim(),requested:named[1].toLowerCase(),command:null,skill,suggestion:null,error:null};
+  const core=named&&!findCommand(named[1].toLowerCase())?findCore(named[1].toLowerCase(),context):null;
+  if(core)return {id:core.name,args:value.slice(named[0].length).trim(),requested:named[1].toLowerCase(),command:null,skill:null,custom:null,coreCommand:core,suggestion:null,error:/[\r\n]/.test(value)?t('/{command} only works on a single line. Remove the extra lines and try again.',{command:named[1].toLowerCase()}):null};
   const match=/^\/([a-z0-9][a-z0-9_-]*)\b/i.exec(value);
   if(!match || value[match[0].length]==='/')return null;
   const requested=match[1].toLowerCase(),command=findCommand(requested),id=command?.id||requested,args=value.slice(match[0].length).trim();
   const suggestion=command?null:commandSuggestion(requested);
   let error=null;
-  if(!command)error=requested==='cd'?t('Changing the directory isn’t available for this session.'):['feedback','bug','share','login','logout','ultrareview','usage-credits','extra-usage'].includes(requested)?t('/{command} isn’t available in the app.',{command:requested}):t('/{command} isn’t a command here.',{command:requested});
+  if(!command)error=['feedback','bug','share','login','logout','ultrareview'].includes(requested)?t('/{command} isn’t available in the app.',{command:requested}):t('/{command} isn’t a command here.',{command:requested});
   else if(/[\r\n]/.test(value))error=t('/{command} only works on a single line. Remove the extra lines and try again.',{command:requested});
   else if(args&&!command.argumentHint)error=t('/{command} doesn’t take arguments here. Remove the text after the command and try again.',{command:requested});
   return {id,args,requested,command,suggestion,error};
 }
+// /btw asks codeDesktop/sideQuestion. The Code Desktop cores (the built-in one and the bridges) serve the extension; on a
+// native core (Codex) main.cjs answers it with Codex's own side conversation, an ephemeral thread/fork
+// (native-side-chat.cjs, as tui/src/app/side.rs), so it needs thread/fork. A core that reports
+// capabilities.sideQuestion false decides. No core yet (still connecting): the other gates speak.
+export function sideQuestionsSupported(core) {
+  if(!core)return true;
+  const reported=coreCapabilities(core).sideQuestion;
+  if(reported===false)return false;
+  if(typeof core==='object'&&coreForEngine(core.engine).kind==='native'&&core.capabilities?.unsupportedMethods?.includes?.('thread/fork'))return false;
+  return true;
+}
+// /workflow runs local agents on the core (third-party/codex-workflows-runner) every agent with approvalPolicy "never".
+// Every core can run them: schema agents use outputSchema / a StructuredOutput tool where the core has structured
+// output, and ask for JSON in the prompt where it reports structuredOutput false (ZCode, the ACP agents; runner
+// jsonAgent.js). A core with its own engine (capabilities.modelWorkflows) can run its own instead.
+export function workflowsSupported(core) {
+  void core;
+  return true;
+}
+/** Whether a core has its own dynamic-workflow engine (Settings › Code › Dynamic workflows offers the choice). */
+export const hasNativeWorkflowEngine = core => !!core && coreCapabilities(core).modelWorkflows===true;
+/**
+ * Which engine runs a core's dynamic workflows (Settings › Code › Dynamic workflows › Workflow engine, saved per core in
+ * config.workflowEngines): "native" — the core's own, the default for a core that has one — or "codeDesktop".
+ */
+export function workflowEngineChoice(core, engines) {
+  if(!hasNativeWorkflowEngine(core))return 'codeDesktop';
+  const id=coreForEngine(typeof core==='string'?core:core.engine).id;
+  return engines&&typeof engines==='object'&&engines[id]==='codeDesktop'?'codeDesktop':'native';
+}
+// Who runs /workflow: Code Desktop's runner ('runner') — its own engine, or, for a core whose launcher script can go
+// straight to its engine (capabilities.workflowScripts: the DeepSeek Harness, codeDesktop/workflow/startScript through
+// workflow-harness.mjs), that engine — or the core's model with its own workflow tool ('agent': MiMo, Qwen Code,
+// ZCode's CreateWorkflow) while that core's own engine is chosen. Either way the run shows in the same WorkflowCard.
+export function workflowEngine(core, engines) {
+  if(!core)return 'runner';
+  const caps=coreCapabilities(core);
+  if(workflowEngineChoice(core,engines)==='codeDesktop')return 'runner';
+  return caps.modelWorkflows===true&&caps.workflowScripts!==true?'agent':'runner';
+}
+// The core's own /workflow command, when its catalog lists one (a skills/list row with path "command:workflow": ZCode's
+// built-in, which preloads its dynamic-workflows skill and asks for a topology plan before CreateWorkflow). On the agent's
+// own engine /workflow runs that command as typed instead of agentWorkflowPrompt. Null otherwise.
+export function coreWorkflowCommand(skills=[]) {
+  const row=(Array.isArray(skills)?skills:[]).find(skill=>typeof skill?.path==='string'&&skill.path.toLowerCase()==='command:workflow'&&skill.enabled!==false);
+  return row?{name:typeof row.name==='string'&&row.name?row.name:'workflow',path:row.path,argumentHint:typeof row.argumentHint==='string'?row.argumentHint.trim():''}:null;
+}
+// The turn that asks such a core to run a workflow with its own tool (/workflow [name|path] [--args JSON]).
+export function agentWorkflowPrompt(args='') {
+  const value=String(args??'').trim();
+  // Says "dynamic workflow" (not "Workflow tool"): ZCode's legacy Workflow tool is a different feature from CreateWorkflow.
+  return value?`Use a dynamic workflow: run ${value} with your dynamic workflow tool.`:'List the saved workflows you can run in this project, then ask me which one to run.';
+}
 // The core request behind each session action. A core lists the ones it
-// cannot serve in initialize capabilities.unsupportedMethods (boot.core).
-const COMMAND_METHODS={fork:'thread/fork',review:'review/start',rewind:'thread/revert'};
+// cannot serve in initialize capabilities.unsupportedMethods (boot.core);
+// context.sideQuestions / context.workflows false: the core can't serve /btw or /workflow.
+const COMMAND_METHODS={fork:'thread/fork',cd:'thread/fork',review:'review/start',rewind:'thread/revert',compact:'thread/compact/start'};
 export function unsupportedCommand(id, context={}) {
-  return context.unsupportedMethods?.includes(COMMAND_METHODS[id])?t('Not available with the DeepSeek core yet'):'';
+  const unsupported=context.unsupportedMethods?.includes(COMMAND_METHODS[id])||((id==='btw'||id==='recap')&&context.sideQuestions===false)||(id==='workflow'&&context.workflows===false)||(id==='import'&&context.claudeImport!==true)||(id==='cd'&&context.forkCwd===false&&context.moveCwd!==true);
+  if(!unsupported)return '';
+  // context.coreName: the running core's display name (core-registry coreName).
+  return typeof context.coreName==='string'&&context.coreName?t('Not available with {core} yet',{core:context.coreName}):t('Not available with this core yet');
 }
 export function commandUnavailable(command, context={}) {
   const unsupported=unsupportedCommand(command.id,context);
@@ -103,7 +220,7 @@ export function commandUnavailable(command, context={}) {
   if((command.session||command.connected)&&!context.connected)return t('Reconnect to DeepSeek first');
   if((command.session||command.idle)&&context.loading)return t('Wait for the session to load');
   if(command.idle&&(context.running||context.sending||context.pending))return t('Wait for the current task to finish or stop it');
-  if(['compact','fork','review','rewind'].includes(command.id)&&!context.hasHistory)return t('Send a message first');
+  if(['compact','fork','cd','review','rewind','recap'].includes(command.id)&&!context.hasHistory)return t('Send a message first');
   return '';
 }
 export function slashQuery(text) {
@@ -114,23 +231,28 @@ export function matchCommands(query, context={}) {
   const value=String(query).replace(/^\//,'').toLowerCase();
   if(value.length>50)return [];
   const spaced=/^(\S+)\s+(\S)?/.exec(value);
-  if(spaced&&(spaced[2]||findCommand(spaced[1])||findCustom(spaced[1],context)||findSkill(spaced[1],context)))return [];
+  if(spaced&&(spaced[2]||findCommand(spaced[1])||findCustom(spaced[1],context)||findCore(spaced[1],context)||findSkill(spaced[1],context)))return [];
   const q=value.trim();
   const rank=c=>c.id===q?0:c.aliases?.includes(q)?1:c.id.startsWith(q)?2:c.aliases?.some(a=>a.startsWith(q))?3:4;
   const commands=sessionCommands.filter(c=>!commandUnavailable(c,context)&&(!q||[c.id,...c.aliases||[]].some(n=>n.includes(q))))
-    .sort((a,b)=>rank(a)-rank(b)).map(c=>({...c,matchedAlias:q&&!c.id.includes(q)?c.aliases?.find(n=>n.includes(q)):null}));
+    .sort((a,b)=>rank(a)-rank(b)).map(c=>({...c,description:sessionCommandDescription(c,context),argumentHint:sessionCommandHint(c,context),matchedAlias:q&&!c.id.includes(q)?c.aliases?.find(n=>n.includes(q)):null}));
   // Skill rows follow the host commands: {id: name, description, argumentHint, kind:'skill', path}.
   // Custom rows sit between them (the menu draws a 'Custom' header before the first): kind 'custom'.
   const custom=slashCustomCommands(context.customCommands).map(command=>({id:command.name,description:command.description,argumentHint:command.argumentHint,kind:'custom',scope:command.scope,matchedAlias:null}))
     .filter(command=>!q||command.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
   const skills=slashSkills(context.skills,context.customCommands).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill',path:skill.path,matchedAlias:null}))
     .filter(skill=>!q||skill.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
-  return [...commands,...custom,...skills];
+  // The core's own commands (kind 'core') follow the custom rows; the chip they insert is a plain command chip.
+  const core=slashCoreCommands(context.coreCommands,context).map(command=>({id:command.name,description:command.description,argumentHint:command.argumentHint,kind:'core',matchedAlias:null}))
+    .filter(command=>!q||command.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
+  return [...commands,...custom,...core,...skills];
 }
 export function commandArgumentHint(text, context={}) {
   if(text.length>128||!/^\/\S+[ \t]+$/.test(text))return '';
   const name=text.trim().slice(1).toLowerCase();
-  return findCommand(name)?.argumentHint||findCustom(name,context)?.argumentHint||'';
+  const command=findCommand(name);
+  if(command)return sessionCommandHint(command,context);
+  return findCustom(name,context)?.argumentHint||findCore(name,context)?.argumentHint||'';
 }
 // '/plan [open|share|<description>]' (cc43287c9-BMbiZYzF.js:28880-28916 vG). Not yet planning: switch to Plan, open the
 // pane when a plan exists (bare/open) or leave the description in the draft. Already planning: open the pane when it

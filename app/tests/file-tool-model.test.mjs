@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fileAction, readContents, fileBasename, fileToolSummary, fileRunState, coalesceFileRuns, changePreview, fileRunCounts, pathChoices } from '../src/file-tool-model.mjs';
+import { fileAction, fileActionFacts, readContents, fileBasename, fileToolSummary, fileRunState, coalesceFileRuns, changePreview, fileRunCounts, pathChoices } from '../src/file-tool-model.mjs';
 const read = (id,path='/w/a.ts',turnId='t') => ({id,turnId,type:'commandExecution',status:'completed',commandActions:[{type:'read',path}]});
 const diff = '--- a/a.ts\n+++ b/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+more\n';
 const edit = (id,kind='update',path='/w/a.ts') => ({id,turnId:'t',type:'fileChange',status:'completed',changes:[{path,kind:{type:kind},diff}]});
@@ -81,4 +81,12 @@ test('fileGroupSummary reads Harness categories and glob searches in the source 
  assert.equal(summary([{ id: 'x', type: 'dynamicToolCall', namespace: null, tool: 'run_code', arguments: {}, status: 'completed' }]).label, 'Ran code');
  assert.equal(summary([{ ...cmd, commandActions: [{ type: 'search', query: '*.md', tool: 'glob' }] }]).label, 'Found files');
  assert.equal(summary([{ ...todo('f'), status: 'failed' }]).label, 'Updated todos (1 failed)');
+});
+
+test('an exec-backed list step names the command that ran only when it reports no arguments, pattern or path',()=>{
+ const item={type:'commandExecution',command:"/bin/zsh -lc 'ls -la'"};
+ assert.deepEqual(fileActionFacts(item,{type:'listFiles',command:'ls -la',path:null}),[['command','ls -la']]);
+ assert.deepEqual(fileActionFacts(item,{type:'listFiles',path:null}),[['command','ls -la']],'the item command, without its shell wrapper');
+ assert.deepEqual(fileActionFacts({type:'commandExecution',command:'rg foo src'},{type:'search',command:'rg foo src',query:'foo',path:'src'}),[['pattern','foo'],['path','src']],'a search keeps its inputs, no synthesized command');
+ assert.deepEqual(fileActionFacts(item,{type:'search',arguments:{pattern:'x',glob:null}}),[['pattern','x']],'a tool’s own arguments win');
 });

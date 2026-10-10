@@ -271,7 +271,7 @@ test('DeepSeek Connectors: no notice paragraphs, Edit config in the header, the 
   // A Codex server (no core / no capabilities) keeps Add custom connector in the header and as the Ee action, and no hint.
   const codexEmpty = corePage('connectors', readyStore());
   assert.match(codexEmpty, /<div class="cz-actions"><button type="button" data-cds="Button" data-variant="primary"[^>]*>.*?Add custom connector/);
-  assert.match(codexEmpty, /<p class="max-w-xs text-pretty text-body text-secondary">Unlock more with DeepSeek when you connect your team’s tools\.<\/p><div class="flex flex-col items-center gap-3"><button type="button" data-cds="Button" data-variant="secondary"[^>]*>.*?Add custom connector<\/span><\/button><\/div>/);
+  assert.match(codexEmpty, /<p class="max-w-xs text-pretty text-body text-secondary">Unlock more with Codex when you connect your team’s tools\.<\/p><div class="flex flex-col items-center gap-3"><button type="button" data-cds="Button" data-variant="secondary"[^>]*>.*?Add custom connector<\/span><\/button><\/div>/);
   assert.doesNotMatch(codexEmpty, /cz-notice|data-cz-config-hint|Open a session/);
   assert.match(corePage('connectors', readyStore({ mcp: rows }), { focus: { connectorName: 'gh' } }), /aria-label="More options for gh"/, 'Codex ⋮ holds Remove connector');
   // A search with no match is Ee's plain p (no pictogram, no live region).
@@ -284,7 +284,13 @@ test('DeepSeek Skills: ObjectBulb empty state with the Harness roots, and the c9
   const empty = corePage('skills', readyStore(), { core: deepseekCore });
   assert.match(empty, /<\/header><div class="cz-page-body scroll-fade-y scroll-fade-size-6"><div class="cz-empty flex flex-1 flex-col items-center justify-center gap-lg py-lg text-center" data-cz-empty=""><svg data-cds="Pictogram" data-pictogram="ObjectBulb" width="96" height="96"/);
   assert.match(empty, /<path d="[^"]+" class="fill-pictogram-highlight-default"><\/path>/); assert.match(empty, /<path d="[^"]+" fill="currentColor"><\/path>/);
-  assert.match(empty, /<p class="max-w-xs text-pretty text-body text-secondary">Add skills to extend DeepSeek’s capabilities\.<\/p><ul class="cz-roots" aria-label="Skill folders"><li><code>&lt;project&gt;\/\.dsh\/skills<\/code><\/li><li><code>&lt;project&gt;\/\.agents\/skills<\/code><\/li><li><code>~\/\.dsh\/skills<\/code><\/li><li><code>~\/\.agents\/skills<\/code><\/li><\/ul><\/div>/);
+  // The actions repeat the header's Add skill menu (customize-skills :1440-1462), then the core's skill folders as the
+  // muted footnote, each with Open.
+  assert.match(empty, /<p class="max-w-xs text-pretty text-body text-secondary">Add skills to extend DeepSeek’s capabilities\.<\/p><div class="flex flex-col items-center gap-3"><button aria-label="Add skill" aria-haspopup="menu"[^>]*data-variant="primary"[^>]*>.*?>Add<\/span><\/button><section class="cz-skill-roots" aria-label="Skill folders" data-cz-skill-roots=""><p class="cz-muted">To add your own skill, put a folder with a SKILL\.md file in one of these folders:<\/p><ul class="cz-roots"><li class="cz-root-row"><code>&lt;project&gt;\/\.dsh\/skills<\/code>/);
+  assert.match(empty, /<div class="cz-actions"><button aria-label="Add skill" aria-haspopup="menu"/, 'the header holds the same Add skill menu');
+  assert.deepEqual([...empty.matchAll(/<li class="cz-root-row"><code>([^<]+)<\/code>/g)].map(match => match[1]), ['&lt;project&gt;/.dsh/skills', '&lt;project&gt;/.agents/skills', '~/.dsh/skills', '~/.agents/skills']);
+  assert.equal([...empty.matchAll(/>Open</g)].length, 4);
+  assert.doesNotMatch(empty, /New skill…|cz-new-skill/, 'no full-width New skill… button under the folders');
   assert.doesNotMatch(empty, /~\/\.codex|connector|cz-notice|role="status"|cz-layout/i);
   const skills = [{ id: '/x/.agents/skills/figma/SKILL.md', name: 'figma', skillName: 'figma', path: '/x/.agents/skills/figma/SKILL.md', scope: 'user', enabled: true, group: 'personal', description: 'Design files\nand frames', updatedAt: 1760000000 }];
   const detail = corePage('skills', readyStore({ skills }), { core: deepseekCore, focus: { skillPath: skills[0].path }, onUseSkill() {}, onRevealPath() {} });
@@ -312,7 +318,7 @@ test('DeepSeek Skills: ObjectBulb empty state with the Harness roots, and the c9
   assert.doesNotMatch(switches(codex)[0], /disabled/);
   assert.doesNotMatch(codex, /cz-muted|saved to ~\/\.codex/);
   assert.match(codex, /<button aria-label="More options for figma" disabled=""/, 'ct disables its trigger without items');
-  assert.match(corePage('skills', readyStore()), /<li><code>~\/\.codex\/skills<\/code><\/li>/);
+  assert.match(corePage('skills', readyStore()), /<li class="cz-root-row"><code>~\/\.codex\/skills<\/code>/);
   // Skill rows are named "View {name}" (page shell G :555); a search with no match is the plain p.
   const list = corePage('skills', readyStore({ skills }), { core: deepseekCore });
   assert.match(list, /<tr data-hoverable="" data-clickable="" tabindex="0" data-row-id="\/x\/\.agents\/skills\/figma\/SKILL\.md" aria-label="View figma"/);
@@ -405,8 +411,11 @@ test('R04 connected connector drill draws the c2e7fd468 LocalConfig from mcpDefi
   const url = drill('gh', [{ name: 'gh', url: 'https://example.test/mcp', args: [], environmentNames: [] }]);
   assert.deepEqual([...url.matchAll(/gap-sm">([^<]+)<\/span><\/button>/g)].map(match => match[1]), ['URL']);
   assert.match(url, />https:\/\/example\.test\/mcp<\/code>/);
-  // No matching definition, no definitions at all, or a not-connected drill: nothing.
-  for (const other of [drill('gh', [definitions[1]]), drill('gh', undefined), drill('down', definitions)]) assert.doesNotMatch(other, /data-cz-local-config|>Command<|Environment variables/);
+  // No matching definition or no definitions at all: nothing.
+  for (const other of [drill('gh', [definitions[1]]), drill('gh', undefined)]) assert.doesNotMatch(other, /data-cz-local-config|>Command<|Environment variables/);
+  // A failing connector also shows what was saved (below Reconnect), so a typo in its command is visible.
+  const down = drill('down', definitions);
+  assert.match(down, /data-connector-view="disconnected".*data-connector-failure="".*data-cz-local-config="".*>x<\/code>/);
 });
 
 test('R04 connector feedback: no page paragraphs or inline confirm, and every outcome is a source toast', async () => {
@@ -442,7 +451,7 @@ test('R04 plugin drill: DeepSeek tab copy, c26958849 connector rows, the empty p
   const render = (props = {}) => renderToStaticMarkup(React.createElement(M.PluginDetail, { plugin: { id: 'p', name: 'P', enabled: true, source: 'git' }, detail, error: '', skills: [], view: null, onView() {}, onBack() {}, onSkill() {}, onConnector() {}, mcp, ...props }));
   const html = render();
   assert.doesNotMatch(html, /Claude/);
-  assert.match(html, /<p class="cz-plugin-tab-description">Tools and data sources this plugin connects to\. Connect each one so DeepSeek can use it\.<\/p>/);
+  assert.match(html, /<p class="cz-plugin-tab-description">Tools and data sources this plugin connects to\. Connect each one so Codex can use it\.<\/p>/);
   const rows = [...html.matchAll(/<li><button type="button" class="([^"]+)" data-connector-name="([^"]+)">(.*?)<\/button><\/li>/g)];
   assert.deepEqual(rows.map(match => match[2]), ['fx-off', 'fx-on']);
   assert.equal(rows[1][1], 'flex items-center gap-3 px-3 py-1.5 text-left cursor-pointer rounded-lg text-sm w-full hover:bg-surface-0 text-primary');
@@ -461,5 +470,5 @@ test('R04 plugin drill: DeepSeek tab copy, c26958849 connector rows, the empty p
   assert.match(html, /<div><span>Last updated<\/span><div><span class="text-muted">—<\/span><\/div><\/div>/);
   assert.doesNotMatch(render({ plugin: { id: 'p', name: 'P', enabled: true, source: 'local' } }), /Last updated/);
   const skills = renderToStaticMarkup(React.createElement(M.PluginDetail, { plugin: { id: 'p', name: 'P', enabled: true, source: 'local' }, detail: { skills: [{ name: 'a' }] }, error: '', skills: [], view: null, onView() {}, onBack() {}, onSkill() {} }));
-  assert.match(skills, /Invoke by typing \/ in chat, or let DeepSeek use them automatically for relevant tasks\./);
+  assert.match(skills, /Invoke by typing \/ in chat, or let Codex use them automatically for relevant tasks\./);
 });

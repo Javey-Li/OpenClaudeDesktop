@@ -1,5 +1,5 @@
 // Non-dock yk source structure. No official business module is imported.
-import React, { useId, useLayoutEffect, useRef } from "react";
+import React, { useId, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons.jsx";
 import { useApprovalDraft } from "./use-approval-draft.js";
 import {
@@ -8,6 +8,8 @@ import {
 } from "./approval-draft-model.mjs";
 import { SourceTooltip } from "./source-tooltip.jsx";
 import { SourceShortcut } from "./source-shortcut.jsx";
+import { currentlyVisible } from "./source-approval-card.jsx";
+import { useCardHotkeys } from "./use-card-hotkeys.js";
 import "./source-question-card.css";
 import { t } from "../electron/i18n/index.mjs";
 
@@ -84,6 +86,17 @@ export function SourceQuestionCard({
     )
       root.current?.focus({ preventScroll: true });
   }, [ticket, page]);
+  // Option previews (a core's mockups / code variants, approval-current.js:7708): the hovered or focused option's.
+  const [previewAt, setPreviewAt] = useState(null);
+  // yk's ep({ active, allowOnce: K }) (approval-current.js:8011-8023) is document-level: ⌘⏎ advances from the
+  // session's empty composer or an unfocused page too (use-card-hotkeys). It registers no deny, so Esc is left to
+  // the composer, which main.jsx keeps from stopping the turn while a card waits. Set below, after the guards.
+  const advanceKey = useRef(null);
+  useCardHotkeys(root, isActive && !menuOpen && view?.phase === "pending" && !view.busy, (key, event) => {
+    if (key === "escape" || !isQuestionInputSubmit(event)) return;
+    advanceKey.current?.(event);
+  }, currentlyVisible);
+  advanceKey.current = null;
   if (!view || !["pending", "invalid"].includes(view.phase)) return null;
   const question = view.questions[page];
   if (view.schemaError || !question)
@@ -115,6 +128,11 @@ export function SourceQuestionCard({
     ? (answer.selected ?? []).includes(label)
     : answer.choice?.kind === "option" && answer.choice.label === label;
   const Mark = multi ? CheckboxMark : RadioMark;
+  // A single-select question whose options carry previews shows them beside the list: the hovered or focused
+  // option's, else the chosen one's, else the first.
+  const previewed = !multi && question.options.some((option) => typeof option.preview === "string" && option.preview);
+  const chosenIndex = question.options.findIndex((option) => optionSelected(option.label));
+  const previewOption = previewed ? question.options[previewAt ?? (chosenIndex >= 0 ? chosenIndex : 0)] ?? question.options[0] : null;
   const unavailable = view.busy || !isActive;
   const canAdvance = isActive && !menuOpen && runtime.canAdvance(ticket);
   // approval-current.js:7975-7987: U = first page other than M that is not uk-answered (skipped
@@ -175,6 +193,12 @@ export function SourceQuestionCard({
       onResolved({ request, ticket: result.ticket });
     else if (result.status === "error")
       onError({ request, ticket: result.ticket, message: result.message });
+  };
+  advanceKey.current = (event) => {
+    if (!runtime.canAdvance(ticket)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (currentlyVisible(root.current)) void advance();
   };
   const customProps = {
     className: "sq-custom-control",
@@ -270,6 +294,7 @@ export function SourceQuestionCard({
           </span>
         )}
       </header>
+      <div className={previewed ? "sq-preview-layout" : undefined} data-option-previews={previewed ? "" : undefined}>
       <div className="sq-options">
         {question.options.map((option, index) => (
           <button
@@ -278,6 +303,8 @@ export function SourceQuestionCard({
             className="sq-option"
             aria-pressed={optionSelected(option.label)}
             disabled={unavailable}
+            onMouseEnter={previewed ? () => setPreviewAt(index) : undefined}
+            onFocus={previewed ? () => setPreviewAt(index) : undefined}
             onClick={(event) => {
               if (!hasSelectedText(event))
                 runtime.selectOption(ticket, question.id, option.label);
@@ -324,6 +351,12 @@ export function SourceQuestionCard({
             )}
           </div>
         )}
+      </div>
+      {previewed && (
+        <pre className="sq-preview" tabIndex={0} aria-label={t("Preview of {option}", { option: previewOption?.label ?? "" })} data-preview-for={previewOption?.label}>
+          {previewOption?.preview || t("No preview for this option.")}
+        </pre>
+      )}
       </div>
       {view.error && (
         <p className="sq-error" role="alert">

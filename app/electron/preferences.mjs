@@ -8,13 +8,18 @@ import { validateModelSettings } from './prefs/model-settings.mjs';
 import { validateCustomCommands } from './prefs/custom-commands.mjs';
 import { validatePersona } from './prefs/persona.mjs';
 import { LOCALE_CODES } from './i18n/index.mjs';
+import { validateProfileChoice } from './codex-permissions.mjs';
+import { applyWorkflowPatch } from './prefs/workflow-settings.mjs';
 export const appearanceDefaults = Object.freeze({ motion: 'system', interfaceFont: 'anthropic', codeFont: '', transcriptSize: 'm', transcriptWidth: 's',
   codeThemeLight: DEFAULT_CODE_THEMES.light, codeThemeDark: DEFAULT_CODE_THEMES.dark, transcriptView: DEFAULT_TRANSCRIPT_VIEW });
 // Code theme ids are validated against the catalog and their column's mode (a dark theme is not a light theme).
 const codeThemeKeys = { codeThemeLight: 'light', codeThemeDark: 'dark' };
-const choices = { theme:['light','dark','system'], mode:['code','chat'], permission:['auto','ask','acceptEdits','plan'],
+const choices = { theme:['light','dark','system'], mode:['code','chat'], permission:['auto','ask','acceptEdits','plan','bypass'],
   motion:['system','reduce'], interfaceFont:['anthropic','system','dyslexic'], transcriptSize:['s','m','l'], transcriptWidth:['s','m','l'],
-  transcriptView:[...TRANSCRIPT_VIEWS], locale:[...LOCALE_CODES] };
+  transcriptView:[...TRANSCRIPT_VIEWS], locale:[...LOCALE_CODES],
+  // Codex-only (main.cjs decorates thread/turn requests for the Codex core): its web_search mode and its personality
+  // (Codex /personality). 'default' leaves Codex's own configuration in charge.
+  codexWebSearch:['default','disabled','cached','live'], codexPersonality:['default','none','friendly','pragmatic'] };
 // shared-7-DsClUbcz.js xh bi("userThemeMode","auto"): the theme follows the
 // system until the user picks Light or Dark. Profiles without (or with an
 // unknown) saved theme resolve to it; main.cjs applies the result to
@@ -28,6 +33,11 @@ export function appearancePreferences(config = {}) {
     key === 'codeFont' ? (typeof config[key] === 'string' ? config[key].slice(0,120) : fallback)
       : key in codeThemeKeys ? (isTheme(config[key], codeThemeKeys[key]) ? config[key] : fallback)
       : choices[key].includes(config[key]) ? config[key] : fallback]));
+}
+// The saved permission mode as the renderer may use it: a remembered Bypass without the opt-in is Auto.
+export function savedPermission(config = {}) {
+  const value = choices.permission.includes(config?.permission) ? config.permission : 'auto';
+  return value === 'bypass' && config?.allowBypassPermissions !== true ? 'auto' : value;
 }
 export function fastTierForModel(model) {
   // Match the Codex TUI's current_model_fast_service_tier: catalog name, not a
@@ -63,10 +73,20 @@ export function settingsPatch(config, patch, models = []) {
     next[key] = patch[key];
   }
   if ('codeFont' in patch && /[;{}<>]/.test(patch.codeFont)) throw new Error('Enter a font family name.');
+  // DeepSeek core privacy (Settings › Code › Privacy; main.cjs passes them to the core as CODE_DESKTOP_SHARE_*).
+  for (const key of ['deepseekSessionLog', 'deepseekFeedbackSharing']) {
+    if (!(key in patch)) continue;
+    if (typeof patch[key] !== 'boolean') throw new Error(`Invalid ${key} setting.`);
+    next[key] = patch[key];
+  }
   if ('allowBypassPermissions' in patch) {
     if (typeof patch.allowBypassPermissions !== 'boolean') throw new Error('Invalid bypass permissions setting.');
     next.allowBypassPermissions = patch.allowBypassPermissions;
   }
+  // Bypass can be the remembered mode only while the opt-in is on (main also checks the core's requirements before
+  // saving it, and validates every Bypass turn); turning the opt-in off drops a remembered Bypass back to Auto.
+  if (patch.permission === 'bypass' && next.allowBypassPermissions !== true) throw new Error('Turn on Allow bypass permissions mode in Settings first.');
+  if (next.permission === 'bypass' && next.allowBypassPermissions !== true) next.permission = 'auto';
   if ('fastMode' in patch && typeof patch.fastMode !== 'boolean') throw new Error('Invalid Fast mode setting.');
   if ('fastMode' in patch) next.fastMode = patch.fastMode;
   const fast = fastTierForModel(selectedCatalogModel(models, next.model));
@@ -78,5 +98,9 @@ export function settingsPatch(config, patch, models = []) {
   if ('customInstructions' in patch) { const v = validateInstructions(patch.customInstructions); if (v === null) delete next.customInstructions; else next.customInstructions = v; }
   if ('harnessProfile' in patch) { const v = validateHarnessProfile(patch.harnessProfile); if (v === null) delete next.harnessProfile; else next.harnessProfile = v; }
   if ('customTheme' in patch) { const v = validateTheme(patch.customTheme); if (v === null) delete next.customTheme; else next.customTheme = v; }
+  // Codex-only: the permission profile its workspace-write turns use (codex-permissions.mjs); null follows config.toml.
+  if ('codexPermissionProfile' in patch) { const v = validateProfileChoice(patch.codexPermissionProfile); if (v === null) delete next.codexPermissionProfile; else next.codexPermissionProfile = v; }
+  // Settings › Code › Dynamic workflows (prefs/workflow-settings.mjs).
+  applyWorkflowPatch(next, patch);
   return next;
 }

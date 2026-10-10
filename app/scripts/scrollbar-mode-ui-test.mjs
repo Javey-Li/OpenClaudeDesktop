@@ -98,7 +98,7 @@ async function closeFiles() {
 }
 async function paneWidth(width) {
 // 0.2.14 tile engine: separators are labelled "Resize {i} and {i+1}" (2.2553.1 Mh aria-label).
-  const divider = page.getByRole("separator", { name: "Resize 1 and 2", exact: true });
+  const divider = page.getByRole("separator", { name: /^Resize Chat and / });
   await divider.focus(); await page.keyboard.press("Home"); await frames();
   const tile = () => page.locator(".source-chat-tile").evaluate(node => node.getBoundingClientRect().width);
   // Setup only: a real pointer drag, corrected up to three times if the

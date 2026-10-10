@@ -20,9 +20,15 @@ export function retryingLabel(attempt, maxRetries) {
 }
 // state.retrying[thread] ({codexErrorInfo, attempt, maxRetries}) -> the
 // `retrying` input of transcriptStatusPresentation.
-export function retryingStatus(entry) {
+export function retryingStatus(entry, { now = Date.now(), locale } = {}) {
   if (!entry) return null;
-  return { error: retryShortLabel(entry.codexErrorInfo ?? null), attempt: entry.attempt ?? null, maxRetries: entry.maxRetries ?? null };
+  // A long wait (a usage limit's retry-after) names the cause and the time of the next try; a short backoff doesn't.
+  const later = Number.isFinite(entry.nextAt) && entry.nextAt - now > 60_000
+    ? t("Next try at {time}", { time: new Date(entry.nextAt).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }) }) : null;
+  const detail = entry.action?.title || entry.action?.message ? [entry.action.title, entry.action.message].filter(Boolean).join(" — ")
+    : later && entry.message ? entry.message : null;
+  return { error: retryShortLabel(entry.codexErrorInfo ?? null), attempt: entry.attempt ?? null, maxRetries: entry.maxRetries ?? null,
+    detail, later, link: typeof entry.action?.link === "string" && /^https?:\/\//i.test(entry.action.link) ? { url: entry.action.link, label: entry.action.label || t("Open") } : null };
 }
 
 const HOME = presentation("home", "", false);
@@ -30,6 +36,8 @@ const LOADING = presentation("loading", "", false);
 const IDLE = presentation("idle");
 const RUNNING = presentation("running", t("Working…"));
 const STOPPING = presentation("stopping", t("Stopping…"));
+// z5 (approval-current.js:58061-58093) 'Sending…': the message is on its way and the turn has not started yet.
+const SENDING = presentation("running", t("Sending…"));
 const APPROVAL = presentation("approval", t("Waiting for your approval"));
 const APPROVAL_REPLACES_ROW = presentation("approval", "", false);
 
@@ -45,6 +53,7 @@ export function transcriptStatusPresentation({
   waiting = false,
   approvalVisible = false,
   retrying = null,
+  sending = false,
 } = {}) {
   if (!sessionKey) return HOME;
   if (!ready) return LOADING;
@@ -54,13 +63,14 @@ export function transcriptStatusPresentation({
   // Current classic host: hideLoader = inlineApprovals && inlineCardLive.
   if (approvalVisible) return APPROVAL_REPLACES_ROW;
   if (waiting) return APPROVAL;
-  if (!running) return IDLE;
+  if (!running) return sending ? SENDING : IDLE;
   if (stopping) return STOPPING;
   // `retrying`: the short error label, or {error, attempt, maxRetries}.
   const retry = typeof retrying === "string" ? { error: retrying } : retrying;
   if (typeof retry?.error === "string" && retry.error) {
     const label = retryingLabel(retry.attempt, retry.maxRetries);
-    return presentation("running", `${retry.error} · ${label}`, true, Object.freeze({ error: retry.error, label }));
+    return presentation("running", [`${retry.error} · ${label}`, retry.later, retry.detail].filter(Boolean).join(" · "), true,
+      Object.freeze({ error: retry.error, label, later: retry.later ?? null, detail: retry.detail ?? null, link: retry.link ?? null }));
   }
   return RUNNING;
 }

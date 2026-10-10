@@ -15,6 +15,8 @@
 .ste-header { display: flex; align-items: center; gap: var(--cds-gap-xs, 6px); }
 .ste-icon { flex-shrink: 0; }
 .ste-tone-danger { color: var(--cds-text-danger); }
+/* A settled failure (Signed in again): the quiet marker’s muted check. */
+.ste-tone-muted { color: var(--cds-text-secondary); }
 .ste-headline {
   min-width: 0; flex-grow: 1; overflow-wrap: break-word; color: var(--cds-text-primary);
   font-size: var(--cds-font-size-body); line-height: var(--cds-leading-body);
@@ -62,3 +64,13 @@
 .ste-marker-row { display: flex; min-width: 0; align-items: center; gap: calc(var(--spacing, .25rem) * 1.25); user-select: text; -webkit-user-select: text; }
 .ste-marker-label { min-width: 0; font-size: var(--cds-font-size-body); line-height: var(--cds-leading-body); color: var(--cds-text-secondary); }
 .ste-marker .ste-details { align-self: stretch; }
+/* Codex's 'Review findings' view (misalignment_policy.rs): the findings in the details box style, scrollable. */
+.ste-findings {
+  display: flex; flex-direction: column; gap: var(--cds-gap-xs, 6px); max-height: 240px; overflow: auto;
+  border-radius: var(--radius-lg, .5rem); background: var(--cds-alpha-1, color-mix(in srgb, currentColor 4%, transparent));
+  padding: var(--cds-pad-sm, 6px) var(--cds-pad-md, 8px); color: var(--cds-text-secondary);
+  font-size: var(--cds-font-size-footnote, 12px); line-height: var(--cds-leading-footnote, 16px);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* 'Auto-continue when limits reset' (approval-current.js:34430-34480 xs Switch). */
+.ste-auto { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: var(--cds-font-size-footnote, 12px); color: var(--cds-text-secondary); }

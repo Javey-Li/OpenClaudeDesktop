@@ -174,6 +174,10 @@ test('service op system-prompt: asks the DeepSeek core with the saved values and
   await svc.run({ op: 'system-prompt', cwd: repo, threadId: 'unknown' });
   assert.equal(calls[1].params.threadId, undefined, 'only known sessions are passed');
   client.serverInfo.engine = 'codex';
-  await assert.rejects(svc.run({ op: 'system-prompt', cwd: repo }), /needs the DeepSeek core/);
+  await assert.rejects(svc.run({ op: 'system-prompt', cwd: repo }), /^Error: Codex can’t show its final system prompt\.$/);
+  const serverInfo = client.serverInfo;
+  client.serverInfo = null;
+  await assert.rejects(svc.run({ op: 'system-prompt', cwd: repo }), /^Error: Connect .+ first: the preview asks the running core\.$/);
+  client.serverInfo = serverInfo;
   assert.deepEqual(systemPromptResult(null), { text: '', defaultText: '', defaultTemplate: '', custom: false, exact: false, sections: [], tools: [], model: null, cwd: null, threadId: null });
 });

@@ -70,7 +70,17 @@ test('chrome: nav without Usage, search field without a clear button, every clos
     const narrow = page('preferences');
     const tabs = [...narrow.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]);
     // Customization pages (C1–C6) join the Settings and Desktop app groups; Customize stays last.
-    assert.deepEqual(tabs, ['Preferences', 'Theme', 'Code', 'Instructions', 'Commands', 'Models', 'General', 'Developer', 'Harness', 'Skills', 'Connectors', 'Plugins']);
+    // Harness (DeepSeek Harness profile overlays) is listed only on a core with harnessProfile; the fixture is Codex.
+    // Hooks (hooks/list) is listed on a core with hooksList: the Codex fixture lists it, the DeepSeek core doesn't.
+    assert.deepEqual(tabs, ['Preferences', 'Theme', 'Code', 'Instructions', 'Commands', 'Profiles', 'Models', 'General', 'Developer', 'Cores', 'Skills', 'Connectors', 'Plugins', 'Hooks']);
+    const deepseek = page('preferences', {}, { boot: { connected: true, models: [], core: { engine: 'deepseek', capabilities: {} } } });
+    assert.ok([...deepseek.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]).includes('Harness'));
+    assert.equal([...deepseek.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]).includes('Hooks'), false);
+    // A DeepSeek start that failed (no core reported) still lists it; a failed Kimi start does not.
+    assert.ok(page('preferences', { core: 'deepseek' }, { boot: { connected: false, models: [] } }).includes('>Harness<'));
+    assert.equal(page('preferences', { core: 'kimi' }, { boot: { connected: false, models: [] } }).includes('>Harness<'), false);
+    // Opened through search, the page keeps its tab.
+    assert.ok(page('harness').includes('aria-selected="true"') && page('harness').includes('>Harness<'));
   } finally { globalThis.innerWidth = 1200; }
 });
 
@@ -117,4 +127,16 @@ test('Developer: Reconnect is a CDS Button and no row control is a bare button',
   for (const slot of slots) for (const tag of slot.match(/<button[^>]*>/g) || []) assert.match(tag, /data-cds="Button"|class="ss-switch|role="(radio|combobox|switch)"/, tag);
   const busy = page('developer', {}, { busy: true });
   assert.match(/<button[^>]*data-cds="Button"[^>]*>(?:(?!<\/button>)[\s\S])*Reconnect/.exec(busy)?.[0] ?? '', /disabled=""/);
+});
+
+test('Models: capability-driven — the DeepSeek bridge keeps its connection and prices; Codex gets its endpoint and models', () => {
+  const gpt = [{ id: 'gpt-6-astra', model: 'gpt-6-astra', displayName: 'GPT-6 Astra', isDefault: true, defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'ultra' }] }];
+  const codex = page('models', {}, { boot: { connected: true, models: gpt, core: { capabilities: {} } }, onQuickSetup() {} });
+  assert.match(codex, /role="radiogroup" aria-label="Codex provider"/);
+  assert.match(codex, /<h3[^>]*>Codex models<\/h3>/);
+  assert.match(codex, /GPT-6 Astra<span class="msx-badge">Default<\/span>/);
+  for (const gone of ['aria-label="API provider"', '>Pricing<', 'Custom providers', 'Quick setup', 'Advanced']) assert.equal(codex.includes(gone), false, gone);
+  const deepseek = page('models', {}, { boot: { connected: true, models: [], core: { engine: 'deepseek-harness', capabilities: {} } }, onQuickSetup() {} });
+  assert.ok(deepseek.includes('aria-label="API provider"') && deepseek.includes('Quick setup') && deepseek.includes('Advanced'));
+  assert.equal(deepseek.includes('aria-label="Codex provider"'), false);
 });

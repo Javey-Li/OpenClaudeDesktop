@@ -24,7 +24,7 @@ git('update-ref','refs/remotes/origin/main','HEAD');
 await fs.writeFile(path.join(cwd,'change.txt'),'replacement\nsecond\n'); // dirty worktree: +2 −1
 // Second phase switches to this branch (carrying the dirty tree) so the chip label truncates.
 const LONG='feature/git-band-source-tooltips-with-an-intentionally-very-long-branch-name-for-truncation';assert.ok(LONG.length>=60);
-const RESPONDING_REASON='Claude is working — wait for the turn to finish'; // git-rail-model COMMIT_RESPONDING_REASON
+const RESPONDING_REASON='DeepSeek is working — wait for the turn to finish'; // git-rail-model COMMIT_RESPONDING_REASON: the assistant word of the default core (the fixture profile picks none)
 await fs.writeFile(path.join(profile,'preferences.json'),JSON.stringify({cwd,theme:'light',mode:'code',model:'fixture',effort:'low',threadIds:[SESSION,SESSION_B],archivedThreadIds:[SESSION_ARCHIVED],displayName:'Fixture',
  // The sidebar lists archived rows from the remembered metadata only (session-engine-model.mjs partitionSessions), as composer-states seeds it.
  threadMetadata:{[SESSION_ARCHIVED]:{id:SESSION_ARCHIVED,name:'Git band archived session',cwd,createdAt:now-10,updatedAt:now-10}}}));

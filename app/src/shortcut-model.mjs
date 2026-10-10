@@ -2,6 +2,7 @@
 // node tests and menu-model.mjs can share it with source-shortcut.jsx.
 // Parsing/labels follow fo/po/ho (:2206-2254) with the mac (ao/so) and non-mac
 // (oo/co) glyph tables (:2137-2194) and spoken names mo (:2225-2244).
+import { t } from "../electron/i18n/index.mjs";
 export const MAC_USER_AGENT = /mac|iphone|ipad|ipod/i; // $a :2116
 const MODIFIERS = ["cmd", "command", "meta", "ctrl", "control", "alt", "option", "shift"]; // no
 const ORDER = ["ctrl", "control", "alt", "option", "shift", "cmd", "command", "meta"]; // io
@@ -16,6 +17,8 @@ const SPOKEN = { cmd: "Command", command: "Command", meta: "Command", ctrl: "Con
   delete: "Delete", backspace: "Delete", up: "Up", down: "Down", left: "Left", right: "Right" }; // mo
 const own = (table, key) => (Object.hasOwn(table, key) ? table[key] : undefined); // lo
 function keyLabel(key, mac) { // uo
+  // A mouse gesture in a chord ("alt+click": the shortcuts dialog's ⌥-click row).
+  if (key === "click") return t("Click");
   const label = own(mac ? MAC_KEYS : OTHER_KEYS, key);
   if (label !== undefined) return label;
   return /^f\d+$/.test(key) || key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1);

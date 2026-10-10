@@ -2,7 +2,7 @@
 // panes-tile-current:15894–16155. No synthetic child transcript entries.
 import { describeVerb } from './description-verb-model.mjs';
 import { t } from '../electron/i18n/index.mjs';
-const TOOL_TYPES = new Set(['commandExecution','fileChange','mcpToolCall','dynamicToolCall','collabAgentToolCall','webSearch','imageView','imageGeneration']);
+const TOOL_TYPES = new Set(['commandExecution','fileChange','mcpToolCall','dynamicToolCall','collabAgentToolCall','webSearch','imageView','imageGeneration','computerUse']);
 const TERMINAL = new Set(['completed','failed','stopped']);
 export function agentStatus(status) {
   if (['running','inProgress','active'].includes(status)) return 'running';
@@ -96,4 +96,14 @@ export function agentRowLabel(item, name, status) {
   if (status === 'failed') return tenses ? { label: `Failed to ${tenses.infinitive}`, name: null, described: true } : { label: t('Failed to run agent'), name: meta, described: false };
   if (status === 'completed' && description) return { label: tenses?.done ?? description, name: null, described: true };
   return { label: t('Ran agent'), name: meta, described: false };
+}
+
+/**
+ * A failed message to a sub-agent (the tasks pane's follow-up box): a one-shot child's refusal in the app's words,
+ * else the core's own message.
+ */
+export function subAgentMessageError(error) {
+  const message = error?.message || String(error ?? '');
+  if (error?.data?.codexErrorInfo === 'subAgentNotContinuable' || /ran once and finished/.test(message)) return t('This sub-agent can’t take messages: it ran once and finished.');
+  return message;
 }

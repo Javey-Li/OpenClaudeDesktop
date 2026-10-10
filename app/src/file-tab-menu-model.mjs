@@ -91,3 +91,15 @@ export function tabMenuItems({ preview = false, solo = false } = {}) {
     !solo && { action: "close-all", label: FILE_TAB_LABELS.closeAllTabs },
   ].filter(Boolean);
 }
+
+// qa (cd2efac6e-CAi4fxTN.js): the Files pane ⋮ items for the active file, in this order — "Find in file" (with
+// the ⌘F shortcut), "Copy file contents", "Download file", "Reload file" (disabled while it reloads). An action
+// without a handler is left out.
+export function fileViewerMenuItems({ onFind, onCopyContents, onDownload, onReload, reloading = false, findShortcut = "cmd+f" } = {}) {
+  return [
+    onFind && { value: "find-in-file", label: t("Find in file"), shortcut: findShortcut, onSelect: onFind },
+    onCopyContents && { value: "copy-file-contents", label: t("Copy file contents"), onSelect: onCopyContents },
+    onDownload && { value: "download-file", label: t("Download file"), onSelect: onDownload },
+    onReload && { value: "reload-file", label: t("Reload file"), disabled: !!reloading, onSelect: onReload },
+  ].filter(Boolean);
+}

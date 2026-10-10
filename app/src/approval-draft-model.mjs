@@ -7,7 +7,12 @@ const DECISION_METHODS = new Set([
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
 ]);
-const SUPPORTED = new Set([QUESTION, PERMISSION, ...DECISION_METHODS]);
+// mcpServer/elicitation/request (approval-card-model.mjs ELICITATION): MCP tool approvals and
+// server forms / links, answered as accept (optionally persisted for the session), decline or cancel.
+const ELICITATION = "mcpServer/elicitation/request";
+// enableSuggested: a Codex tool suggestion's 'Turn on' (main turns the app or plugin on, then accepts).
+const ELICITATION_ACTIONS = new Set(["accept", "acceptForSession", "acceptAlways", "enableSuggested", "decline", "cancel"]);
+const SUPPORTED = new Set([QUESTION, PERMISSION, ELICITATION, ...DECISION_METHODS]);
 const freeze = Object.freeze;
 
 export function approvalIdentity(request) {
@@ -87,6 +92,8 @@ function questionSchema(request) {
         freeze({
           label: option.label,
           description: option.description ?? "",
+          // A core's option preview (ZCode / Claude AskUserQuestion: a mockup or code variant), shown as text.
+          ...(typeof option.preview === "string" && option.preview.trim() ? { preview: option.preview.slice(0, 20000) } : {}),
         }),
       );
     }
@@ -213,6 +220,26 @@ function responsePayload(entry, action, response) {
   const id = entry.ticket.requestId,
     method = entry.ticket.method,
     expected = entry.ticket.bridgeApproval;
+  // An elicitation's form answers ride in `response.content` (memory-only card state);
+  // electron/respond-approval.cjs validates them against the request's schema.
+  if (method === ELICITATION) {
+    if (!ELICITATION_ACTIONS.has(action))
+      throw new Error(t("Unsupported approval decision."));
+    const content = action === "accept" ? response?.content : undefined;
+    return {
+      id,
+      expected,
+      elicitation: {
+        action: action === "acceptForSession" || action === "acceptAlways" || action === "enableSuggested" ? "accept" : action,
+        ...(action === "acceptForSession" ? { persist: "session" } : action === "acceptAlways" ? { persist: "always" } : {}),
+        ...(action === "enableSuggested" ? { enableSuggested: true } : {}),
+        ...(content !== undefined ? { content } : {}),
+      },
+    };
+  }
+  // Deny with what to do instead (a request offering codeDesktop.declineFeedback); respond-approval.cjs checks it.
+  if (response !== undefined && DECISION_METHODS.has(method) && action === "decline" && typeof response?.feedback === "string")
+    return { id, expected, decision: "decline", feedback: response.feedback };
   // A prepared question response (plan review card, dismiss-on-send) replaces the
   // draft's answers; electron/respond-approval.cjs validates it like any answer.
   if (response !== undefined) {
@@ -236,9 +263,13 @@ function responsePayload(entry, action, response) {
       throw new Error(t("Permissions allow or deny the current turn only."));
     return { id, expected, allow: action === "allow" };
   }
+  // 'decision:<n>': one of the request's own availableDecisions (approval-card-model.mjs offeredDecisions), sent by
+  // index so main answers with exactly that entry.
+  const offered = /^decision:(\d{1,3})$/.exec(String(action));
+  if (DECISION_METHODS.has(method) && offered) return { id, expected, decisionIndex: Number(offered[1]) };
   if (
     !DECISION_METHODS.has(method) ||
-    !["accept", "decline", "acceptForSession"].includes(action)
+    !["accept", "decline", "cancel", "acceptForSession"].includes(action)
   )
     throw new Error(t("Unsupported approval decision."));
   return { id, expected, decision: action };
@@ -282,8 +313,10 @@ export function visibleApprovals(requests) {
 export const PLAN_REVIEW_QUESTION = "plan-review";
 export const PLAN_APPROVE = "Approve";
 export const PLAN_KEEP_PLANNING = "Keep planning";
-// The modes an approved plan can continue in; Bypass is never a target.
-export const PLAN_TARGETS = freeze(["auto", "ask", "acceptEdits"]);
+// The modes an approved plan can continue in (Mk, approval-current.js:9443-9458). Bypass is a
+// target only when the card offers it (the opt-in is on and the core allows it); main.cjs
+// validates a Bypass answer before it reaches the core.
+export const PLAN_TARGETS = freeze(["auto", "ask", "acceptEdits", "bypass"]);
 export const isPlanReviewRequest = (request) =>
   request?.method === QUESTION &&
   Array.isArray(request.params?.questions) &&

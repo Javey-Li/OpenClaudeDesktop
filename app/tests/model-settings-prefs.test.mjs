@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT, normalize, validate, withEffortDefaults, modelParamsForCore, pricesForCore, pricesFromOfficial, modelParamError } from '../electron/prefs/model-settings.mjs';
+import { DEFAULT, normalize, validate, withEffortDefaults, modelParamsForCore, pricesForCore, pricesFromOfficial, modelParamError, isModelId, setModelParam, addPrice, coreTakesModelParams } from '../electron/prefs/model-settings.mjs';
 import { settingsPatch } from '../electron/preferences.mjs';
 
 const tier = (cacheHit, cacheMiss, output) => ({ cacheHit, cacheMiss, output });
@@ -114,4 +114,26 @@ test('custom provider definitions and the managed llm-pi-ai overlay row', async 
   assert.equal(providerOverlayRow([]), null);
   assert.deepEqual(providerOverlayRow([provider]), { config: { providers: { 'my-gw': { displayName: 'Gateway', api: 'openai-completions', baseURL: 'https://gw.example.com/v1',
     apiKeyEnv: 'CODE_DESKTOP_PROVIDER_KEY_MY_GW', models: [{ id: 'gpt-4.1-mini' }, { id: 'qwen3-coder' }] } } } });
+});
+
+test('model ids the cores list: Qwen `(authType)` suffixes and models.dev `@` ids', () => {
+  for (const id of ['qwen3-coder-plus(openai)', 'anthropic/claude-sonnet@20260101', 'deepseek-flash', 'openrouter/qwen/qwen3:free', 'gpt-4.1+tools']) assert.equal(isModelId(id), true, id);
+  for (const id of ['__proto__', '', 'a b', 'x'.repeat(129), 'm\n', 'a<b']) assert.equal(isModelId(id), false, JSON.stringify(id));
+  let settings = setModelParam(undefined, 'qwen3-coder-plus(openai)', 'maxTokens', 4096);
+  settings = setModelParam(settings, 'qwen3-coder-plus(openai)', 'effort', 'high');
+  assert.deepEqual(normalize(settings).params, { 'qwen3-coder-plus(openai)': { maxTokens: 4096, effort: 'high' } });
+  assert.deepEqual(modelParamsForCore(settings), { 'qwen3-coder-plus(openai)': { maxTokens: 4096 } });
+  assert.deepEqual(validate(settings), settings, 'the strict write check accepts what setModelParam produced');
+  assert.throws(() => setModelParam(undefined, '__proto__', 'maxTokens', 4096), /Invalid model/);
+  assert.ok(addPrice(null, {}, 'qwen3-coder-plus(openai)').prices['qwen3-coder-plus(openai)']);
+  assert.throws(() => addPrice(null, {}, 'bad id'), /\( \) @ \+/);
+});
+
+test('coreTakesModelParams: an explicit modelParams capability decides, else customization', () => {
+  assert.equal(coreTakesModelParams({ customization: true }), true);
+  assert.equal(coreTakesModelParams({ customization: true, modelParams: false }), false);
+  assert.equal(coreTakesModelParams({ modelParams: true }), true);
+  assert.equal(coreTakesModelParams({ customization: false }), false);
+  assert.equal(coreTakesModelParams({}), false);
+  assert.equal(coreTakesModelParams(undefined), false);
 });

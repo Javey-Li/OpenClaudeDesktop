@@ -77,7 +77,7 @@ test("greetingFor: built-in copy when empty, {name} → first name, tidy without
   setPersona(null);
 });
 
-test("desktop notification bodies use a valid persona name and fall back to DeepSeek", async () => {
+test("desktop notification bodies use a valid persona name and fall back to the running core's assistant", async () => {
   const { EventEmitter } = await import("node:events");
   const { default: desktop } = await import("../electron/desktop-settings.cjs");
   const bodies = name => {
@@ -97,4 +97,12 @@ test("desktop notification bodies use a valid persona name and fall back to Deep
   assert.deepEqual(bodies(""), ["DeepSeek finished and is waiting for your input.", "DeepSeek is asking you to choose between options."]);
   assert.equal(bodies("<x>")[0], "DeepSeek finished and is waiting for your input.");
   assert.equal(bodies("x".repeat(41))[0], "DeepSeek finished and is waiting for your input.");
+  // Without a persona name the banner names the running core's assistant, not a literal DeepSeek.
+  const { setAssistantName } = await import("../electron/i18n/index.mjs");
+  try {
+    setAssistantName("GLM");
+    assert.deepEqual(bodies(""), ["GLM finished and is waiting for your input.", "GLM is asking you to choose between options."]);
+    assert.equal(bodies("<x>")[0], "GLM finished and is waiting for your input.");
+    assert.equal(bodies(" Ada ")[0], "Ada finished and is waiting for your input.", "a persona name still wins");
+  } finally { setAssistantName("DeepSeek"); }
 });

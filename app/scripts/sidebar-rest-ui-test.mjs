@@ -204,21 +204,31 @@ try {
   assert.equal(await mainButton(F1).evaluate(node => getComputedStyle(node.querySelector(".source-sr-only")).position), "absolute");
   checks.push("Forked threads render in a df-accordion-guide run directly after their parent with 38px inset, 30.875px/13px/1.25px elbow, fold handle and sr-only 'Forked from' text");
 
+  // c80a67939 g/_/b/x: the window items (Split view, New window) live inside the Open in submenu, so the top level has
+  // no window rows and starts with Open in.
+  const afterWindowItems = (shape) => { assert.ok(!shape.some(label => /^(Open in split view|Open in new window|Close split view|Split view|New window)$/.test(label)), JSON.stringify(shape)); return shape; };
   // 1b. Single menu order with children present, Open in submenu, pinned Move up/down.
   await openDotsMenu(P);
   metrics.singleMenuParent = await menuShape(sessionMenu());
-  assert.deepEqual(metrics.singleMenuParent, ["Open in", "—", "Pin", "Mark as unread", "Rename", "Fork", "Hide nested sessions", "—", "Move to group", "—", "Archive", "Delete"]);
+  assert.deepEqual(afterWindowItems(metrics.singleMenuParent), ["Open in", "—", "Pin", "Mark as unread", "Rename", "Export", "Fork", "Hide nested sessions", "—", "Move to group", "Keep computer awake", "—", "Archive", "Delete"]);
   assert.equal(await sessionMenu().getByRole("menuitem", { name: "Delete", exact: true }).getAttribute("data-variant"), "danger");
   await sessionMenu().getByRole("menuitem", { name: "Open in", exact: true }).click();
-  assert.deepEqual(await menuShape(page.getByRole("menu", { name: "Open in", exact: true })), ["Finder", "Terminal"]);
+  // c80a67939 g/_/b: the layout section (Split view for a session this window does not show, New window), a separator,
+  // then the installed editors (main.cjs installed-editors, whatever this Mac has), Terminal and Finder with no divider.
+  const editorNames = (await page.evaluate(() => window.desktop.call("installed-editors"))).map(editor => editor.name);
+  metrics.openInShape = await menuShape(page.getByRole("menu", { name: "Open in", exact: true }));
+  const layoutRows = metrics.openInShape[0] === "Split view" ? ["Split view", "New window"] : ["New window"];
+  assert.deepEqual(metrics.openInShape, [...layoutRows, "—", ...editorNames, "Terminal", "Finder"]);
+  metrics.openInDigits = await page.getByRole("menu", { name: "Open in", exact: true }).evaluate(popup => [...popup.querySelectorAll('[role^="menuitem"]')].map(node => node.dataset.numberKey ?? null));
+  assert.deepEqual(metrics.openInDigits, metrics.openInShape.filter(label => label !== "—").map((_, index) => (index < 9 ? String(index + 1) : null)), "rows are numbered 1-9");
   await page.getByRole("menu", { name: "Open in", exact: true }).getByRole("menuitem", { name: "Terminal", exact: true }).click();
   await poll(async () => (await app.evaluate(() => globalThis.sidebarRestTerminals)).includes(workspace), "open-terminal IPC reaches the launcher seam");
   await sessionMenu().waitFor({ state: "detached" });
   await openDotsMenu(R);
   metrics.singleMenuPinned = await menuShape(sessionMenu());
-  assert.deepEqual(metrics.singleMenuPinned, ["Open in", "—", "Unpin", "Mark as unread", "Rename", "Fork", "—", "Move to group", "—", "Archive", "Delete"], "the only pinned row has neither Move up nor Move down (sidebar-session.js:16113-16114)");
+  assert.deepEqual(afterWindowItems(metrics.singleMenuPinned), ["Open in", "—", "Unpin", "Mark as unread", "Rename", "Export", "Fork", "—", "Move to group", "Keep computer awake", "—", "Archive", "Delete"], "the only pinned row has neither Move up nor Move down (sidebar-session.js:16113-16114)");
   await closeMenus();
-  checks.push("Single menu order: Open in(Finder, Terminal) → sep → [Move up / Move down only when the pinned row can move] → Pin → Mark → Rename → Fork → [Hide nested] → sep → Move to group → sep → Archive → Delete(danger); Terminal reaches the validated open-terminal IPC");
+  checks.push("Single menu order: Open in(installed editors, Finder, Terminal) → sep → [Move up / Move down only when the pinned row can move] → Pin → Mark → Rename → Export → Fork → [Hide nested] → sep → Move to group → Keep computer awake → sep → Archive → Delete(danger); Terminal reaches the validated open-terminal IPC");
 
   // 1c. Fold handle collapses to a 26px stub; the fold persists across restart.
   await page.locator(`.source-nested[data-nested-parent="${P}"] .df-family-handle`).click();
@@ -317,14 +327,24 @@ try {
   assert.deepEqual(await selectedIds(), [P], "shift-click without an anchor selects only the target");
   await mainButton(lastFork).click({ modifiers: ["Shift"] });
   assert.deepEqual(await selectedIds(), [P, midFork, lastFork]);
-  await mainButton(midFork).click({ modifiers: ["Meta"] });
-  assert.deepEqual(await selectedIds(), [P, lastFork], "cmd-click removes one row");
+  // ⇧⌘-click toggles one row (2.2553.1 sidebar-groups H); ⌘-click alone opens the session in its own window.
+  await mainButton(midFork).click({ modifiers: ["Shift", "Meta"] });
+  assert.deepEqual(await selectedIds(), [P, lastFork], "shift-cmd-click removes one row");
   await page.keyboard.press("Escape");
   await poll(async () => (await selectedIds()).join() === P, "Escape clears the selection; the open row keeps its focused state");
   await selectRange(P, lastFork);
   assert.deepEqual(await selectedIds(), [P, midFork, lastFork]);
-  const label = await page.locator(".source-routines-label").boundingBox();
-  await page.mouse.click(label.x + label.width - 6, label.y + label.height / 2);
+  // A blank point of the sidebar outside every row (the session list below its last row, else the bottom tray's gap
+  // above the account footer): Routines is a nav row now, so the old section label is gone.
+  const blank = await page.evaluate(() => {
+    const nav = document.querySelector("nav.source-session-list").getBoundingClientRect();
+    const rows = [...document.querySelectorAll("nav.source-session-list .source-session-row, nav.source-session-list .source-group-heading")].map((node) => node.getBoundingClientRect().bottom);
+    const last = Math.max(nav.top, ...rows);
+    if (nav.bottom - last >= 8) return { x: nav.left + nav.width / 2, y: (last + nav.bottom) / 2 };
+    const tray = document.querySelector(".df-bottom-tray").getBoundingClientRect();
+    return { x: tray.left + tray.width / 2, y: tray.top + 3 };
+  });
+  await page.mouse.click(Math.round(blank.x), Math.round(blank.y));
   await poll(async () => (await selectedIds()).join() === P, "pointerdown outside rows clears the selection");
   await selectRange(P, lastFork);
   await mainButton(M).click();
@@ -486,7 +506,7 @@ try {
   await poll(async () => (await page.locator('[data-group-key="pinned"] .source-session-row').evaluateAll(n => n.map(x => x.dataset.sourceSessionId))).join() === [P, R].join(), "P pinned above R");
   await openDotsMenu(P);
   metrics.pinnedFirstMenu = await menuShape(sessionMenu());
-  assert.deepEqual(metrics.pinnedFirstMenu.slice(0, 4), ["Open in", "—", "Move down", "Unpin"], "first of two pinned rows: Move down only");
+  assert.deepEqual(afterWindowItems(metrics.pinnedFirstMenu).slice(0, 4), ["Open in", "—", "Move down", "Unpin"], "first of two pinned rows: Move down only");
   await sessionMenu().getByRole("menuitem", { name: "Move down", exact: true }).click();
   await poll(async () => (await page.locator('[data-group-key="pinned"] .source-session-row').evaluateAll(n => n.map(x => x.dataset.sourceSessionId))).join() === [R, P].join(), "Move down swapped the pinned rows");
   await poll(async () => JSON.stringify((await readConfig()).pinnedOrder) === JSON.stringify([R, P]), "pinnedOrder persisted");
@@ -494,7 +514,7 @@ try {
   assert.deepEqual(await page.locator('[data-group-key="pinned"] .source-session-row').evaluateAll(n => n.map(x => x.dataset.sourceSessionId)), [R, P]);
   await openDotsMenu(P);
   metrics.pinnedLastMenu = await menuShape(sessionMenu());
-  assert.deepEqual(metrics.pinnedLastMenu.slice(0, 4), ["Open in", "—", "Move up", "Unpin"], "last pinned row: Move up only");
+  assert.deepEqual(afterWindowItems(metrics.pinnedLastMenu).slice(0, 4), ["Open in", "—", "Move up", "Unpin"], "last pinned row: Move up only");
   await closeMenus();
   checks.push("Move down on the first pinned row (its menu offers Move down only) swaps it with the second; config.pinnedOrder survives restart and the now-last row offers Move up only");
 
@@ -587,15 +607,16 @@ try {
   // focused pane (Xm/ao data-selected="focused" = the open session here), not the keyboard-focused row; a focused field
   // with content keeps the chord; after the archive commits the next row (else the previous one) opens.
   const archivesBeforeChord = (await requests("thread/archive")).length;
+  // The header Search opens the ⌘K palette (search mode); its filled field keeps the chord.
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  const searchField = page.getByRole("textbox", { name: "Search sessions", exact: true });
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true }), searchField = palette.getByRole("combobox");
   await searchField.fill("Parent");
   await searchField.press("Meta+Shift+Backspace");
   await sleep(400);
   assert.equal((await requests("thread/archive")).length, archivesBeforeChord, "a filled search field keeps ⌘⇧⌫");
   assert.deepEqual(await currentIds(), [P]);
-  await page.getByRole("button", { name: "Close search", exact: true }).click();
-  await searchField.waitFor({ state: "detached" });
+  await palette.getByRole("button", { name: "Close", exact: true }).click();
+  await palette.waitFor({ state: "detached" });
   const order = await page.locator(".source-session-list .source-session-row[data-row-key]").evaluateAll(nodes => [...new Set(nodes.map(node => node.dataset.rowKey))]);
   const at = order.indexOf(P);
   assert.ok(at !== -1 && order.length > 1, "P and a neighbour are listed");

@@ -130,3 +130,15 @@ export function responseHeading(text, { streaming = false } = {}) {
   const summary = messageSummary(text.slice(0, 600));
   return summary ? t("{name} responded: {summary}", { name: assistantName(), summary }) : null;
 }
+
+// jumpPrevPrompt / jumpNextPrompt "cmd+alt+up" / "cmd+alt+down" (shared-21-D098Wd--.js:14186-14268, :15157-15170):
+// the index of the user prompt to bring to the top, from each prompt's top edge relative to the scroller's top
+// (in DOM order). Previous: the last prompt starting above the top band; next: the first starting below it. -1: none.
+export function promptJumpIndex(tops, direction, band = 4) {
+  if (!Array.isArray(tops) || !tops.length) return -1;
+  if (direction < 0) {
+    for (let index = tops.length - 1; index >= 0; index -= 1) if (tops[index] < -band) return index;
+    return -1;
+  }
+  return tops.findIndex((top) => top > band);
+}

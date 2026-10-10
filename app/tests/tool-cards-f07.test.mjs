@@ -192,10 +192,14 @@ test('R07 plan review renders the plan card: heading, Open plan, Reject / Revise
   assert.deepEqual(caps(html), ['revise-open', 'accept', 'primary']);
   assert.match(html, /data-approval-action="primary" aria-keyshortcuts="Meta\+Enter Control\+Enter"/);
   assert.match(html, /data-variant="primary" data-approval-primary="" data-approval-action="primary"/);
-  assert.equal(count(html, 'data-variant="primary"'), 1);
+  assert.equal(count(html, 'data-approval-primary=""'), 1);
+  // xee: the primary is a split button whose caret opens 'More accept options' (the other trust-forward modes).
+  assert.match(html, /<span class="spc-split" data-split="">.*data-approval-action="primary".*aria-label="More accept options"[^>]*aria-haspopup="menu"/);
   assert.doesNotMatch(html, /Plan feedback|textarea/);
-  // Mk labels follow the target; Manual leaves one primary 'Accept'; Bypass never shows.
+  // Mk labels follow the target; Manual leaves one primary 'Accept'; Bypass shows only while it is available.
   assert.deepEqual(labels(planReview({ planTarget: 'auto' })), ['Reject', 'Revise…', 'Accept', 'Accept and auto mode']);
+  assert.deepEqual(labels(planReview({ planTarget: 'bypass' })), ['Reject', 'Revise…', 'Accept', 'Accept and auto mode']);
+  assert.deepEqual(labels(planReview({ planTarget: 'bypass', bypassAvailable: true })), ['Reject', 'Revise…', 'Accept', 'Accept and bypass permissions']);
   assert.deepEqual(labels(planReview({ planTarget: 'ask' })), ['Reject', 'Revise…', 'Accept']);
   assert.match(planReview({ planTarget: 'ask' }), /data-variant="primary" data-approval-primary="" data-approval-action="primary"[^>]*>.*Accept/);
   assert.deepEqual(labels(planReview({ planTarget: 'bypass' })), ['Reject', 'Revise…', 'Accept', 'Accept and auto mode']);

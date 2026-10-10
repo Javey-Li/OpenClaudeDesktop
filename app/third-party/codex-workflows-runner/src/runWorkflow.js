@@ -1,51 +1,36 @@
-// Loads a Claude Code dynamic-workflow script verbatim and runs it with the
-// Codex-backed globals injected — inside an isolated `node:vm` context.
-//
-// The native runtime guarantees "no direct filesystem or shell access from the
-// workflow itself": the script only coordinates agents; the agents do the I/O.
-// We honour that by running the body in a context whose global holds ONLY the
-// injected workflow globals plus standard JS intrinsics (Object/Array/JSON/Math/
-// Promise/Map/…). There is no `process`, `fetch`, `require`, dynamic `import()`,
-// `fs`, or timers reachable from the script. We also block the non-deterministic
-// builtins the native runtime forbids (Math.random / Date.now / argless new Date),
-// since they would desync the resume journal.
-//
-// The body uses top-level `await` and `return`, so we host it inside an async
-// IIFE compiled with vm.Script; the context shares the host event loop, so the
-// returned promise is awaitable here and the injected (host) agent()/parallel()
-// functions work normally across the boundary.
+// Decode the CLI metadata header as data, then execute only its body with
+// provider-backed workflow globals and managed timers. The Electron adapter
+// owns a dedicated child process; node:vm itself is not a security boundary.
 
+import { WorkflowOutput, WorkflowPhases } from './workflow-output.js';
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { createRuntime } from "./runtime.js";
+import { parseClaudeWorkflowScript } from './claude-metadata.js';
+import { WORKFLOW_BOUNDARY_SOURCE, wrapWorkflowHostCall, wrapWorkflowHostAsync } from './workflow-boundary.js';
+import { workflowResultValue, workflowConsoleText, workflowErrorText, truncateWorkflowDiagnostic } from './workflow-result.js';
+import { WORKFLOW_INTRINSICS_SOURCE } from './workflow-intrinsics.js';
+import { compileWorkflowBody, WORKFLOW_ASYNC_INIT_SOURCE } from './workflow-compiler.js';
+export { parseClaudeWorkflowScript } from './claude-metadata.js';
 
-// Extract the `meta` literal (required to be a pure literal at the top) for
-// display. Anchored to line-start so a comment mentioning `export const meta`
-// can't shadow the real declaration.
+// Local: Intl.DateTimeFormat#format()/formatToParts() with no date format the
+// current clock, the same leak as Date.now(). Installed before the shared
+// intrinsics setup (generated, not edited here), which then freezes Intl.
+const WORKFLOW_CLOCK_GUARD_SOURCE = `(() => {
+  'use strict';
+  const message = 'Intl.DateTimeFormat format()/formatToParts() without a date read the clock and are unavailable in workflow scripts (breaks resume). Pass an explicit date, or pass timestamps via args.';
+  const proto = Intl.DateTimeFormat.prototype;
+  const formatGetter = Object.getOwnPropertyDescriptor(proto, 'format').get;
+  Object.defineProperty(proto, 'format', { get() { const format = formatGetter.call(this); return function format_(date) { if (date === undefined) throw new Error(message); return format(date); }; }, enumerable: false, configurable: true });
+  const formatToParts = proto.formatToParts;
+  Object.defineProperty(proto, 'formatToParts', { value: { formatToParts(date) { if (date === undefined) throw new Error(message); return formatToParts.call(this, date); } }.formatToParts, writable: true, enumerable: false, configurable: true });
+})()`;
+
+// Discovery may read an otherwise valid header before the body is complete.
+// Invocation always validates the complete script before creating a runtime.
 export function extractMeta(src) {
-  const m = src.match(/^[ \t]*export[ \t]+const[ \t]+meta[ \t]*=[ \t]*/m);
-  if (!m) return null;
-  const open = src.indexOf("{", m.index + m[0].length);
-  if (open === -1) return null;
-  let depth = 0;
-  let end = -1;
-  for (let j = open; j < src.length; j++) {
-    const c = src[j];
-    if (c === "{") depth++;
-    else if (c === "}") {
-      depth--;
-      if (depth === 0) {
-        end = j;
-        break;
-      }
-    }
-  }
-  if (end === -1) return null;
-  try {
-    return JSON.parse(vm.runInNewContext("JSON.stringify((" + src.slice(open, end + 1) + "))", Object.create(null), { timeout: 50, codeGeneration: { strings: false, wasm: false } }));
-  } catch {
-    return null;
-  }
+  try { return parseClaudeWorkflowScript(src, false).meta; }
+  catch { return null; }
 }
 
 export async function runWorkflowFile(scriptPath, options = {}) {
@@ -54,85 +39,78 @@ export async function runWorkflowFile(scriptPath, options = {}) {
 }
 
 export async function runWorkflowSource(src, options = {}) {
-  const meta = extractMeta(src);
-  const runtime = createRuntime(options);
+  const { meta, script: body } = parseClaudeWorkflowScript(src);
+  const script = new vm.Script(compileWorkflowBody(body), { filename: 'workflow.js' });
+  const timerOwner=options.timerOwner??{timers:new Map(),nextId:0};
+  const sharedGlobals=options.sharedGlobals??{};
+  const output=options.workflowOutput??new WorkflowOutput(meta.description);
+  const workflowPhases=options.workflowPhases??new WorkflowPhases();
+  const onPhase=options.nested?options.onPhase:(title,phase)=>{output.phase(title,undefined,phase);options.onPhase?.(title,phase);};
+  if(!options.nested)for(const phase of meta.phases??[])workflowPhases.announce(phase.title,({index,kind})=>onPhase(phase.title,{index,...kind?{kind}:{}}));
+  const runtime = createRuntime({...options,timerOwner,sharedGlobals,workflowOutput:output,workflowPhases,
+    onLog:options.nested?options.onLog:message=>{output.log(message);options.onLog?.(message);},
+    onPhase,
+  });
+  options.onRuntime?.(runtime);
 
   if (!options.nested && meta?.name) {
-    runtime.log?.(`▶ ${meta.name}${meta.description ? " — " + meta.description : ""}`);
+    options.onLog?.(`▶ ${meta.name}${meta.description ? " — " + meta.description : ""}`);
   }
-
-  // Keep `meta` as a local; drop the `export` so the body can be hosted.
-  const body = src.replace(/^([ \t]*)export[ \t]+const[ \t]+meta\b/m, "$1const meta");
 
   // The isolated global: only the injected workflow API. JS intrinsics are
   // provided automatically by vm.createContext; Node host globals are not.
+  let boundary;
   const sandbox = {
+    __proto__: null,
     agent: runtime.agent,
     parallel: runtime.parallel,
     pipeline: runtime.pipeline,
     phase: runtime.phase,
     log: runtime.log,
-    args: runtime.args,
-    budget: runtime.budget,
+    budget: Object.freeze({ __proto__: null, total: runtime.budget.total, spent: wrapWorkflowHostCall(runtime.budget.spent), remaining: wrapWorkflowHostCall(runtime.budget.remaining) }),
     workflow: runtime.workflow,
     human: runtime.human,
-    console: safeConsole(runtime.log),
+    console: Object.assign(Object.create(null), Object.fromEntries(["log", "info", "debug", "warn", "error"].map(level => [level, wrapWorkflowHostCall((...values) => runtime.log((level === "warn" || level === "error" ? `[${level}] ` : "") + workflowConsoleText(values, boundary)))]))),
+    setTimeout(callback, delay=0){if(typeof callback!=='function')throw new TypeError('setTimeout requires a function');const id=++timerOwner.nextId;timerOwner.timers.set(id,setTimeout(()=>{timerOwner.timers.delete(id);try{timerOwner.call(callback);}catch{/* Native timers discard callback failures. */}},Number(delay)));return id;},
+    clearTimeout(id){clearTimeout(timerOwner.timers.get(id));timerOwner.timers.delete(id);},
   };
   const context = vm.createContext(sandbox, {
     name: "workflow",
     codeGeneration: { strings: false, wasm: false }, // no eval/Function/wasm escape
   });
-  installDeterminismGuards(context);
-
-  // Wrap so top-level await + return work; result is a host-awaitable promise.
-  const script = new vm.Script(`(async () => {\n${body}\n})()`, { filename: "workflow.js" });
+  vm.runInContext(WORKFLOW_CLOCK_GUARD_SOURCE, context);
+  vm.runInContext(WORKFLOW_INTRINSICS_SOURCE, context);
+  vm.runInContext(WORKFLOW_ASYNC_INIT_SOURCE, context);
+  boundary = vm.runInContext(WORKFLOW_BOUNDARY_SOURCE, context);
+  if(!timerOwner.call)timerOwner.call=boundary.call;
+  runtime.bindVM(boundary);
+  for (const name of ['agent', 'parallel', 'pipeline', 'workflow', 'human']) {
+    const host = sandbox[name];
+    sandbox[name] = boundary.asyncWrap(wrapWorkflowHostAsync(host));
+    // Retain the adapter's sessionful extensions while wrapping their asynchronous entry points.
+    for (const key of Object.keys(host)) if (typeof host[key] === 'function') sandbox[name][key] = boundary.asyncWrap(wrapWorkflowHostAsync(host[key]));
+  }
+  for (const name of ['phase', 'log', 'setTimeout', 'clearTimeout']) sandbox[name] = wrapWorkflowHostCall(sandbox[name]);
+  // Preserve original objects even when a script rebinds its own globals.
+  if(options.sharedGlobals)Object.assign(sandbox,sharedGlobals);
+  else for(const name of ['budget','setTimeout','clearTimeout'])sharedGlobals[name]=sandbox[name];
   try {
-    return await script.runInContext(context, { timeout: 1000 });
+    context.args = runtime.args === undefined ? undefined : options.nested ? boundary.clone(runtime.args) : vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify(runtime.args))})`, context);
+    // The metadata export is absent from the CLI execution scope.
+    // Local: Claude Code 2.1.280's synchronous VM slice is 30s.
+    const result = await boundary.settle(script.runInContext(context, { timeout: 30_000 }));
+    const value=options.nested ? boundary.clone(result.value) : workflowResultValue(result.value, boundary);
+    if(!options.nested)options.onOutput?.(output.render({stopReason:'completed',value,agentsStarted:runtime.agentCount()}));
+    return value;
+  } catch (error) {
+    const info=boundary.errorInfo(error),diagnostic=workflowErrorText(info);
+    options.onFailure?.(diagnostic);
+    if(options.nested){const failure=new Error(truncateWorkflowDiagnostic(info.message));failure.name=info.name;failure.stack=diagnostic;throw failure;}
+    throw error;
   } finally {
+    if(!options.timerOwner){for(const timer of timerOwner.timers.values())clearTimeout(timer);timerOwner.timers.clear();}
     // Close any sessionful workers the script left open — cancels their active turn
     // and removes any worktrees — whether the workflow returned or threw.
     try { await runtime.finalize?.(); } catch {}
   }
-}
-
-// console inside the sandbox routes to the runner's log (stderr), so it can't
-// corrupt the stdout result contract and can't reach process.stdout directly.
-function safeConsole(log) {
-  const fmt = (args) =>
-    args.map((x) => (typeof x === "string" ? x : safeStringify(x))).join(" ");
-  const w = (...args) => log(fmt(args));
-  return { log: w, info: w, warn: w, error: w, debug: w };
-}
-
-function safeStringify(x) {
-  try {
-    return JSON.stringify(x);
-  } catch {
-    return String(x);
-  }
-}
-
-// Block the non-deterministic builtins the native runtime forbids. Installed via
-// runInContext (a host API, not subject to the context's codeGeneration limits).
-function installDeterminismGuards(context) {
-  vm.runInContext(
-    `(() => {
-      const block = (name) => () => {
-        throw new Error(name + " is disabled in workflows (non-deterministic; would break resume). Pass values in via args, or stamp time after the run.");
-      };
-      Math.random = block("Math.random()");
-      Date.now = block("Date.now()");
-      const RealDate = Date;
-      globalThis.Date = new Proxy(RealDate, {
-        construct(target, a) {
-          if (a.length === 0) {
-            throw new Error("new Date() with no args is disabled in workflows (non-deterministic). Pass an explicit timestamp.");
-          }
-          return Reflect.construct(target, a);
-        },
-        apply(target, thisArg, a) { return Reflect.apply(target, thisArg, a); },
-      });
-    })();`,
-    context,
-  );
 }

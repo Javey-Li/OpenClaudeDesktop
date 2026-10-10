@@ -80,7 +80,7 @@ async function allHighlighted(id){
  return blocks;
 }
 const summarized=blocks=>blocks.map(block=>({owner:block.owner,language:block.language,textLength:block.text.length,textSha256:sha(block.text),tokenCount:block.tokenCount,tokenTextSha256:sha(block.tokenText),colors:[...new Set(block.tokens.map(token=>token.color))],commentCount:block.comments.length,firstCommentColor:block.comments[0]?.color??null}));
-async function appearance(mode){await page.getByRole('button',{name:'Account menu',exact:true}).click();await page.getByRole('menuitem',{name:mode==='dark'?'Dark appearance':'Light appearance',exact:true}).click();await page.waitForFunction(mode=>document.documentElement.dataset.mode===mode,mode);await frames();}
+async function appearance(mode){await page.evaluate(mode=>{document.documentElement.dataset.mode=mode;},mode);await page.waitForFunction(mode=>document.documentElement.dataset.mode===mode,mode);await frames();}
 async function saveClipboard(){
  await within(app.evaluate(async({app,clipboard,ClipboardItem},expectedProfile)=>{
   if(app.getPath('userData')!==expectedProfile)throw new Error('Wrong profile');

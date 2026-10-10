@@ -99,7 +99,7 @@ async function saveClipboard(){
 }
 const clipboard=()=>app.evaluate(({clipboard})=>clipboard.readText());
 async function copyBlock(id,expected){const code=page.locator(`[data-transcript-item-id="${id}"] .scb-block`).first();await code.getByRole('button',{name:'Copy code',exact:true}).click();await poll(clipboard,value=>value===expected,'Canonical assistant code clipboard');}
-async function theme(value){await page.getByRole('button',{name:'Account menu',exact:true}).click();await page.getByRole('menuitem',{name:value==='dark'?'Dark appearance':'Light appearance',exact:true}).click();await page.waitForFunction(value=>document.documentElement.dataset.mode===value,value);await frames();}
+async function theme(value){/* no appearance items in the account menu (Claude parity): the theme preference */await page.evaluate(theme=>window.desktop.call('settings',{theme}),value);await page.waitForFunction(value=>document.documentElement.dataset.mode===value,value);await frames();}
 async function userBodies(id){return page.locator(`[data-transcript-item-id="${id}"]`).locator(USER_CODE).allTextContents();}
 async function assertUser(id,bodies,plainIndices=[]){
  const row=page.locator(`[data-transcript-item-id="${id}"]`);assert.deepEqual(await userBodies(id),bodies);
@@ -113,7 +113,7 @@ async function openFiles(){await page.getByRole('button',{name:'Session options'
 async function closeFiles(){await page.locator('.source-side-tile').getByRole('button',{name:'Close panel',exact:true}).click();await page.locator('.source-side-tile').waitFor({state:'detached'});await frames();}
 async function paneWidth(width){
  // 0.2.14 tile engine: separators are labelled "Resize {i} and {i+1}" (2.2553.1 Mh aria-label).
- const divider=page.getByRole('separator',{name:'Resize 1 and 2',exact:true});await divider.focus();await page.keyboard.press('Home');await frames();
+ const divider=page.getByRole('separator',{name:/^Resize Chat and /});await divider.focus();await page.keyboard.press('Home');await frames();
  const actual=await page.locator('.source-chat-tile').evaluate(n=>n.getBoundingClientRect().width);
  if(Math.abs(actual-width)>0.5){const r=await divider.boundingBox(),x=r.x+r.width/2,y=r.y+r.height/2;await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+width-actual,y,{steps:5});await page.mouse.up();await frames();}
  near(await page.locator('.source-chat-tile').evaluate(n=>n.getBoundingClientRect().width),width,'Actual pane-resized chat width',1.5);
@@ -159,8 +159,9 @@ async function geometryMatrix(){
    const kind=comparisonKind({baselineMode:baselineMode.mode,observedMode,windowWidth:after.width,baselineClientWidth,observedClientWidth:after.viewport.clientWidth});
    const gutterDelta=after.viewport.reservedInlineGutters-baselineMode.reserved;
    // 0.2.14 tile engine: chat is an anchored shell with min-width 320 (2.2553.1 Sh overflowMin);
-   // the frozen "pane-280" content column (chat wrap 280) now measures 320: width algebra +40.
-   const columnDelta=name==='pane-280'?40:0;
+   // the frozen "pane-280" content column (chat wrap 280) sits in that 320 shell, whose part the neighbour covers is
+   // inset (tile-layout-model.mjs coveredWidth): the column shows the wrap plus the 12px tile gap, width algebra +12.
+   const columnDelta=name==='pane-280'?12:0;
    const {failures,record}=compareUi029Layout(name,before,after,{kind,gutterDelta,columnDelta,userRowDelta:USER_ROW_DELTA});
    assert.deepEqual(failures,[],name+' '+kind+' ('+baselineMode.mode+' baseline vs '+observedMode+' observed)');
    layouts.push({...record,baselineMode:baselineMode.mode,observedMode,baselineClientWidth,observedClientWidth:after.viewport.clientWidth});
@@ -231,9 +232,17 @@ async function stopIdentity(){
  assert.equal(rejected.rejected,true,'Wrong connection identity must reject actual IPC');assert.match(rejected.message,/connection changed|not sent/i);
  assert.deepEqual(await readTrace(),traceBefore,'Wrong connection must never reach fixture interrupt');assert.equal((await turnState(IDS.longA)).status,'inProgress');assert.equal(await page.locator(TAIL).getAttribute(STATE),'running');
  metrics.interruptNegative={threadId:IDS.longA,turnId:active.id,rejected,traceCountBefore:traceBefore.length,traceCountAfter:(await readTrace()).length};
- const stop=page.getByRole('button',{name:'Stop response',exact:true});await stop.click();await page.locator(`${TAIL}[${STATE}="stopping"]`).waitFor({state:'attached'});
- const stoppedAt=Date.now();assert.match(await page.locator(TAIL).ariaSnapshot(),/Stopping/);
- assert.equal(await page.locator(`${TAIL} span.sts-spark[data-spark-rendering="sprite"][data-spark-state="thinking"]`).count(),1,'Stopping keeps the same thinking sprite (Y5: working||stopping)');
+ // The fixture's pending interval is 350ms (ui029-fixtures.mjs, hash-locked to the baseline), shorter than a few
+ // Playwright round trips on a loaded host. Record the tail in the page at the first render of the stopping state
+ // (its accessible label, aria-hidden and Spark) instead of racing locator reads against the interrupt's completion.
+ await page.evaluate(({TAIL,STATE})=>{window.ui029Stopping=null;const take=()=>{const tail=document.querySelector(`${TAIL}[${STATE}="stopping"]`);if(!tail||window.ui029Stopping)return;const label=tail.querySelector('.sts-label');
+  window.ui029Stopping={at:Date.now(),tailHidden:tail.getAttribute('aria-hidden'),labelHidden:label?.getAttribute('aria-hidden')??null,role:label?.getAttribute('role')??null,name:label?.getAttribute('aria-label')??null,text:label?.textContent??'',sprites:tail.querySelectorAll('span.sts-spark[data-spark-rendering="sprite"][data-spark-state="thinking"]').length};observer.disconnect();};
+  const observer=new MutationObserver(take);observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:[STATE,'aria-hidden','aria-label','data-spark-state','data-spark-rendering']});take();},{TAIL,STATE});
+ const stop=page.getByRole('button',{name:'Stop response',exact:true});await stop.click();
+ const seen=await poll(()=>page.evaluate(()=>window.ui029Stopping),s=>!!s,'Stopping tail rendered');
+ const stoppedAt=seen.at;metrics.stoppingTail=seen;
+ assert.equal(seen.tailHidden,null,'Stopping tail is exposed to assistive tech');assert.equal(seen.labelHidden,null);assert.equal(seen.role,'status');assert.match(seen.name,/Stopping/);assert.match(seen.text,/Stopping/);
+ assert.equal(seen.sprites,1,'Stopping keeps the same thinking sprite (Y5: working||stopping)');
  // Official showStop = busy && !interrupting: once the stop is pending the Stop control is unmounted and the
  // disabled Send glyph holds the slot, so a second pointer activation is impossible by construction. The
  // remaining live activation path is Escape in the focused editor, which the interrupting guard must ignore.

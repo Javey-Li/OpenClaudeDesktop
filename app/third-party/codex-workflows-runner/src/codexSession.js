@@ -18,17 +18,21 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   getClient,
   getAvailableModels,
+  modelResolution,
   buildThreadParams,
   buildTurnParams,
   attachAgentMessageCollector,
-  parseSchemaResult,
+  checkSchemaResult,
   isRetryable,
 } from "./codexAgent.js";
 import { resolveModel } from "./modelMap.js";
 import { loadAgentType } from "./agentTypes.js";
 import { tokensForThread, markResumedThread } from "./meter.js";
+import { narrowThreadParams, withNormalizedToolOptions, mergeDisallowed } from "./toolNarrowing.js";
 
-const DEFAULT_TURN_TIMEOUT_MS = 600_000; // the Codex per-turn cap (same as one-shot)
+// Local: an INACTIVITY timeout (same as one-shot): thread notifications re-arm it
+// and it pauses while a tool item runs, so a progressing turn has no wall-clock cap.
+const DEFAULT_TURN_TIMEOUT_MS = 600_000;
 
 /**
  * Open a Codex thread for a long-lived worker. Resolves the agentType/system
@@ -45,15 +49,19 @@ const DEFAULT_TURN_TIMEOUT_MS = 600_000; // the Codex per-turn cap (same as one-
  */
 export async function startCodexSession(opts = {}) {
   const log = typeof opts.log === "function" ? opts.log : () => {};
+  opts = withNormalizedToolOptions(opts); // Local: Claude's disallowedTools / bashCommandClamp checks, as agent()
 
   // agentType -> developer instructions (+ optional fallback model), same as agent().
   let systemPrompt = opts.systemPrompt;
-  let agentTypeModel;
+  let agentTypeModel, sandbox = opts.sandbox;
   if (opts.agentType) {
     const def = await loadAgentType(opts.agentType, opts.cwd ?? process.cwd());
     if (def) {
       if (!systemPrompt) systemPrompt = def.systemPrompt;
       agentTypeModel = def.model;
+      if (def.sandbox === "read-only") sandbox = "read-only";
+      if (def.disallowedTools) opts = { ...opts, disallowedTools: mergeDisallowed(def.disallowedTools, opts.disallowedTools) };
+      if (def.tools) opts = { ...opts, allowedTools: def.tools }; // Local: the definition's `tools:` allowlist, as agent()
     } else {
       log(`agentType '${opts.agentType}' not found — using default instructions`);
     }
@@ -76,8 +84,15 @@ export async function startCodexSession(opts = {}) {
   }
 
   const client = await getClient(opts.clientOptions); // shared, self-healing singleton
-  const model = resolveModel(requestedModel, getAvailableModels(), log);
-  const threadParams = buildThreadParams({ sandbox: opts.sandbox, cwd, model, systemPrompt, personality: opts.personality });
+  const model = resolveModel(requestedModel, getAvailableModels(), log, modelResolution(opts.pinnedModel ?? opts.defaultModel));
+  let threadParams;
+  try {
+    // Local: the same tool narrowing as agent() — narrowed for this core, or refused (toolNarrowing.js).
+    threadParams = await narrowThreadParams(client, buildThreadParams({ sandbox, cwd, model, systemPrompt, personality: opts.personality }), opts);
+  } catch (e) {
+    if (worktree) { try { await worktree.cleanup(); } catch {} }
+    throw e;
+  }
 
   // Warm-context resume: when a prior run journaled this worker's thread id, try
   // re-attaching to the PERSISTED thread (thread/resume loads its rollout from
@@ -172,11 +187,29 @@ export class CodexSessionDriver {
       const status = raw === "completed" ? "completed" : raw === "interrupted" ? "interrupted" : "failed";
       let result = null;
       let error = null;
-      if (status === "completed") result = parseSchemaResult(text, turnOpts.schema);
+      let finalStatus = status;
+      if (status === "completed" && !turnOpts.schema) result = text;
+      else if (status === "completed") {
+        // Local: validated against the author's schema; a session turn is never re-sent, so a mismatch fails it.
+        const checked = checkSchemaResult(text, turnOpts.schema);
+        if (checked.ok) result = checked.value;
+        else { finalStatus = "failed"; error = `Structured output failed schema validation: ${checked.errors.slice(0, 8).join("; ")}`; }
+      }
       else if (status === "failed") error = turn?.error?.message ?? String(errObj?.message ?? errObj ?? "turn failed");
-      return { status, result, text, error, model: model ?? null, tokens, ms, turnId };
+      return { status: finalStatus, result, text, error, model: model ?? null, tokens, ms, turnId };
     };
 
+    const idleMs = turnOpts.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS, stop = new AbortController(), tools = new Set();
+    let timer;
+    const arm = () => { clearTimeout(timer); if (!tools.size && idleMs > 0) timer = setTimeout(() => stop.abort(new Error(`Session turn timed out after ${idleMs}ms without progress`)), idleMs); };
+    const activity = (n) => {
+      const p = n.params ?? {}; if (p.threadId !== threadId) return;
+      if (n.method === "item/started" && p.item?.type !== "agentMessage" && p.item?.type !== "reasoning") tools.add(p.item.id);
+      if (n.method === "item/completed") tools.delete(p.item?.id);
+      arm();
+    };
+    client.on("notification", activity);
+    arm();
     const completion = (async () => {
       try {
         const completed = await client.waitForNotification(
@@ -184,7 +217,8 @@ export class CodexSessionDriver {
             n.method === "turn/completed" &&
             n.params?.threadId === threadId &&
             (!turnId || n.params?.turn?.id === turnId),
-          turnOpts.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
+          0,
+          stop.signal,
         );
         return finish(completed.params?.turn ?? {}, null);
       } catch (e) {
@@ -193,6 +227,8 @@ export class CodexSessionDriver {
         try { if (turnId) await client.interruptTurn(threadId, turnId); } catch {}
         return finish({ status: "failed", error: { message: String(e?.message ?? e) } }, e);
       } finally {
+        clearTimeout(timer);
+        client.off("notification", activity);
         collector.detach();
         this._active = false;
       }

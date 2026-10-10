@@ -45,11 +45,33 @@ const interpolate = (text, values) => values
  * Translate one English source string. `values` fill {name} placeholders
  * (applied after the lookup, so translations may reorder them).
  */
+// The assistant's name in the copy: "DeepSeek" in the source strings, the running core's assistant ("Codex",
+// "GLM", …) otherwise (core descriptors' `assistant`). Like the locale, the renderer takes it once from the preload's
+// first-paint appearance (main.cjs answers from config.core) and reloads after the core changes; the main process
+// sets it with setAssistantName. Only the assistant-as-actor uses change: DeepSeek's own product and account terms
+// (DeepSeek Harness, DeepSeek API, the Platform, official prices, its models and balance, "by DeepSeek") stay.
+// A name, or a core descriptor: its `assistant`, else its own name (a core is never called DeepSeek by default).
+const assistantOf = (value) => {
+  const name = value && typeof value === 'object' ? (value.assistant || value.name) : value;
+  return typeof name === 'string' && name.trim() ? name.trim() : 'DeepSeek';
+};
+let assistant = (() => {
+  try { return assistantOf(globalThis.desktop?.appearance?.assistant); } catch { return 'DeepSeek'; }
+})();
+export function getAssistantName() { return assistant; }
+/** Main process / tests only; the renderer reloads instead. A name or the running core's descriptor. */
+export function setAssistantName(name) {
+  assistant = assistantOf(name);
+  return assistant;
+}
+const ASSISTANT_WORD = /(?<!by )DeepSeek(?!\s*(?:Harness|API|Platform|platform|official|balance|account|usage|provider|models|blue|平台|官方|余额|账户|账号|用量|模型|蓝|管理)|’s (?:official|models|balance|prices)|’s\.|')/g;
+const named = (text) => (assistant === 'DeepSeek' || typeof text !== 'string' || !text.includes('DeepSeek') ? text : text.replace(ASSISTANT_WORD, assistant));
+
 export function t(source, values) {
   if (typeof source !== 'string') return source;
   const table = DICTIONARIES[current];
   const text = table && Object.hasOwn(table, source) ? table[source] : source;
-  return interpolate(text, values);
+  return interpolate(named(text), values);
 }
 
 /** Singular/plural pick on the English side; both forms are dictionary keys. */

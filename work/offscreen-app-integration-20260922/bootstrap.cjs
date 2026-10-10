@@ -15,9 +15,14 @@ const standaloneOf=binary=>{if(!binary?.startsWith(profile+path.sep)||path.basen
 const stubbornOf=binary=>{if(!binary?.startsWith(profile+path.sep)||path.basename(binary)!=='stubborn-codex.cjs')return false;const [shebang,...rest]=fs.readFileSync(binary,'utf8').split('\n'),body=rest.join('\n');return shebang==='#!/usr/bin/env node'&&!/spawn\(|exec|fork|\bimport\b|\beval\(|Function\(|process\.(binding|dlopen|kill)|\b(child_process|net|http|https|tls|dgram|vm|worker_threads)\b|\brequire\b(?!\()/.test(body)&&[...body.matchAll(/require\(([^)]*)\)/g)].every(match=>/^'node:(fs|readline)'$/.test(match[1]));};
 // git-rail-ui-test:194 relaunches with only tests/fixtures/composer-window.cjs (a show:false BrowserWindow loading the
 // loopback Vite git-rail component page), not the app; run-suite names that entry for that git-rail launch alone.
+// cores-ui-test: no CODEX_BINARY, so Settings › Cores decides the core. Accept that only when no real core can
+// spawn: the DeepSeek core is the codex-server fixture, the user's own installs are hidden (system paths ""), no
+// core is forced, the release manifest and the Harness home sit in this run's folder (the downloaded "codex" lands
+// in the profile, from the suite's loopback server).
+const coresSuite=()=>process.env.CODEX_BINARY===undefined&&process.env.CODE_DESKTOP_CORE===undefined&&process.env.CODE_DESKTOP_DEEPSEEK_CORE===fixtures[0]&&process.env.CODE_DESKTOP_CORE_SYSTEM_PATHS===''&&process.env.CODE_DESKTOP_CORE_RELEASE_MANIFEST?.startsWith(path.dirname(profile)+path.sep)&&process.env.DSH_HOME?.startsWith(profile+path.sep);
 const entry=process.env.CODE_DESKTOP_VERIFY_ENTRY;
 if(entry){assert.equal(entry,path.join(root,'tests/fixtures/composer-window.cjs'));assert.match(process.env.COMPOSER_FIXTURE_URL,/^http:\/\/127\.0\.0\.1:\d+\/tests\/fixtures\/git-rail-fixture\.html$/);assert.equal(process.env.CODEX_BINARY,undefined);}
-else assert(fixtures.includes(process.env.CODEX_BINARY)||proxyOf(process.env.CODEX_BINARY)||standaloneOf(process.env.CODEX_BINARY)||stubbornOf(process.env.CODEX_BINARY));
+else assert(fixtures.includes(process.env.CODEX_BINARY)||proxyOf(process.env.CODEX_BINARY)||standaloneOf(process.env.CODEX_BINARY)||stubbornOf(process.env.CODEX_BINARY)||coresSuite());
 assert(profile.includes(path.sep+'analysis'+path.sep));
 if(process.env.CODE_DESKTOP_WORKFLOW_BINARY)assert.equal(process.env.CODE_DESKTOP_WORKFLOW_BINARY,path.join(root,'tests/fixtures/workflow-server.cjs'));
 const deviceScaleFactor=Number(process.env.CODE_DESKTOP_OFFSCREEN_SCALE||'1');assert([1,2].includes(deviceScaleFactor));
@@ -57,6 +62,19 @@ class OffscreenTray extends EventEmitter{
 // Electron exports are nonconfigurable. Only this isolated main process resolves
 // its electron imports through a boundary adapter; the production file stays untouched.
 const adapted={...electron,BrowserWindow:HiddenWindow,Notification:NoNotification,Tray:OffscreenTray};
+// safeStorage (Settings › Models keys, model-settings.cjs): the real one asks the macOS Keychain, whose consent prompt
+// (SecurityAgent) would open on the user's desktop and block the app. A reversible, deterministic stand-in instead, so
+// keys saved in one launch of a profile still read back in the next; every call is recorded.
+evidence.safeStorage=[];
+const SAFE_PREFIX='offscreen-safe-storage:';
+adapted.safeStorage={
+ isEncryptionAvailable:()=>{evidence.safeStorage.push('isEncryptionAvailable');return true;},
+ isAsyncEncryptionAvailable:async()=>true,
+ getSelectedStorageBackend:()=>'basic_text',
+ setUsePlainTextEncryption:()=>{},
+ encryptString:text=>{evidence.safeStorage.push('encryptString');return Buffer.from(SAFE_PREFIX+Buffer.from(String(text),'utf8').toString('base64'),'utf8');},
+ decryptString:buffer=>{evidence.safeStorage.push('decryptString');const text=Buffer.from(buffer).toString('utf8');if(!text.startsWith(SAFE_PREFIX))throw Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');return Buffer.from(text.slice(SAFE_PREFIX.length),'base64').toString('utf8');},
+};
 if(process.env.CODE_DESKTOP_MEMORY_CLIPBOARD==='1'){
  evidence.memoryClipboard={kind:'in-memory only; OS clipboard not read or written',calls:[]};
  const store=require('./memory-clipboard.cjs').createMemoryClipboard(method=>evidence.memoryClipboard.calls.push(method));

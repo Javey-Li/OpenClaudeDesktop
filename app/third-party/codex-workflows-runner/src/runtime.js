@@ -1,3 +1,4 @@
+import { workflowPreview, workflowLabel, WorkflowPhases } from './workflow-output.js';
 // Provider-neutral re-implementation of the dynamic-workflow globals
 // (agent / parallel / pipeline / phase / log / budget / args / workflow).
 //
@@ -10,17 +11,59 @@ import os from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { types as utilTypes } from 'node:util';
+import { WorkflowSchemaMemo } from './workflow-boundary.js';
 import { codexAgent } from "./codexAgent.js";
+import { StructuredAgentError } from './structuredAgent.js';
 import { startCodexSession } from "./codexSession.js";
 import { tokensSpent, outputSpent } from "./meter.js";
-import { identityHash } from "./journal.js";
+import { identityHash, rootScope, scopeTag, childScope } from "./journal.js";
+import { schemaProblem } from "./schemaValidate.js";
+import { workflowErrorText } from './workflow-result.js';
+import { promptProvenance } from './provenance.js';
+import { withNormalizedToolOptions, ToolNarrowingError } from './toolNarrowing.js';
+import { isAgentConfigError } from './agentTypes.js';
+// Local: errors agent() rethrows instead of resolving to null, as Claude Code 2.1.280 does: a refused spawn
+// (ToolNarrowingError) and a configuration mistake (an unknown agentType, a worktree that can't be set up).
+const refusesSpawn = error => error instanceof ToolNarrowingError || isAgentConfigError(error);
+// Claude Code 2.1.280 restarts a stalled agent up to 5 times, then fails the call.
+const STALL_RETRIES = 5;
 
-const CAP = Math.min(16, Math.max(1, (os.cpus()?.length ?? 4) - 2));
+// Local: os.availableParallelism() (respects CPU affinity/quotas) for Claude Code 2.1.280's min(16, max(2, n-2));
+// CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS (an integer 1–256) replaces it, as in Claude (Code Desktop passes its
+// Settings value through the same variable, prefs/workflow-settings.mjs workflowRunnerEnv).
+export function concurrencyCap(env = process.env, parallelism = os.availableParallelism?.() ?? os.cpus()?.length ?? 4) {
+  const text = String(env.CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS ?? '').trim(), chosen = Number(text);
+  if (text && Number.isInteger(chosen) && chosen >= 1 && chosen <= 256) return chosen;
+  return Math.min(16, Math.max(2, parallelism - 2));
+}
+const CAP = concurrencyCap();
+// Claude Code 2.1.280: an agent with no progress for 180s is restarted (up to 5 times).
+const STALL_MS = 180_000;
+const CANCEL_GRACE_MS = 6_000; // the app waits up to 8s (workflow-service.cjs STOP_GRACE_MS) once the runner says it is stopping
 
-// A path-like workflow ref (has a separator or a .js/.mjs/.cjs extension) is used
-// verbatim; anything else is a saved-workflow *name* resolved via the registry.
-function looksLikePath(s) {
-  return s.includes("/") || s.includes("\\") || /\.[cm]?js$/.test(s);
+// Local: scopes namespace human()/session extensions in nested workflows.
+// agent() cache keys use the shared Journal's global invocation chain.
+const scopeCtx = new AsyncLocalStorage();
+
+// phase/log do not invoke a guest object's conversion hooks.
+function displayValue(value) {
+  return value === null || typeof value !== 'object' && typeof value !== 'function'
+    ? String(value) : `[${typeof value}]`;
+}
+
+function snapshotItems(items) {
+  const values = [];
+  let length;
+  try { length = items.length; }
+  catch { throw new Error('unable to read array length across the workflow VM boundary'); }
+  if (!Number.isSafeInteger(length)) throw new Error('array length is not a safe integer across the workflow VM boundary');
+  if (length > 4096) throw new Error(`array length ${length} exceeds the maximum of 4096 supported across the workflow VM boundary`);
+  for (let index = 0; index < length; index++) {
+    try { values[index] = items[index]; }
+    catch { values[index] = undefined; }
+  }
+  return values;
 }
 
 // Named-workflow registry: resolve `workflow("name")` to a script file, project
@@ -92,25 +135,57 @@ export function effortForLayerWidth(width) {
 
 // A single global semaphore — only agent() calls consume a slot, matching
 // "Concurrent agent() calls are capped at min(16, cpu cores - 2)".
+// Local: a queued acquire can be withdrawn by an abort signal (user skip, run
+// cancel, budget ceiling reached) without ever taking a slot.
 let active = 0;
 const waiters = [];
-function acquire() {
-  if (active < CAP) {
+function acquire(signal) {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  if (active < CAP && !pauseGate) {
     active++;
     return Promise.resolve();
   }
-  return new Promise((res) => waiters.push(res));
+  return new Promise((res, rej) => {
+    const entry = { grant: () => { signal?.removeEventListener("abort", withdraw); res(); } };
+    const withdraw = () => { const i = waiters.indexOf(entry); if (i >= 0) waiters.splice(i, 1); rej(signal.reason); };
+    signal?.addEventListener("abort", withdraw, { once: true });
+    waiters.push(entry);
+  });
 }
 function release() {
   active--;
-  const next = waiters.shift();
-  if (next) {
+  admitWaiters();
+}
+// Local: a freed slot goes to the next queued agent only while the run isn't paused; unpausing admits them.
+function admitWaiters() {
+  while (!pauseGate && active < CAP && waiters.length) {
     active++;
-    next();
+    waiters.shift().grant();
   }
 }
-async function pooled(thunk) {
-  await acquire();
+// Local (Code Desktop /workflows "p"): while paused, queued agents are not admitted, including those already waiting
+// for a slot when the pause came; running ones go on.
+let pauseGate = null;
+export function setWorkflowPaused(paused) {
+  if (paused && !pauseGate) { let open; const promise = new Promise((resolve) => { open = resolve; }); pauseGate = { promise, open }; }
+  else if (!paused && pauseGate) { const gate = pauseGate; pauseGate = null; gate.open(); admitWaiters(); }
+  return !!pauseGate;
+}
+export const workflowPaused = () => !!pauseGate;
+async function unpaused(signal) {
+  while (pauseGate) {
+    signal?.throwIfAborted();
+    const gate = pauseGate;
+    await new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason);
+      signal?.addEventListener("abort", abort, { once: true });
+      gate.promise.then(() => { signal?.removeEventListener("abort", abort); resolve(); });
+    });
+  }
+}
+async function pooled(thunk, signal) {
+  await unpaused(signal);
+  await acquire(signal);
   try {
     return await thunk();
   } finally {
@@ -128,7 +203,8 @@ export function __activeSlots() {
 export function createRuntime({
   args,
   budgetTotal = null,
-  budgetMeter = "total", // "total" (input+output, default) | "output" (native pool)
+  budgetMeter = "output", // "total" (input+output, default) | "output" (native pool)
+  budgetSpentBefore = 0, // Local: what the turn that launched the run already spent (Claude's budget is the turn's)
   defaults = {},
   defaultModel,
   pinnedModel,
@@ -144,28 +220,94 @@ export function createRuntime({
   runAgent = codexAgent, // seam: injected in tests to capture resolved opts
   startSession = startCodexSession, // seam: injected in tests for sessionful workers
   humanChannel = null, // interactive involvement: { notify(q), wait(id, {timeoutMs}) -> {answer}|undefined }
+  nested = false,
+  parentRuntime,
+  nestedName,
+  nestedPhase,
+  timerOwner,
+  sharedGlobals,
+  workflowOutput,
+  workflowPhases = new WorkflowPhases(),
+  executionState = { agentCount: 0 },
+  journalScope, // Local: a child workflow's own resume scope (set by the parent's workflow())
+  resolveWorkflow, // Local: optional (name) => scriptPath for workflow('name') (the host's saved-workflow registry); else resolveNamedWorkflow
+  allowScriptPath = true, // Local: false refuses workflow({scriptPath}) (the host's CLAUDE_WORKFLOW_NAME_ONLY), with scriptPathRefusal
+  scriptPathRefusal,
+  onSlotFailure, // Local: (message) for a parallel/pipeline slot or nested workflow that failed (Claude getFailures())
 } = {}) {
-  let agentCount = 0;
+  let vmHelpers = {
+    clone: value => value,
+    readSchema: options => { try { const schema=options?.schema;return schema&&typeof schema==='object'?schema:undefined; } catch { return undefined; } },
+    call: (fn, ...args) => fn(...args),
+    settle: async value => ({ value: await value }),
+    snapshot: snapshotItems,
+  };
+  const schemas=new WorkflowSchemaMemo(),childSchemas=new WorkflowSchemaMemo();
+
+  executionState.controllers ??= new Map();
+  // Local: run-wide state shared with nested children — cancellation, in-flight
+  // agents, finalizers, the budget gate and the meter baseline for budget.spent().
+  executionState.runAbort ??= new AbortController();
+  executionState.inflight ??= new Set();
+  executionState.finalizers ??= new Set();
+  executionState.budgetGate ??= new AbortController();
+  executionState.meterBase ??= { output: outputSpent(), total: tokensSpent() };
+  const rootJournalScope = journalScope ?? rootScope();
+  const currentScope = () => scopeCtx.getStore() ?? rootJournalScope;
+  // human()/session journal keys of a child workflow live under its scope path.
+  const keyPrefix = nested && journalScope ? `${journalScope.path}:` : "";
   let currentPhase = null; // last phase() title; the fallback when opts.phase is unset
+  const announcePhase=title=>workflowPhases.announce(title,({index,kind})=>onPhase?.(title,{index,...kind?{kind}:{}}));
+  const childCounts=new Map();
   const AGENT_CAP = 1000;
-  const meterSpent = () => (budgetMeter === "output" ? outputSpent() : tokensSpent());
+  // Local: the whole run's spend (parent + nested children share executionState),
+  // excluding anything metered in this process before the run began.
+  const spentBefore = Number.isFinite(budgetSpentBefore) && budgetSpentBefore > 0 ? budgetSpentBefore : 0;
+  const meterSpent = () => spentBefore + (budgetMeter === "output"
+    ? Math.max(0, outputSpent() - executionState.meterBase.output)
+    : Math.max(0, tokensSpent() - executionState.meterBase.total));
 
   let sessionSeq = 0; // deterministic session ids (s1, s2, …) within this runtime
   const openSessions = new Set(); // live sessions awaiting close() — drained by finalize()
 
   // Runaway backstop shared by agent() and every session turn.
-  function bumpAgentCount() {
-    if (++agentCount > AGENT_CAP) {
-      throw new Error(`Agent cap (${AGENT_CAP}) exceeded — runaway workflow?`);
+  function checkAgentCap() {
+    if (executionState.agentCount >= AGENT_CAP) {
+      // Local: Claude Code 2.1.280's explanation of the usual cause, not only the number.
+      throw new Error(`Workflow agent() call cap reached (${AGENT_CAP}). This usually means a loop that waits for budget.remaining() to run out never ends because no token budget was set: remaining() is Infinity when budget.total is null. Check budget.total before looping on remaining(), or bound the loop.`);
     }
   }
+  function bumpAgentCount() {
+    checkAgentCap();
+    executionState.agentCount++;
+  }
   // Budget gate shared by agent() and session start/steer. Throws BUDGET_EXCEEDED.
+  // The budget is a HARD ceiling (Claude Code): checked before each start; once it
+  // is reached, queued agents are withdrawn too (noteSpend). In-flight agents finish.
+  // Local: Claude Code 2.1.280's WorkflowBudgetExceededError, its name and sentence.
+  function budgetError() {
+    const count = (n) => Number(n).toLocaleString("en-US");
+    const err = new Error(`Workflow token budget exceeded (${count(meterSpent())} / ${count(budgetTotal)} ${budgetMeter} tokens). Stopping further agent() calls. In-flight agents will complete; their results are preserved.`);
+    err.name = "WorkflowBudgetExceededError";
+    err.code = "BUDGET_EXCEEDED";
+    return err;
+  }
+  // Local: a parallel()/pipeline() slot the budget dropped is no failure of its own (Claude: one line for all of them).
+  const budgetDrop = (error) => error?.code === "BUDGET_EXCEEDED" || error?.name === "WorkflowBudgetExceededError";
+  function reportDropped(kind, dropped) {
+    if (!dropped || executionState.cancelled) return;
+    const line = `${kind}: ${dropped} ${dropped === 1 ? "slot" : "slots"} dropped — token budget exceeded`;
+    onLog?.(line);
+    onSlotFailure?.(line);
+  }
   function checkBudget() {
-    if (budgetTotal && meterSpent() >= budgetTotal) {
-      const err = new Error(`Token budget exhausted (${meterSpent()}/${budgetTotal} ${budgetMeter} tokens)`);
-      err.code = "BUDGET_EXCEEDED";
-      throw err;
-    }
+    if (budgetTotal > 0 && meterSpent() >= budgetTotal) throw budgetError();
+  }
+  function noteSpend() {
+    if (budgetTotal > 0 && meterSpent() >= budgetTotal && !executionState.budgetGate.signal.aborted) executionState.budgetGate.abort(budgetError());
+  }
+  function checkCancelled() {
+    if (executionState.cancelled) throw new Error("Workflow cancelled");
   }
   // Thinking-effort policy in ONE place (used by agent() and sessions). Precedence
   // (highest first): --pin-effort > per-call effort > --auto-effort (layer width) >
@@ -179,14 +321,25 @@ export function createRuntime({
   }
 
   async function agent(prompt, opts = {}) {
+    if(nested)opts={...childSchemas.child(opts,vmHelpers),phase:nestedPhase};
+    opts=schemas.root(opts,vmHelpers.clone,utilTypes.isProxy)??{};
+    if (executionState.cancelled) return new Promise(() => {}); // Claude: calls after an abort never settle
+    // Compile and lint before startup; open objects may require undeclared keys.
+    const problem = opts.schema ? schemaProblem(opts.schema) : null;
+    if (problem) throw new Error(`agent(): invalid schema — ${problem}`);
+    // Claude Code 2.1.280: a malformed disallowedTools / bashCommandClamp refuses the spawn; both are normalized
+    // (sorted, de-duplicated, [] = unset) before they join the journal identity (toolNarrowing.js).
+    opts = withNormalizedToolOptions(opts);
     bumpAgentCount();
+    const invocation = executionState.agentCount;
+    const queuedAt=Date.now();
     const merged = { ...defaults, ...opts };
-    const label =
-      opts.label || (typeof prompt === "string" ? prompt.slice(0, 64) : "agent");
+    const label = workflowLabel(prompt, opts.label);
     // Phase attribution: an explicit per-call `phase` wins (the reliable signal
     // inside concurrent pipeline/parallel stages, where the global phase() races),
     // else the last phase() title. Persisted to the journal for the viewer.
-    const effectivePhase = opts.phase ?? currentPhase ?? null;
+    const effectivePhase = opts.phase == null ? currentPhase ?? null : String(opts.phase);
+    const phaseIndex=effectivePhase==null?undefined:announcePhase(effectivePhase);
 
     // Resolve thinking effort. Precedence (highest first):
     //   pinnedEffort (--pin-effort)        authoritative, like --pin-model
@@ -197,7 +350,7 @@ export function createRuntime({
     // The effective effort is written back onto `merged`, so it both reaches the
     // agent and participates in the journal identity (a policy change busts cache).
     const width = currentLayerWidth();
-    const { effort: resolvedEffort, src: effortSrc } = resolveEffort(opts, width);
+    const { effort: resolvedEffort } = resolveEffort(opts, width);
     if (resolvedEffort === undefined) delete merged.effort;
     else merged.effort = resolvedEffort;
 
@@ -211,24 +364,44 @@ export function createRuntime({
     checkBudget();
 
     // Resume journal: allocate a stable key (called on every run, even a cache
-    // miss, to keep occurrence counters aligned) and short-circuit on a hit.
+    // miss, to keep the invocation chain aligned) and short-circuit on a hit.
     // Identity includes the *effective* model (pinned, else script opt, else CLI
     // default) and effort (set above on `merged`) so a model/effort change busts
     // the cache; --fresh forces a full re-run.
+    if (journal) scopeTag(currentScope(), 'a'); // retain human/session extension positions
     const key = journal
       ? journal.nextKey(prompt, { ...merged, model: pinnedModel ?? opts.model ?? defaultModel })
-      : null;
-    if (key && journal.hit(key)) {
-      onLog?.(`  ◦ agent (cached): ${label}`);
-      onEvent?.({ type: "cached", id: key, label, phase: effectivePhase });
-      return journal.get(key);
+      : `member-${invocation}`;
+    if (journal && key && journal.hit(key) && journal.get(key) !== null) {
+      const now=Date.now();
+      workflowOutput?.agent(invocation,{label,...journal.entry(key)?.agentId?{agentId:journal.entry(key).agentId}:{},state:'done',cached:true,startedAt:now,lastProgressAt:now,
+        ...effectivePhase==null?{}:{phaseIndex,phaseTitle:effectivePhase},
+        ...pinnedModel??opts.model??defaultModel?{model:pinnedModel??opts.model??defaultModel}:{},
+        promptPreview:workflowPreview(prompt),resultPreview:workflowPreview(journal.get(key)),
+      });
+      onEvent?.({ type: "cached", id: key, label, phase: effectivePhase, phaseIndex, seq: invocation });
+      return api.copyResult(journal.get(key));
+    }
+
+    // Local: a core that can't narrow the agent's tools as asked refuses the spawn before it is admitted
+    // (codexAgent.preflight); any other preflight problem is left to the agent's own start and retries.
+    // Local: an unknown agentType is refused here too (AgentConfigError), as Claude refuses it before the spawn.
+    if (typeof runAgent.preflight === 'function' && (merged.disallowedTools || merged.bashCommandClamp || merged.agentType != null)) {
+      try { await runAgent.preflight({ ...merged, defaultModel, pinnedModel, label }); }
+      catch (error) { if (refusesSpawn(error)) throw error; }
     }
 
     const reqModel = pinnedModel ?? opts.model ?? defaultModel ?? null;
-    const effortTag = merged.effort
-      ? `  ⟪${merged.effort}${effortSrc === "auto" ? `·layer×${width}` : ""}⟫`
-      : "";
-    onLog?.(`  · agent: ${label}${opts.schema ? "  [schema]" : ""}${effortTag}`);
+    const admission={id:key,seq:invocation,label,phase:effectivePhase,phaseIndex,model:reqModel,queuedAt,lastProgressAt:queuedAt,promptPreview:workflowPreview(prompt)};
+    workflowOutput?.agent(invocation,{label,state:'start',queuedAt,lastProgressAt:queuedAt,promptPreview:admission.promptPreview,
+      ...effectivePhase==null?{}:{phaseIndex,phaseTitle:effectivePhase},...reqModel==null?{}:{model:reqModel},
+    });
+    onEvent?.({type:'admission',...admission,state:'queued'});
+    const failAdmission=error=>{
+      const message=String(error?.message??error),lastProgressAt=Date.now();
+      workflowOutput?.agent(invocation,{state:'error',error:message,lastProgressAt});
+      onEvent?.({type:'admission',...admission,state:'failed',error:message,lastProgressAt});
+    };
     // Emit a lifecycle 'start' so live viewers can show this agent as running.
     // `id` is the stable journal key (null only without a journal) — viewers and
     // the run summary key by it so agents that share a display label never collide.
@@ -236,26 +409,104 @@ export function createRuntime({
     // Capture per-agent metrics off a side channel (the model-facing return value
     // is unchanged); fold them into the journal entry alongside phase/effort/model.
     let metrics = null;
-    const result = await pooled(async () => {
-      onEvent?.({ type: "start", id: key, label, phase: effectivePhase, effort: merged.effort ?? null, model: reqModel });
-      try { return await runAgent(prompt, {
-        ...merged, defaultModel, pinnedModel, log: onLog,
-        onMetrics: (m) => { metrics = m; },
-        onProgress: onProgress ? (text) => onProgress(label, text, key) : undefined,
-      }); } catch (error) {
-        onEvent?.({type:"end",id:key,label,phase:effectivePhase,status:"failed",error:String(error?.message??error)});
-        throw error;
+    let failure,failureKind,reportedTokens=false,published=false,fatal;
+    // Local: the member is controllable from enqueue time — skip withdraws a queued
+    // agent; retry of a queued agent is a no-op (it has not started yet).
+    const member = { controller: null, action: null, queued: true, queue: new AbortController() };
+    executionState.controllers.set(key, member);
+    const queueSignal = AbortSignal.any([member.queue.signal, executionState.runAbort.signal, executionState.budgetGate.signal]);
+    const execution = pooled(async () => {
+      member.queued = false;
+      checkCancelled();
+      checkBudget();
+      // A queued call has no started attempt. Interrupted started calls can keep
+      // the cached suffix on resume, whereas calls that never started cannot.
+      if (journal) await journal.started(key, label);
+      checkCancelled();
+      published=true;
+      onEvent?.({ type: "start", id: key, label, phase: effectivePhase, phaseIndex, seq: invocation, effort: merged.effort ?? null, model: reqModel });
+      let attempts = 0, stalls = 0, totalTokens = 0, outputTokens = 0, totalToolCalls = 0;
+      const restarts = []; // Local: why each earlier attempt was restarted ('stalled' | 'user-retry'), for Claude's errors
+      const framed = promptProvenance();
+      const startedAt = Date.now();
+      workflowOutput?.agent(invocation,{label,state:'start',queuedAt,startedAt,lastProgressAt:startedAt,
+        ...effectivePhase==null?{}:{phaseIndex,phaseTitle:effectivePhase},
+        ...reqModel==null?{}:{model:reqModel}, promptPreview:workflowPreview(prompt),promptFramed:framed,
+      });
+      {
+        for (;;) {
+          const controller = new AbortController();
+          member.controller = controller; member.action = null;
+          const signal = AbortSignal.any([executionState.runAbort.signal, ...defaults.signal ? [defaults.signal] : [], controller.signal]);
+          let timer, activeTools = 0, attemptToolCalls = 0;
+          const stallMs = opts.stallMs ?? STALL_MS, attemptStartedAt = Date.now();
+          const arm = () => { clearTimeout(timer); if (!activeTools && stallMs > 0) timer = setTimeout(() => { member.action='stall'; controller.abort('stalled'); }, stallMs); };
+          attempts++;
+          onEvent?.({type:'progress',id:key,label,attempt:attempts});
+          workflowOutput?.agent(invocation,{attempt:attempts});
+          arm();
+          let value = null;
+          failure=undefined;failureKind=undefined;
+          try {
+            signal.throwIfAborted();
+            // Local: the provider seam (codexAgent.js) frames the prompt (provenance.js) and staggers same-prefix siblings.
+            value = await runAgent(prompt, {
+              ...merged, defaultModel, pinnedModel, log: onLog, signal, framePrompt: framed, ...defaults.runId ? { worktreeName: `${defaults.runId}-${invocation}` } : {},
+              onMetrics: m => { reportedTokens ||= m.tokens?.total!=null; attemptToolCalls=m.toolCalls??attemptToolCalls; workflowOutput?.agent(invocation,{...m.agentId?{agentId:m.agentId}:{},...m.tokens?.total==null?{}:{tokens:totalTokens+m.tokens.total},...m.toolCalls==null?{}:{toolCalls:totalToolCalls+m.toolCalls}}); metrics=m; totalTokens += m.tokens?.total ?? 0; outputTokens += (m.tokens?.output ?? 0) + (m.tokens?.reasoning ?? 0); },
+              onActivity: activity => { attemptToolCalls=activity.toolCalls??attemptToolCalls; workflowOutput?.agent(invocation,{lastProgressAt:Date.now(),...activity.toolCalls===undefined?{}:{toolCalls:totalToolCalls+activity.toolCalls},...activity.lastToolName===undefined?{}:{lastToolName:activity.lastToolName}}); activeTools = activity.activeTools ?? activeTools; arm(); noteSpend(); onEvent?.({type:'progress',id:key,label,...activity,attempt:attempts}); },
+              onProgress: text => { workflowOutput?.agent(invocation,{lastProgressAt:Date.now()}); arm(); onProgress?.(label,text,key); },
+            });
+          } catch (error) {
+            failure = String(error?.message ?? error);
+            failureKind=error instanceof StructuredAgentError?error.kind:undefined;
+            if (error instanceof ToolNarrowingError) throw error; // a refused spawn is never retried or returned as null
+            // Local: a configuration mistake fails the call (after its end event), never a retry or a null result.
+            if (isAgentConfigError(error) && !member.action) { fatal = error; return null; }
+            if (!member.action) { if (defaults.signal?.aborted || executionState.cancelled) throw error; if(failureKind!=='missing')onLog?.(`[${label}] failed: ${failure}`); } // Claude Code 2.1.280: a terminal error leaves a null result
+          } finally { clearTimeout(timer); totalToolCalls+=attemptToolCalls; noteSpend(); }
+          metrics = { ...metrics, ms:Date.now()-startedAt, tokens:{...metrics?.tokens,total:totalTokens,output:outputTokens,reasoning:0} };
+          if (member.action==='skip') { failure='skipped by user'; return null; }
+          if (member.action==='retry') { restarts.push('user-retry'); continue; }
+          if (member.action==='stall') {
+            restarts.push('stalled');
+            // Local: Claude Code 2.1.280's stall log, then its error once every attempt stalled.
+            if (stalls++ < STALL_RETRIES) { onLog?.(`[stall] agent "${label}" stalled (no progress) after ${Math.round((Date.now() - attemptStartedAt) / 1000)}s \u2014 retrying (${stalls}/${STALL_RETRIES})`); continue; }
+            const n = restarts.length;
+            fatal = new Error(restarts.every(reason => reason === 'stalled') ? `agent stalled on all ${n} attempts (no progress for ${stallMs}ms each)` : `agent abandoned after ${n} attempts (${restarts.join(' \u2192 ')})`);
+            failure = fatal.message;
+            return null;
+          }
+          return value;
+        }
       }
+    }, queueSignal);
+    executionState.inflight.add(execution);
+    const result = await execution.catch(async error=>{
+      if(!published&&member.action==='skip'){failure='skipped by user';return null;}
+      if(journal&&!executionState.cancelled&&!defaults.signal?.aborted)await journal.record(key,label,null);
+      if(!published||refusesSpawn(error))failAdmission(error);throw error;
+    }).finally(()=>{executionState.controllers.delete(key);executionState.inflight.delete(execution);});
+    // Local: a user skip is not a failure — status/state 'skipped' (error kept for older viewers).
+    const skipped = result === null && failure === 'skipped by user';
+    const completed=result!==null||failureKind==='missing';
+    workflowOutput?.agent(invocation,{state:skipped?'skipped':completed?'done':'error',resultPreview:workflowPreview(result),lastProgressAt:Date.now(),
+      ...reportedTokens?{tokens:metrics.tokens.total}:{},
+      ...metrics?.model==null?{}:{model:metrics.model},...metrics?.ms==null?{}:{durationMs:metrics.ms},
+      ...failure===undefined||completed?{}:{error:failure},
     });
     onEvent?.({
-      type: "end", id: key, label, phase: effectivePhase, effort: merged.effort ?? null,
+      type: "end", id: key, label, phase: effectivePhase, phaseIndex, seq: invocation, effort: merged.effort ?? null,
+      ...(!completed ? { status: skipped ? "skipped" : "failed", error: failure ?? "Agent returned no result" } : {}),
+      // Local: the result preview rides on the event too, so a run that fails later still knows which agents returned something.
+      ...(completed && !skipped ? { resultPreview: workflowPreview(result) ?? "" } : {}),
       model: metrics?.model ?? reqModel,
       tokens: metrics?.tokens?.total ?? null,
       ms: metrics?.ms ?? null,
     });
-    if (key) {
+    if (journal && key) {
       await journal.record(key, label, result, {
         phase: effectivePhase,
+        agentId: metrics?.agentId,
         effort: merged.effort ?? null,
         model: metrics?.model ?? reqModel,
         tokens: metrics?.tokens?.total ?? null,
@@ -263,80 +514,110 @@ export function createRuntime({
         ms: metrics?.ms ?? null,
       });
     }
-    return result;
+    if (fatal) throw fatal;
+    if (opts.schema && result === null && failure && failureKind!=='provider' && !skipped) throw new Error(failure);
+    return api.copyResult(result);
   }
 
   // BARRIER fan-out. A thunk that throws (or whose agent errors) resolves to null.
   // Each thunk runs under a layer-width store of thunks.length, so agent() calls
   // inside it can scale effort to the fan-out (see effortForLayerWidth).
+  // Claude 2.1.286 checks the cap and budget after the empty-array fast path,
+  // before validating or invoking callbacks (runtime.js:1341–1359, ot()/kt()).
+  // Extension namespaces follow tasks; agent cache identity remains run-wide.
   async function parallel(thunks) {
-    const width = thunks.length;
-    return Promise.all(
-      thunks.map((t) =>
-        layerCtx.run({ width }, () =>
-          Promise.resolve()
-            .then(t)
-            .catch((e) => {
-              onLog?.(`  ! parallel task failed: ${e?.message ?? e}`);
-              return null;
-            }),
-        ),
-      ),
-    );
+    if (executionState.cancelled) return new Promise(() => {});
+    const parent = currentScope(), tag = scopeTag(parent, 'p'); // positional, before any await
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (!Array.isArray(thunks)) throw new TypeError('parallel() expects an array of functions');
+    const tasks = vmHelpers.snapshot(thunks, 4096), width = tasks.length;
+    if (!width) return vmHelpers.clone([]);
+    checkAgentCap();
+    checkBudget();
+    for (const task of tasks) {
+      if (typeof task !== 'function') throw new TypeError('parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)');
+    }
+    const scopes = tasks.map((_, index) => childScope(parent, `${tag}.${index}`));
+    let dropped = 0;
+    const results = await Promise.all(tasks.map((task, index) => scopeCtx.run(scopes[index], () => layerCtx.run({ width }, async () => {
+      try { return await vmHelpers.settle(vmHelpers.call(task)); }
+      catch (error) { if (budgetDrop(error)) { dropped++; return { value: null }; } onLog?.(`  ! parallel task failed: ${error?.message ?? error}`); if (!executionState.cancelled) onSlotFailure?.(`parallel[${index}] failed: ${error?.message ?? error}`); return { value: null }; }
+    }))));
+    reportDropped("parallel", dropped);
+    return vmHelpers.clone(results.map(result => result.value));
   }
 
-  // Per-item staging with NO barrier between stages. A stage that throws drops
-  // that item to null and skips its remaining stages. The whole per-item chain
-  // runs under a layer-width store of items.length (the stage fan-out width).
   async function pipeline(items, ...stages) {
-    const width = items.length;
-    return Promise.all(
-      items.map((item, i) =>
-        layerCtx.run({ width }, async () => {
-          let v = item;
-          for (const stage of stages) {
-            try {
-              v = await stage(v, item, i);
-            } catch (e) {
-              onLog?.(`  ! pipeline item ${i} dropped: ${e?.message ?? e}`);
-              return null;
-            }
-          }
-          return v;
-        }),
-      ),
-    );
+    if (executionState.cancelled) return new Promise(() => {});
+    const parent = currentScope(), tag = scopeTag(parent, 'l'); // positional, before any await
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (!Array.isArray(items)) throw new TypeError('pipeline() expects an array as the first argument');
+    const inputs = vmHelpers.snapshot(items, 4096), width = inputs.length;
+    if (!width) return vmHelpers.clone([]);
+    checkAgentCap();
+    checkBudget();
+    for (const stage of stages) {
+      if (typeof stage !== 'function') throw new TypeError('pipeline() stages must be functions: pipeline(items, item => ..., result => ...)');
+    }
+    // Each item retains a namespace for human/session extensions. Agent calls
+    // advance the shared journal in their actual invocation order.
+    const scopes = inputs.map((_, index) => childScope(parent, `${tag}.${index}`));
+    let dropped = 0;
+    const results = await Promise.all(inputs.map((item, index) => scopeCtx.run(scopes[index], () => layerCtx.run({ width }, async () => {
+      try {
+        let settled = await vmHelpers.settle(item);
+        for (const stage of stages) {
+          if (settled.value === null) break;
+          settled = await vmHelpers.settle(vmHelpers.call(stage, settled.value, item, index));
+        }
+        return settled;
+      } catch (error) { if (budgetDrop(error)) { dropped++; return { value: null }; } onLog?.(`pipeline item failed: ${error?.message ?? error}`); if (!executionState.cancelled) onSlotFailure?.(`pipeline[${index}] failed: ${error?.message ?? error}`); return { value: null }; }
+    }))));
+    reportDropped("pipeline", dropped);
+    return vmHelpers.clone(results.map(result => result.value));
   }
 
   function phase(title) {
-    currentPhase = title;
-    onPhase?.(title);
+    if(nested)return;
+    currentPhase = displayValue(title);
+    announcePhase(currentPhase);
   }
   function log(message) {
-    onLog?.(message);
+    onLog?.((nestedName===undefined?'':`[${nestedName}] `)+displayValue(message));
   }
 
+  // spent() covers the whole run, nested children included (the pool is shared).
   const budget = {
     total: budgetTotal,
     spent: () => meterSpent(),
-    remaining: () => (budgetTotal ? Math.max(0, budgetTotal - meterSpent()) : Infinity),
+    remaining: () => (budgetTotal != null ? Math.max(0, budgetTotal - meterSpent()) : Infinity),
   };
 
-  // Nested workflow, one level deep (matches the native cap). Accepts a
-  // {scriptPath}, a path string, a saved-workflow name (registry), or {name}.
+  // Strings select a registered name; explicit files use {scriptPath}.
   async function workflow(ref, subArgs) {
+    if (nested) throw new Error('workflow() cannot be called from within a child workflow — nesting is limited to one level. Inline the inner script or call its agents directly.');
+    const parentScope = currentScope(), childJournalScope = childScope(parentScope, scopeTag(parentScope, 'w')); // positional, before any await
+    ref=vmHelpers.clone(ref);
     let scriptPath;
-    if (ref && typeof ref === "object" && ref.scriptPath) {
+    if (typeof ref === "string") {
+      scriptPath=typeof resolveWorkflow==='function'?await resolveWorkflow(ref):resolveNamedWorkflow(ref);
+    } else if (ref && typeof ref === "object" && typeof ref.scriptPath === "string") {
+      if (allowScriptPath === false) throw new Error(scriptPathRefusal || 'workflow({scriptPath}) is not allowed in this session — nest with workflow(\'<name>\') instead.');
       scriptPath = ref.scriptPath;
     } else {
-      const name = typeof ref === "string" ? ref : ref?.name;
-      if (!name) {
-        throw new Error("workflow(): pass a {scriptPath}, a saved-workflow name, or {name}");
-      }
-      scriptPath = looksLikePath(name) ? name : resolveNamedWorkflow(name);
+      throw new TypeError('workflow() expects a workflow name (string) or {scriptPath: string}');
     }
-    const { runWorkflowFile } = await import("./runWorkflow.js");
-    return runWorkflowFile(scriptPath, {
+    const { runWorkflowSource,parseClaudeWorkflowScript } = await import("./runWorkflow.js");
+    const {readFile}=await import('node:fs/promises');
+    const source=await readFile(scriptPath,'utf8');
+    const {meta}=parseClaudeWorkflowScript(source);
+    const count=(childCounts.get(meta.name)??0)+1;childCounts.set(meta.name,count);
+    const childPhase=`▸ ${meta.name}${count>1?` #${count}`:''}`;
+    workflowPhases.reserve(childPhase,'child');
+    onLog?.(`▸ running dynamic workflow ${meta.name}`);
+    let failure;
+    try {
+    const value=await scopeCtx.run(childJournalScope, () => runWorkflowSource(source, {
       args: subArgs,
       budgetTotal,
       budgetMeter,
@@ -356,7 +637,20 @@ export function createRuntime({
       onProgress,
       humanChannel,
       nested: true,
-    });
+      parentRuntime:api,
+      nestedName:meta.name,
+      nestedPhase:childPhase,
+      timerOwner,
+      sharedGlobals,
+      workflowOutput,
+      workflowPhases,
+      onFailure:diagnostic=>{failure=diagnostic;},
+      executionState,
+      journalScope: childJournalScope,
+    }));
+    onLog?.(`▸ ${meta.name} done`);
+    return value;
+    }catch(error){onLog?.(`▸ ${meta.name} failed: ${failure??workflowErrorText(vmHelpers.errorInfo(error))}`);if(!executionState.cancelled)onSlotFailure?.(`workflow ${meta.name} failed: ${failure??workflowErrorText(vmHelpers.errorInfo(error))}`);throw error;}
   }
 
   // ── Sessionful workers (agent.start / agent.waitAny / session.*) ──────────────
@@ -589,13 +883,15 @@ export function createRuntime({
   }
 
   async function startLiveSession(prompt, opts = {}) {
+    opts = withNormalizedToolOptions(opts); // as agent(): Claude's disallowedTools / bashCommandClamp checks
     const merged = { ...defaults, ...opts };
     const label = opts.label || (typeof prompt === "string" ? prompt.slice(0, 64) : "session");
     const phase = opts.phase ?? currentPhase ?? null;
     const width = currentLayerWidth();
     const { effort } = resolveEffort(opts, width);
     const reqModel = pinnedModel ?? opts.model ?? defaultModel ?? null;
-    const id = `s${++sessionSeq}`;
+    const id = `${keyPrefix}s${++sessionSeq}`;
+    checkCancelled();
 
     // Warm-context resume (--resume): a prior run journaled this worker's turns
     // under sess:<id>#<n> with its Codex thread id. Collect the completed-turn
@@ -749,7 +1045,7 @@ export function createRuntime({
       ? args.checkpointAnswers[qid] : undefined;
     const occ = humanOcc.get(qid) ?? 0;
     humanOcc.set(qid, occ + 1);
-    const key = `human:${qid}#${occ}`;
+    const key = `human:${keyPrefix}${qid}#${occ}`;
     if (pre !== undefined) {
       onLog?.(`  ⊟ human (${qid}): answered from args.checkpointAnswers`);
       if (journal) { try { await journal.record(key, qid, pre, { human: true, question: String(question), source: "args" }); } catch {} }
@@ -788,10 +1084,28 @@ export function createRuntime({
       try { await s.close(); } catch {}
     }
   }
+  executionState.finalizers.add(finalize);
+
+  // Local: stop the whole run (parent and nested children). Withdraws queued
+  // agents, aborts in-flight ones (each interrupts its turn and removes its clean
+  // worktree on the way out), closes open sessions, then resolves — bounded so the
+  // caller can still shut the app-server down and exit before a hard kill.
+  async function cancel() {
+    if (!executionState.cancelled) {
+      executionState.cancelled = true;
+      executionState.runAbort.abort(new Error("Workflow cancelled"));
+    }
+    let timer;
+    const work = Promise.allSettled([...executionState.inflight, ...[...executionState.finalizers].map(f => f())]);
+    await Promise.race([work, new Promise(resolve => { timer = setTimeout(resolve, CANCEL_GRACE_MS); })]);
+    clearTimeout(timer);
+  }
 
   // Sessionful control hangs off agent (NOT new top-level globals), per the spec.
   agent.start = (prompt, opts) => (plan ? startPlannedSession(prompt, opts) : startLiveSession(prompt, opts));
   agent.waitAny = (sessions, opts) => (plan ? waitAnyPlanned(sessions, opts) : waitAnyLive(sessions, opts));
 
-  return { agent, parallel, pipeline, phase, log, budget, args, workflow, human, CAP, finalize };
+  const controlMember = (id, action) => { const member = executionState.controllers.get(id); if (!member || !['skip','retry'].includes(action)) return false; if (member.queued) { if (action==='skip') { member.action='skip'; member.queue.abort(new Error('skipped by user')); } return true; } member.action=action; member.controller?.abort(`user-${action}`); return true; };
+  const api={ agentCount:()=>executionState.agentCount, agent, parallel:parentRuntime?.parallel??parallel, pipeline:parentRuntime?.pipeline??pipeline, phase, log, budget, args, workflow, human, CAP, finalize, cancel, controlMember, pause:setWorkflowPaused, copyResult:parentRuntime?.copyResult??(value=>vmHelpers.clone(value)), bindVM: helpers => { vmHelpers = helpers; } };
+  return api;
 }

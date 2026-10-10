@@ -1,4 +1,6 @@
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { SourceSettingsButton } from "./source-settings-button.jsx";
+import { addToPrompt, planCommentsStore, serializePlanComments } from "./inline-comments.mjs";
 import { Icon } from "./icons";
 import { SourceTooltip } from "./source-tooltip";
 import { createClipboardFeedback } from "./clipboard-feedback.mjs";
@@ -26,17 +28,74 @@ function SourcePlanTasks({ plan }) {
     </section>
   );
 }
-export function SourcePlanPane({ plan, document = null, renderMarkdown = null }) {
+// sessionId: plan comments (panes-tile-current.js:1600-1700 wp/Plan comment): select text in the plan, comment on it;
+// the comments ride the plan review's Revise (source-plan-card.jsx) or go to the composer ('Add to prompt').
+export function SourcePlanPane({ plan, document = null, renderMarkdown = null, sessionId = null }) {
   const todos = Array.isArray(plan) && plan.length > 0 ? plan : null;
   const content = typeof document === "string" && document ? document : null;
+  const commentable = !!content && !!sessionId;
+  const wrap = useRef(null), prose = useRef(null), field = useRef(null);
+  const [pending, setPending] = useState(null), [draft, setDraft] = useState(null);
+  useSyncExternalStore(planCommentsStore.subscribe, planCommentsStore.version, planCommentsStore.version);
+  const comments = commentable ? planCommentsStore.get(sessionId) : [];
+  useLayoutEffect(() => { if (draft) field.current?.focus({ preventScroll: true }); }, [draft?.quote]);
+  // A selection inside the plan offers 'Comment' just under it.
+  const select = () => {
+    if (!commentable || draft) return;
+    const selection = typeof window !== "undefined" ? window.getSelection() : null;
+    const text = selection && !selection.isCollapsed ? selection.toString().trim() : "";
+    if (!text || !prose.current?.contains(selection.anchorNode) || !prose.current.contains(selection.focusNode)) { setPending(null); return; }
+    const rect = selection.getRangeAt(0).getBoundingClientRect(), box = wrap.current.getBoundingClientRect();
+    setPending({ quote: text.slice(0, 2000), top: rect.bottom - box.top + 6, left: Math.max(0, Math.min(rect.left - box.left, box.width - 120)) });
+  };
+  const save = () => {
+    if (!draft?.text?.trim()) return;
+    if (draft.id) planCommentsStore.edit(sessionId, draft.id, draft.text); else planCommentsStore.add(sessionId, draft);
+    setDraft(null); setPending(null);
+    window.getSelection?.()?.removeAllRanges?.();
+  };
+  const fieldKeys = (event) => {
+    if (event.nativeEvent?.isComposing) return;
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDraft(null); }
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }
+  };
+  const editor = (position) => <div className="spp-comment-editor" style={position} role="group" aria-label={t("Plan comment")}>
+    {draft.quote && <blockquote className="spp-comment-quote">{draft.quote}</blockquote>}
+    <textarea ref={field} rows={3} aria-label={t("Plan comment")} placeholder={t("What should change here?")} value={draft.text}
+      onChange={(event) => setDraft((value) => ({ ...value, text: event.target.value }))} onKeyDown={fieldKeys} />
+    <div className="spp-comment-actions">
+      <SourceSettingsButton size="sm" variant="ghost" onClick={() => setDraft(null)}>{t("Cancel")}</SourceSettingsButton>
+      <SourceSettingsButton size="sm" variant="primary" disabled={!draft.text.trim()} onClick={save}>{draft.id ? t("Save") : t("Comment")}</SourceSettingsButton>
+    </div>
+  </div>;
   return (
     <div className={`${SCROLLER} source-plan`} data-plan-document={content ? "" : undefined}>
-      <div className="mx-auto max-w-[68ch]">
+      <div className="mx-auto max-w-[68ch]" ref={wrap}>
+        {commentable && <p className="spp-comment-hint">{t("Select any text to leave a comment for DeepSeek")}</p>}
         {content && (
-          <div data-cds="Prose" data-prose-font="sans" data-size="sm" className="prose source-plan-document">
+          <div ref={prose} data-cds="Prose" data-prose-font="sans" data-size="sm" className="prose source-plan-document" onMouseUp={select} onKeyUp={select}>
             {renderMarkdown ? renderMarkdown(content) : <p className="whitespace-pre-wrap">{content}</p>}
           </div>
         )}
+        {pending && !draft && <SourceSettingsButton size="sm" className="spp-comment-start" style={{ top: pending.top, left: pending.left }} icon="Chat" iconSize={14}
+          onMouseDown={(event) => event.preventDefault()} onClick={() => setDraft({ quote: pending.quote, text: "" })}>{t("Comment")}</SourceSettingsButton>}
+        {draft && !draft.id && pending && editor({ top: pending.top, left: 0, right: 0 })}
+        {comments.length > 0 && <section className="spp-comments" aria-label={t("Plan comments")}>
+          <h2 className="text-caption-medium uppercase tracking-wide text-muted">{t("Comments")}</h2>
+          {comments.map((entry) => draft?.id === entry.id ? <React.Fragment key={entry.id}>{editor(null)}</React.Fragment>
+            : <article key={entry.id} className="spp-comment" data-plan-comment="">
+              <blockquote className="spp-comment-quote">{entry.quote}</blockquote>
+              <p className="spp-comment-text">{entry.text}</p>
+              <div className="spp-comment-actions">
+                <SourceSettingsButton size="sm" variant="ghost" onClick={() => setDraft({ id: entry.id, quote: entry.quote, text: entry.text })}>{t("Edit")}</SourceSettingsButton>
+                <SourceSettingsButton size="sm" variant="ghost" onClick={() => planCommentsStore.remove(sessionId, entry.id)}>{t("Delete")}</SourceSettingsButton>
+              </div>
+            </article>)}
+          <div className="spp-comments-footer">
+            <span className="text-muted">{t("Sent with Revise on the plan card, or add them to your next message.")}</span>
+            <SourceSettingsButton size="sm" variant="secondary" onClick={() => { if (addToPrompt(serializePlanComments(comments))) planCommentsStore.clear(sessionId); }}>{t("Add to prompt")}</SourceSettingsButton>
+          </div>
+        </section>}
         {todos && <SourcePlanTasks plan={todos} />}
       </div>
     </div>

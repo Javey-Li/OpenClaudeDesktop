@@ -44,8 +44,8 @@ test('R04 tab copy follows customizeCore (Claude → DeepSeek) and connector ite
   const tabs = pluginDetailTabs(detail, 'p', [], { mcpRows: [{ name: 'fx-on', title: 'Fixture On', kind: 'connected' }, { name: 'fx-off', title: 'fx-off', kind: 'unreachable' }] });
   assert.doesNotMatch(JSON.stringify(tabs), /Claude/);
   assert.deepEqual(tabs.map(tab => tab.description), [
-    'Invoke by typing / in chat, or let DeepSeek use them automatically for relevant tasks.',
-    'Tools and data sources this plugin connects to. Connect each one so DeepSeek can use it.',
+    'Invoke by typing / in chat, or let Codex use them automatically for relevant tasks.',
+    'Tools and data sources this plugin connects to. Connect each one so Codex can use it.',
     'Commands this plugin runs automatically — on session events, or when its skills are used.',
   ]);
   assert.deepEqual(tabs[1].items.map(item => [item.connectorName, item.label, item.description, item.connected]), [

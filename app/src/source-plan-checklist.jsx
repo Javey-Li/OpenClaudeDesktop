@@ -19,7 +19,10 @@ export function planStepStatus(status) {
 // VT (cd5a31703-ChuTw_FH.js:2098-2150): a 16px box (BT) holding Check,
 // the sm Spinner or a muted Placeholder, each with its sr-only word.
 const BOX = "shrink-0 size-[calc(1rem*var(--cds-rem-scale,1))] mt-[1px] flex items-center justify-center";
-function PlanStepIcon({ status }) {
+function PlanStepIcon({ status, state = null }) {
+  // A task the agent gave up on (MiMo 'abandoned', codeDesktop.state): an X, not a check.
+  if (state === "abandoned")
+    return <span className={`${BOX} text-secondary`}><Icon name="X" size={14} /><span className="sr-only select-none">{t("abandoned")}</span></span>;
   if (status === "completed")
     return <span className={`${BOX} text-primary`}><Icon name="Check" size={16} /><span className="sr-only select-none">{t("done")}</span></span>;
   if (status === "in_progress")
@@ -32,11 +35,14 @@ export function SourcePlanChecklist({ plan, className = "" }) {
     <ul className={`flex flex-col gap-xs text-body select-text py-xs source-plan-list ${className}`.trim()}>
       {plan.map((step, i) => {
         const status = planStepStatus(step.status);
+        // A bridge's own task state beyond Codex's three (MiMo: abandoned, blocked), as a muted tag after the step.
+        const state = step.codeDesktop?.state === "abandoned" || step.codeDesktop?.state === "blocked" ? step.codeDesktop.state : null;
         return (
-          <li key={i} data-state={status}
+          <li key={i} data-state={status} data-task-state={state || undefined}
             className={`flex items-start gap-1 ${status === "completed" ? "line-through decoration-1 text-secondary" : "text-primary"}`}>
-            <PlanStepIcon status={status} />
-            <div className="suc-text source-plan-step min-w-0 flex-1"><SourceInlineRuns text={String(step.step ?? "")} /></div>
+            <PlanStepIcon status={status} state={state} />
+            <div className="suc-text source-plan-step min-w-0 flex-1"><SourceInlineRuns text={String(step.step ?? "")} />
+              {state && <span className="source-plan-step-state no-underline">{state === "abandoned" ? t("Abandoned") : t("Blocked")}</span>}</div>
           </li>
         );
       })}

@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { SourceMenu } from './source-menu.jsx';
 import { CommandCopyButton, CommandOutput } from './source-command.jsx';
 import { useSettledHighlight } from './use-settled-highlight.mjs';
-import { fileAction, changePath, changePreview, fileBasename, fileRunCounts, fileRunState, fileToolSummary, pathChoices, readContents } from './file-tool-model.mjs';
+import { fileAction, fileActionFacts, changePath, changePreview, fileBasename, fileRunCounts, fileRunState, fileToolSummary, pathChoices, readContents } from './file-tool-model.mjs';
 import { commandOutput, commandRowState } from './command-row-model.mjs';
 import { stripAnsi } from './ansi-model.mjs';
 import { SourceHighlightedLine } from './source-diff-code.jsx';
@@ -119,17 +119,8 @@ export function ApprovalFileChangeBody({ change, ...props }) {
 // has only its query and path, shown as pattern:/path:. Other actions keep command:.
 const CODE_KEYS = new Set(['command', 'cmd', 'script', 'shell', 'code', 'pattern', 'regex', 'glob']);
 const factText = value => typeof value === 'string' ? value : JSON.stringify(value);
-function detailFacts(item, action) {
-  if (action?.type === 'search' || action?.type === 'listFiles') {
-    const args = action.arguments;
-    if (args && typeof args === 'object' && !Array.isArray(args) && Object.keys(args).length)
-      return Object.entries(args).filter(([, value]) => value != null);
-    return Object.entries({ ...(action.query != null ? { pattern: action.query } : {}), ...(action.path ? { path: action.path } : {}) });
-  }
-  return Object.entries({ command: item.command, ...(action?.query != null ? { query: action.query } : {}), ...(action?.path ? { path: action.path } : {}) }).filter(([, value]) => value != null);
-}
 function DetailsBody({ item, action, state }) {
-  const facts = detailFacts(item, action);
+  const facts = fileActionFacts(item, action);
   const output = commandOutput(item, state), input = facts.map(([key, value]) => `${key}: ${factText(value)}`).join('\n');
   return <div className="sft-details"><div role="group" aria-label={t("Tool call details")} tabIndex={0}>
     {facts.map(([key, value]) => <div key={key}><span className="sft-key">{key}:</span>{' '}<span className={CODE_KEYS.has(key) || typeof value !== 'string' ? 'sft-command' : undefined}>{factText(value)}</span></div>)}

@@ -267,7 +267,7 @@ try {
     tabindex: node.getAttribute("tabindex"), duration: getComputedStyle(node).transitionDuration, delay: getComputedStyle(node).transitionDelay, scale: getComputedStyle(node).scale }));
   assert.equal(metrics.hover.role, "toolbar"); assert.equal(metrics.hover.label, "Message actions"); assert.equal(metrics.hover.tabindex, "-1");
   assert.equal(metrics.hover.duration, "0.12s"); assert.equal(metrics.hover.delay, "0.1s"); assert.equal(metrics.hover.scale, "none");
-  metrics.copyGeometry = await row("ua-fence-user").locator(".sua-copy").evaluate(button => {
+  metrics.copyGeometry = await row("ua-fence-user").getByRole("button", { name: "Copy", exact: true }).evaluate(button => {
     const style = getComputedStyle(button), box = button.getBoundingClientRect();
     return { width: box.width, height: box.height, glyph: getComputedStyle(button.querySelector('[data-cds="Icon"]')).fontSize, radius: style.borderRadius, title: button.getAttribute("title") };
   });
@@ -311,10 +311,17 @@ try {
   assert.ok(metrics.focusTrail.some(entry => entry.id === "ua-wrap-user" && entry.sentinel), "the sentinel is traversed before focus handoff");
   await waitOpacity("ua-wrap-user", 1);
   assert.equal(await row("ua-wrap-user").locator(".sua-toolbar").evaluate(node => getComputedStyle(node).transitionDelay), "0s", "focus reveal has no delay");
+  // Roving focus (turnFooterKeyIndex, wrapping) over Copy and, where offered, Rewind to here / Fork from here.
+  const rovers = await row("ua-wrap-user").evaluate(node => [...node.querySelectorAll(".sua-toolbar button:not(:disabled)")].map(button => button.getAttribute("aria-label")));
+  assert.equal(rovers[0], "Copy");
+  let rover = 0;
   for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
     await page.keyboard.press(key);
-    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("sua-copy")), true, `${key} stays on the sole Copy`);
+    rover = key === "Home" ? 0 : key === "End" ? rovers.length - 1 : (rover + (key === "ArrowRight" ? 1 : -1) + rovers.length) % rovers.length;
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), rovers[rover], `${key} roves to ${rovers[rover]}`);
   }
+  await page.keyboard.press("Home");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Copy", "Home returns to Copy");
   const wrapAfterFocus = await geometry("ua-wrap-user", "ua-wrap-answer");
   near(wrapAfterFocus.bubbleToNext, wrap.bubbleToNext, "keyboard reveal does not move the next block");
   await page.keyboard.press("Enter");

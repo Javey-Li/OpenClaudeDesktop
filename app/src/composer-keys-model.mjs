@@ -43,6 +43,27 @@ export function windowEscapeAction({ key = "Escape", defaultPrevented = false, i
   return "stop";
 }
 
+// Esc Esc opens Rewind (code-workspace.js:1919-1946 Gl, Wl = 500 ms): two plain Escapes nobody claimed, within the
+// window, outside a canvas / [role=application] target; the host then opens the picker only for an empty, idle
+// composer (cc43287c9 :32772 qf, Claude Code's Esc Esc). `press` takes the event's facts and returns true on the
+// second press (and starts over); an Escape that stops a turn or is claimed by a menu or dialog resets the count.
+export const DOUBLE_ESCAPE_MS = 500;
+export function createDoubleEscape({ windowMs = DOUBLE_ESCAPE_MS, now = () => Date.now() } = {}) {
+  let last = null;
+  return {
+    press({ key, defaultPrevented = false, isComposing = false, keyCode, repeat = false, metaKey = false, ctrlKey = false, altKey = false, shiftKey = false,
+      targetIsCanvas = false, claimed = false } = {}) {
+      const plain = key === "Escape" && !defaultPrevented && !isComposing && keyCode !== 229 && !repeat && !metaKey && !ctrlKey && !altKey && !shiftKey && !targetIsCanvas && !claimed;
+      if (!plain) { last = null; return false; }
+      const at = now();
+      if (last !== null && at - last <= windowMs) { last = null; return true; }
+      last = at;
+      return false;
+    },
+    reset() { last = null; },
+  };
+}
+
 // shared-6 JL: canvas and [role=application] targets keep Escape for themselves.
 export const ESCAPE_EXEMPT_TARGETS = 'canvas, [role="application"]';
 export function escapeExemptTarget(target) {
@@ -63,10 +84,12 @@ export function emptyArrowUpDequeues({ event, empty = false, popupOpen = false }
 //  - "submit": plain Enter (priority "next" while running).
 //  - "submit-later": Cmd/Ctrl+Enter (priority "later" while running).
 //  - "popup": a suggestion popup owns Enter.
+//  - "submit-fork": Cmd+Alt+Enter, 'Send in a forked session' (zR :15370-15382).
 export function enterAction({ event, popupOwnsEnter = false }) {
   if (event?.key !== "Enter") return "none";
-  if (event.shiftKey || event.altKey) return "newline";
   const meta = !!(event.metaKey || event.ctrlKey);
+  if (event.altKey && event.metaKey && !event.shiftKey && !event.ctrlKey && !event.repeat && !isComposingEvent(event) && !popupOwnsEnter) return "submit-fork";
+  if (event.shiftKey || event.altKey) return "newline";
   if (event.repeat) return "ignore";
   if (isComposingEvent(event)) return "ignore";
   if (popupOwnsEnter) return "popup";
@@ -77,6 +100,7 @@ export function enterAction({ event, popupOwnsEnter = false }) {
 // draft is "Send and stay here" (c099c328d :11081-11088 Bi: idle → {stayOnDraft: e && zi()}, :11270-11282 ⌘⏎ →
 // Pi(Bi(true)); cc43287c9 :28620 stayOnDraftHint = cn === 'draft' && !Yn): "stay". Plain Enter stays undefined.
 export function submitPriority(action, running, { stayOnDraft = false } = {}) {
+  if (action === "submit-fork") return "fork";
   if (!running) return action === "submit-later" && stayOnDraft ? "stay" : undefined;
   return action === "submit-later" ? "later" : "next";
 }

@@ -111,4 +111,34 @@ async function readFile(root, relative, { force = false } = {}) {
     return { path: requested, unavailable: error?.code === "ENOENT" ? "missing" : "read_error" };
   }
 }
-module.exports = { scopedPath, listFiles, readFile };
+// Opening a session file in its default app (a deliverable or artifact card's Open): the checks of 2.2553.1's
+// openSessionFileInDefaultApp (index.chunk-cH2hnEce.js; lists b9t / x9t / S9t in index.chunk-ChZ67Jhw.js), so an
+// agent can't get code run outside its sandbox by sending a launcher the user then opens with one click.
+// Always refused: installers, disk images, bundles. Refused for open: scripts and launchers macOS runs on open.
+const BLOCKED_TYPES = new Set([".exe", ".com", ".msi", ".scr", ".pif", ".cpl", ".bin", ".app", ".dmg", ".pkg", ".mpkg", ".sparsebundle", ".sparseimage", ".iso", ".img", ".cdr", ".toast", ".vhd", ".vhdx", ".prefpane", ".saver", ".jar"]);
+const BLOCKED_OPEN_TYPES = new Set(".sh,.bash,.zsh,.command,.tool,.terminal,.fileloc,.inetloc,.webloc,.bat,.cmd,.ps1,.vb,.vbs,.vbe,.jse,.wsf,.wsh,.wsc,.hta,.lnk,.reg,.msc,.url,.wsb,.jnlp,.js,.pl,.py,.pyw,.pyz,.pyzw,.rb,.scpt,.scptd,.applescript,.workflow,.action,.osax,.smi,.term,.ftploc,.afploc,.vncloc,.mobileconfig,.chm,.xll,.application,.appref-ms,.settingcontent-ms,.search-ms,.library-ms,.diagcab,.appinstaller,.desktop".split(","));
+// Documents that may carry the executable bit (a file copied off a FAT drive) and still open as documents.
+const DOCUMENT_TYPES = new Set(".pdf,.txt,.md,.rtf,.doc,.docx,.xls,.xlsx,.csv,.tsv,.ppt,.pptx,.pages,.numbers,.key,.png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff,.webp,.svg,.heic,.heif,.ico,.psd,.mp3,.m4a,.wav,.aac,.flac,.aiff,.mp4,.m4v,.mov,.avi,.webm,.zip,.tar,.gz,.tgz,.bz2,.html,.htm,.css,.json,.xml,.yaml,.yml,.epub,.ics,.vcf,.eml,.log".split(","));
+/** A path's type as 2.2553.1 reads it (xA): its extension, or a dotfile's whole name, NFKC-folded and lower-cased. */
+function fileType(file) {
+  const name = path.basename(String(file)).toLowerCase();
+  return (path.extname(name) || (name.startsWith(".") ? name : "")).normalize("NFKC").toLowerCase();
+}
+/**
+ * Why a session file must not be opened in its default app, else null. `requested`: the path as asked (before links
+ * resolve); `resolved`: its real path inside the session folder (scopedPath). Reasons are user-facing English (main
+ * translates them).
+ */
+async function openBlockReason(requested, resolved) {
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f‪-‮⁦-⁩]/.test(resolved)) return "This file can’t be opened from here because its name has unusual characters. Use Show in Finder instead.";
+  if (path.extname(String(requested)).toLowerCase() !== path.extname(resolved).toLowerCase()) return "This link points to a different kind of file, so it can’t be opened from here. Use Show in Finder instead.";
+  const type = fileType(resolved);
+  if (BLOCKED_TYPES.has(type) || BLOCKED_OPEN_TYPES.has(type)) return "Code Desktop doesn’t open apps, scripts or installers from a session. Use Show in Finder instead.";
+  let stat;
+  try { stat = await fs.lstat(resolved); } catch { return "File not found."; }
+  if (stat.isSymbolicLink() || !stat.isFile()) return "Only files can be opened from here. Use Show in Finder instead.";
+  if ((stat.mode & 0o111) && !DOCUMENT_TYPES.has(path.extname(resolved).toLowerCase())) return "Code Desktop doesn’t open apps, scripts or installers from a session. Use Show in Finder instead.";
+  return null;
+}
+module.exports = { scopedPath, listFiles, readFile, openBlockReason };

@@ -708,8 +708,8 @@ try {
   await page.mouse.move(100, 700);
   await page.screenshot({ path: path.join(directory, "verified.png") });
   // Dark appearance: the same grouped and standalone bodies.
-  await page.getByRole("button", { name: "Account menu", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Dark appearance", exact: true }).click();
+  // The account menu has no appearance row (shared-21 $B); flip html[data-mode] as the theme effect does.
+  await page.evaluate(() => { document.documentElement.dataset.mode = "dark"; });
   await page.waitForFunction(() => document.documentElement.dataset.mode === "dark");
   await expand("rc-solo");
   metrics.dark = { inCard: await body("rc-done").evaluate(node => ({ shadow: getComputedStyle(node).boxShadow, title: node.querySelectorAll(".src-cmd-title").length })),

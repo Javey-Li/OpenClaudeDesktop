@@ -6,7 +6,9 @@ import {useResponsePacing} from './use-response-pacing.js';
 import {SourceResponseBoundary,SourceBlockBoundary} from './source-response-boundary.jsx';
 import {SourceGenericToolBody} from './source-generic-tool.jsx';
 import {SourcePlanPane, SourcePlanCopyButton} from './source-plan-pane.jsx';
-import {thinkingQuote} from './reasoning-model.mjs';
+import { SourceReviewFindingsBar } from './source-pane-review.jsx';
+import { fixFindingsPrompt, latestReviewFindings, reportedFindings, reportedFindingsReview } from './review-findings-model.mjs';
+import {plainReasoningText,thinkingQuote} from './reasoning-model.mjs';
 import {createClipboardFeedback} from './clipboard-feedback.mjs';
 import {clipboardEnvironment,writeClipboardPayload} from './clipboard-payload.mjs';
 import {useSourceToasts} from './source-toast.jsx';
@@ -15,15 +17,26 @@ import {isGenericTool,observedGenericTool,genericToolLabel,genericToolBody} from
 import {questionOutcome,questionReceipt,toolOutputImages} from './generic-tool-model.mjs';
 import {SourceQuestionReceipt,notePendingQuestion} from './source-question-receipt.jsx';
 import {SourceToolImages} from './source-tool-images.jsx';
+import { isMediaItem, mediaItemRow } from './media-item-model.mjs';
+import {computerUseAction} from './computer-use-model.mjs';
+import {SourceComputerUseStep} from './source-computer-use.jsx';
 import { SourceMarkdownSelection } from './source-markdown-selection.jsx';
 import { remarkStreamingInline } from './streaming-inline.mjs';
 import { useResponseReveal, ResponseRevealScope, ResponseRevealSpan } from './source-response-reveal.jsx';
 import { SourceAgentTool } from "./source-agent.jsx";
-import { SourceApprovalCard, SourceApprovalCardView } from "./source-approval-card.jsx";
+import { ActionButton, BusyAnnouncement, SourceApprovalCard, SourceApprovalCardView, currentlyVisible, useAllowArming, useHotkeyArming } from "./source-approval-card.jsx";
 import { previewTooLarge } from "./approval-card-model.mjs";
 import { SourceQuestionCard } from "./source-question-card.jsx";
+import { SourceArtifacts, SourceDeliverables, itemDeliverables } from "./source-deliverables.jsx";
+import { chapterOf } from "./agent-tool-titles.mjs";
+import "./source-suggested-tasks.css";
+import { localizeBridgeNote } from "./bridge-text-model.mjs";
 import { approvalIdentity, isPlanReviewRequest } from "./approval-draft-model.mjs";
-import { SourcePlanApprovalCard } from "./source-plan-card.jsx";
+import { SourcePlanApprovalCard, planTargetOf, planAcceptOptions, PlanMoreOptions } from "./source-plan-card.jsx";
+import "./source-plan-card.css";
+import { userMessageContent, shownUserItem } from "./composer-attachments-model.mjs";
+import { WebLinkContext } from "./web-link-context.mjs";
+import { moveToIndex, useTabDragReorder } from "./use-tab-drag-reorder.mjs";
 import React, {
   useCallback,
   useEffect,
@@ -41,6 +54,8 @@ import { remarkResponseMath } from './remark-response-math.mjs';
 import { remarkResponseFlow, rehypeResponseFlow } from './response-flow.mjs';
 import { remarkResponseFootnotes } from './remark-response-footnotes.mjs';
 import { remarkResponseInlineAtoms } from './remark-response-inline-atoms.mjs';
+import { directivePriority, rewriteAssistantDirectives } from './assistant-directives-model.mjs';
+import { SourceAsyncQuestions } from './source-async-questions.jsx';
 import { SourceResponseMath } from './source-response-math.jsx';
 import { SourceResponseImage } from './source-response-image.jsx';
 import { responseImageTarget } from './response-image-model.mjs';
@@ -48,22 +63,27 @@ import { ResponseTaskInput, ResponseTaskItem } from './source-response-task.jsx'
 import { Icon } from "./icons";
 import { SourceTooltip, SourceTooltipGroup } from "./source-tooltip.jsx";
 import { SourceMenu } from "./source-menu.jsx";
-import { FILE_TAB_LABELS, insertFileTab, moveFileTab, tabDetail, tabMenuItems, tabRelativePath, tabTooltip } from "./file-tab-menu-model.mjs";
+import { FILE_TAB_LABELS, fileViewerMenuItems, insertFileTab, moveFileTab, tabDetail, tabMenuItems, tabRelativePath, tabTooltip } from "./file-tab-menu-model.mjs";
 import { fileContextMenu, fileCopyChoices, fileLinkLabel } from "./file-context-menu-model.mjs";
 import { stableIds, tabOverflowLayout } from "./file-tab-overflow-model.mjs";
 import { SourceFileViewer, FILE_VIEWER_LABELS } from "./source-file-viewer.jsx";
 import { CONTEXT_MENU_ALIGN_OFFSET, CONTEXT_MENU_SIDE_OFFSET } from "./menu-model.mjs";
 import { menuTriggerProps } from "./source-menu.jsx";
 import { fileKindIcon } from "./file-kind-icon.mjs";
+import { SourceTaskEvent } from "./source-task-event.jsx";
+import { workflowTaskEvent } from "./task-event-model.mjs";
 import { useSourcePointerResize } from "./use-pointer-resize.js";
 import { SourcePaneControls, SourceFilesSearchButton } from "./source-pane-controls";
 import { SourceDiff } from "./source-diff";
+import { SourceDiffGoToFile } from "./source-pane-go-to-file.jsx";
 import { diffPayload } from './diff-context-model.mjs';
 import { useDiffViewPreferences } from "./diff-view-store.mjs";
 import { changesMenuSections } from "./changes-menu-model.mjs";
 import { SourceChangesState, SourcePlanEmpty, SourceFilesTreeState, SourceTreeErrorRow, SourceFilesEmptyPreview } from "./source-pane-states.jsx";
 import { SourceUserText } from "./source-user-text.jsx";
 import { SourceUserActions } from "./source-user-actions.jsx";
+import { notDeliveredLabel } from "./pending-send-model.mjs";
+import "./source-user-delivery.css";
 import { promptHeading } from "./transcript-feed-nav.mjs";
 import { useShrinkWrap } from "./use-shrink-wrap.js";
 import { SourceCodeBlock } from "./source-code-block";
@@ -78,13 +98,14 @@ import { readMarkdownCodeBlock } from "./code-fence-model.mjs";
 import { detectSecrets, maskSecret, maskSecrets, secretLabel } from "./secret-redaction-model.mjs";
 import { showsThinking } from "./transcript-view-model.mjs";
 import { SourceCommandBody } from "./source-command.jsx";
-import { commandRowLabel, commandRowState } from "./command-row-model.mjs";
+import { commandRowLabel, commandRowState, formatDuration } from "./command-row-model.mjs";
 import { SourceToolGroup } from "./source-tool-group.jsx";
 import { ApprovalFileChangeBody, FileToolMessage } from "./source-file-tool.jsx";
 import { fileAction } from "./file-tool-model.mjs";
 import { rowExpansionKey, toolRowExpansion } from "./tool-group-expansion.mjs";
 import "./source-session.css";
-import { t } from "../electron/i18n/index.mjs";
+import { getLocale, t, tn } from "../electron/i18n/index.mjs";
+import { formatTokenCount } from "./usage-cost-model.mjs";
 
 // Source chain and deliberate Codex adaptations: analysis/source-session-batch1.md.
 const desktopCall = (action, params) =>
@@ -186,6 +207,11 @@ function SourceMarkdownCode({ node, children, ...props }) {
 }
 function SourceMarkdownLink({ node, href, children }) {
   const context = React.useContext(SourceMarkdownContext);
+  // The session's opener (main.jsx WebLinkContext): a plain click on a local page's link opens it in Preview.
+  const openWebLink = React.useContext(WebLinkContext);
+  // A ::code-comment finding's priority (assistant-directives-model findingMarkdown): the P0–P3 badge.
+  const priority = directivePriority(href);
+  if (priority !== null) return <span className="smd-priority" data-priority={priority} role="img" aria-label={t("Priority {priority}", { priority })}>{`P${priority}`}</span>;
   const repoSlug = React.useContext(SourceForgeRepoContext);
   const target = responseLinkTarget(href, context.cwd);
   const inertChildren = <SourceMarkdownContext.Provider value={{...context,nonInteractive:true}}>{children}</SourceMarkdownContext.Provider>;
@@ -212,7 +238,11 @@ function SourceMarkdownLink({ node, href, children }) {
   }
   if (target.kind !== 'external') return inertChildren;
   const parts = React.Children.toArray(children);
-  const open = event => { event.preventDefault(); if (event.button === 0 || event.button === 1) desktopCall('external', { url: target.href }).catch(() => {}); };
+  const open = event => {
+    event.preventDefault();
+    if (event.button !== 0 && event.button !== 1) return;
+    if (openWebLink) openWebLink(target.href, event); else desktopCall('external', { url: target.href }).catch(() => {});
+  };
   const onAuxClick = event => { if (event.button === 1) open(event); }, onDragStart = event => event.preventDefault();
   // markdown-current.js:4358-4365, :4543-4555: in transcript text a GitHub PR/issue link whose label
   // is empty, '#N', 'owner/repo#N' or its own URL (Gs), with no empty element child, is the rc chip.
@@ -241,7 +271,9 @@ export function SourceMarkdown({ text = "", isStreaming = false, paceReveal = fa
   const ownerKey = JSON.stringify([sessionKey, itemId ?? ["instance", instanceId]]);
   return <OwnedSourceMarkdown key={ownerKey} {...{text,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef}}/>;
 }
-function OwnedSourceMarkdown({ text: sourceText, isStreaming, paceReveal, isInterrupting, ownerKey, cwd, onOpenFileRef }) {
+function OwnedSourceMarkdown({ text: rawText, isStreaming, paceReveal, isInterrupting, ownerKey, cwd, onOpenFileRef }) {
+  // Codex review findings (::code-comment) as finding items, git receipts (::git-*) hidden, as the Codex TUI shows them.
+  const sourceText = useMemo(() => rewriteAssistantDirectives(rawText, { cwd, streaming: isStreaming }), [rawText, cwd, isStreaming]);
   return <SourceResponseBoundary text={sourceText}>
     <RichSourceMarkdown {...{sourceText,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef}}/>
   </SourceResponseBoundary>;
@@ -473,12 +505,70 @@ function UserFileCard({ part }) {
   );
 }
 
-function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFileRef = null, agentNested = false, turnStartedAtMs = null }) {
-  const text = (item.content || [])
+// Errors a language server found after an edit: a muted list of location and message (no motion).
+export function SourceDiagnostics({ diagnostics, cwd = null }) {
+  const relative = (file) => (cwd && typeof file === "string" && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file);
+  return <div className="source-diagnostics" role="group" aria-label={t("Diagnostics")} data-diagnostics="">
+    <div className="source-diagnostics-title">{tn(diagnostics.length, "{count} error from the language server", "{count} errors from the language server")}</div>
+    <ul>{diagnostics.map((entry, index) => <li key={index}>
+      <span className="source-diagnostics-where">{relative(entry.path)}{entry.line ? `:${entry.line}${entry.column ? `:${entry.column}` : ""}` : ""}</span>
+      <span className="source-diagnostics-message">{entry.message}</span>
+    </li>)}</ul>
+  </div>;
+}
+
+// 'Scheduled prompt · 10:05' (today) or with its date, for a prompt the agent's scheduler fired.
+export function scheduledLabel(firedAt, now = Date.now()) {
+  const date = Number.isFinite(firedAt) ? new Date(firedAt) : null;
+  if (!date || !Number.isFinite(date.getTime())) return t("Scheduled prompt");
+  const today = new Date(now).toDateString() === date.toDateString();
+  const time = today ? date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return t("Scheduled prompt · {time}", { time });
+}
+
+// A finished dynamic workflow's notification to the model (Claude Code's <task-notification>), shown as Claude's
+// task-event row (source-task-event.jsx): 'Background workflow completed · {name} · took {elapsed}', which focuses
+// the run in the Background tasks pane.
+function SourceWorkflowNotice({ item, onOpen = null }) {
+  const notice = item.workflowNotification;
+  // A workflow agent's blocking question (the main agent answers it) and a run waiting on its model provider: rows of
+  // their own, the question and its context behind a disclosure.
+  if (notice?.kind === "escalation") {
+    const label = notice.agent && notice.workflow ? t("{agent} in {workflow} has a question", { agent: notice.agent, workflow: notice.workflow })
+      : notice.agent ? t("{agent} has a question", { agent: notice.agent }) : notice.workflow ? t("An agent in {workflow} has a question", { workflow: notice.workflow }) : t("A workflow agent has a question");
+    return <details className="source-task-event source-workflow-question" data-transcript-item-id={item.id} data-task-event-status="question">
+      <summary className="stev-line"><span className="stev-label">{label}</span></summary>
+      {notice.question && <p className="stev-question">{notice.question}</p>}
+      {notice.context && <p className="stev-context">{notice.context}</p>}
+    </details>;
+  }
+  if (notice?.kind === "settings") {
+    return <div className="source-task-event" data-transcript-item-id={item.id} data-task-event-status="settings">
+      <span className="stev-line"><span className="stev-label">{t("Changed the workflow’s settings")}</span>{notice.workflow && <span className="stev-description"><bdi>{`· ${notice.workflow}`}</bdi></span>}</span>
+    </div>;
+  }
+  if (notice?.kind === "stall") {
+    const waited = Number.isFinite(notice.stalledMs) ? formatDuration(Math.round(notice.stalledMs / 1000)) : null;
+    const label = notice.workflow ? t("{workflow} is waiting for the model provider", { workflow: notice.workflow }) : t("A workflow is waiting for the model provider");
+    return <div className="source-task-event" data-transcript-item-id={item.id} data-task-event-status="stalled">
+      <span className="stev-line"><span className="stev-label">{label}</span>{waited && <span className="stev-elapsed">{`· ${t("no reply for {duration}", { duration: waited })}`}</span>}</span>
+    </div>;
+  }
+  const event = workflowTaskEvent(notice);
+  // A Monitor event (no status): the model reads it; the transcript shows no row, as Claude's.
+  if (!event) return null;
+  return <SourceTaskEvent events={[event]} itemId={item.id} onOpen={onOpen ? () => onOpen(event) : null} />;
+}
+function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFileRef = null, agentNested = false, turnStartedAtMs = null, userActions = null }) {
+  // The attachment note a core without file mentions gets ("[Attached file: P]", live or joined into Codex history)
+  // leaves the bubble and shows as the file's card (composer-attachments-model userMessageContent).
+  const content = useMemo(() => userMessageContent(item.content || []), [item.content]);
+  const text = content
     .filter((part) => part.type === "text" || part.text)
     .map((part) => part.text || "")
     .join("\n");
-  const attachments = (item.content || []).filter(
+  const attachments = content.filter(
     (part) => !part.text && (part.path || part.imageUrl || part.url || part.image_url),
   );
   const hasFileAttachments = attachments.some((part) => typeof part.path === "string" && part.path !== "");
@@ -488,9 +578,13 @@ function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFile
   // scroll-messages-current.js:39513-39521: the sr-only 'You said: {prompt}'
   // h2 (Fe = af(prompt)) opens the message group, outside find.
   const heading = useMemo(() => promptHeading(text), [text]);
+  // A send the core does not have yet (pending-send-model.mjs pendingUserRow): dimmed with 'Sending…', or
+  // 'Not delivered · {time}' with Retry / Discard once turn/start was refused.
+  const delivery = item.localDelivery ?? null;
   return (
     <article
       className="source-message message user-message source-user-message"
+      data-delivery-status={delivery?.status}
       data-transcript-item-id={item.id}
       data-cds="UserMessage"
       data-turn-start={turnStart || undefined}
@@ -499,6 +593,11 @@ function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFile
     >
       <div className="source-user-group" data-cds="UserMessageGroup">
         {heading && <h2 data-find-omitted="" className="sr-only select-none">{heading}</h2>}
+        {/* A prompt the agent's scheduler fired (MiMo cron / loop: codeDesktop.origin), as the TUI's clock row. */}
+        {item.codeDesktop?.origin?.kind === "cron" && <div className="source-user-scheduled" data-scheduled-prompt="">
+          <Icon name="Clock" size={14} aria-hidden="true" />
+          <span>{scheduledLabel(item.codeDesktop.origin.firedAt)}</span>
+        </div>}
         {attachments.length > 0 && (
           <div className="source-user-attachments" data-cds="MessageAttachments">
             {attachments.map((part, index) =>
@@ -512,8 +611,16 @@ function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFile
       </div>
       {/* Codex has one startedAt per turn: only the user row that opens its turn
           shows it; a steer added mid-turn gets no time (no per-message timestamp). */}
-      {text && !agentNested && <SourceUserActions sessionKey={sessionKey} itemId={item.id} text={text} interacted={interacted}
-        startedAtMs={turnStart ? turnStartedAtMs : null} />}
+      {delivery?.status === "sending" && <div className="source-user-delivery" data-find-omitted="">
+        <span role="status" className="source-user-delivery-status">{t("Sending…")}</span>
+      </div>}
+      {delivery?.status === "failed" && <div className="source-user-failed-send" data-testid="epitaxy-failed-send" data-find-omitted="">
+        <span className="source-user-failed-note" role="alert"><Icon name="Warning" size={12} aria-hidden="true" />{notDeliveredLabel(delivery.sentAt)}</span>
+        {delivery.onRetry && <SourceSettingsButton variant="ghost" data-step="1" className="source-user-failed-button" onMouseDown={(event) => event.preventDefault()} onClick={delivery.onRetry}>{t("Retry")}</SourceSettingsButton>}
+        {delivery.onDiscard && <SourceSettingsButton variant="ghost" data-step="1" className="source-user-failed-button" onMouseDown={(event) => event.preventDefault()} onClick={delivery.onDiscard}>{t("Discard")}</SourceSettingsButton>}
+      </div>}
+      {text && !agentNested && !delivery && <SourceUserActions sessionKey={sessionKey} itemId={item.id} text={text} interacted={interacted}
+        startedAtMs={turnStart ? turnStartedAtMs : null} rewind={userActions?.rewind ?? null} onFork={userActions?.fork ?? null} />}
     </article>
   );
 }
@@ -552,7 +659,7 @@ function SourceCopyQuote({ text, variant = "hover" }) {
 // (approval-current.js:54035-54063): command and Read/Edit bodies take the
 // inCard layouts of Uoe/GO (:6874-6941) and UO (:6784-6837).
 const NO_PENDING_APPROVALS = new Set();
-export function SourceMessage({ isInterrupting = false, item, agentContext = null, agentNested = false, inToolGroup = false, turnStart = false, isStreaming = false, sessionKey = null, cwd = null, onOpenFileRef = null, onOpenChanges = null, transcriptView = "normal", pendingApprovalItemIds = NO_PENDING_APPROVALS, turnStartedAtMs = null, reasoningPlacement = "standalone" }) {
+export function SourceMessage({ isInterrupting = false, item, agentContext = null, agentNested = false, inToolGroup = false, turnStart = false, isStreaming = false, sessionKey = null, cwd = null, onOpenFileRef = null, onOpenChanges = null, transcriptView = "normal", pendingApprovalItemIds = NO_PENDING_APPROVALS, turnStartedAtMs = null, reasoningPlacement = "standalone", userActions = null }) {
   if (isHiddenTranscriptItem(item, transcriptView)) return null;
   const stepDefaults = { forcedOpen: transcriptView === "verbose", sessionKey };
   if (item.type === "collabAgentToolCall") return <SourceAgentTool item={item} context={agentContext} inGroup={inToolGroup} Step={SourceStep} pendingApprovalItemIds={pendingApprovalItemIds} {...stepDefaults} />;
@@ -561,8 +668,13 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
     renderItem={member => <SourceMessage agentContext={agentContext} agentNested={agentNested} inToolGroup item={member} turnStart={false} isStreaming={isStreaming} sessionKey={sessionKey} cwd={cwd}
       onOpenFileRef={onOpenFileRef} onOpenChanges={onOpenChanges} transcriptView={transcriptView} pendingApprovalItemIds={pendingApprovalItemIds} />} />;
 
-  if (item.type === "userMessage")
-    return <SourceUserMessage agentNested={agentNested} item={item} turnStart={turnStart} sessionKey={sessionKey} cwd={cwd} onOpenFileRef={onOpenFileRef} turnStartedAtMs={turnStartedAtMs} />;
+  if (item.type === "userMessage") {
+    // Hidden workflow reminders never show as the user's words; a finished workflow's notification turn (the model's
+    // Workflow tool, workflow-tool-service.cjs) is a system notice (composer-attachments-model shownUserItem).
+    const shown = shownUserItem(item);
+    if (shown.workflowNotification) return <SourceWorkflowNotice item={shown} onOpen={agentContext?.onTaskEvent ?? null} />;
+    return <SourceUserMessage agentNested={agentNested} item={shown} turnStart={turnStart} sessionKey={sessionKey} cwd={cwd} onOpenFileRef={onOpenFileRef} turnStartedAtMs={turnStartedAtMs} userActions={userActions} />;
+  }
   if (item.type === "agentMessage" || item.type === "plan")
     return (
       <article
@@ -571,11 +683,21 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
         data-cds="AssistantMessage"
         data-turn-start={turnStart || undefined}
       >
-        <SourceMarkdown text={item.text || ""} isStreaming={isStreaming} paceReveal={item.type === "agentMessage"} isInterrupting={isInterrupting} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} />
+        {/* A bridge's own italic turn note (`_…_`, e.g. Gemini's turn-limit note) reads in the UI language. */}
+        <SourceMarkdown text={isStreaming ? item.text || "" : localizeBridgeNote(item.text || "")} isStreaming={isStreaming} paceReveal={item.type === "agentMessage"} isInterrupting={isInterrupting} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} />
+        {/* AgentMessage.memoryCitation {entries[{path, lineStart, lineEnd, note}]}: Codex answered from its memories. */}
+        {!isStreaming && Array.isArray(item.memoryCitation?.entries) && item.memoryCitation.entries.length > 0 && <p className="source-memory-citation">
+          <span>{t("Used memory")}</span>{" "}
+          {item.memoryCitation.entries.slice(0, 5).map((entry, index) => <span key={index} className="source-memory-citation-entry" title={entry?.path ? `${entry.path}:${entry.lineStart ?? ""}` : undefined}>
+            {index > 0 ? " · " : ""}<bdi>{entry?.note || String(entry?.path || "").split("/").pop()}</bdi></span>)}
+        </p>}
+        {/* AgentMessage.questions (delivery 'async'): Codex asked without stopping; answered from here. */}
+        {!isStreaming && item.type === "agentMessage" && Array.isArray(item.questions) && item.questions.length > 0 && <SourceAsyncQuestions item={item} />}
       </article>
     );
   if (item.type === "reasoning") {
-    const text = reasoningText(item);
+    // Plain text without the Markdown markers (a Codex summary's '**Title**' line), shown and copied alike.
+    const text = plainReasoningText(reasoningText(item));
     if (!text.trim() || !showsThinking(transcriptView)) return null;
     // Thinking before tools is H2, an open "Thought process" step; any other
     // thought is the classic U2 block (scroll-messages-current.js:44475-44545).
@@ -598,9 +720,14 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
     // QO under a standalone row, inside the row root after its body (RN approval-current.js:17302);
     // in a group FileToolMessage's body has them (FN :17324).
     const images = inToolGroup ? [] : (item.fileRun || [item]).flatMap(toolOutputImages);
+    // Language-server errors the core reported after the edit (OpenCode: codeDesktop.diagnostics).
+    const diagnostics = (item.fileRun || [item]).flatMap((entry) => Array.isArray(entry?.codeDesktop?.diagnostics) ? entry.codeDesktop.diagnostics : []);
+    const after = images.length || diagnostics.length ? <>
+      {images.length > 0 && <SourceToolImages images={images} itemId={item.id} />}
+      {diagnostics.length > 0 && <SourceDiagnostics diagnostics={diagnostics} cwd={cwd} />}
+    </> : null;
     return <FileToolMessage item={item} Step={SourceStep} pendingApprovalItemIds={pendingApprovalItemIds} {...stepDefaults} inCard={inToolGroup}
-      sessionKey={sessionKey} cwd={cwd} onOpenFileRef={onOpenFileRef} onOpenChanges={onOpenChanges}
-      after={images.length ? <SourceToolImages images={images} itemId={item.id} /> : null} />;
+      sessionKey={sessionKey} cwd={cwd} onOpenFileRef={onOpenFileRef} onOpenChanges={onOpenChanges} after={after} />;
   }
   if (item.type === "commandExecution") {
     const state = commandRowState(item, pendingApprovalItemIds.has(item.id));
@@ -614,7 +741,7 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
           onKeyDown={event => event.stopPropagation()}>{t("View live output")}</button>
       : undefined;
     return (
-      <SourceStep item={item} {...stepDefaults} {...commandRowLabel(item.command, state, item.description)} state={state} classic caretSize={14} trailing={live}>
+      <SourceStep item={item} {...stepDefaults} {...commandRowLabel(item.command, state, item.description, item.source)} state={state} classic caretSize={14} trailing={live}>
         <SourceCommandBody
           item={item}
           state={state}
@@ -624,6 +751,22 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
       </SourceStep>
     );
   }
+  // Computer use (computer-use-model.mjs): the bridges' computerUse items and computer tools in any known shape.
+  if (computerUseAction(item))
+    return <SourceComputerUseStep item={item} state={commandRowState(item, pendingApprovalItemIds.has(item.id))} Step={SourceStep} stepProps={stepDefaults} inToolGroup={inToolGroup} />;
+  // `present` (the DeepSeek core's deliverables): file cards instead of a tool row.
+  // mark_chapter (Code Desktop's agent tools): the chapter heading, lifted out of the tool rows (cd5a31703 d2).
+  const chapter = chapterOf(item);
+  if (chapter) return <h2 className="source-message source-chapter" data-transcript-item-id={item.id} data-chapter="" id={`chapter-${item.id}`}
+    title={chapter.summary || undefined}>{chapter.title}</h2>;
+  if (itemDeliverables(item)) return <SourceDeliverables item={item} sessionKey={sessionKey} failed={item.status === "failed" || item.success === false} />;
+  // A finished ReportFindings call (Code Desktop's agent tools) reads as the review it reported, like a review mode's
+  // Review result (exitedReviewMode below); its findings also drive the Changes pane's findings bar.
+  const reported = reportedFindings(item, cwd);
+  if (reported)
+    return <SourceStep item={item} {...stepDefaults} label={t("Review result")} meta={reported.length ? tn(reported.length, "{count} finding", "{count} findings") : undefined} state="done">
+      <SourceMarkdown text={reportedFindingsReview(reported)} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} />
+    </SourceStep>;
   if (isGenericTool(item)) {
     const observed=observedGenericTool(item,agentContext?.state,sessionKey);
     const state=commandRowState(observed,pendingApprovalItemIds.has(item.id));
@@ -638,7 +781,9 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
     const body=genericToolBody(observed,state)==='none'?null:<SourceGenericToolBody item={item} state={state} cwd={cwd} onOpenFileRef={onOpenFileRef} inCard={inToolGroup}/>;
     // QO: output images in the body inside a group (FN :17324); under a standalone row they are
     // hoisted out of the collapsible body but stay in the row root, after it (RN :17302).
-    const column=images.length?<SourceToolImages images={images} itemId={item.id}/>:null;
+    // Files and links the core attached to the call (codeDesktop.artifacts: Qwen's recorded artifacts).
+    const artifacts=Array.isArray(observed.codeDesktop?.artifacts)&&observed.codeDesktop.artifacts.length?<SourceArtifacts artifacts={observed.codeDesktop.artifacts} sessionKey={sessionKey}/>:null;
+    const column=images.length||artifacts?<>{images.length?<SourceToolImages images={images} itemId={item.id}/>:null}{artifacts}</>:null;
     return <SourceStep item={item} {...stepDefaults} {...genericToolLabel(observed,state)}
       state={state} classic caretSize={14} className="source-generic-step" trailing={outcome?<span className="source-step-outcome">{outcome}</span>:undefined}
       after={inToolGroup?null:column}>
@@ -646,18 +791,45 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
       {inToolGroup&&column?<>{body}{column}</>:body}
     </SourceStep>;
   }
-  if (item.type === "contextCompaction")
+  // Codex image generation, view_image, the sleep tool and hook-injected context (media-item-model.mjs).
+  if (isMediaItem(item)) {
+    const row = mediaItemRow(item);
+    const body = row.caption || row.error ? <div className="source-media-detail">
+      {row.error && <p className="source-media-error">{row.error}</p>}
+      {row.caption && <p className="source-media-caption"><bdi>{row.caption}</bdi></p>}
+    </div> : null;
+    // QO: a standalone row hoists its image after the row (RN :17302); a group member keeps it in its collapsible
+    // body (FN :17324), so a mid-run view_image stays inside the collapsed group.
+    const image = row.image ? <SourceToolImages images={[row.image]} itemId={item.id} /> : null;
+    return <SourceStep item={item} {...stepDefaults} label={row.label} meta={row.meta || undefined} metaTitle={row.path || undefined} state={row.state} classic caretSize={14}
+      className="source-media-step" after={inToolGroup ? null : image}>{inToolGroup && image ? <>{body}{image}</> : body}</SourceStep>;
+  }
+  if (item.type === "contextCompaction") {
+    // A core that reports what it compacted (the DeepSeek bridge's codeDesktop {summary, shadowedItems, shadowedTokens},
+    // as the DeepSeek app's 'Compacted {items} history items (~{tokens} tokens)') shows the count and the summary.
+    // Any other core: how full the context was before and after (state.js preTokens / postTokens, from the usage the
+    // core re-sends after compacting), as the official marker's 'saved {tokens} tokens' / 'from {tokens} tokens'. A
+    // compaction that errored failed; only one the user stopped was interrupted. Counts follow the UI language.
+    const info = item.codeDesktop, result = outcome(item), done = !isStreaming && !["failed", "stopped"].includes(result);
+    const counted = done && info && Number.isFinite(info.shadowedItems) && info.shadowedItems > 0;
+    const tokens = (value) => formatTokenCount(Math.round(value), getLocale());
+    const pre = Number.isFinite(item.preTokens) && item.preTokens > 0 ? item.preTokens : null, post = Number.isFinite(item.postTokens) ? item.postTokens : null;
+    const label = isStreaming ? t("Compacting conversation") : result === "failed" ? t("Compaction failed") : !done ? t("Compaction interrupted")
+      : counted ? (Number.isFinite(info.shadowedTokens) && info.shadowedTokens > 0
+        ? tn(info.shadowedItems, "Compacted {count} item (~{tokens} tokens)", "Compacted {count} items (~{tokens} tokens)", { tokens: tokens(info.shadowedTokens) })
+        : tn(info.shadowedItems, "Compacted {count} item", "Compacted {count} items"))
+      : pre !== null && post !== null && post < pre ? t("Compacted conversation · saved {tokens} tokens", { tokens: tokens(pre - post) })
+      : pre !== null ? t("Compacted conversation · from {tokens} tokens", { tokens: tokens(pre) })
+      : t("Compacted conversation");
     return (
-      <SourceStep
-        item={item}
-        {...stepDefaults}
-        label={isStreaming ? t("Compacting conversation") : ["failed", "stopped"].includes(outcome(item)) ? t("Compaction interrupted") : t("Compacted conversation")}
-        state={outcome(item)}
-      />
+      <SourceStep item={item} {...stepDefaults} label={label} state={outcome(item)}>
+        {done && typeof info?.summary === "string" && info.summary.trim() ? <SourceMarkdown text={info.summary} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} /> : null}
+      </SourceStep>
     );
+  }
   if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode")
     return <SourceStep item={item} {...stepDefaults} label={item.type === "enteredReviewMode" ? t("Review started") : t("Review result")} state="done">
-      {item.review && <SourceMarkdown text={item.review} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} />}
+      {item.review ? <SourceMarkdown text={item.review} sessionKey={sessionKey} itemId={item.id} cwd={cwd} onOpenFileRef={onOpenFileRef} /> : null}
     </SourceStep>;
   return null;
 }
@@ -692,6 +864,85 @@ export function SourceWorking({
   );
 }
 
+// Plan → implement handoff (approval-card-model planHandoff): a core without permission hints ends a Plan turn with
+// a plan item and waits, as Codex's own client asks "Implement this plan?" (codex-rs tui plan_implementation.rs).
+// It wears the plan card (Rse, source-plan-card.jsx): left Stay in Plan (Esc); right Implement in Manual when the
+// target is another mode (⌘⇧⏎), then the primary that implements in the target mode (⌘⏎). The card answers no
+// server request: the caller sends the implementation turn.
+export const PLAN_HANDOFF_LABELS = Object.freeze({
+  ask: t("Implement"),
+  acceptEdits: t("Implement and allow edits"),
+  auto: t("Implement and auto mode"),
+  bypass: t("Implement and bypass permissions"),
+});
+export function planHandoffActions(target, { bypass = false } = {}) {
+  const mode = planTargetOf(target, { bypass });
+  return {
+    left: [{ key: "stay", label: t("Stay in Plan"), primary: false, keycap: "esc", shortcut: "Escape" }],
+    right: [
+      ...(mode !== "ask" ? [{ key: "accept", label: PLAN_HANDOFF_LABELS.ask, primary: false,
+        keycap: "cmd+shift+enter", shortcut: "Meta+Shift+Enter Control+Shift+Enter" }] : []),
+      { key: "primary", label: PLAN_HANDOFF_LABELS[mode], primary: true, keycap: "cmd+enter", shortcut: "Meta+Enter Control+Enter" },
+    ],
+    more: planAcceptOptions({ bypass }).filter((option) => option !== mode).map((option) => ({ mode: option, label: PLAN_HANDOFF_LABELS[option] })),
+  };
+}
+const composingKey = (event) => event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229 || event.nativeEvent?.keyCode === 229;
+export function SourcePlanHandoffCard({ handoffKey, target, bypassAvailable = false, busy = false, isActive = true, menuOpen = false, onImplement, onStay, onOpenPlan }) {
+  const root = useRef(null), headingId = useId();
+  const [pressed, setPressed] = useState(null);
+  const clickArmed = useAllowArming(root, handoffKey, isActive);
+  const hotkeyArmed = useHotkeyArming(root, handoffKey, isActive);
+  const mode = planTargetOf(target, { bypass: bypassAvailable });
+  const actionable = isActive && typeof onImplement === "function";
+  const shortcutEnabled = actionable && !busy && !menuOpen, keycapShown = actionable && !menuOpen;
+  const act = (key, chosen = mode) => {
+    if (!actionable || busy) return;
+    setPressed(key);
+    if (key === "stay") onStay?.();
+    else onImplement(key === "accept" ? "ask" : chosen);
+  };
+  function keyDown(event) {
+    if (event.defaultPrevented || composingKey(event) || event.altKey || !shortcutEnabled) return;
+    if (event.target.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],[role="menu"],[role="listbox"]')) return;
+    if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      event.preventDefault(); event.stopPropagation();
+      if (!event.repeat) act("stay");
+      return;
+    }
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.repeat || !hotkeyArmed() || !currentlyVisible(root.current)) return;
+    act(event.shiftKey && mode !== "ask" ? "accept" : "primary");
+  }
+  const { left, right, more } = planHandoffActions(mode, { bypass: bypassAvailable });
+  const button = (action) => <ActionButton key={action.key} action={action} busy={busy} busyAction={pressed}
+    enabled={actionable} onAction={act} keycap={keycapShown ? action.keycap : undefined}
+    shortcut={shortcutEnabled ? action.shortcut : undefined} />;
+  return <section ref={root} className="source-message sac-card spc-card" data-approval-presentation="card"
+    data-approval-kind="plan-handoff" data-plan-handoff={handoffKey} role="group" aria-labelledby={headingId}
+    aria-busy={busy || undefined} tabIndex={0} onKeyDown={keyDown} onClick={(event) => event.stopPropagation()}>
+    <div className="sac-body spc-body">
+      <div className="spc-heading">
+        <span className="spc-heading-copy"><span id={headingId} className="spc-title">{t("Implement this plan?")}</span></span>
+        {onOpenPlan && <span className="spc-trailing">
+          <button type="button" className="spc-open-plan" data-cds="TextLink" onClick={onOpenPlan}>{t("Open plan")}</button>
+        </span>}
+      </div>
+    </div>
+    <footer className="spc-actions">
+      <div className="spc-left">{left.map(button)}</div>
+      <div className="spc-right" onClickCapture={(event) => {
+        if (!clickArmed()) { event.preventDefault(); event.stopPropagation(); }
+      }}>{right.map((action) => action.primary && more.length
+        ? <span key={action.key} className="spc-split" data-split="">{button(action)}
+            <PlanMoreOptions options={more} enabled={actionable} busy={busy} onChoose={(chosen) => act("primary", chosen)} /></span>
+        : button(action))}</div>
+    </footer>
+    {busy && <BusyAnnouncement />}
+  </section>;
+}
+
 // Submission identity and draft lifetime are owned by the shared root runtime.
 export function SourceApproval(props) {
   if (!approvalIdentity(props.request)) return <SourceApprovalCardView
@@ -706,7 +957,21 @@ export function SourceApproval(props) {
         detail.kind === "path"
           ? <ApprovalFileDetail detail={detail} meta={model.heading?.meta}
               sessionKey={props.sessionKey} cwd={props.cwd} onOpenFileRef={props.onOpenFileRef} itemId={props.item?.id ?? props.request.params?.itemId} />
-          : <pre className="sac-code">{detail.text}</pre>} />;
+          : detail.kind === "workflow" ? <WorkflowApprovalDetail detail={detail} />
+          : <pre className="sac-code" title={detail.raw}>{detail.text}</pre>} />;
+}
+// The "Run a dynamic workflow?" card's body (Claude Code 2.1.280's workflow permission dialog): the description and
+// phases, then the script itself — shown outright when meta lists no phases, else behind "View raw script".
+function WorkflowApprovalDetail({ detail }) {
+  const [open, setOpen] = useState(detail.scriptOpen === true);
+  const scriptId = useId();
+  return <>
+    {detail.text && <pre className="sac-code">{detail.text}</pre>}
+    {detail.scriptOpen !== true && <button type="button" className="sac-feedback-toggle sac-script-toggle" aria-expanded={open} aria-controls={scriptId}
+      onClick={() => setOpen((value) => !value)}>{open ? t("Hide raw script") : t("View raw script")}</button>}
+    {open && <pre id={scriptId} className="sac-code sac-script" aria-label={t("Workflow script")}>{detail.script}</pre>}
+    {open && detail.scriptTruncated && <p className="sac-context">{t("The script is too long to be shown in full.")}</p>}
+  </>;
 }
 // EM's file request (approval-current.js:15528-15552 U, :15596-15607 Kv + yce): the
 // full-path detail box (shown when it differs from the basename meta), then per change
@@ -1034,10 +1299,10 @@ function SourceTree({ children, busy, filterInputSelector }) {
 // Files pane tab (2.2553.1 readable/panes-tabs-current.js:333-491 he; model
 // panes-tile-current.js:6656-6710 ce/le). Local adaptations: no Base UI Tabs /
 // ContextMenu primitives (the local roving keys, SourceTooltip and
-// SourceMenu stand in) and no pointer drag reorder. data-vtb-id is the strip
+// SourceMenu stand in); pointer drag reorder is use-tab-drag-reorder.mjs. data-vtb-id is the strip
 // measure's key (_e); an overflowed tab stays laid out but invisible, a compact
 // one drops its close button and label mask (he :364-372, :463-466).
-function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize, hintId, moveHintId, overflowed = false, compact = false, fileMenu = null, onSelect, onClose, onCloseOthers, onCloseAll, onKeep, onKeyDown }) {
+function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize, hintId, moveHintId, overflowed = false, compact = false, fileMenu = null, onSelect, onClose, onCloseOthers, onCloseAll, onKeep, onKeyDown, onPointerDown }) {
   const root = useRef(null), tabRef = useRef(null), labelRef = useRef(null), returnFocus = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // he N/F/ie: a pointer-down on the tab hides its tooltip until the pointer leaves the tab.
@@ -1097,6 +1362,7 @@ function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize,
         returnFocus.current = event.currentTarget.ownerDocument.activeElement;
         setMenuOpen(true);
       }}
+      onPointerDown={overflowed ? undefined : onPointerDown}
       onPointerLeave={() => setPressed(false)}
     >
       <span aria-hidden="true" className="source-file-tab-bg" />
@@ -1189,10 +1455,10 @@ function SourceFileTabOverflow({ tabs, cwd, onActivate, onClose }) {
     <SourceTooltip content={FILE_TAB_LABELS.moreTabs} hoverable={false}>
       <SourceSettingsButton ref={button} variant="ghost" iconOnly icon="CaretDown" iconSize="auto" aria-label={FILE_TAB_LABELS.moreTabs}
         className="source-file-tabs-more" {...menuTriggerProps({ open: !!open, onOpen: (entry) => setOpen(entry) })}
-        onClick={() => setOpen((value) => (value ? null : "first"))} />
+        onClick={() => setOpen((value) => (value ? null : "click"))} />
     </SourceTooltip>
     {open && <SourceMenu.Popup anchor={button.current} side="bottom" align="end" label={FILE_TAB_LABELS.moreTabs}
-      initialHighlight={open === "last" ? "last" : "first"} onClose={() => setOpen(null)}>
+      initialHighlight={open === "first" || open === "last" ? open : undefined} onClose={() => setOpen(null)}>
       <span id={hintId} className="source-sr-only">{FILE_TAB_LABELS.closeTabHint}</span>
       {tabs.map((file) => {
         const label = basename(file.path), detail = tabDetail(file.path, cwd), preview = file.preview === true;
@@ -1286,6 +1552,8 @@ function FilePane({
   onViewChange = null,
   headerCenter = null,
   paneControls = null,
+  // Review findings in the Changes pane (hh / Rn): {items, active, onSend(text), onRerun()} from main.jsx.
+  review = null,
 }) {
   const toasts = useSourceToasts();
   const [diffPreferences, setDiffPreference] = useDiffViewPreferences();
@@ -1365,6 +1633,10 @@ function FilePane({
   // file-tab-overflow-model.mjs): hidden tabs stay laid out but invisible and
   // are listed in "More files"; the strip scrolls so the active tab shows.
   const tabBar = useRef(null), tabList = useRef(null), reorderFocus = useRef(null);
+  // Drag a file tab to a new slot (panes-tabs-current.js Oe, onReorder :6782); Ctrl/⌘+Shift+←/→ stays the keyboard
+  // path. The strip shows the drag's order live and commits it on release.
+  const fileTabDrag = useTabDragReorder({ stripRef: tabList, itemSelector: "[data-vtb-id]", idOf: (node) => node.dataset.vtbId,
+    onReorder: (path, toIndex) => setFileTabs((files) => moveToIndex(files, path, toIndex, (file) => file.path)) });
   const [strip, setStrip] = useState(EMPTY_STRIP);
   useLayoutEffect(() => {
     const list = tabList.current, root = tabBar.current;
@@ -1435,10 +1707,10 @@ function FilePane({
   // result only updates a tab that is still open (a closed tab never returns).
   const reads = useRef(new Map());
   function loadFile(path, { force = false } = {}) {
-    if (!cwd || typeof path !== "string" || !path) return;
+    if (!cwd || typeof path !== "string" || !path) return Promise.resolve();
     const token = {};
     reads.current.set(path, token);
-    Promise.resolve()
+    return Promise.resolve()
       .then(() => call("file", { cwd, relative: path, ...(force ? { force: true } : {}) }))
       .then((file) => (file && typeof file === "object" ? file : { unavailable: "read_error" }),
         () => ({ unavailable: "read_error" }))
@@ -1453,6 +1725,29 @@ function FilePane({
         }));
       });
   }
+  // qa: the ⋮ menu's Find in file (bumps the viewer's findRequest), Copy file contents, Download file and Reload
+  // file (disabled while the re-read runs) for the active text file; the breadcrumb folder lister (local sessions).
+  const [findRequest, setFindRequest] = useState(0);
+  const [reloadingPath, setReloadingPath] = useState(null);
+  const reloadFile = (path) => {
+    setReloadingPath(path);
+    loadFile(path).finally(() => { if (mounted.current) setReloadingPath((current) => (current === path ? null : current)); });
+  };
+  const downloadFile = (file) => {
+    const name = String(file.path).split(/[\\/]/).pop() || "file.txt";
+    const url = URL.createObjectURL(new Blob([file.text], { type: "text/plain;charset=utf-8" }));
+    const link = Object.assign(document.createElement("a"), { href: url, download: name });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  };
+  // openFile is a hoisted declaration below; the ref keeps the lister stable across renders.
+  const openFileRef = useRef(null);
+  openFileRef.current = openFile;
+  const folderLister = useMemo(() => (cwd ? {
+    rootLabel: String(cwd).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || String(cwd),
+    list: (dir) => call("files", { cwd, relative: dir }),
+    onOpenFile: (path) => openFileRef.current?.({ path }, { preview: true }),
+  } : null), [cwd, call]);
   // Tabs restored from the persisted store carry only path/preview; the
   // active one is re-read through the same scoped file IPC.
   useEffect(() => {
@@ -1757,12 +2052,16 @@ function FilePane({
       // The reveal IPC resolves inside the session folder only: no broken, external or looping link.
       canShowInFinder: !!fileActions?.onRevealFile && unavailable !== "missing" && unavailable !== "outside_root" && (!linkState || linkState === "ok"),
       canRevealInTree: unavailable !== "missing",
+      editors: fileActions?.onOpenInEditor && unavailable !== "missing" ? fileActions.editors : [],
+      canOpenTerminal: directory && !!fileActions?.onOpenInTerminal && unavailable !== "missing" && unavailable !== "outside_root" && (!linkState || linkState === "ok"),
     }),
     select: (item, path) => {
       if (item.action === "copy") copyText(item.value);
       else if (item.action === "attach") { const absolute = fileCopyChoices(cwd, path).absolute; if (absolute) fileActions?.onAttachFile?.(absolute); }
       else if (item.action === "show-in-finder") fileActions?.onRevealFile?.(item.value);
+      else if (item.action === "open-in-editor") fileActions?.onOpenInEditor?.(item.value, item.editor);
       else if (item.action === "reveal-in-tree") revealInTree(item.value);
+      else if (item.action === "open-in-terminal") fileActions?.onOpenInTerminal?.(item.value);
     },
   } : null;
   // ⌘⇧Y (uf toggleDiffFileList, panes-tile-current.js:6650-6655): main.jsx calls
@@ -1781,6 +2080,55 @@ function FilePane({
     treeToggleRef.current = toggle;
     return () => { if (treeToggleRef.current === toggle) treeToggleRef.current = null; };
   }, [treeToggleRef, tab, diffListAvailable, toggleDiffTree]);
+  // hh / Rn: the session's latest review findings (review-findings-model.mjs) as the Changes subheader and inline
+  // cards. Dismissed findings, the fix statuses and the current finding reset with each new review. A fix sends a
+  // follow-up turn; its findings read "Fixing…" until that turn ends, then "Fixed".
+  const reviewResult = useMemo(() => (tab === "changes" ? latestReviewFindings(review?.items, cwd) : null), [tab, review?.items, cwd]);
+  const [reviewMarks, setReviewMarks] = useState({ key: null, cleared: false, dismissed: [], statuses: {}, currentId: null, seq: 0 });
+  const marks = reviewMarks.key === reviewResult?.key ? reviewMarks : { key: reviewResult?.key ?? null, cleared: false, dismissed: [], statuses: {}, currentId: null, seq: 0 };
+  const updateMarks = (change) => setReviewMarks((previous) => change(previous.key === (reviewResult?.key ?? null) ? previous : { key: reviewResult?.key ?? null, cleared: false, dismissed: [], statuses: {}, currentId: null, seq: 0 }));
+  const findings = reviewResult && !marks.cleared ? reviewResult.findings.filter((entry) => !marks.dismissed.includes(entry.id)) : [];
+  const findingIndex = Math.max(0, findings.findIndex((entry) => entry.id === marks.currentId));
+  const reviewTurn = useRef({ active: false, sent: false });
+  useEffect(() => {
+    const was = reviewTurn.current, active = !!review?.active;
+    reviewTurn.current = { active, sent: was.sent && !(was.active && !active) };
+    if (was.sent && was.active && !active)
+      updateMarks((previous) => ({ ...previous, statuses: Object.fromEntries(Object.entries(previous.statuses).map(([id, status]) => [id, status === "fixing" ? "addressed" : status])) }));
+  }, [review?.active]); // eslint-disable-line react-hooks/exhaustive-deps
+  const goToFinding = (index) => {
+    const entry = findings[index];
+    if (entry) updateMarks((previous) => ({ ...previous, currentId: entry.id, seq: previous.seq + 1 }));
+  };
+  useLayoutEffect(() => {
+    if (!marks.currentId || !marks.seq) return;
+    const frame = requestAnimationFrame(() => {
+      const card = pane.current?.querySelector(`[data-review-finding="${CSS.escape(marks.currentId)}"]`);
+      const scroller = card?.closest(".source-changes");
+      if (!card) return;
+      if (scroller) scroller.scrollTop += card.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 3;
+      else card.scrollIntoView?.({ block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [marks.currentId, marks.seq]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fixFindings = (ids) => {
+    const chosen = findings.filter((entry) => ids.includes(entry.id) && (marks.statuses[entry.id] ?? "open") === "open");
+    if (!chosen.length || !review?.onSend || review.active) return;
+    updateMarks((previous) => ({ ...previous, statuses: { ...previous.statuses, ...Object.fromEntries(chosen.map((entry) => [entry.id, "fixing"])) } }));
+    reviewTurn.current = { ...reviewTurn.current, sent: true };
+    Promise.resolve().then(() => review.onSend(fixFindingsPrompt(chosen))).catch(() => {
+      updateMarks((previous) => ({ ...previous, statuses: { ...previous.statuses, ...Object.fromEntries(chosen.map((entry) => [entry.id, "open"])) } }));
+    });
+  };
+  const diffReview = findings.length ? {
+    findings, statuses: marks.statuses, currentId: findings[findingIndex]?.id ?? null, currentSeq: marks.seq,
+    onDismiss: (id) => updateMarks((previous) => ({ ...previous, dismissed: [...previous.dismissed, id] })),
+    onFix: review?.onSend ? (id) => fixFindings([id]) : null,
+    onNext: findings.length > 1 ? (id) => { const at = findings.findIndex((entry) => entry.id === id); goToFinding((at + 1) % findings.length); } : null,
+  } : null;
+  const reviewBar = findings.length ? <SourceReviewFindingsBar findings={findings} statuses={marks.statuses} currentIndex={findingIndex} onStep={goToFinding}
+    onApply={review?.onSend ? () => fixFindings(findings.map((entry) => entry.id)) : null} onRerun={review?.onRerun ?? null} busy={!!review?.active}
+    onDismiss={() => updateMarks((previous) => ({ ...previous, cleared: true }))} /> : null;
   const title = tab === "files" ? t("Files") : tab === "plan" ? t("Plan") : t("Changes");
   const displayTitle =
     tab === "changes" && diffScope === "uncommitted"
@@ -1789,9 +2137,15 @@ function FilePane({
   // Pane-supplied "{pane} settings" sections (official f_ for the file pane:
   // a "Show file tree" checkbox that keeps the menu open). The official
   // "Preview tabs" preference has no local counterpart and is not offered.
+  const viewerText = tab === "files" && preview && typeof preview.text === "string" && !preview.unavailable ? preview : null;
   const menuSections =
     tab === "files" && cwd
-      ? [{ key: "files-tree", items: [{ value: "files-tree", label: t("Show file tree"), checked: treeVisible, checkedRole: "checkbox", keepOpen: true,
+      ? [{ key: "file-actions", items: viewerText ? fileViewerMenuItems({
+          onFind: () => setFindRequest((value) => value + 1),
+          onCopyContents: () => copyText(viewerText.text),
+          onDownload: () => downloadFile(viewerText),
+          onReload: () => reloadFile(viewerText.path), reloading: reloadingPath === viewerText.path }) : [] },
+        { key: "files-tree", items: [{ value: "files-tree", label: t("Show file tree"), checked: treeVisible, checkedRole: "checkbox", keepOpen: true,
           // f_ (panes-tile-current.js:6872-6900): the item carries the ⌘⇧Y shortcut.
           shortcut: treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined, onSelect: () => setVisibleTree(!treeVisible) }] }]
       : tab === 'changes' ? changesMenuSections({ hasPatch: !diffError && !loading && !!diffView.patch,
@@ -1822,9 +2176,9 @@ function FilePane({
         undefined
       }
       onKeyDown={(event) => {
-        // A menu popup portaled from the header still bubbles through React;
-        // its Escape closes the menu, not the pane.
-        if (event.key === "Escape" && !event.defaultPrevented && !event.target.closest?.('[role="menu"]') && !event.currentTarget.ownerDocument.querySelector('[role="menu"]')) {
+        // A menu or popover portaled from the pane (header menus, the breadcrumb's "Files in {folder}") still
+        // bubbles through React; its Escape closes that layer, not the pane. Only Escape from the pane's own DOM does.
+        if (event.key === "Escape" && !event.defaultPrevented && event.currentTarget.contains(event.target) && !event.target.closest?.('[role="menu"]') && !event.currentTarget.ownerDocument.querySelector('[role="menu"]')) {
           event.stopPropagation();
           onClose?.();
         }
@@ -1861,9 +2215,10 @@ function FilePane({
             aria-label={t("Open files")}
           >
             <SourceTooltipGroup delay={700}>
-              {fileTabs.map((file, index) => (
+              {fileTabDrag.order(fileTabs, (file) => file.path).map((file, index) => (
                 <SourceFileTab
                   key={file.path}
+                  onPointerDown={(event) => fileTabDrag.onPointerDown(file.path, event)}
                   file={file}
                   cwd={cwd}
                   selected={activePath === file.path}
@@ -1981,14 +2336,17 @@ function FilePane({
             Close; c_ needs a local workdir (jl(session)). */}
         {(() => {
           // Mp (:1830-1866) leads the Plan trailing slot: "Copy plan" while a plan document exists.
+          // nh (panes-tile-current.js:3222-3390): the Changes header's "Go to file" (⌘P) leads it while files are listed.
           const search = tab === "files" && cwd ? <SourceFilesSearchButton onClick={focusFilesFilter} />
-            : tab === "plan" && planDocument ? <SourcePlanCopyButton document={planDocument} /> : null;
+            : tab === "plan" && planDocument ? <SourcePlanCopyButton document={planDocument} />
+            : tab === "changes" && !diffError && !loading && diffView.patch ? <SourceDiffGoToFile patch={diffView.patch} /> : null;
           const close = <SourceIconButton name="X" label={t("Close panel")} onClick={onClose} />;
           return typeof paneControls === "function"
             ? paneControls({ menuSections, leading: search }) ?? <>{search}{close}</>
             : <>{search}{paneControls ?? close}</>;
         })()}
       </header>
+      {tab === "changes" && reviewBar}
       {tab === "files" ? (
         <>
           <div
@@ -2103,6 +2461,7 @@ function FilePane({
                 scopeKey={JSON.stringify(["file-viewer", sessionId, cwd, preview.path])}
                 onCopyPath={() => copyText(relative, FILE_VIEWER_LABELS.pathCopied)}
                 onViewAsText={() => loadFile(preview.path, { force: true })}
+                findRequest={findRequest} lister={folderLister}
                 renderMarkdown={(text, chunk = 0) => <SourceMarkdown text={text} sessionKey={sessionId} itemId={chunk ? `file:${preview.path}#${chunk}` : `file:${preview.path}`} cwd={cwd} />} />;
             })()}
             {/* panes-tile-current.js:6355-6390 (!N || M) empty preview. */}
@@ -2113,7 +2472,7 @@ function FilePane({
         </>
       ) : tab === "plan" && (plan?.length || planDocument) ? (
         // kp (panes-tile-current.js:1751-1790): the plan document, then the Tasks.
-        <SourcePlanPane plan={plan} document={planDocument}
+        <SourcePlanPane plan={plan} document={planDocument} sessionId={sessionId}
           renderMarkdown={(text) => <SourceMarkdown text={text} sessionKey={sessionId} itemId="plan-document" cwd={cwd} />} />
       ) : tab === "plan" ? (
         <SourcePlanEmpty />
@@ -2125,7 +2484,7 @@ function FilePane({
         // R10: SourceDiff lays the body out beside the Changed files column and
         // owns the .source-changes scroller (ChangesFileLayout).
         <Diff value={diffView.patch} completeContext={diffView.completeContext} scopeKey={JSON.stringify([sessionId, cwd, diffScope])} layout={diffPreferences.layout} wordWrap={diffPreferences.wordWrap} wordDiff={diffPreferences.wordDiff} hideWhitespace={diffPreferences.hideWhitespace} onCanFitSplitChange={setDiffCanFitSplit} foldAll={diffFoldAll} placement="changes" fileActions={diffFileActions}
-          onIsLargeChange={setDiffIsLarge} fileList={{ shown: diffShowTree, width: diffTreeWidth, tree: diffFileTree, groupByKind: diffGroupByKind,
+          onIsLargeChange={setDiffIsLarge} review={diffReview} fileList={{ shown: diffShowTree, width: diffTreeWidth, tree: diffFileTree, groupByKind: diffGroupByKind,
             onShownChange: setDiffShowTree, onWidthChange: setDiffTreeWidth, onCanFitChange: setDiffCanFitTree }} />
       ) : (
         <SourceChangesState state="empty" uncommittedOnly={diffScope === "uncommitted"} />

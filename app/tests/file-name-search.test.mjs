@@ -206,6 +206,14 @@ test('invalid roots/queries and unsupported content search return explicit error
   assert.equal(empty.complete, true);
   assert.equal(empty.query, '');
   assert.equal(empty.scanned.candidates, 0);
+  // browse (the composer's bare '@'): an empty query lists files, the shallowest first, with no highlights.
+  await f.file('deep/er/nested.txt'); await f.file('readme.md'); await f.file('src/app.js');
+  const browsed = await api.search({ ...request(f.root, ''), browse: true });
+  assert.equal(browsed.error, null);
+  assert.ok(browsed.matches.length > 0);
+  const depths = browsed.matches.map(match => match.path.split('/').length);
+  assert.deepEqual(depths, [...depths].sort((a, b) => a - b));
+  assert.ok(browsed.matches.every(match => match.positions.length === 0));
 });
 
 test('new request supersedes the same scope, cancellation is identifier-safe, and capacity is bounded', async t => {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isComposingEvent, keyKind, escapeAction, enterAction, submitPriority, windowEscapeAction, escapeExemptTarget, emptyArrowUpDequeues } from "../src/composer-keys-model.mjs";
+import { isComposingEvent, keyKind, escapeAction, enterAction, submitPriority, windowEscapeAction, escapeExemptTarget, emptyArrowUpDequeues, createDoubleEscape } from "../src/composer-keys-model.mjs";
 
 const key = (overrides) => ({ key: "Enter", shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, repeat: false, isComposing: false, keyCode: 13, ...overrides });
 
@@ -80,4 +80,22 @@ test("empty ArrowUp dequeues only unmodified, not composing, empty and without a
   for (const modifier of ["metaKey", "ctrlKey", "altKey", "shiftKey"]) assert.equal(emptyArrowUpDequeues({ event: { ...up, [modifier]: true }, empty: true }), false, modifier);
   assert.equal(emptyArrowUpDequeues({ event: { ...up, isComposing: true }, empty: true }), false);
   assert.equal(emptyArrowUpDequeues({ event: key({ key: "ArrowDown" }), empty: true }), false);
+});
+
+test("Esc Esc within 500 ms opens Rewind; anything else between, a claimed or modified Escape, or a slow second press does not", () => {
+  let clock = 0;
+  const tracker = createDoubleEscape({ now: () => clock });
+  const esc = (extra = {}) => tracker.press({ key: "Escape", ...extra });
+  assert.equal(esc(), false);
+  clock = 400; assert.equal(esc(), true, "the second plain Escape inside the window");
+  clock = 500; assert.equal(esc(), false, "the pair starts over after it fires");
+  clock = 1100; assert.equal(esc(), false, "600 ms later is a new first press");
+  clock = 1200; assert.equal(esc({ claimed: true }), false, "a menu, dialog or busy composer claims it and resets");
+  clock = 1300; assert.equal(esc(), false);
+  clock = 1350; assert.equal(esc({ shiftKey: true }), false);
+  clock = 1400; assert.equal(esc(), false);
+  clock = 1450; assert.equal(esc({ targetIsCanvas: true }), false, "canvas / [role=application] keep Escape");
+  clock = 1500; esc(); clock = 1550; assert.equal(esc({ repeat: true }), false, "a held key is not a double press");
+  clock = 2000; esc(); tracker.reset(); clock = 2100; assert.equal(esc(), false, "a stop resets the count");
+  clock = 2200; assert.equal(esc(), true);
 });

@@ -59,8 +59,9 @@ await fs.writeFile(path.join(profile, "preferences.json"), JSON.stringify({
   threadMetadata: { [B]: { id: B, name: "Archived composer", cwd: workspace, createdAt: now - 10, updatedAt: now - 10 } },
 }));
 // 0.2.120: the fixture model carries a Codex ModelServiceTier named Fast (codex-server.cjs model/list knob) so ⌥⌘F
-// has a real tier to toggle; fastMode stays false until section 16 toggles it and restores it.
-await fs.writeFile(path.join(profile, "fixture-model-list.json"), JSON.stringify({ fastTierModels: ["fixture"] }));
+// has a real tier to toggle; fastMode stays false until section 16 toggles it and restores it. Section 20: fixture-1
+// ("Test model 2") ends in Codex's top tier (…, max, ultra; ultraModels), while 'fixture' keeps its four efforts.
+await fs.writeFile(path.join(profile, "fixture-model-list.json"), JSON.stringify({ fastTierModels: ["fixture"], ultraModels: ["fixture-1"] }));
 await fs.writeFile(path.join(profile, "fixture-threads.json"), JSON.stringify({ next: 100, threads: {
   [A]: thread(A, "Composer states A"),
   [B]: thread(B, "Archived composer", { archived: true, updatedAt: now - 10 }),
@@ -439,7 +440,7 @@ try {
   // Two images are staged; four more pasted at once → cap of five keeps three, drops one.
   await pasteFiles(["c1", "c2", "c3", "c4"].map(name => ({ name: `${name}.png`, type: "image/png", bytes: PNG.toString("base64") })));
   await page.locator(".composer-error").waitFor();
-  assert.equal(await errorText(), "Removed 1 image — this session allows up to 5.");
+  assert.equal(await errorText(), "Maximum of 5 images allowed.");
   await page.waitForFunction(() => document.querySelectorAll('[data-cds-attachment][data-kind="image"][data-status="ready"]').length === 5);
   assert.equal(await page.locator("[data-cds-attachment]").count(), 6, "five images plus the file reference");
   await dismissError();
@@ -450,7 +451,7 @@ try {
     await pill.locator(".epitaxy-pill-remove").click();
   }
   assert.equal(await page.locator("[data-cds-attachment]").count(), 3);
-  checks.push("Image lane validation: .bmp → type toast, 31457281-byte PNG → 30 MB toast, sixth image dropped with 'Removed 1 image — this session allows up to 5.'; the hover-revealed remove control removes pills");
+  checks.push("Image lane validation: .bmp → type toast, 31457281-byte PNG → 30 MB toast, sixth image dropped with 'Maximum of 5 images allowed.'; the hover-revealed remove control removes pills");
 
   // 5. "@" mention dropdown: geometry, roles, keyboard acceptance, IME guard, Escape.
   // The popup opens above the caret; park the pointer far away so no option is hovered.
@@ -572,7 +573,9 @@ try {
   checks.push("F05 mention chip: the Tab pick inserts one contenteditable=false [data-mention] atom (inline-flex, basename label in --cds-text-accent, title = path) while the draft text stays '@<path> '; a click selects it and opens 'Mention actions' [Copy, Open in, Delete(danger)]; Escape closes the menu and refocuses the editor");
   checks.push("0.2.97: each mention option's 16px leading glyph is Folder for directories else shared-14 cP(label) (txt File, js Code, md Note, png Image) with no native title; hovering an option >200ms opens a right-side tooltip 8px away with the path ('/' + U+200B), multiline and 360px wide for described options, painted above the popup, closing when the pointer leaves");
 
-  // 6. Payload: text_elements byte range for the mention plus real localImage/mention items, never 'Attached file:'.
+  // 6. Payload: text_elements byte range for the mention plus real localImage/mention items. The fixture reports no
+  // engine, so it is the Codex core, which drops a file mention (composer-attachments-model coreTakesFileMentions):
+  // the attached document's path also travels as one attachment-note text item ahead of the attachment parts.
   const draftText = await editor().evaluate(node=>node.value);
   await page.keyboard.press("Enter");
   await waitCount("turn/start", before + 1);
@@ -583,15 +586,16 @@ try {
   const token = `@${second}`;
   const encoder = new TextEncoder();
   assert.deepEqual(started.input[0].text_elements, [{ byteRange: { start: encoder.encode(draftText.slice(0, draftText.indexOf(token))).length, end: encoder.encode(draftText.slice(0, draftText.indexOf(token) + token.length)).length }, placeholder: null }]);
-  assert.deepEqual(started.input.slice(1).map(item => item.type), ["mention", "localImage", "localImage", "mention"]);
+  assert.deepEqual(started.input.slice(1).map(item => item.type), ["mention", "text", "localImage", "localImage", "mention"]);
+  assert.deepEqual(started.input[2], { type: "text", text: `\n\n[Attached file: ${path.join(workspace, "docs/readme.md")}]`, text_elements: [] }, "the Codex core gets the document path as an attachment note");
   assert.deepEqual(started.input[1], { type: "mention", name: path.basename(second), path: path.join(workspace, second) });
   assert.ok(started.input.some(item => item.type === "localImage" && item.path === path.join(profile, "attachments", metrics.staged)), "pasted image is sent by its staged path");
   assert.ok(started.input.some(item => item.type === "localImage" && item.path === path.join(workspace, "docs/photo.png")));
   assert.deepEqual(started.input.at(-1), { type: "mention", name: "readme.md", path: path.join(workspace, "docs/readme.md") });
-  assert.ok(!JSON.stringify(started.input).includes("Attached file"), "no fabricated text item");
+  assert.equal(started.input.filter(item => JSON.stringify(item).includes("Attached file")).length, 1, "only the one attachment note, never for images or the inline mention");
   assert.equal(await page.locator("[data-cds-attachment]").count(), 0, "attachments clear after send");
   assert.equal(await editor().evaluate(node=>node.value), "");
-  checks.push("turn/start carries the '@path' byte range in text_elements plus {type:'mention'} for it, {type:'localImage'} for the staged/selected images and {type:'mention'} for the chosen document; no 'Attached file:' text and the composer clears");
+  checks.push("turn/start carries the '@path' byte range in text_elements plus {type:'mention'} for it, {type:'localImage'} for the staged/selected images and {type:'mention'} for the chosen document, whose path the Codex core (which drops file mentions) also gets as one '[Attached file: …]' note item; the composer clears");
 
   // 7. Held Enter submits once; key repeat is guarded.
   const beforeRepeat = (await requests("turn/start")).length;
@@ -1052,13 +1056,14 @@ try {
   assert.equal(clamped.value, "First history prompt."); assert.equal(clamped.strip.text, "History 1/2");
   await page.mouse.move(100, 700);
   await page.screenshot({ path: path.join(directory, "prompt-history-light.png") });
-  await page.getByRole("button", { name: "Account menu", exact: true }).click(); await page.getByRole("menuitem", { name: "Dark appearance", exact: true }).click();
+  // The account menu has no appearance row (shared-21 $B); flip html[data-mode] as the theme effect does.
+  await page.evaluate(() => { document.documentElement.dataset.mode = "dark"; });
   await page.waitForFunction(() => document.documentElement.dataset.mode === "dark");
   metrics.historyDark = await historyState();
   assert.equal(metrics.historyDark.strip.text, "History 1/2"); assert.equal(metrics.historyDark.strip.color, metrics.historyDark.strip.muted, "dark text-muted");
   await page.mouse.move(100, 700);
   await page.screenshot({ path: path.join(directory, "prompt-history-dark.png") });
-  await page.getByRole("button", { name: "Account menu", exact: true }).click(); await page.getByRole("menuitem", { name: "Light appearance", exact: true }).click();
+  await page.evaluate(() => { document.documentElement.dataset.mode = "light"; });
   await page.waitForFunction(() => document.documentElement.dataset.mode === "light");
   // Typing ends navigation; the key itself still types.
   await editor().focus();
@@ -1121,6 +1126,13 @@ try {
   const fastStatus = () => page.locator('.sc-chin span[role="status"][aria-live="polite"].sr-only');
   const synthetic = init => page.evaluate(init => { const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }); (document.activeElement || document.body).dispatchEvent(event); return event.defaultPrevented; }, init);
   const readPreferences = async () => JSON.parse(await fs.readFile(path.join(profile, "preferences.json"), "utf8"));
+  // A pick in an open session is that session's own (sessionMetadata[id].model/effort); the Settings default stays.
+  const sessionEffort = async (id, expected) => {
+    for (const end = Date.now() + 5000; ; await page.waitForTimeout(50)) {
+      const prefs = await readPreferences();
+      if (prefs.sessionMetadata?.[id]?.effort === expected || Date.now() > end) return { session: prefs.sessionMetadata?.[id]?.effort, saved: prefs.effort };
+    }
+  };
   metrics.chinEfforts = await page.evaluate(() => document.querySelector(".sc-chin .sc-effort-trigger")?.disabled === false);
   metrics.chinRepeat = await synthetic({ key: "I", code: "KeyI", metaKey: true, shiftKey: true, repeat: true });
   await frames(3);
@@ -1313,6 +1325,10 @@ try {
   await page.screenshot({ path: path.join(directory, "env-folder-recent-menu.png") });
   assert.deepEqual(metrics.folderMenuTwo.rows, [[pickerRepo, "true", pickerRepo, null, false], [workspace, "false", workspace, "Delete", true]]);
   await page.waitForFunction(() => document.activeElement?.closest('[role="menu"]')?.getAttribute("aria-label") === "Working directory");
+  // A pointer-opened root highlights nothing (source-menu.jsx): the first ArrowDown lands on the first row, the next on the recent.
+  assert.equal(await page.locator('[role="menu"] [data-highlighted]').count(), 0, "a click-opened menu starts unhighlighted");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction((dir) => document.querySelector('[role="menu"] [data-highlighted]')?.dataset.recentFolder === dir, pickerRepo);
   await page.keyboard.press("ArrowDown");
   await page.waitForFunction((dir) => document.querySelector('[role="menu"] [data-highlighted]')?.dataset.recentFolder === dir, workspace);
   metrics.dismissVisible = await page.evaluate(() => getComputedStyle(document.querySelector('[role="menu"] [data-highlighted] .sc-recent-dismiss')).opacity);
@@ -1777,6 +1793,151 @@ try {
   assert.equal(metrics.storedAfterSend.includes(`composer-draft:epitaxy-${E}`), false, "a sent draft clears its stored key");
   assert.equal(metrics.storedAfterSend.includes("composer-draft:epitaxy-draft"), true, "the Home draft stays stored");
   checks.push("R05 persisted drafts: 'fixture:complete keep me @fixture-…' (one mention chip) in session E and 'home draft' on Home are stored under composer-draft:epitaxy-<id> / composer-draft:epitaxy-draft; after page.reload() Home shows 'home draft' and E shows its draft with the chip; sending E removes its key while the Home key stays");
+
+  // 20. Purple top tier (c8e04f916 scratch effort.js:59-112/:150-153 accent + glow label, c992c8428 lit.js overlay,
+  // c360a9e1c:5257 mounted only when the last effort is the tier). Runs in idle session E on fixture-1 ("Test model 2",
+  // efforts …, xhigh, max, ultra); the chip tint is a requested local extension (the source chip is plain).
+  const effortChip = () => page.locator(".sc-chin .sc-effort-trigger");
+  const pickModel = async (id, name) => {
+    await editor().focus();
+    await page.keyboard.press("Meta+Shift+KeyI");
+    await modelsMenu().waitFor();
+    await modelsMenu().locator(`[data-model-id="${id}"]`).click();
+    await modelsMenu().waitFor({ state: "detached" });
+    await page.waitForFunction((name) => document.querySelector(".sc-chin .sc-model-trigger")?.textContent.includes(name), name);
+  };
+  const openEffort = async () => {
+    await editor().focus();
+    await page.keyboard.press("Meta+Shift+KeyE");
+    await effortPopover().waitFor();
+    await page.waitForFunction(() => document.activeElement?.matches('[data-cds="ModelSelectorEffort"] input[type="range"]'));
+  };
+  const closeEffort = async () => { await page.keyboard.press("Escape"); await effortPopover().waitFor({ state: "detached" }); };
+  // Settled once the controller is live (canvas sized to device pixels) or has reported no WebGL2 (transition none).
+  const litSettled = () => page.waitForFunction(() => {
+    const ground = document.querySelector('[data-cds="ModelSelectorEffort"] .sc-effort-lit-ground'), canvas = document.querySelector('[data-cds="ModelSelectorEffort"] .sc-effort-lit-field canvas');
+    return !ground || ground.style.transition === "none" || (canvas && canvas.width > 1);
+  });
+  const effortState = () => effortPopover().evaluate((node) => {
+    const swap = node.querySelector(".sc-effort-value > .sc-effort-swap:not([data-leaving])"), plain = node.querySelector(".sc-effort-value > .sc-effort-plain");
+    const label = swap || plain, chip = document.querySelector(".sc-chin .sc-effort-trigger");
+    const probe = document.createElement("span"); probe.style.color = "var(--cds-text-pro)"; node.appendChild(probe); const pro = getComputedStyle(probe).color; probe.remove();
+    const ground = node.querySelector(".sc-effort-lit-ground"), canvas = node.querySelector(".sc-effort-lit-field canvas");
+    const overlay = node.querySelector(".sc-slider-fill > [data-slider-overlay]"), fill = node.querySelector(".sc-slider-fill"), track = node.querySelector(".sc-slider-track");
+    return { pro, text: label.querySelector(".sc-effort-glow")?.textContent ?? label.textContent, color: getComputedStyle(label).color, weight: getComputedStyle(label).fontWeight,
+      accent: label.hasAttribute("data-accent"), plain: !!plain, glows: [...node.querySelectorAll(".sc-effort-value .sc-effort-glow")].filter((glow) => getComputedStyle(glow).display !== "none").map((glow) => glow.dataset.r),
+      swapAnimation: swap ? getComputedStyle(swap).animationName : null,
+      chip: { text: chip.textContent, top: chip.hasAttribute("data-top-tier"), color: getComputedStyle(chip).color, weight: getComputedStyle(chip).fontWeight },
+      atMax: node.querySelector(".sc-slider").hasAttribute("data-at-max"), overlay: !!overlay,
+      ground: ground ? { on: ground.hasAttribute("data-on"), opacity: getComputedStyle(ground).opacity, transition: ground.style.transition } : null,
+      canvas: canvas ? { px: canvas.width, css: Math.round(canvas.getBoundingClientRect().width), track: Math.round(track.getBoundingClientRect().width),
+        rightGap: Math.round(fill.getBoundingClientRect().right - overlay.getBoundingClientRect().right) } : null };
+  });
+  metrics.ultraWebgl2 = await page.evaluate(() => !!document.createElement("canvas").getContext("webgl2"));
+  await pickModel("fixture-1", "Test model 2");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Low");
+  assert.equal(await effortChip().getAttribute("data-top-tier"), null, "Low is not the tier");
+  await openEffort();
+  metrics.ultraLow = await effortState();
+  assert.deepEqual([metrics.ultraLow.overlay, metrics.ultraLow.atMax, metrics.ultraLow.accent, metrics.ultraLow.canvas, metrics.ultraLow.ground?.on],
+    [true, false, false, null, false], "an ultra model mounts the overlay unlit at Low (no canvas until first lit)");
+  assert.notEqual(metrics.ultraLow.color, metrics.ultraLow.pro);
+  // End previews and commits the last stop: accent, data-at-max, the lit ground, the chip and the saved preference.
+  await page.keyboard.press("End");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Ultra");
+  // Ultra is the ultracode tier: it runs for this app session only, so session E's metadata keeps the level under it
+  // (model-menu-model.mjs durableEffort, as Claude Code never persists ultracode); the default stays.
+  assert.deepEqual(await sessionEffort(E, "xhigh"), { session: "xhigh", saved: "low" }, "End runs ultra in session E, saved one level under it; the default stays");
+  await litSettled();
+  await page.waitForTimeout(metrics.ultraWebgl2 ? 800 : 300);
+  metrics.ultraEnd = await effortState();
+  assert.equal(metrics.ultraEnd.text, "Ultra"); assert.equal(metrics.ultraEnd.accent, true); assert.equal(metrics.ultraEnd.atMax, true);
+  assert.equal(metrics.ultraEnd.color, metrics.ultraEnd.pro, "the label paints --cds-text-pro"); assert.equal(metrics.ultraEnd.weight, "500");
+  assert.deepEqual(metrics.ultraEnd.glows, ["0", "0.5", "1", "2"], "four glow layers");
+  assert.deepEqual([metrics.ultraEnd.chip.top, metrics.ultraEnd.chip.color, metrics.ultraEnd.chip.weight], [true, metrics.ultraEnd.pro, "500"], "the chip is tinted");
+  if (metrics.ultraWebgl2) {
+    assert.deepEqual([metrics.ultraEnd.ground.on, metrics.ultraEnd.ground.opacity], [true, "1"], "with WebGL2 the ground lights within 800ms");
+    assert.ok(metrics.ultraEnd.canvas.px > 1); assert.equal(metrics.ultraEnd.canvas.css, metrics.ultraEnd.canvas.track, "the canvas is 100cqw of the track");
+    assert.ok(Math.abs(metrics.ultraEnd.canvas.rightGap) <= 1, "the overlay rides the fill's right edge");
+  } else assert.deepEqual([metrics.ultraEnd.ground.on, metrics.ultraEnd.ground.opacity, metrics.ultraEnd.ground.transition], [false, "0", "none"], "no WebGL2: the ground hides, the slider looks normal");
+  await closeEffort();
+  // Light and dark (the portal copies data-mode at open): reopened at Ultra, the slider is lit from its first render.
+  metrics.ultraModes = {};
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate((mode) => { document.documentElement.dataset.mode = mode; }, mode);
+    await openEffort();
+    await litSettled();
+    await page.waitForTimeout(metrics.ultraWebgl2 ? 900 : 100);
+    const state = await effortState();
+    metrics.ultraModes[mode] = { label: state.color, pro: state.pro, chip: state.chip.color, ground: state.ground };
+    assert.equal(state.color, state.pro, `${mode} label paints --cds-text-pro`); assert.equal(state.chip.color, state.pro, `${mode} chip paints --cds-text-pro`);
+    assert.equal(state.pro, mode === "light" ? "rgb(74, 58, 167)" : "rgb(160, 150, 235)", `${mode} --cds-text-pro is violet ${mode === "light" ? "600" : "300"}`);
+    await page.screenshot({ path: path.join(directory, `effort-ultra-${mode}.png`) });
+    await closeEffort();
+  }
+  await page.evaluate(() => { document.documentElement.dataset.mode = "light"; });
+  // Home: the accent leaves, data-at-max drops and the ground fades out (850ms linear).
+  await openEffort();
+  await page.keyboard.press("Home");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Low");
+  await page.waitForTimeout(1000);
+  metrics.ultraHome = await effortState();
+  assert.deepEqual([metrics.ultraHome.accent, metrics.ultraHome.atMax, metrics.ultraHome.overlay, metrics.ultraHome.ground.on, metrics.ultraHome.ground.opacity, metrics.ultraHome.chip.top],
+    [false, false, true, false, "0", false]);
+  assert.notEqual(metrics.ultraHome.color, metrics.ultraHome.pro);
+  // In-app reduced motion (html[data-reduce-motion=true] + local-motion-change, as main.jsx announces it): the plain label
+  // keeps its colour with no glow layers or animation, and the ground never lights.
+  await page.evaluate(() => { document.documentElement.dataset.reduceMotion = "true"; window.dispatchEvent(new Event("local-motion-change")); });
+  await page.keyboard.press("End");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Ultra");
+  await page.waitForTimeout(900);
+  metrics.ultraReduced = await effortState();
+  assert.deepEqual([metrics.ultraReduced.plain, metrics.ultraReduced.glows, metrics.ultraReduced.accent, metrics.ultraReduced.color === metrics.ultraReduced.pro, metrics.ultraReduced.atMax],
+    [true, [], true, true, true], "reduced motion: plain violet label");
+  assert.deepEqual([metrics.ultraReduced.ground.on, metrics.ultraReduced.ground.opacity, metrics.ultraReduced.ground.transition], [false, "0", "none"], "reduced motion: no ground");
+  await page.evaluate(() => { delete document.documentElement.dataset.reduceMotion; window.dispatchEvent(new Event("local-motion-change")); });
+  await closeEffort();
+  // A model without ultra (the 'fixture' model, low…xhigh) has no overlay and no accent even at its highest level while
+  // Dynamic workflows is off; with workflows on (the default) its top tier is ultracode (xhigh + workflows), checked below.
+  await page.evaluate(() => window.desktop.call("settings", { dynamicWorkflows: false }));
+  await pickModel("fixture", "Test model");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Low");
+  await openEffort();
+  await page.keyboard.press("End");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Extra high");
+  metrics.ultraPlainModel = await effortState();
+  assert.deepEqual([metrics.ultraPlainModel.overlay, metrics.ultraPlainModel.atMax, metrics.ultraPlainModel.accent, metrics.ultraPlainModel.chip.top], [false, false, false, false]);
+  await page.keyboard.press("Home");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Low");
+  await closeEffort();
+  await page.evaluate(() => window.desktop.call("settings", { dynamicWorkflows: true }));
+  await openEffort();
+  await page.keyboard.press("End");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Ultracode");
+  metrics.ultracodeModel = await effortState();
+  assert.deepEqual([metrics.ultracodeModel.atMax, metrics.ultracodeModel.accent, metrics.ultracodeModel.chip.top], [true, true, true], "workflows on: an xhigh model's top tier is ultracode");
+  await page.keyboard.press("Home");
+  await page.waitForFunction(() => document.querySelector(".sc-chin .sc-effort-trigger")?.textContent === "Low");
+  await closeEffort();
+  assert.deepEqual(await sessionEffort(E, "low"), { session: "low", saved: "low" });
+  checks.push("Purple top tier: on fixture-1 (…, max, ultra) the effort popover mounts span[data-slider-overlay] inside .sc-slider-fill unlit at Low; End saves effort 'ultra' as the session's own (sessionMetadata), the label 'Ultra' paints --cds-text-pro at weight 500 with four glow layers, the slider gets data-at-max, the chin chip gets data-top-tier in --cds-text-pro/500; with WebGL2 the lit ground reaches opacity 1 and the canvas spans the track (100cqw) on the fill's right edge, without it the ground hides (transition none); reopened in light and dark --cds-text-pro is rgb(74, 58, 167) / rgb(160, 150, 235) on label and chip (screenshots); Home removes the accent and fades the ground to 0; in-app reduced motion shows a plain violet label with no glow and no ground; the 'fixture' model (low…xhigh) has no overlay or accent at Extra high");
+
+  // Fast typing on the Codex core: while React's draft lags the keystrokes, the editor keeps what was typed (a stale
+  // value prop is an older copy of its own text, not an outside change), so no character is lost and no
+  // "Maximum update depth exceeded" (#185) reaches the renderer. 200+ characters with the ultracode keyword.
+  await fillComposer(page, editor(), "");
+  await editor().focus();
+  const fastText = ("ultracode " + "The quick brown fox jumps over the lazy dog and keeps typing. ".repeat(4)).trimEnd() + " ENDCALL";
+  assert.ok(fastText.length >= 200, "the fast-typing prompt is at least 200 characters");
+  const errorsBeforeFast = rendererErrors.length;
+  await page.keyboard.type(fastText);
+  await page.waitForFunction((text) => document.querySelector('[data-cds="ChatComposerEditor"]').value === text, fastText);
+  await frames(6);
+  metrics.fastTyping = { length: fastText.length, value: await editor().evaluate((node) => node.value) };
+  assert.equal(metrics.fastTyping.value, fastText, "no typed character is lost");
+  assert.deepEqual(rendererErrors.slice(errorsBeforeFast), [], "fast typing raises no renderer error");
+  await fillComposer(page, editor(), "");
+  checks.push(`Fast typing: ${fastText.length} characters typed straight into the Codex composer all arrive (ending in 'ENDCALL') with no renderer error such as React #185`);
 
   await open(A, `${A}-answer-0`);
   await page.screenshot({ path: path.join(directory, "verified.png") });

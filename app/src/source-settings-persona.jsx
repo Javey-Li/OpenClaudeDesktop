@@ -4,7 +4,7 @@ import { SourceSettingsButton } from './source-settings-button.jsx';
 import { SourceSegments } from './source-segments.jsx';
 import { PersonaSparkGlyph } from './source-spark.jsx';
 import { assistantNameError, normalizePersona, personaGreetingError, PERSONA_DEFAULT, ASSISTANT_NAME_MAX, GREETING_MAX } from '../electron/prefs/persona.mjs';
-import { t } from '../electron/i18n/index.mjs';
+import { getAssistantName, t } from '../electron/i18n/index.mjs';
 import './source-profile-setting.css';
 import './persona-settings.css';
 
@@ -111,13 +111,15 @@ export function personaGroup({ config = {}, onSave, desktopCall }) {
   const row = (id, label, description, control, below) => ({ id, label, description, control, below });
   return { tab: 'preferences', title: 'Persona', rows: [
     row('persona-name', t('Assistant name'), t('Shown in approval titles, notifications and the transcript.'), null,
-      <PersonaTextField label={t('Assistant name')} value={persona.assistantName} placeholder="DeepSeek" maxLength={ASSISTANT_NAME_MAX}
+      <PersonaTextField label={t('Assistant name')} value={persona.assistantName} placeholder={getAssistantName()} maxLength={ASSISTANT_NAME_MAX}
         validate={assistantNameError} onSave={saveField('assistantName')} />),
     row('persona-greeting', t('Home greeting'), t('The heading on the home page.'), null,
       <PersonaTextField label={t('Home greeting')} value={persona.greeting} placeholder={t('What’s up next, {name}?')} maxLength={GREETING_MAX}
         validate={personaGreetingError} onSave={saveField('greeting')}
         help={<>{t('Use')} <code>{'{name}'}</code> {t('for your first name. Leave empty for the default greeting.')}</>} />),
-    row('persona-icon', t('Assistant icon'), t('Replaces the spark in the sidebar, the home page and while it works.'),
+    // The picker is wider than a compact control, so it sits in the row's below slot (shared-21 Av) like the text
+    // fields above it, and the description keeps the full row width.
+    row('persona-icon', t('Assistant icon'), t('Replaces the spark in the sidebar, the home page and while it works.'), null,
       <PersonaIconControl persona={persona} onSave={savePersona} desktopCall={desktopCall} />),
     row('persona-reset', t('Reset persona'), t('Restore the default name, greeting and icon.'),
       <ResetPersonaButton persona={persona} onSave={savePersona} />),

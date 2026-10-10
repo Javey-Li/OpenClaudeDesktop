@@ -26,7 +26,7 @@ test('device code and launch failures retain cancellable attempt, retry opens th
  f.service.observe({method:'account/login/completed',params:{loginId:'device',success:false,error:'Code expired'}});await tick();assert.equal(f.service.snapshot().error,'Code expired');assert.equal(f.accounts.length,0);await f.service.start('chatgptDeviceCode');await f.service.cancel();assert.deepEqual(f.calls.at(-1),{method:'account/login/cancel',params:{loginId:'device'}});assert.equal(f.service.snapshot().login,null);
 });
 test('duplicate starts and unsafe URLs cannot open another flow; invalid URL still allows real-id cancellation',async()=>{
- const f=fixture();f.setHandler(async method=>method==='account/login/cancel'?{status:'canceled'}:{type:'chatgpt',loginId:'bad-url',authUrl:'javascript:alert(1)'});await assert.rejects(f.service.start(),/Invalid sign-in URL/);assert.equal(f.opened.length,0);await assert.rejects(f.service.start(),/Finish or cancel/);await f.service.cancel();assert.equal(f.service.snapshot().phase,'idle');await assert.rejects(f.service.start('apiKey'),/Unsupported/);
+ const f=fixture();f.setHandler(async method=>method==='account/login/cancel'?{status:'canceled'}:{type:'chatgpt',loginId:'bad-url',authUrl:'javascript:alert(1)'});await assert.rejects(f.service.start(),/Invalid sign-in URL/);assert.equal(f.opened.length,0);await assert.rejects(f.service.start(),/Finish or cancel/);await f.service.cancel();assert.equal(f.service.snapshot().phase,'idle');await assert.rejects(f.service.start('apiKey'),/valid API key/);
 });
 test('cancel notFound reconciles an already completed login; a late old completion cannot clear a newer attempt',async()=>{
  const f=fixture(),wait=deferred();await f.service.start();f.setHandler(async method=>method==='account/login/cancel'?wait.promise:{account:null,requiresOpenaiAuth:true});const run=f.service.cancel();f.service.observe({method:'account/login/completed',params:{loginId:'login-1',success:true}});wait.resolve({status:'notFound'});await run;assert.equal(f.accounts.length,1);assert.equal(f.service.snapshot().phase,'idle');
@@ -50,4 +50,16 @@ test('a completion received while cancellation fails remains authoritative; notF
 });
 test('explicit refresh persists errors across settings remounts and clears them after successful retry',async()=>{
  const f=fixture();f.setHandler(async()=>{throw Error('Refresh failed');});await assert.rejects(f.service.run({operation:'refresh'}),/Refresh failed/);assert.equal(f.service.snapshot().error,'Refresh failed');assert.equal(f.service.snapshot().phase,'idle');f.setHandler(async()=>({account:null,requiresOpenaiAuth:true}));await f.service.run({operation:'refresh'});assert.equal(f.service.snapshot().error,'');assert.equal(f.service.accountSnapshot().account,null);
+});
+test('a sign-in the agent opened itself opens no second tab; a pasted code goes to the pending sign-in',async()=>{
+ const f=fixture();f.setHandler(async(method)=>method==='account/login/start'?{type:'chatgpt',loginId:'mimo-1',authUrl:'https://platform.example.test/authorize',codeDesktop:{openedByAgent:true,acceptsCode:true}}
+  :method==='codeDesktop/login/code'?{status:'completed'}:{account:{type:'apiKey'},requiresOpenaiAuth:false});
+ await f.service.start('chatgpt',{codeDesktop:{provider:'xiaomi'}});
+ assert.deepEqual(f.opened,[],'MiMo opened its own tab');
+ assert.equal(f.service.snapshot().login.openedByAgent,true);assert.equal(f.service.snapshot().login.acceptsCode,true);
+ await assert.rejects(f.service.run({operation:'code',code:'  '}),/Paste/);
+ await f.service.run({operation:'code',code:' abc123 '});
+ assert.deepEqual(f.calls.at(-1),{method:'codeDesktop/login/code',params:{loginId:'mimo-1',code:'abc123'}});
+ // Reopening the sign-in page still works (the manual page).
+ await f.service.reopen();assert.deepEqual(f.opened,['https://platform.example.test/authorize']);
 });

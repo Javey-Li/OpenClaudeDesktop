@@ -1,8 +1,12 @@
+import { registerCodexPack } from './codex-pack.mjs';
+registerCodexPack();
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { accountIdentity, accountMenuLines, accountOrgLine, connectionMenuHeader } from "../src/account-label-model.mjs";
+import { setAssistantName } from "../electron/i18n/index.mjs";
+import { coreName } from "../electron/core-registry.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -21,6 +25,13 @@ test("account menu org line: 'DeepSeek API · API key' for a key account, never 
 
 // R02, shared-21 IO (sidebar-rows.js:8597-8613): identity = principal name || provider label; with a
 // principal the org line is label (+ subtitle), without one it is the subtitle alone.
+test("the DeepSeek core on custom providers only is labelled 'Custom provider', not 'DeepSeek API'", () => {
+  const custom = { account: { type: "apiKey" }, deepseek: { apiKey: { configured: false } } };
+  assert.deepEqual(accountMenuLines(custom, "deepseek"), { orgPrimary: "Custom provider", orgSecondary: "API key" });
+  assert.equal(accountMenuLines({ ...custom, deepseek: { apiKey: { configured: true, source: "env" } } }, "deepseek").orgPrimary, "DeepSeek API");
+  assert.equal(accountMenuLines({ ...custom, deepseek: { apiKey: { configured: false }, platform: "credential-stored" } }, "deepseek").orgPrimary, "DeepSeek API");
+});
+
 test("account identity: the preferred name with 'DeepSeek API' (· API key), else the provider label itself", () => {
   const key = { account: { type: "apiKey" }, requiresOpenaiAuth: false };
   assert.deepEqual(accountIdentity("Ada Lovelace", key), { identity: "Ada Lovelace", orgPrimary: "DeepSeek API", orgSecondary: "API key" });
@@ -44,7 +55,7 @@ test("the Connection settings header names the running core", () => {
 
 test("main.jsx renders the IO identity in the header and footer, with no 'Local user' fallback", async () => {
   const main = await fs.readFile(path.join(root, "src/main.jsx"), "utf8");
-  assert.match(main, /const accountLines = accountIdentity\(displayName, boot\?\.account\);\s*const accountLabel = accountLines\.orgPrimary \?\? "";/);
+  assert.match(main, /const accountLines = accountIdentity\(displayName, boot\?\.account, boot\?\.core \|\| boot\?\.config\?\.core \|\| undefined\);\s*const accountLabel = accountLines\.orgPrimary \?\? "";/);
   assert.match(main, /data-testid="user-menu-header">\{accountLines\.identity\}</);
   assert.match(main, /\{accountLines\.orgPrimary && <span className="smenu-header-line smenu-header-secondary" data-testid="user-menu-header-org">\{accountOrgLine\(accountLines\)\}<\/span>\}/);
   assert.match(main, /displayName=\{accountLines\.identity\}\s+accountLabel=\{accountLabel\}/);
@@ -65,13 +76,32 @@ test("account menu: 17rem popup, DeepSeek key row, View changelog, Learn more ho
   assert.ok(css.indexOf(".smenu-popup.account-menu {") < css.indexOf(".smenu-popup.smenu-sheet {"), "the coarse sheet keeps its full width");
   const main = await fs.readFile(path.join(root, "src/main.jsx"), "utf8");
   const account = main.slice(main.indexOf('case "account":'), main.indexOf('case "connection":'));
-  const order = ['t("Settings")}</SourceMenu.Item>', 't("Usage")}</SourceMenu.Item>', 'appearance")}', 't("DeepSeek API key")}</SourceMenu.Item>', "<SourceMenu.Separator />",
+  const order = ['t("Settings")}</SourceMenu.Item>', 't("Usage")}</SourceMenu.Item>', 't("Language")}</SourceMenu.Item>', 't("DeepSeek API key")}</SourceMenu.Item>', "<SourceMenu.Separator />",
     't("View changelog")}</SourceMenu.Item>', '<SourceMenu.SubmenuTrigger icon="Info">{t("Learn more")', 't("Keyboard shortcuts")}</SourceMenu.Item>'].map((needle) => account.indexOf(needle));
   assert.ok(order.every((index) => index > 0), `every item present: ${order}`);
-  assert.deepEqual([...order].sort((a, b) => a - b), order, "Settings, Usage, appearance, key row, separator, View changelog, Learn more › Keyboard shortcuts");
+  assert.deepEqual([...order].sort((a, b) => a - b), order, "Settings, Usage, Language, key row, separator, View changelog, Learn more › Keyboard shortcuts");
+  // sidebar-rows.js:16140-16460 has no appearance item: Light / Dark / System lives in Settings › Theme.
+  assert.doesNotMatch(account, /appearance"\)/, "no invented Dark / Light appearance item");
   assert.match(account, /\{boot\?\.account\?\.deepseek && <SourceMenu\.Item icon="Key" data-testid="user-menu-deepseek-key" onClick=\{\(\) => setSettings\("preferences"\)\}>\{t\("DeepSeek API key"\)/);
   assert.match(account, /<SourceMenu\.Item icon="Scroll" onClick=\{\(\) => setWhatsNew\(true\)\}>\{t\("View changelog"\)/);
   assert.match(account, /<SourceMenu\.Popup label=\{t\("Learn more"\)\} className="account-learn-more">[\s\S]*<SourceMenu\.Item shortcut=\{SHORTCUTS_DIALOG_KEYS\} onClick=\{\(\)=>setActionDialog\(\{kind:"shortcuts"\}\)\}>\{t\("Keyboard shortcuts"\)/);
   assert.doesNotMatch(account, /icon="Keyboard"/, "Keyboard shortcuts left the top level");
   assert.doesNotMatch(account, /https?:\/\//, "no invented Learn more URLs");
+});
+
+// Before boot (init waits for the core to connect) no core is passed: the label is the window's own core
+// (the first-paint assistant name), so a Kimi or Codex window never reads "DeepSeek API" while its core starts.
+test("without a reported core the account label names the window's core, not 'DeepSeek API'", () => {
+  try {
+    setAssistantName("Kimi");
+    assert.deepEqual(accountIdentity("", undefined, undefined), { identity: coreName("kimi"), orgPrimary: null, orgSecondary: null });
+    assert.notEqual(coreName("kimi"), "DeepSeek API");
+    assert.equal(accountMenuLines(null).orgPrimary, coreName("kimi"));
+    setAssistantName("Codex");
+    assert.equal(accountIdentity("", null).identity, coreName("codex"));
+    // A reported core still wins over the window's.
+    assert.equal(accountMenuLines({ account: { type: "apiKey" } }, "deepseek").orgPrimary, "DeepSeek API");
+    setAssistantName("DeepSeek");
+    assert.equal(accountIdentity("", undefined).identity, "DeepSeek API");
+  } finally { setAssistantName("DeepSeek"); }
 });

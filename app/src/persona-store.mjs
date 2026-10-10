@@ -4,6 +4,7 @@
 // Visible copy only: accessible names ("Message DeepSeek", ...) never read it.
 import { normalizePersona, PERSONA_DEFAULT } from '../electron/prefs/persona.mjs';
 import { greetingName, greetingText } from './home-model.mjs';
+import { getAssistantName } from '../electron/i18n/index.mjs';
 
 export const DEFAULT_ASSISTANT_NAME = 'DeepSeek';
 let persona = PERSONA_DEFAULT;
@@ -22,7 +23,8 @@ export function subscribe(listener) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
-export function assistantName() { return persona.assistantName || DEFAULT_ASSISTANT_NAME; }
+// Without a custom name: the running core's assistant ("DeepSeek", "Codex", … — i18n getAssistantName).
+export function assistantName() { return persona.assistantName || getAssistantName() || DEFAULT_ASSISTANT_NAME; }
 
 /** Escape a name for use inside a RegExp source. */
 export function escapeRegExp(text) { return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

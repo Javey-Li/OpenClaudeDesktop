@@ -9,6 +9,11 @@
   --app-ink: var(--cds-text-primary);
   --app-muted: var(--cds-text-muted);
   --app-line: var(--cds-border);
+  /* Claude ships no --cds-font-code: every path and code block renders in the
+     design-system mono chain (design-system.css:206 --font-anthropic-mono,
+     surfaced as --cds-font-mono). Local rules that read --cds-font-code get
+     that same chain; a user Code font overrides both on the root inline. */
+  --cds-font-code: var(--cds-font-mono);
   font-family: var(--cds-font-sans, anthropic-sans), sans-serif;
   color: var(--app-ink);
   background: var(--app-bg);
@@ -189,6 +194,14 @@ textarea:focus {
 }
 .mode-switch > [aria-checked="false"] {
   opacity: 0.7;
+}
+/* shared-7 SR segment: transition-shadow duration-fast focus-visible:shadow-focus (never the browser outline). */
+.mode-switch > button {
+  outline: none;
+  transition: box-shadow var(--cds-dur-fast);
+}
+.mode-switch > button:focus-visible {
+  box-shadow: var(--cds-focus-shadow);
 }
 .dframe-sidebar-body {
   flex: 1;

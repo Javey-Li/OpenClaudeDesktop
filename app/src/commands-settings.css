@@ -1,7 +1,10 @@
 /* Settings › Commands (C3). Built on the CDS tokens, so light and dark follow the theme. */
 .ccmd-page { display:contents; }
 .ccmd-actions { display:flex; align-items:center; justify-content:flex-end; gap:var(--cds-gap-xs, 4px); flex-wrap:wrap; }
-.ccmd-path { font-family:var(--cds-font-mono); font-size:var(--cds-font-size-footnote, 12px); overflow-wrap:anywhere; }
+/* One path treatment across Settings (c71860c77 folder rows: the path is its own `block break-all` line in muted body
+   type, ~-abbreviated); status and extra facts go in the control slot as .ss-control-status. */
+.ccmd-path, .ss-path { display:block; min-width:0; color:var(--cds-text-muted); word-break:break-all; }
+.ss-control-status { color:var(--cds-text-secondary); font-size:var(--cds-font-size-footnote, 12px); line-height:16px; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .ccmd-muted { color:var(--cds-text-muted); }
 .ccmd-hint { color:var(--cds-text-muted); font-family:var(--cds-font-mono); font-size:var(--cds-font-size-footnote, 12px); }
 .ccmd-badge { display:inline-flex; align-items:center; height:20px; padding:0 6px; border-radius:var(--cds-radius--xs, 4px); background:var(--cds-alpha-1, var(--cds-fill-secondary)); color:var(--cds-text-secondary); font-size:var(--cds-font-size-footnote, 12px); white-space:nowrap; }

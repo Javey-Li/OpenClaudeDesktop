@@ -246,10 +246,17 @@ try {
   assert.equal(await target.locator(".stf-toolbar").getAttribute("aria-label"), "Message actions");
   assert.equal(await target.locator(".stf-toolbar").getAttribute("tabindex"), "-1");
   assert.equal(await target.getByRole("button", { name: "Copy", exact: true }).count(), 1);
+  // Roving focus (turnFooterKeyIndex, wrapping) over Copy and, where offered, Fork from here and the ratings.
+  const rovers = await target.evaluate(node => [...node.querySelectorAll(".stf-toolbar button:not(:disabled)")].map(button => button.getAttribute("aria-label")));
+  assert.equal(rovers[0], "Copy");
+  let rover = 0;
   for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
     await page.keyboard.press(key);
-    assert.equal(await target.evaluate(node => node.querySelector(".stf-copy") === document.activeElement), true, `${key} stays in the one-button toolbar`);
+    rover = key === "Home" ? 0 : key === "End" ? rovers.length - 1 : (rover + (key === "ArrowRight" ? 1 : -1) + rovers.length) % rovers.length;
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), rovers[rover], `${key} roves to ${rovers[rover]}`);
   }
+  await page.keyboard.press("Home");
+  assert.equal(await target.evaluate(node => node.querySelector(".stf-copy") === document.activeElement), true, "Home returns to Copy");
   metrics.geometry = await target.evaluate(node => {
     const button = node.querySelector(".stf-copy"), toolbar = node.querySelector(".stf-toolbar");
     const style = getComputedStyle(button), toolbarStyle = getComputedStyle(toolbar);
@@ -323,7 +330,7 @@ try {
     return viewport?.closest(".source-transcript-frame")?.dataset.following === "true"
       && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2;
   });
-  const copyPoint = await target.locator(".stf-copy").evaluate(button => {
+  const copyPoint = await target.getByRole("button", { name: "Copy", exact: true }).evaluate(button => {
     const rect = button.getBoundingClientRect(), viewport = button.closest(".transcript").getBoundingClientRect();
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2,
       fullyVisible: rect.top >= viewport.top && rect.bottom <= viewport.bottom && rect.left >= viewport.left && rect.right <= viewport.right };
@@ -388,7 +395,7 @@ try {
   assert.equal(await page.locator(".stf-status").filter({ hasText: /^Copied$/ }).count(), 0);
   await open(A);
   await target.hover();
-  await target.locator(".stf-copy").waitFor();
+  await target.getByRole("button", { name: "Copy", exact: true }).waitFor();
   assert.equal(await target.locator(".stf-status").textContent(), "");
   await restoreWrite();
   checks.push("Held clipboard completions cannot mark replaced turn text, a different session, or a newly mounted original session as Copied");

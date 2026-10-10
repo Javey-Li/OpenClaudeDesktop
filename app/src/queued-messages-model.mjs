@@ -30,12 +30,27 @@ export function queueFromList(response, threadId = null, previous = emptyQueue(t
   return { threadId, entries, lockedIds: previous.lockedIds.filter((id) => ids.has(id)), revision: previous.revision + 1 };
 }
 
+// A steer's own words, whitespace-collapsed (its text parts without hidden reminders): what a core that doesn't echo
+// clientUserMessageId shows in its userMessage item. "" when the steer has no text.
+export function steerInputText(input = []) {
+  return (Array.isArray(input) ? input : []).filter((item) => item?.type === "text" && typeof item.text === "string")
+    .map((item) => item.text.replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/g, "")).join(" ").replace(/\s+/g, " ").trim();
+}
+/** How many userMessage items without a clientId carry `text` (steerInputText of their content). */
+export function steerTextCount(items, text) {
+  if (!text || !Array.isArray(items)) return 0;
+  let count = 0;
+  for (const item of items) if (item?.type === "userMessage" && !item.clientId && steerInputText(item.content) === text) count++;
+  return count;
+}
+
 // Official ep: text parts joined by a space, images become "[Image]", empty → "…".
 export function previewText(input = []) {
   const parts = [];
   for (const item of input) {
     if (!item || typeof item !== "object") continue;
-    if (item.type === "text" && typeof item.text === "string") parts.push(item.text);
+    // A hidden workflow reminder (the "ultracode" keyword's, electron/workflow-reminders.mjs) is not the user's words.
+    if (item.type === "text" && typeof item.text === "string") parts.push(item.text.replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/g, ""));
     else if (item.type === "mention" || item.type === "skill") parts.push(`@${item.name ?? item.path ?? ""}`);
     else if (item.type === "image" || item.type === "localImage") parts.push(t("[Image]"));
   }
@@ -107,7 +122,8 @@ export function lastDequeueable(queue) {
 export function editableDraft(entry) {
   const input = entry?.input || [];
   const skill = input.find((item) => item?.type === "skill" && typeof item.name === "string" && item.name);
-  const body = input.filter((item) => item?.type === "text").map((item) => item.text).join("\n");
+  // The keyword's hidden reminder stays out of the editable text (the keyword in the text brings it back on send).
+  const body = input.filter((item) => item?.type === "text" && !(typeof item.text === "string" && item.text.startsWith("<system-reminder>"))).map((item) => item.text).join("\n");
   const text = skill ? `/${skill.name}${body ? ` ${body}` : " "}` : body;
   const attachments = input.filter((item) => item?.type === "localImage" || item?.type === "mention");
   return { text, attachments };

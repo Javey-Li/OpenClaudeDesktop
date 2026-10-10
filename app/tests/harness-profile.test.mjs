@@ -1,3 +1,5 @@
+import { registerCodexPack } from './codex-pack.mjs';
+registerCodexPack();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -222,6 +224,18 @@ test('main: cold start reports the configured core; overlaySuspect only when ove
   assert.equal((await f.harness.run({ op: 'read' })).overlaySuspect, false, 'not with overlays off');
   f.env.CODE_DESKTOP_CORE = 'codex';
   assert.equal((await f.harness.run({ op: 'read' })).configuredEngine, 'codex');
+  // Every other core reports its own id (never 'deepseek'), so a ZCode or OpenCode that is down doesn't get the
+  // DeepSeek Harness profile editor; an unknown id starts the built-in core, like codex.cjs chosenCore.
+  for (const id of ['zcode', 'opencode', 'mimo', 'kimi']) {
+    f.env.CODE_DESKTOP_CORE = id;
+    assert.equal((await f.harness.run({ op: 'read' })).configuredEngine, id, id);
+  }
+  f.env.CODE_DESKTOP_CORE = 'no-such-core';
+  assert.equal((await f.harness.run({ op: 'read' })).configuredEngine, 'deepseek');
+  delete f.env.CODE_DESKTOP_CORE;
+  f.state.config = { harnessProfile: { overlayEnabled: false }, core: 'zcode' };
+  assert.equal((await f.harness.run({ op: 'read' })).configuredEngine, 'zcode', 'Settings › Cores choice');
+  f.env.CODE_DESKTOP_CORE = 'codex';
   f.env.CODEX_BINARY = '/fixture/server';
   assert.equal((await f.harness.run({ op: 'read' })).configuredEngine, 'override');
   // First launch ever with a bad overlay: no recorded start, so it is suspect.
@@ -280,7 +294,7 @@ test('Settings › Harness page: Codex notice, unsupported notice, groups, Requi
     const { SourceHarnessSettings } = await server.ssrLoadModule('/src/source-settings-harness.jsx');
     const page = (props) => render(React.createElement(SourceHarnessSettings, { config: {}, boot: { connected: true }, engine: 'deepseek', busy: false,
       desktopCall: async () => ({}), onSave: async () => ({}), onReconnect: async () => {}, ...props }));
-    assert.match(page({ engine: 'codex' }), /apply with the DeepSeek core/);
+    assert.match(page({ engine: 'codex' }), /apply with DeepSeek Harness/);
     assert.match(page({ initialState: { connected: true, unsupported: true } }), /doesn’t report its Harness profile/);
     const state = {
       connected: true, pending: true, overlayEnabled: true, paths: { userExists: false },
@@ -318,7 +332,13 @@ test('Settings › Harness page: Codex notice, unsupported notice, groups, Requi
     assert.match(coldHtml, /didn’t start with your profile changes/);
     for (const label of ['Restart without overlay', 'Reset overlay', 'Use overlays']) assert.ok(coldHtml.includes(label), label);
     assert.ok(coldHtml.includes('>Profile</h3>'));
-    assert.match(page({ engine: 'codex', boot: { connected: false }, initialState: { ...cold, configuredEngine: 'codex' } }), /apply with the DeepSeek core/);
+    assert.match(page({ engine: 'codex', boot: { connected: false }, initialState: { ...cold, configuredEngine: 'codex' } }), /apply with DeepSeek Harness/);
+    // A bridge core that is down (main reports its id) gets the notice, never the DeepSeek profile editor or its recovery.
+    for (const id of ['zcode', 'opencode', 'mimo']) {
+      const down = page({ engine: 'codex', boot: { connected: false }, initialState: { ...cold, configuredEngine: id } });
+      assert.match(down, /apply with DeepSeek Harness/, id);
+      assert.equal(down.includes('didn’t start with your profile changes'), false, id);
+    }
     assert.match(page({ engine: 'codex', boot: { connected: false } }), /Loading the Harness profile/);
     // Bundle buttons name their bundle.
     assert.match(html, /aria-label="Show plugins in @deepseek-ai\/dsh-base"/);

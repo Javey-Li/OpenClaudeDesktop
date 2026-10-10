@@ -10,6 +10,7 @@ import {createHash} from 'node:crypto';
 // old /unknown-command draft left selected, not deleted; r3: 'First message' fill after /usage left the composer
 // empty and Send disabled); real Meta+A/Backspace + insertText, awaited on the serialized value, is what PM observes.
 import {fillComposer} from './composer-test-helpers.mjs';
+import {chooseSetting} from './select-test-helpers.mjs';
 const root=path.resolve(import.meta.dirname,'..'),evidence=path.resolve(root,'../analysis/functions-20260920');
 await fs.mkdir(evidence,{recursive:true});
 const profile=await fs.mkdtemp(path.join(evidence,'actions-ui-')),workspace=path.join(profile,'repo');await fs.mkdir(workspace);
@@ -63,17 +64,22 @@ try{
  const region=shortcuts.getByRole('region',{name:'Keyboard shortcuts',exact:true});
  report.shortcutsDialog.content=await shortcuts.evaluate(n=>({focus:document.activeElement===n,width:n.getBoundingClientRect().width,sections:[...n.querySelectorAll('.shortcuts-section')].map(x=>x.textContent),
   changes:[...n.querySelectorAll('[data-command=changes] kbd')].map(k=>(k.querySelector('[aria-hidden="true"]')??k).textContent),density:n.closest('[data-density]')?.dataset.density,header:getComputedStyle(n.querySelector('.sdlg-bleed-header')).height}));
- assert.deepEqual(report.shortcutsDialog.content,{focus:true,width:520,sections:['General','Panes','Composer'],changes:['⇧','⌘','D'],density:'comfortable',header:'48px'});
+ assert.deepEqual(report.shortcutsDialog.content,{focus:true,width:520,sections:['General','Panes','Split view','Composer'],changes:['⇧','⌘','D'],density:'comfortable',header:'48px'});
  assert.equal(await region.getAttribute('tabindex'),'0');
  // R01 (shared-21-D098Wd--.js zR :15017-15060, :15173-15178, :15200-15206): every bound chord has its row, in zR order.
  report.shortcutsDialog.rows=await shortcuts.evaluate(n=>[...n.querySelectorAll('.shortcuts-row')].map(row=>[row.dataset.command,row.querySelector('.shortcuts-label').textContent,[...row.querySelectorAll('kbd')].map(k=>(k.querySelector('[aria-hidden="true"]')??k).textContent).join('')]));
  const dialogRow=command=>report.shortcutsDialog.rows.find(row=>row[0]===command);
  assert.deepEqual(['close-session','reopen-closed','jump-session','archive-session','transcript-view','file-list'].map(dialogRow),[
   ['close-session','Close tab, pane, or session','⌘W'],['reopen-closed','Reopen closed session','⇧⌘T'],['jump-session','Jump to session','⌘1…9'],
-  ['archive-session','Archive session','⇧⌘⌫'],['transcript-view','Transcript view','⌃O'],['file-list','Toggle file list in changes or files','⇧⌘Y']]);
+  ['archive-session','Archive session','⇧⌘⌫⌥⌘A'],['transcript-view','Transcript view','⌃O'],['file-list','Toggle file list in changes or files','⇧⌘Y']]);
+ // :15157-15170 jumpPrevPrompt / jumpNextPrompt (⌥⌘↑ / ⌥⌘↓) follow the session rows, before Stop.
  const general=report.shortcutsDialog.rows.map(row=>row[0]);
- assert.deepEqual(general.slice(general.indexOf('new-session'),general.indexOf('stop')+1),['new-session','close-session','reopen-closed','next-session','previous-session','jump-session','archive-session','transcript-view','stop']);
+ assert.deepEqual(general.slice(general.indexOf('new-session'),general.indexOf('stop')+1),['new-session','new-session-current','close-session','reopen-closed','next-session','previous-session','jump-session','archive-session','transcript-view','pin-session','rename-session','unread-session','fork-session','jump-prev-prompt','jump-next-prompt','stop']);
  assert.deepEqual(general.slice(general.indexOf('changes'),general.indexOf('files')+1),['changes','file-list','files']);
+ // The terminal (⌃` / ⌘J), File › New Session with Current Settings (⇧⌘N) and View › Split View chords (⌃⌘\ ⌃] ⌃[ ⌃⌘W) are listed with their caps.
+ assert.deepEqual(['new-session-current','terminal','split-new-right','split-focus-next','split-focus-previous','split-close'].map(dialogRow),[
+  ['new-session-current','New session with current settings','⇧⌘N'],['terminal','Toggle terminal','⌃`⌘J'],['split-new-right','New session on the right','⌃⌘\\'],
+  ['split-focus-next','Focus next split view','⌃]'],['split-focus-previous','Focus previous split view','⌃['],['split-close','Close split view','⌃⌘W']]);
  await page.keyboard.press('Tab');assert.equal(await shortcuts.getByRole('button',{name:'Close',exact:true}).evaluate(n=>n===document.activeElement),true);
  await page.keyboard.press('Tab');assert.equal(await region.evaluate(n=>n===document.activeElement&&getComputedStyle(n).boxShadow!=='none'),true,'the region takes focus with the focus shadow');
  await page.keyboard.press('Tab');assert.equal(await shortcuts.getByRole('button',{name:'Close',exact:true}).evaluate(n=>n===document.activeElement),true,'Tab is trapped in the dialog');
@@ -110,14 +116,14 @@ try{
  let db=JSON.parse(await fs.readFile(path.join(profile,'action-fixture.json')));assert.equal(db.threads[original].turns.length,2);assert.equal(db.threads[fork].turns.length,4);assert.equal(db.threads[fork].turns[2].items[0].content[0].text,'Forked test');
  report.checks.push('fork gets new persisted ID, copies history, and subsequent messages leave source unchanged');
  await page.getByRole('button',{name:'Session options',exact:true}).click();await page.getByRole('menuitem',{name:'Review code',exact:true}).click();
- await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor();report.reviewDialog=await dialogPaint('Review code');assert.equal(report.reviewDialog.closeButtons,1);await page.getByRole('combobox',{name:'Review target'}).selectOption('baseBranch');await page.getByLabel('Base branch',{exact:true}).fill('--help');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('alert').filter({hasText:'Invalid Git reference'}).waitFor();assert.equal((await trace()).filter(m=>m.method==='review/start').length,0);
+ await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor();report.reviewDialog=await dialogPaint('Review code');assert.equal(report.reviewDialog.closeButtons,1);await chooseSetting(page,'Review target','baseBranch');await page.getByLabel('Base branch',{exact:true}).fill('--help');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('alert').filter({hasText:'Invalid Git reference'}).waitFor();assert.equal((await trace()).filter(m=>m.method==='review/start').length,0);
  await page.getByLabel('Base branch',{exact:true}).fill('main');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
  await page.getByRole('button').filter({hasText:'Review result'}).click();await page.getByText('ACTION_REVIEW_RESULT: no issues in the isolated fixture.',{exact:true}).waitFor();await page.screenshot({path:path.join(profile,'review-result.png')});
  const review=(await trace()).find(m=>m.method==='review/start');assert.deepEqual(review.params.target,{type:'baseBranch',branch:'main'});assert.equal(review.params.delivery,'inline');
  report.checks.push('titlebar Review UI validates references and dispatches inline base-branch review; review result rendered');
  await command('/review');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
  assert.equal((await trace()).filter(m=>m.method==='review/start').at(-1).params.target.type,'uncommittedChanges');
- await command('/review');await page.getByRole('combobox',{name:'Review target'}).selectOption('commit');await page.getByRole('textbox',{name:'Commit',exact:true}).fill('HEAD');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
+ await command('/review');await chooseSetting(page,'Review target','commit');await page.getByRole('textbox',{name:'Commit',exact:true}).fill('HEAD');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
  const expectedSha=execFileSync('git',['-C',workspace,'rev-parse','HEAD'],{encoding:'utf8'}).trim();assert.deepEqual((await trace()).filter(m=>m.method==='review/start').at(-1).params.target,{type:'commit',sha:expectedSha});
  report.checks.push('uncommitted review and commit UI; main resolves HEAD to actual commit SHA');
  await command('/model');await page.getByRole('menu',{name:'Models',exact:true}).waitFor();await page.keyboard.press('Escape');

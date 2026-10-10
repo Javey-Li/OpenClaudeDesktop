@@ -13,14 +13,23 @@ export function pluginDetailTabs(detail, pluginId, knownSkills = [], { descripti
     return { key: `skill:${index}`, name: skill.name, label: `/${skill.name}`, description: text(skill.description),
       disabled: skill.enabled === false, path: matches.length === 1 ? matches[0].path : null };
   });
+  // A core that runs a plugin's servers under their own names and switches each (Kimi: plugin-<id>:<server>,
+  // detail.mcpServerStates) names the connector by that runtime name and offers its switch.
+  const states = list(detail.mcpServerStates);
   const connectors = list(detail.mcpServers).filter(name => text(name)).map((name, index) => {
-    const row = list(mcpRows).find(entry => entry?.name === name);
-    return { key: `mcp:${index}`, name, label: text(row?.title) || name, description: row ? MCP_STATUS_LABELS[row.kind] ?? '' : '', connected: row?.kind === 'connected', connectorName: name };
+    const state = states.find(entry => entry?.name === name);
+    const connectorName = text(state?.runtimeName) || name;
+    const row = list(mcpRows).find(entry => entry?.name === connectorName);
+    return { key: `mcp:${index}`, name, label: text(row?.title) || name, description: row ? MCP_STATUS_LABELS[row.kind] ?? '' : state && state.enabled === false ? 'Off' : '', connected: row?.kind === 'connected', connectorName,
+      ...(state && typeof state.enabled === 'boolean' ? { server: name, enabled: state.enabled } : {}) };
   });
   const hooks = list(detail.hooks).filter(hook => text(hook?.key)).map((hook, index) => ({ key: `hook:${index}`, name: hook.key, label: text(hook.eventName) || hook.key, description: text(hook.eventName) ? hook.key : '' }));
+  // The plugin's own tools (OpenCode's plugin/read detail.tools [{name, description}]).
+  const tools = list(detail.tools).filter(tool => text(tool?.name)).map((tool, index) => ({ key: `tool:${index}`, name: tool.name, label: tool.name, description: text(tool.description) }));
   const tabs = [
     { id: 'skills', label: 'Skills', description: descriptions.skills, items: skills },
     { id: 'connectors', label: 'Connectors', description: descriptions.connectors, items: connectors },
+    { id: 'tools', label: 'Tools', description: descriptions.tools ?? '', items: tools },
     { id: 'hooks', label: 'Hooks', description: descriptions.hooks, items: hooks },
   ].filter(tab => tab.items.length);
   for (const tab of tabs) if (tab.id !== 'hooks') tab.items.sort((a,b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));

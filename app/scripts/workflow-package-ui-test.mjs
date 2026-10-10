@@ -63,9 +63,9 @@ try {
   app=await electron.launch({executablePath,args:[root],env});page=await app.firstWindow();page.setDefaultTimeout(12000);page.on('pageerror',e=>rendererErrors.push(e.message));
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(1324,768));await page.waitForFunction(()=>innerWidth===1324&&innerHeight===768);
   await page.locator(`[data-source-session-id="${RC}"] .source-session-open`).click();await page.getByText('ORIGINAL_RESPONSE',{exact:true}).waitFor();
-  const script=path.join(workspace,'plan.workflow.js');await fs.writeFile(script,'phase("Inspect"); return await agent("Read files");');
+  const script=path.join(workspace,'plan.workflow.js');await fs.writeFile(script,'export const meta={name:"plan-fixture",description:"Plan fixture"}; phase("Inspect"); return await agent("Read files");');
   const run=await page.evaluate(async({threadId,file})=>{await window.desktop.call('settings',{dynamicWorkflows:true});return window.desktop.call('workflow-start',{threadId,file,plan:true});},{threadId:RC,file:script});
-  const finished=await poll(async()=>{const rows=await page.evaluate(threadId=>window.desktop.call('workflow-list',{threadId}),RC);return rows.find(row=>row.id===run.id&&row.status==='completed');},'actual runner process completion');assert.equal(finished.plannedAgents,1);assert.equal(finished.workflowProgress.filter(p=>p.type==='workflow_agent').length,0);assert.equal(JSON.parse(await fs.readFile(path.join(profile,'workflows',run.id,'result.json'),'utf8')),'');checks.push('Real isolated Node workflow dry run persists result without manufacturing agents or Codex protocol events');
+  const finished=await poll(async()=>{const rows=await page.evaluate(threadId=>window.desktop.call('workflow-list',{threadId}),RC);return rows.find(row=>row.id===run.id&&row.status==='completed');},'actual runner process completion');assert.equal(finished.plannedAgents,1);assert.equal(finished.workflowProgress.filter(p=>p.type==='workflow_agent').length,0);assert.equal(JSON.parse(await fs.readFile(path.join(profile,'workflows',run.id,'result.json'),'utf8')).result,'');checks.push('Real isolated Node workflow dry run persists result without manufacturing agents or Codex protocol events');
   assert.equal(rendererErrors.length,0);await verifySource();
 } catch (error) {
   failure = error;

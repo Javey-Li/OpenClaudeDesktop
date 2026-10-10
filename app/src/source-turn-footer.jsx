@@ -41,7 +41,23 @@ function useTurnCopyFeedback(identity, text, button) {
   return { state, copy: () => controller.current?.copy() };
 }
 
-function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered, focused }) {
+// rating {value: 'positive'|'negative'|null, onRate(value)}: Good / Bad response (scroll-messages-current.js:43173
+// PositiveFeedbackAction / NegativeFeedbackAction, pressed = the current rating; pressing it again clears it).
+function FeedbackButton({ kind, pressed, onRate, busy, setBusy }) {
+  const label = kind === 'positive' ? t('Good response') : t('Bad response');
+  const icon = kind === 'positive' ? (pressed ? 'ThumbsUpFilled' : 'ThumbsUp') : (pressed ? 'ThumbsDownFilled' : 'ThumbsDown');
+  return <SourceTooltip content={label} automatic={true} hoverable={false}>
+    <button type="button" className="stf-copy stf-feedback" data-cds="Button" data-variant="ghost" data-cds-icon-only="" data-cds-ghost=""
+      data-feedback={kind} aria-label={label} aria-pressed={pressed} disabled={busy} tabIndex={-1}
+      onClick={async () => { setBusy(true); try { await onRate(kind); } finally { setBusy(false); } }}>
+      <span className="stf-button-backdrop" aria-hidden="true"><span data-cds-part="paint" /></span>
+      <Icon name={icon} size={16} />
+    </button>
+  </SourceTooltip>;
+}
+
+function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered, focused, rating = null, onFork = null }) {
+  const [rateBusy, setRateBusy] = useState(false);
   const root = useRef(null), copyButton = useRef(null), focusRequested = useRef(false);
   const [latched, setLatched] = useState(false);
   const coarse = useCoarseInput(root);
@@ -67,11 +83,12 @@ function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered
     </div> : <div className="stf-toolbar" data-cds="MessageActions" data-reveal="fade"
       role="toolbar" aria-label={t("Message actions")} tabIndex={-1}
       onKeyDown={event => {
-        const button = copyButton.current;
-        const index = turnFooterKeyIndex(event, { count: button && !button.disabled ? 1 : 0,
-          current: event.currentTarget.ownerDocument.activeElement === button ? 0 : -1,
+        // Roving focus over Copy and, where offered, Fork from here and Good / Bad response.
+        const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+        const index = turnFooterKeyIndex(event, { count: buttons.length,
+          current: buttons.indexOf(event.currentTarget.ownerDocument.activeElement),
           rtl: event.currentTarget.ownerDocument.defaultView.getComputedStyle(event.currentTarget).direction === 'rtl' });
-        if (index !== null) { event.preventDefault(); button?.focus(); }
+        if (index !== null) { event.preventDefault(); buttons[index]?.focus(); }
       }}>
       <SourceTooltipGroup>
         <SourceTooltip content={t("Copy")} automatic={true} hoverable={false}>
@@ -89,6 +106,20 @@ function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered
             <Icon name={copied ? 'Check' : 'Copy'} size={16} />
           </button>
         </SourceTooltip>
+        {/* Z0 (approval-current.js:43120-43128): Fork from here (ArrowSplitRight) after Copy, before the ratings. */}
+        {typeof onFork === 'function' && <SourceTooltip content={t("Fork from here")} automatic={true} hoverable={false}>
+          <button type="button" className="stf-copy stf-fork" data-cds="Button" data-variant="ghost" data-cds-icon-only="" data-cds-ghost=""
+            data-message-action="fork" aria-label={t("Fork from here")} tabIndex={-1}
+            onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && event.repeat) event.preventDefault(); }}
+            onClick={() => onFork()}>
+            <span className="stf-button-backdrop" aria-hidden="true"><span data-cds-part="paint" /></span>
+            <Icon name="ArrowSplitRight" size={16} />
+          </button>
+        </SourceTooltip>}
+        {rating && <>
+          <FeedbackButton kind="positive" pressed={rating.value === 'positive'} onRate={rating.onRate} busy={rateBusy} setBusy={setRateBusy} />
+          <FeedbackButton kind="negative" pressed={rating.value === 'negative'} onRate={rating.onRate} busy={rateBusy} setBusy={setRateBusy} />
+        </>}
         <span id={statusId} className="stf-status stf-sr-only" role="status">{announcement}</span>
         {/* Z0 (scroll-messages-current.js:43193): the timestamp is the LAST
             toolbar element, after Copy, so it takes last:pe-0. */}
@@ -103,8 +134,9 @@ function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered
 // completedAtMs: Codex Turn.completedAt*1000, the local stand-in for the
 // source entry.timestamp (56825 K = isStreaming ? undefined : timestamp). Null
 // while the turn runs or when Codex reported no completion time: no <time>.
-export function SourceTurnFooter({ sessionKey, turnId, text = '', completedAtMs = null, interacted = false, hovered = false, focused = false }) {
+// onFork: Fork from here for this finished turn, where the session can fork at a turn (null otherwise).
+export function SourceTurnFooter({ sessionKey, turnId, text = '', completedAtMs = null, interacted = false, hovered = false, focused = false, rating = null, onFork = null }) {
   const identity = JSON.stringify([sessionKey, turnId]);
   return <TurnFooter key={identity} identity={identity} turnId={turnId} text={text} completedAtMs={completedAtMs}
-    interacted={interacted} hovered={hovered} focused={focused} />;
+    interacted={interacted} hovered={hovered} focused={focused} rating={rating} onFork={onFork} />;
 }

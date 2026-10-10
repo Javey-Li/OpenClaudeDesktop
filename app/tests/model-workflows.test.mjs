@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isModelWorkflow,modelWorkflowRuns,withModelWorkflowRows,workflowTask} from '../src/model-workflow-model.mjs';
+import {isModelWorkflow,modelWorkflowRuns,withModelWorkflowRows,workflowTask,workflowKey,workflowMemberControls} from '../src/model-workflow-model.mjs';
 import {workflowPhases} from '../src/workflow-progress-model.mjs';
 
 // A workflow tool item as the DeepSeek core sends it (harness workflows.js).
@@ -15,7 +15,7 @@ test('model-started runs become Tasks pane workflow tasks of their session',()=>
   assert.equal(runs[0].itemId,'w1');
   assert.ok(isModelWorkflow(runs[0]));
   assert.ok(!isModelWorkflow({id:'local',status:'running'}));
-  assert.deepEqual(workflowTask(runs[0]),{id:'workflow:r1',kind:'workflow',status:'running',description:'Audit files',startedAt:1000,completedAt:undefined,run:runs[0]});
+  assert.deepEqual(workflowTask(runs[0]),{id:'workflow:item:w1',kind:'workflow',status:'running',description:'Audit files',startedAt:1000,completedAt:undefined,run:runs[0]});
   // The core's run shape is the one the shared progress model reads.
   assert.deepEqual(workflowPhases(runs[0],1200).map(p=>[p.title,p.status,p.agents.length]),[['Scan','running',1]]);
 });
@@ -40,4 +40,20 @@ test('/workflow agents take the access of the session Mode they were launched in
   assert.equal(workflowAccess({permission:'bypass',mode:'chat'}),'read-only');
   assert.equal(workflowAccess({permission:'root'}),'read-only');
   assert.equal(workflowAccess(),'workspace-write','the default Mode (Auto) edits files');
+});
+
+test('a model run keeps its Tasks pane identity when the core renames it (call id → run/attempt id)',()=>{
+  const before=modelWorkflowRuns([{id:'w9',workflowRun:{...run,id:'call-w9',runId:null}}],'t')[0];
+  const after=modelWorkflowRuns([{id:'w9',workflowRun:{...run,id:'attempt-7',runId:'r9',attemptId:'attempt-7'}}],'t')[0];
+  assert.equal(workflowTask(before).id,workflowTask(after).id);
+  // The transcript row focuses the same task the card renders.
+  assert.equal('workflow:'+workflowKey({...run,id:'call-w9',itemId:'w9'}),workflowTask(after).id);
+  // Local /workflow runs keep their own run id.
+  assert.equal(workflowTask({id:'local-1',status:'running'}).id,'workflow:local-1');
+});
+
+test('Retry/Skip only for runs whose engine handles member controls',()=>{
+  assert.equal(workflowMemberControls({id:'local-1'}),true,'the local runner controls members');
+  assert.equal(workflowMemberControls({...run}),false,'a core run that does not declare it (Qwen, MiMo)');
+  assert.equal(workflowMemberControls({...run,memberControls:true}),true,'DeepSeek Harness declares it');
 });

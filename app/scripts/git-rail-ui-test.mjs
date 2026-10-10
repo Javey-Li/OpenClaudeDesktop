@@ -48,7 +48,9 @@ const env = { ...process.env, PATH: `${shim}:${process.env.PATH}`, CODE_DESKTOP_
 delete env.ELECTRON_RUN_AS_NODE; delete env.CODE_DESKTOP_DEV_URL;
 const executablePath = process.env.TEST_ELECTRON_BINARY || path.join(root, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const COMMIT_TEXT = "Commit the working tree changes with a sensible message.";
-const RESPONDING_REASON = "Claude is working \u2014 wait for the turn to finish";
+// git-rail-model COMMIT_RESPONDING_REASON names the assistant (i18n assistant-name rewrite): the fixture profile picks no
+// core, so the app's default DeepSeek core names it.
+const RESPONDING_REASON = "DeepSeek is working \u2014 wait for the turn to finish";
 const checks = [], metrics = {}, rendererErrors = [];
 let app, page, build, failure, runtime, vite, viteLog = "", profileRemoved = false;
 const testSources = ["scripts/git-rail-ui-test.mjs", "tests/fixtures/codex-server.cjs", "tests/fixtures/git-rail-ui.jsx", "tests/fixtures/git-rail-fixture.html", "tests/fixtures/composer-window.cjs"];

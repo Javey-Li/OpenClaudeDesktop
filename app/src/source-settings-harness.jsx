@@ -9,15 +9,16 @@ import { SourceSwitch } from './source-switch.jsx';
 import { SourceSettingsButton } from './source-settings-button.jsx';
 import { SourceSelect } from './source-select.jsx';
 import { SourceDialog, SourceDialogFooter } from './source-dialog.jsx';
-import { normalizeHarnessProfile, toggleSafe, parseEnvLines, splitArgs } from '../electron/prefs/harness-profile.mjs';
+import { normalizeHarnessProfile, toggleSafe, parseEnvLines, parseHeaderLines, splitArgs } from '../electron/prefs/harness-profile.mjs';
 import { harnessView } from './harness-settings-model.mjs';
 import { t, tn } from '../electron/i18n/index.mjs';
 import './harness-settings.css';
+import { coreSupports } from '../electron/core-registry.mjs';
 
 const TRANSPORTS = [{ value: 'stdio', label: t('Local command (stdio)') }, { value: 'streamable-http', label: t('Remote URL (HTTP)') }];
 
-function AddServerDialog({ onClose, onAdd }) {
-  const [draft, setDraft] = useState({ serverName: '', transport: 'stdio', command: '', args: '', env: '', url: '' });
+export function AddServerDialog({ onClose, onAdd }) {
+  const [draft, setDraft] = useState({ serverName: '', transport: 'stdio', command: '', args: '', env: '', url: '', headers: '', cwd: '', timeout: '' });
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const set = key => event => setDraft(current => ({ ...current, [key]: event.target.value }));
   const submit = async event => {
@@ -25,9 +26,12 @@ function AddServerDialog({ onClose, onAdd }) {
     setError('');
     let params;
     try {
+      const seconds = draft.timeout.trim() ? Number(draft.timeout.trim()) : null;
+      if (seconds !== null && !(Number.isFinite(seconds) && seconds > 0)) throw new Error(t('Enter a tool timeout between 1 and 3600 seconds.'));
+      const timeout = seconds === null ? {} : { toolCallTimeoutMs: Math.round(seconds * 1000) };
       params = draft.transport === 'stdio'
-        ? { serverName: draft.serverName.trim(), transport: 'stdio', command: draft.command.trim(), args: splitArgs(draft.args), env: parseEnvLines(draft.env) }
-        : { serverName: draft.serverName.trim(), transport: 'streamable-http', url: draft.url.trim() };
+        ? { serverName: draft.serverName.trim(), transport: 'stdio', command: draft.command.trim(), args: splitArgs(draft.args), env: parseEnvLines(draft.env), ...(draft.cwd.trim() ? { cwd: draft.cwd.trim() } : {}), ...timeout }
+        : { serverName: draft.serverName.trim(), transport: 'streamable-http', url: draft.url.trim(), headers: parseHeaderLines(draft.headers), ...timeout };
     } catch (failure) { setError(failure.message); return; }
     setBusy(true);
     try { await onAdd(params); onClose(); } catch (failure) { setError(failure.message); setBusy(false); }
@@ -47,8 +51,17 @@ function AddServerDialog({ onClose, onAdd }) {
         <label className="hs-field"><span>{t('Environment')}</span>
           <textarea data-cds="TextArea" className="hs-textarea" aria-label={t('Environment variables')} rows={3} placeholder="GITHUB_TOKEN=…" value={draft.env} onChange={set('env')} disabled={busy}/>
           <small>{t('One NAME=value per line. Values are stored in the app overlay file on this Mac.')}</small></label>
-      </> : <label className="hs-field"><span>URL</span>
-        <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t('Server URL')} placeholder="https://example.com/mcp" value={draft.url} onChange={set('url')} disabled={busy}/></label>}
+        <label className="hs-field"><span>{t('Working folder')}</span>
+          <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t('Working folder')} placeholder={t('Optional, a full path')} value={draft.cwd} onChange={set('cwd')} disabled={busy}/></label>
+      </> : <>
+        <label className="hs-field"><span>URL</span>
+          <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t('Server URL')} placeholder="https://example.com/mcp" value={draft.url} onChange={set('url')} disabled={busy}/></label>
+        <label className="hs-field"><span>{t('Headers')}</span>
+          <textarea data-cds="TextArea" className="hs-textarea" aria-label={t('HTTP headers')} rows={2} placeholder="Authorization: Bearer …" value={draft.headers} onChange={set('headers')} disabled={busy}/>
+          <small>{t('One Name: value per line, for servers that need a token. Stored in the app overlay file on this Mac.')}</small></label>
+      </>}
+      <label className="hs-field"><span>{t('Tool timeout')}</span>
+        <input data-cds="TextInput" className="cds-input cds-reset" aria-label={t('Tool timeout in seconds')} inputMode="numeric" placeholder={t('Optional, in seconds')} value={draft.timeout} onChange={set('timeout')} disabled={busy}/></label>
       {error && <p className="ss-error" role="alert">{error}</p>}
       <SourceDialogFooter><SourceSettingsButton onClick={onClose} disabled={busy}>{t('Cancel')}</SourceSettingsButton>
         <SourceSettingsButton type="submit" variant="primary" busy={busy} disabled={!ready}>{t('Add server')}</SourceSettingsButton></SourceDialogFooter>
@@ -57,6 +70,9 @@ function AddServerDialog({ onClose, onAdd }) {
 }
 
 const required = <span className="hs-required">{t('Required')}</span>;
+// Rows Settings › Code › Privacy controls (code-desktop-app cordis.patch.yml): never 'Required', they say where.
+const PRIVACY_ROWS = new Set(['session-log-deepseek', 'plugin-package-inventory-deepseek', 'session-telemetry-otel']);
+const privacy = <span className="hs-required">{t('Set in Code › Privacy')}</span>;
 // This group is the Harness profile, not Preferences › Profile: its own key, English copy unchanged.
 const PROFILE_TITLE = t('Harness profile') === 'Harness profile' ? 'Profile' : t('Harness profile');
 
@@ -78,9 +94,10 @@ export function SourceHarnessSettings({ config, boot, engine, busy, desktopCall,
   const connected = boot?.connected === true;
   // A core that failed to start reports no engine (coreEngine → 'codex'), so
   // while disconnected the page asks main which core is configured.
-  useEffect(() => { if (engine === 'deepseek' || !connected) void load(); }, [engine, connected, load]);
+  const profileCore = coreSupports(boot?.core ?? engine, 'harnessProfile');
+  useEffect(() => { if (profileCore || !connected) void load(); }, [profileCore, connected, load]);
   useEffect(() => { if (connected) setRestartFailed(false); }, [connected]);
-  const harness = engine === 'deepseek' || (!connected && state?.configuredEngine === 'deepseek');
+  const harness = profileCore || (!connected && coreSupports(state?.configuredEngine, 'harnessProfile'));
 
   const act = async (id, run) => {
     setWorking(id);
@@ -105,17 +122,17 @@ export function SourceHarnessSettings({ config, boot, engine, busy, desktopCall,
   const restart = (id = 'harness-restart') => act(id, restartAndRead);
 
   if (!harness && !connected && !state && !loadError) return <p className="ss-connection-notice hs-notice" role="status">{t('Loading the Harness profile…')}</p>;
-  if (!harness) return <p className="ss-connection-notice hs-notice" role="status">{t('Harness plugins, hooks and profile overlays apply with the DeepSeek core.')}</p>;
+  if (!harness) return <p className="ss-connection-notice hs-notice" role="status">{t('Harness plugins, hooks and profile overlays apply with DeepSeek Harness.')}</p>;
   if (loadError && !state) return <p className="ss-connection-notice hs-notice" role="alert">{t('Couldn’t read the Harness profile.')} {loadError}</p>;
   if (!state) return <p className="ss-connection-notice hs-notice" role="status">{t('Loading the Harness profile…')}</p>;
-  if (state.unsupported) return <p className="ss-connection-notice hs-notice" role="status">{t('This core doesn’t report its Harness profile. Update the DeepSeek core to manage plugins here.')}</p>;
+  if (state.unsupported) return <p className="ss-connection-notice hs-notice" role="status">{t('This core doesn’t report its Harness profile. Update DeepSeek Harness to manage plugins here.')}</p>;
 
   const view = harnessView(state);
   const disabled = busy || working !== null;
   const button = (id, label, onClick, extra = {}) => <SourceSettingsButton variant="secondary" size="sm" busy={working === id} disabled={disabled} onClick={onClick} {...extra}>{label}</SourceSettingsButton>;
   const toggle = (entry, label) => toggleSafe(entry) || view.insertIds.has(entry.id)
     ? <SourceSwitch label={label} checked={!entry.disabled} disabled={disabled} onChange={enabled => op(`harness-row-${entry.id}`, { op: 'set-enabled', id: entry.id, enabled })}/>
-    : required;
+    : PRIVACY_ROWS.has(entry.id) ? privacy : required;
   const failedNote = entry => entry.phase === 'failed' ? ` · ${t('Failed to start')}` : entry.pending ? ` · ${t('Applies after restart')}` : '';
   // Danger only when the overlays are the likely cause: a restart from this page
   // failed, or main saw them change since a core last ran with them.

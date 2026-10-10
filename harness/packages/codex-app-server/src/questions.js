@@ -107,22 +107,26 @@ export function permissionHint(params) {
 /**
  * The mode an approved plan continues in. Code Desktop's plan card names it on
  * the response (`codeDesktop: {afterPlan}`: Accept → 'ask', its primary → the
- * mode used before Plan); that choice wins over the turn hint. Bypass is never
- * taken from the response.
+ * mode used before Plan, or a 'More accept options' row); that choice wins over
+ * the turn hint. Bypass is taken only from the response ('Accept and bypass
+ * permissions', which the app validated against the opt-in and the core's
+ * requirements); a hinted Bypass falls back to Auto.
  * @param {unknown} response - the ToolRequestUserInputResponse
  * @param {string} [hinted] - permissionHint's afterPlan
  */
 export function approvedAfterPlan(response, hinted) {
   const chosen = response?.codeDesktop?.afterPlan
-  return chosen === 'auto' || chosen === 'ask' || chosen === 'acceptEdits' ? chosen : hinted
+  if (chosen === 'auto' || chosen === 'ask' || chosen === 'acceptEdits' || chosen === 'bypass') return chosen
+  return hinted === 'bypass' ? 'auto' : hinted
 }
 
 /**
- * What an approved plan continues with: the mode used before Plan, never
- * Bypass (that needs its own confirmation), in a writable sandbox.
- * @returns {{mode: 'auto' | 'ask' | 'acceptEdits', approvalPolicy: 'on-request' | 'untrusted', sandbox: 'workspace-write'}}
+ * What an approved plan continues with: the chosen mode in a writable sandbox,
+ * or Bypass when approvedAfterPlan returned it (the plan card's explicit choice).
+ * @returns {{mode: 'auto' | 'ask' | 'acceptEdits' | 'bypass', approvalPolicy: 'on-request' | 'untrusted' | 'never', sandbox: 'workspace-write' | 'danger-full-access'}}
  */
 export function afterPlanPermission(afterPlan) {
+  if (afterPlan === 'bypass') return { mode: 'bypass', approvalPolicy: 'never', sandbox: 'danger-full-access' }
   if (afterPlan === 'ask' || afterPlan === 'acceptEdits') return { mode: afterPlan, approvalPolicy: 'untrusted', sandbox: 'workspace-write' }
   return { mode: 'auto', approvalPolicy: 'on-request', sandbox: 'workspace-write' }
 }

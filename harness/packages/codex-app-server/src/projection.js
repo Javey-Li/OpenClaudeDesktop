@@ -13,11 +13,15 @@
  *   tool call        the Harness tool call id
  *   proposed plan    `plan-<exit_plan_mode call id>`
  *   agent activity   `subagent-<notice message id>`
+ *   background job   a shell call handed to the background keeps its item
+ *                    `inProgress` with `processId` = the job id until the job
+ *                    settles (jobs.js), like a Codex background terminal
  *
  * Delegation (subagent, subagent_fork) is a Codex collabAgentToolCall
  * spawnAgent. Its child comes from the parent's `subagent/catalog` event or
  * the continuable result text; a child's settled notice updates that item
- * instead of becoming a user bubble.
+ * instead of becoming a user bubble. A background (one-shot) delegation job
+ * keeps its item `inProgress`, linked by the catalog, until the job settles.
  *
  * `apply()` returns the Codex notifications the event implies; replay simply
  * ignores them.
@@ -27,14 +31,34 @@ import { readFileSync, statSync } from 'node:fs'
 import { basename, isAbsolute, resolve } from 'node:path'
 import { unifiedDiff } from './diff.js'
 import { promptText, toCodexInputs } from './input.js'
-import { WORKFLOW_TOOL, isWorkflowRecord, workflowInterrupted, workflowPhase, workflowRecord, workflowRunOf, workflowToolResult } from './workflows.js'
+import { isWorkflowTool, isWorkflowRecord, workflowInterrupted, workflowPhase, workflowRecord, workflowRunOf, workflowToolResult } from './workflows.js'
 import { STRUCTURED_OUTPUT_TOOL } from './structured.js'
+import { AssistantUsageFold, assistantSegmentBlocks } from './assistant-response.js'
+import { SHELL_TOOLS, backgroundJobOf, jobReadOutput, jobStatusOf, killJobOf, noticeJobOf, settledAgentJobItem, settledJobItem, subagentJobOf } from './jobs.js'
+import { REWIND_SOURCE } from './rewind.js'
+import { reportedFindings, reviewLabelOf } from './review.js'
 
 const nowSeconds = (ms) => Math.floor((ms ?? Date.now()) / 1000)
 
 export const assistantItemId = (turn, step, index) => `msg-${turn}.${step}.${index}`
+/** The `<turn>.<step>` of an assistant item id (`msg-<turn>.<step>.<index>`), else null. */
+export const assistantStepOf = (itemId) => /^msg-(\d+)\.(\d+)\.\d+$/.exec(String(itemId ?? ''))?.slice(1, 3).join('.') ?? null
 
 /** Parse model-produced tool arguments; malformed JSON stays a string. */
+/**
+ * A failed DeepSeek web search's error as Code Desktop shows it: the search provider's recovery text points at the
+ * DeepSeek app's settings pages (Settings > Plugins > Plugin configuration > Web search, "the web Models page"), which
+ * Code Desktop doesn't have. Web search always uses DeepSeek's official API with an official key, set in Settings ›
+ * Models › API connection (in relay mode the relay's key is never used for it).
+ */
+export function searchErrorText(text) {
+  if (typeof text !== 'string') return text
+  const where = 'Web search uses DeepSeek’s official API and an official DeepSeek key: Settings › Models › API connection.'
+  return text
+    .replace(/\n\nThe web search request used endpoint ("[^"]*")[\s\S]*?Only the user should choose or change the endpoint\./, (_, endpoint) => `\n\nThe web search used ${endpoint}. ${where}`)
+    .replace(/DeepSeek search has no API key for "[^"]*";[^\n]*/, `DeepSeek web search has no official DeepSeek API key. ${where}`)
+}
+
 export function parseArguments(value) {
   if (typeof value !== 'string') return value ?? {}
   try {
@@ -42,6 +66,18 @@ export function parseArguments(value) {
   } catch {
     return value
   }
+}
+
+/**
+ * A workflow completion notice inside a runtime message, as the app's workflow notification text (a <system-reminder>
+ * opening with "[SYSTEM NOTIFICATION - NOT USER INPUT]", app/electron/prefs/workflow-keyword.mjs), else null.
+ */
+export function workflowNoticeText(text) {
+  if (typeof text !== 'string') return null
+  const start = text.indexOf('[SYSTEM NOTIFICATION - NOT USER INPUT]')
+  const end = text.indexOf('</task-notification>', start)
+  if (start < 0 || end < 0 || !text.slice(start, end).includes('<task-notification>')) return null
+  return `<system-reminder>\n${text.slice(start, end + '</task-notification>'.length)}\n</system-reminder>`
 }
 
 /** Text of content blocks; an image reads '[image]' unless `carried` (toolImages) delivers it as an image. */
@@ -183,17 +219,19 @@ function readBody(text) {
 // dsh-tools toolAbortedResult / toolAbortedBeforeDispatchResult; the content
 // text is the fallback for logs written without `data.error`.
 const ABORTED_TEXTS = new Set(['Error: tool call aborted', 'Error: tool call aborted before dispatch'])
-const isAborted = (error, text) => error?.name === 'AbortError' || ABORTED_TEXTS.has(text)
+const isAborted = (error, text) => error?.name === 'AbortError' || error?.info?.name === 'AbortError' || ABORTED_TEXTS.has(text)
+// An MCP call stopped before the bridge recorded it as aborted (index.js tools/execute): the MCP SDK rejected with the
+// abort reason, an object, so the log reads "Error: [object Object]" (logs written by earlier versions).
+const MCP_ABORTED_TEXT = 'Error: [object Object]'
 // compaction/end `error` is only errorChain() text; a cancelled summary reads
 // as an abort/cancel (the bridge aborts with "Compaction interrupted.").
 const COMPACTION_ABORTED = /\b(?:abort|cancel|interrupt)/i
 
 // Harness delegation and agent-control tools → Codex CollabAgentTool.
 const COLLAB_TOOLS = { subagent: 'spawnAgent', subagent_fork: 'spawnAgent', send_message: 'sendMessage', interrupt_agent: 'interruptAgent', list_agents: 'listAgents' }
-// dsh-tool-subagent result texts: a continuable child keeps running after the
-// call returns; a background job reports only its job id.
+// dsh-tool-subagent result text: a continuable child keeps running after the
+// call returns (a background job's text is jobs.js subagentJobOf).
 const STARTED_SUBAGENT = /^started subagent (\S+)/
-const STARTED_JOB = /^started background subagent job /
 // dsh-tool-subagent stopReasonError for an aborted foreground run.
 const RUN_CANCELLED = /subagent run was cancelled/
 // dsh-subagent settlementSummary: "Background subagent <id> was stopped…",
@@ -251,11 +289,18 @@ function interruptedToolItem(item, durationMs) {
  */
 export function toolItem({ callId, name, args, cwd, definition, threadId, time = Date.now() }) {
   // A model-written dynamic workflow: the generic tool item plus its run (workflows.js).
-  if (name === WORKFLOW_TOOL) {
+  if (isWorkflowTool(name)) {
     return {
       type: 'dynamicToolCall', id: callId, namespace: null, tool: name, arguments: args ?? {}, status: 'inProgress',
       contentItems: null, success: null, durationMs: null, workflowRun: workflowRunOf(args, callId, time),
     }
+  }
+  // dsh-tool-present: the files the agent hands over (deliverables/presented), as file cards in the app.
+  if (name === 'present') {
+    const files = (Array.isArray(args?.files) ? args.files : []).filter((file) => typeof file?.path === 'string' && file.path)
+      .map((file) => ({ path: !isAbsolute(file.path) && cwd ? resolve(cwd, file.path) : file.path, ...(typeof file.description === 'string' && file.description.trim() ? { description: file.description.trim() } : {}) }))
+    return { type: 'dynamicToolCall', id: callId, namespace: null, tool: name, arguments: args ?? {}, status: 'inProgress',
+      contentItems: null, success: null, durationMs: null, codeDesktop: { deliverables: files } }
   }
   const collab = COLLAB_TOOLS[name]
   if (collab) {
@@ -380,7 +425,9 @@ function completeCollabItem(item, failed, text) {
     const id = started[1]
     return { ...item, status, receiverThreadIds: [id], agentsStates: { ...item.agentsStates, [id]: item.agentsStates?.[id] ?? { status: 'running', message: null } } }
   }
-  if (!failed && STARTED_JOB.test(text)) return { ...item, status }
+  // A background job: the child runs on as the job and its row with it (the
+  // projector tracks the job; the catalog names the child, before or after this).
+  if (!failed && subagentJobOf(text)) return { ...item, status: 'inProgress' }
   const outcome = !failed ? 'completed' : RUN_CANCELLED.test(text) ? 'interrupted' : 'errored'
   const states = Object.fromEntries(item.receiverThreadIds.map((id) => [id, { status: outcome, message: text || null }]))
   return { ...item, status, agentsStates: { ...item.agentsStates, ...states } }
@@ -400,11 +447,12 @@ function fileChangeOf(diff, absolute) {
  */
 export function completeToolItem(item, { name, args, result, definition, cwd, durationMs, error, rejected = false, imagePath }) {
   const failed = result.isError === true
+  const semanticShellExit = result.meta?.exitCodePolicy === 'claude-code'
   // MCP, dynamic and read results deliver their images (toolImages); everything else keeps '[image]'.
   const images = !failed && (item.type === 'mcpToolCall' || item.type === 'dynamicToolCall' || item.commandActions?.[0]?.type === 'read')
     ? toolImages(result.content, imagePath) : new Map()
   const text = textOf(result.content, images)
-  if (failed && isAborted(error, text)) return interruptedToolItem(item, durationMs)
+  if (failed && (isAborted(error, text) || (item.type === 'mcpToolCall' && text === MCP_ABORTED_TEXT))) return interruptedToolItem(item, durationMs)
   if (failed && rejected) {
     // Denied: commands and file changes have a Codex 'declined' status; other
     // item types have none and stay failed.
@@ -421,7 +469,7 @@ export function completeToolItem(item, { name, args, result, definition, cwd, du
   switch (item.type) {
     case 'commandExecution': {
       if (view?.card === 'terminal') {
-        return { ...item, status: failed ? 'failed' : (view.exitCode ?? 0) === 0 ? 'completed' : 'failed', aggregatedOutput: view.output ?? '', exitCode: view.exitCode ?? (failed ? 1 : 0), durationMs }
+        return { ...item, status: failed ? 'failed' : semanticShellExit || (view.exitCode ?? 0) === 0 ? 'completed' : 'failed', aggregatedOutput: view.output ?? '', exitCode: view.exitCode ?? (failed ? 1 : 0), durationMs }
       }
       if (view?.card === 'read') {
         // One `N: text` line per structured line, so the UI strips exactly one
@@ -447,7 +495,7 @@ export function completeToolItem(item, { name, args, result, definition, cwd, du
       }
       const parsed = name === 'bash' ? parseExitFooter(text) : { output: text, exitCode: null }
       const exitCode = parsed.exitCode ?? (failed ? 1 : 0)
-      return { ...item, status: failed || exitCode !== 0 ? 'failed' : 'completed', aggregatedOutput: parsed.output, exitCode, durationMs }
+      return { ...item, status: failed || (!semanticShellExit && exitCode !== 0) ? 'failed' : 'completed', aggregatedOutput: parsed.output, exitCode, durationMs }
     }
     case 'fileChange': {
       const changes = view?.card === 'diff' && Array.isArray(view.diffs) && view.diffs.length > 0
@@ -461,7 +509,7 @@ export function completeToolItem(item, { name, args, result, definition, cwd, du
         : view?.card === 'web' && view.kind === 'search' ? view.sources
           : item.action?.type === 'openPage' ? text
             : null
-      return { ...item, status: failed ? 'failed' : 'completed', results, ...(failed ? { error: { message: text } } : {}) }
+      return { ...item, status: failed ? 'failed' : 'completed', results, ...(failed ? { error: { message: searchErrorText(text) } } : {}) }
     }
     case 'mcpToolCall':
       return {
@@ -516,6 +564,9 @@ export class ThreadProjector {
     this.lastSeq = -1
     // Time of the last event of any kind (internal: stale-compaction settling).
     this.updatedAtMs = null
+    // Harness message id → the client's clientUserMessageId (turn/steer): the userMessage item echoes it as clientId,
+    // so the app knows its steered message was delivered. Live only (a replay has no client ids).
+    this.clientIds = new Map()
     this.reset()
   }
 
@@ -523,6 +574,11 @@ export class ThreadProjector {
   reset() {
     this.turns = []
     this.byDshTurn = new Map()
+    // `<turn>.<step>` → the Harness assistant message id, for per-message feedback (dsh-message-feedback targets it).
+    this.assistantMessageIds = new Map()
+    this.streamingResponse = null
+    this.mergedResponse = null
+    this.assistantUsage = new AssistantUsageFold()
     this.current = null
     this.heldUserMessages = []
     // subAgentActivity items waiting for their turn's Codex identity.
@@ -545,8 +601,14 @@ export class ThreadProjector {
     this.spawns = new Map()
     // Model workflow runs (workflows.js) → {turn, itemId}, by app run id and engine run id.
     this.workflowItems = new Map()
+    // Running background jobs of shell calls (jobs.js) → {turn, itemId, startedAtMs, liveFed}, by job id.
+    this.jobs = new Map()
+    // Running background delegation jobs (jobs.js subagentJobOf) → {turn, itemId, startedAtMs}, by job id.
+    this.agentJobs = new Map()
     // This session's own delegation label (its `subagent/descriptor`), when it is a sub-agent.
     this.agentLabel = null
+    // Its descriptor mode: 'continuable' (an inbox the user can message) or 'one-shot' (a fork that ran once).
+    this.agentMode = null
     // Thread recency: the last human prompt, reply or turn bound (isActivity).
     // Opening a session, a preset change or a title is not activity.
     this.lastActivityMs = null
@@ -615,10 +677,13 @@ export class ThreadProjector {
   }
 
   /** Settle a synthetic compaction turn and announce it. */
-  closeTurn(notes, turn, status, error, time) {
+  closeTurn(notes, turn, status, error, time, endSeq = this.lastSeq) {
     turn.status = status
     turn.error = error
     turn.completedAtMs = time
+    // The log position the turn ended at (thread/fork's boundary, fork.js): the event that
+    // closed it, or the one before when the next turn's start cut it off.
+    turn.endSeq = endSeq >= 0 ? endSeq : null
     for (const [id, owner] of this.compactions) if (owner === turn) this.compactions.delete(id)
     notes.push({ method: 'turn/completed', params: { threadId: this.threadId, turn: this.snapshot(turn, 'notLoaded') } })
     if (this.current === turn) this.current = { ...turn }
@@ -657,11 +722,32 @@ export class ThreadProjector {
     this.updatedAtMs = time
     if (isActivity(event)) this.lastActivityMs = time
     const data = event.data ?? {}
+    const responseUsage = this.assistantUsage.push(event)
     switch (event.type) {
+      case 'assistant/stream-start':
+        this.streamingResponse = { turn: data.turn, step: data.step, startSeq: event.seq, attemptSeq: null, anchor: null, items: new Set() }
+        break
+      case 'assistant/attempt':
+        if (this.streamingResponse && this.streamingResponse.turn === data.turn && this.streamingResponse.step === data.step) this.streamingResponse.attemptSeq = event.seq
+        break
+      case 'assistant/stream-merge': {
+        const stream = this.streamingResponse
+        if (stream && stream.turn === data.turn && stream.step === data.step
+          && stream.startSeq === data.startSeq && stream.attemptSeq === data.attemptSeq) {
+          this.mergedResponse = { turn: data.turn, step: data.step, seq: data.attemptSeq,
+            incompleteBlocks: data.incompleteBlocks, items: stream.items }
+          this.streamingResponse = null
+        }
+        break
+      }
+      case 'step/end':
+        if (this.streamingResponse?.turn === data.turn && this.streamingResponse?.step === data.step) this.streamingResponse = null
+        break
       case 'turn/start': {
         // A compaction turn left open (its end was never logged) cannot outlive the next turn.
-        if (this.current?.synthetic && this.current.status === 'inProgress') this.closeTurn(notes, this.current, 'interrupted', null, time)
-        const turn = { dsh: data.turn, id: null, items: [], status: 'inProgress', error: null, startedAtMs: time, completedAtMs: null }
+        if (this.current?.synthetic && this.current.status === 'inProgress') this.closeTurn(notes, this.current, 'interrupted', null, time, this.lastSeq - 1)
+        // startSeq: where the turn begins in the log (a rewind's cut drops the turns after it, applyRewind).
+        const turn = { dsh: data.turn, id: null, items: [], status: 'inProgress', error: null, startedAtMs: time, completedAtMs: null, startSeq: event.seq ?? null }
         this.current = turn
         this.byDshTurn.set(data.turn, turn)
         const held = this.heldUserMessages.splice(0)
@@ -669,39 +755,55 @@ export class ThreadProjector {
         break
       }
       case 'user/message':
+        // thread/revert's notice (rewind.js): the turns after its cut leave the transcript, as they left the model's view.
+        if (data.source?.kind === REWIND_SOURCE) {
+          this.applyRewind(data.source)
+          break
+        }
         // Runtime notices about sub-agents are agent state, never user bubbles;
         // other non-human sources (injected context) are dropped.
         if (data.source?.kind === 'subagent-settled') this.applySettled(notes, data, time)
         else if (data.source?.kind === 'agent-message') this.applyActivity(notes, data, 'interacted', data.source.senderSessionId, time)
-        if (data.source?.kind !== 'user') break
-        if (!this.current || this.current.status !== 'inProgress' || this.current.synthetic) {
-          this.heldUserMessages.push(data)
+        // dsh-tool-jobs completion notice: the background command it names has ended.
+        else if (data.source?.kind === 'tool-jobs') {
+          const settled = noticeJobOf(textOf(data.content))
+          if (settled) this.settleJob(notes, settled.jobId, settled, time)
+        }
+        // A finished dynamic workflow's <task-notification> (dsh-tool-workflow renderClaudeCompletion) starts the turn
+        // the model answers in: it shows as the app's "Workflow notification" row (a userMessage carrying the
+        // notification as a <system-reminder>, which the app renders as item.workflowNotification), live and in history.
+        if (data.source?.kind !== 'user') {
+          const notice = workflowNoticeText(textOf(data.content))
+          if (notice) this.applyOrHoldUserMessage(notes, { ...data, id: `workflow-notice-${data.id}`, content: [{ type: 'text', text: notice }] }, time)
           break
         }
-        this.applyUserMessage(notes, data, time)
+        this.applyOrHoldUserMessage(notes, data, time)
         break
       case 'assistant/message': {
         const turn = this.byDshTurn.get(data.turn) ?? this.current
         if (!turn) break
         if (turn === this.current) this.ensureTurn(notes, time)
         if (!turn.id) break
-        const content = data.message?.content ?? []
-        content.forEach((block, index) => {
+        const stream = this.streamingResponse?.turn === data.turn && this.streamingResponse?.step === data.step ? this.streamingResponse : null
+        if (typeof data.message?.id === 'string' && (!stream || stream.anchor === null)) {
+          this.assistantMessageIds.set(`${data.turn}.${data.step}`, data.message.id)
+          if (stream) stream.anchor = data.message.id
+        }
+        const content = stream ? assistantSegmentBlocks(data) : (data.message?.content ?? []).map((block, index) => ({ block, index }))
+        content.forEach(({ block, index }) => {
           const id = assistantItemId(data.turn, data.step, index)
           if (block.type === 'text') {
             const item = { type: 'agentMessage', id, text: block.text ?? '', phase: null, memoryCitation: null, delivery: null, questions: null }
             this.replaceItem(turn, item)
+            stream?.items.add(id)
             notes.push({ method: 'item/completed', params: { item, threadId: this.threadId, turnId: turn.id, completedAtMs: time } })
           } else if (block.type === 'reasoning' && block.text) {
             const item = { type: 'reasoning', id, summary: [block.text], content: [] }
             this.replaceItem(turn, item)
+            stream?.items.add(id)
             notes.push({ method: 'item/completed', params: { item, threadId: this.threadId, turnId: turn.id, completedAtMs: time } })
           }
         })
-        if (data.usage) {
-          this.lastUsage = data.usage
-          this.lastUsageTurnId = turn.id
-        }
         break
       }
       case 'tool/call': {
@@ -709,7 +811,7 @@ export class ThreadProjector {
         if (!turn) break
         if (turn === this.current) this.ensureTurn(notes, time)
         if (!turn.id) break
-        const args = parseArguments(data.arguments)
+        const args = parseArguments(data.effectiveArguments ?? data.arguments)
         const definition = this.toolDefinition(data.name)
         this.tools.set(data.callId, { name: data.name, args, turn, startedAtMs: time, definition })
         // The structured-output capture (structured.js) is the turn's answer, not a tool row:
@@ -736,8 +838,15 @@ export class ThreadProjector {
           }
           break
         }
+        if (message.isError !== true) this.applyJobControl(notes, call, textOf(message.content), time)
         const index = turn.items.findIndex((candidate) => candidate.id === message.toolCallId)
         if (index < 0) break
+        // A shell command handed to the background runs on as its job (jobs.js).
+        const job = turn.items[index].type === 'commandExecution' && SHELL_TOOLS.has(call.name) && message.isError !== true ? backgroundJobOf(textOf(message.content), call.args) : null
+        if (job) {
+          this.trackJob(notes, turn, turn.items[index], job, call.startedAtMs, time)
+          break
+        }
         let item = completeToolItem(turn.items[index], {
           name: call.name, args: call.args, definition: call.definition, cwd: this.cwd,
           result: { content: message.content, isError: message.isError, meta: data.meta },
@@ -753,6 +862,12 @@ export class ThreadProjector {
         turn.items[index] = item
         if (item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent') {
           for (const childId of item.receiverThreadIds) if (!this.spawns.has(childId)) this.spawns.set(childId, { turn, itemId: item.id, label: item.description ?? null })
+          // A delegation handed to the background runs on as its job.
+          const agentJob = item.status === 'inProgress' ? subagentJobOf(textOf(message.content)) : null
+          if (agentJob) {
+            this.trackAgentJob(notes, turn, item, agentJob, call.startedAtMs, time)
+            break
+          }
         }
         notes.push({ method: 'item/completed', params: { item, threadId: this.threadId, turnId: turn.id, completedAtMs: time } })
         break
@@ -762,10 +877,21 @@ export class ThreadProjector {
         break
       case 'subagent/descriptor':
         if (typeof data.label === 'string' && data.label) this.agentLabel = data.label
+        if (data.mode === 'continuable' || data.mode === 'one-shot') this.agentMode = data.mode
         break
       case 'session/end-seed':
+        if (data.inherited === true) {
+          this.streamingResponse = null
+          this.mergedResponse = null
+        }
         // A sub-agent fork starts with its parent's history; its own begins here.
         if (data.inherited === true && this.inheritedHistory === 'hide') this.reset()
+        // A user fork keeps the copied rows, but the parent's background jobs are not its own.
+        else if (data.inherited === true) this.detachJobs()
+        break
+      case 'request/header':
+        // A resumed session runs in a new agent: jobs die with the agent that owned them.
+        if (data.reason === 'resume') this.settleJobs(notes, time)
         break
       case 'approval/asked':
         if (data.id !== undefined && data.callId !== undefined) this.approvalCalls.set(data.id, data.callId)
@@ -784,8 +910,8 @@ export class ThreadProjector {
         if (!turn) {
           // Manual compaction runs between turns (`turn: null`); Codex runs it
           // as its own turn kind, so it gets a synthetic turn that replays alike.
-          if (this.current?.synthetic && this.current.status === 'inProgress') this.closeTurn(notes, this.current, 'interrupted', null, time)
-          turn = { dsh: null, id: `turn-c${data.compactionId}`, items: [], status: 'inProgress', error: null, startedAtMs: time, completedAtMs: null, synthetic: true }
+          if (this.current?.synthetic && this.current.status === 'inProgress') this.closeTurn(notes, this.current, 'interrupted', null, time, this.lastSeq - 1)
+          turn = { dsh: null, id: `turn-c${data.compactionId}`, items: [], status: 'inProgress', error: null, startedAtMs: time, completedAtMs: null, synthetic: true, startSeq: event.seq ?? null }
           this.current = turn
           this.turns.push(turn)
           this.lastSyntheticCompactionTurnId = turn.id
@@ -796,11 +922,26 @@ export class ThreadProjector {
         this.pushItem(notes, turn, item, time, false)
         break
       }
+      case 'compaction/summary': {
+        // What the compaction kept (the summary the model now reads instead) and what it replaced: shown on the
+        // compaction item as 'Compacted N items (~T tokens)' with the summary to expand (bridge field codeDesktop).
+        const text = (Array.isArray(data.summary) ? data.summary : []).map((block) => (block?.type === 'text' && typeof block.text === 'string' ? block.text : '')).filter(Boolean).join('\n\n')
+        this.compactionSummaries ??= new Map()
+        this.compactionSummaries.set(data.compactionId, {
+          summary: text || null,
+          shadowedItems: Array.isArray(data.shadowedSeqs) ? data.shadowedSeqs.length : null,
+          shadowedTokens: Number.isFinite(data.shadowedTokenCount) ? data.shadowedTokenCount : null,
+        })
+        break
+      }
       case 'compaction/end': {
         const turn = this.compactions.get(data.compactionId)
         if (!turn) break
         this.compactions.delete(data.compactionId)
-        const item = { type: 'contextCompaction', id: `compaction-${data.compactionId}` }
+        const summary = this.compactionSummaries?.get(data.compactionId) ?? null
+        this.compactionSummaries?.delete(data.compactionId)
+        const item = { type: 'contextCompaction', id: `compaction-${data.compactionId}`, ...(summary ? { codeDesktop: summary } : {}) }
+        if (summary) { const at = turn.items.findIndex((entry) => entry.id === item.id); if (at >= 0) turn.items[at] = item }
         const failure = typeof data.error === 'string' && data.error ? data.error : null
         if (!turn.synthetic || !failure) notes.push({ method: 'item/completed', params: { item, threadId: this.threadId, turnId: turn.id, completedAtMs: time } })
         if (!turn.synthetic || turn.status !== 'inProgress') break
@@ -833,6 +974,7 @@ export class ThreadProjector {
         break
       }
       case 'turn/end': {
+        if (this.streamingResponse?.turn === data.turn) this.streamingResponse = null
         const turn = this.byDshTurn.get(data.turn)
         if (!turn) break
         if (!turn.id) {
@@ -844,21 +986,40 @@ export class ThreadProjector {
         turn.status = turnStatusOf(data.reason)
         turn.error = turnError(data.reason)
         turn.completedAtMs = time
+        turn.endSeq = typeof event.seq === 'number' ? event.seq : null
         // A tool still running when its turn closes never completed; history
         // must not show it spinning forever. A stopped turn stopped it too
         // (the live reducer settles it the same way).
         const settled = turn.status === 'interrupted' ? 'interrupted' : 'failed'
+        // A background job's command is not part of the turn: it runs on (jobs.js).
+        const jobItems = []
         for (const item of turn.items) {
           if (item.status !== 'inProgress') continue
+          if (this.isRunningJobItem(item)) {
+            jobItems.push(item)
+            continue
+          }
           this.replaceItem(turn, { ...item, status: settled, ...(item.workflowRun ? { workflowRun: workflowInterrupted(item.workflowRun, time) } : {}) })
         }
+        // A completed review (review.js): its result, the final answer, unless ReportFindings already is.
+        if (turn.review && turn.status === 'completed' && !reportedFindings(turn.items)) {
+          const answer = [...turn.items].reverse().find((item) => item.type === 'agentMessage' && item.text)?.text
+          if (answer) this.pushItem(notes, turn, { type: 'exitedReviewMode', id: `${turn.id}-review-done`, review: answer }, time)
+        }
         notes.push({ method: 'turn/completed', params: { threadId: this.threadId, turn: this.snapshot(turn, 'notLoaded') } })
+        // A client settles every open item of a completed turn: the running
+        // background commands are announced again, as still running.
+        for (const item of jobItems) notes.push({ method: 'item/started', params: { item, threadId: this.threadId, turnId: turn.id, startedAtMs: this.jobEntryOf(item)?.startedAtMs ?? time } })
         if (this.current === turn) this.current = { ...turn, status: turn.status }
         break
       }
       default:
-        if (isWorkflowRecord(event.type)) this.applyWorkflow(notes, data, (run) => workflowRecord(run, event.type, data, time))
+        if (isWorkflowRecord(event.type)) this.applyWorkflow(notes, data, (run) => workflowRecord(run, event.type, data, time), event.type === 'tool-workflow/run-start')
         break
+    }
+    if (responseUsage?.usage) {
+      this.lastUsage = responseUsage.usage
+      this.lastUsageTurnId = this.turnIdFor(responseUsage.turn)
     }
     return notes
   }
@@ -885,18 +1046,193 @@ export class ThreadProjector {
     return entry?.turn.items.find((candidate) => candidate.id === entry.itemId)
   }
 
+  // ------------------------------------------------ background jobs (jobs.js)
+
+  /** A shell call handed to the background: its item keeps running as the job, processId = the job id. */
+  trackJob(notes, turn, item, { jobId, output }, startedAtMs, time) {
+    // Job ids restart with every process: an older holder of this id died with its own.
+    if (this.jobs.has(jobId) || this.agentJobs.has(jobId)) this.settleJob(notes, jobId, { status: 'killed', detail: null }, time)
+    const started = Number.isFinite(startedAtMs) ? startedAtMs : time
+    const running = { ...item, status: 'inProgress', processId: jobId, aggregatedOutput: output, exitCode: null, durationMs: null }
+    this.replaceItem(turn, running)
+    this.jobs.set(jobId, { turn, itemId: item.id, startedAtMs: started, liveFed: false })
+    if (turn.id) notes.push({ method: 'item/started', params: { item: running, threadId: this.threadId, turnId: turn.id, startedAtMs: started } })
+    return running
+  }
+
+  /**
+   * A delegation handed to the background (jobs.js subagentJobOf): its row
+   * keeps running, re-announced as such, until the job settles.
+   */
+  trackAgentJob(notes, turn, item, jobId, startedAtMs, time) {
+    if (this.jobs.has(jobId) || this.agentJobs.has(jobId)) this.settleJob(notes, jobId, { status: 'killed', detail: null }, time)
+    const started = Number.isFinite(startedAtMs) ? startedAtMs : time
+    const running = { ...item, status: 'inProgress' }
+    this.replaceItem(turn, running)
+    this.agentJobs.set(jobId, { turn, itemId: item.id, startedAtMs: started })
+    if (turn.id) notes.push({ method: 'item/started', params: { item: running, threadId: this.threadId, turnId: turn.id, startedAtMs: started } })
+    return running
+  }
+
+  /** The running item of a job this log handed to the background. */
+  jobItem(jobId) {
+    const entry = this.jobs.get(jobId) ?? this.agentJobs.get(jobId)
+    return entry?.turn.items.find((candidate) => candidate.id === entry.itemId)
+  }
+
+  /** The job entry an item runs as (a background command or delegation), if it still runs. */
+  jobEntryOf(item) {
+    if (typeof item?.processId === 'string' && this.jobs.get(item.processId)?.itemId === item.id) return this.jobs.get(item.processId)
+    if (item?.type !== 'collabAgentToolCall') return undefined
+    for (const entry of this.agentJobs.values()) if (entry.itemId === item.id) return entry
+    return undefined
+  }
+
+  isRunningJobItem(item) {
+    return this.jobEntryOf(item) !== undefined
+  }
+
+  /** Every job this projection still tracks as running: background commands and delegations. */
+  trackedJobIds() {
+    return [...this.jobs.keys(), ...this.agentJobs.keys()]
+  }
+
+  /** The background commands still running in this projection, oldest first. */
+  runningJobs() {
+    const running = []
+    for (const [jobId] of this.jobs) {
+      const item = this.jobItem(jobId)
+      if (item) running.push({ jobId, item })
+    }
+    return running
+  }
+
+  /**
+   * A job ended ({status, detail} as dsh-jobs reports it): its item completes.
+   * @returns {any[]} the notes, with the item/completed appended
+   */
+  settleJob(notes, jobId, outcome, time = Date.now(), message = null) {
+    if (this.agentJobs.has(jobId)) return this.settleAgentJob(notes, jobId, outcome, time, message)
+    const entry = this.jobs.get(jobId)
+    if (!entry) return notes
+    this.jobs.delete(jobId)
+    const index = entry.turn.items.findIndex((candidate) => candidate.id === entry.itemId)
+    if (index < 0) return notes
+    const item = settledJobItem(entry.turn.items[index], outcome, Math.max(0, time - entry.startedAtMs))
+    entry.turn.items[index] = item
+    if (entry.turn.id) notes.push({ method: 'item/completed', params: { item, threadId: this.threadId, turnId: entry.turn.id, completedAtMs: time } })
+    return notes
+  }
+
+  /** A background delegation job ended: its row and the child it linked take the outcome. */
+  settleAgentJob(notes, jobId, outcome, time = Date.now(), message = null) {
+    const entry = this.agentJobs.get(jobId)
+    if (!entry) return notes
+    this.agentJobs.delete(jobId)
+    const index = entry.turn.items.findIndex((candidate) => candidate.id === entry.itemId)
+    if (index < 0) return notes
+    const item = settledAgentJobItem(entry.turn.items[index], outcome, message)
+    entry.turn.items[index] = item
+    if (entry.turn.id) notes.push({ method: 'item/completed', params: { item, threadId: this.threadId, turnId: entry.turn.id, completedAtMs: time } })
+    return notes
+  }
+
+  /** Every job still running here ended without a record of how: they died with their process. */
+  settleJobs(notes = [], time = this.updatedAtMs ?? Date.now()) {
+    for (const jobId of this.trackedJobIds()) this.settleJob(notes, jobId, { status: 'killed', detail: null }, time)
+    return notes
+  }
+
+  /**
+   * Live output of a running job (the registry's retained ring, index.js): a
+   * delta appended, or with `replace` the whole retained text. Once fed live,
+   * the model's `job_output` reads no longer add to it (they are the same bytes).
+   * @returns {any[]} an outputDelta, or the re-announced item when the text was replaced
+   */
+  jobOutput(jobId, text, { replace = false } = {}) {
+    const entry = this.jobs.get(jobId)
+    const item = this.jobItem(jobId)
+    if (!entry || !item || typeof text !== 'string') return []
+    entry.liveFed = true
+    const current = item.aggregatedOutput ?? ''
+    let delta = text
+    if (replace) {
+      if (text === current) return []
+      if (!text.startsWith(current)) {
+        const next = { ...item, aggregatedOutput: text }
+        this.replaceItem(entry.turn, next)
+        return entry.turn.id ? [{ method: 'item/started', params: { item: next, threadId: this.threadId, turnId: entry.turn.id, startedAtMs: entry.startedAtMs } }] : []
+      }
+      delta = text.slice(current.length)
+    }
+    if (!delta) return []
+    this.replaceItem(entry.turn, { ...item, aggregatedOutput: current + delta })
+    return entry.turn.id ? [{ method: 'item/commandExecution/outputDelta', params: { threadId: this.threadId, turnId: entry.turn.id, itemId: item.id, delta } }] : []
+  }
+
+  /** A fork's copied history: the parent's jobs keep running for the parent, not here. */
+  detachJobs() {
+    for (const [jobId, entry] of this.jobs) {
+      const item = this.jobItem(jobId)
+      if (item) this.replaceItem(entry.turn, { ...item, status: 'completed', processId: null })
+    }
+    this.jobs.clear()
+    for (const [jobId, entry] of this.agentJobs) {
+      const item = this.jobItem(jobId)
+      if (item) this.replaceItem(entry.turn, { ...item, status: 'completed' })
+    }
+    this.agentJobs.clear()
+  }
+
+  /** The model's own job controls name a job: a terminal status read or a kill ends it; a read adds its output. */
+  applyJobControl(notes, call, text, time) {
+    const jobId = typeof call.args?.job_id === 'string' ? call.args.job_id : null
+    if (call.name === 'job_output' && jobId && this.agentJobs.has(jobId)) {
+      // A delegation job's terminal read carries the child's output: its closing message.
+      const status = jobStatusOf(text)
+      if (status && status.status !== 'running' && status.status !== 'stopping') this.settleAgentJob(notes, jobId, status, time, jobReadOutput(text) || null)
+    } else if (call.name === 'job_output' && jobId && this.jobs.has(jobId)) {
+      const entry = this.jobs.get(jobId)
+      const output = jobReadOutput(text)
+      const item = this.jobItem(jobId)
+      if (!entry.liveFed && output && item) this.replaceItem(entry.turn, { ...item, aggregatedOutput: `${item.aggregatedOutput ?? ''}${item.aggregatedOutput && !item.aggregatedOutput.endsWith('\n') ? '\n' : ''}${output}` })
+      const status = jobStatusOf(text)
+      if (status && status.status !== 'running' && status.status !== 'stopping') this.settleJob(notes, jobId, status, time)
+    } else if (call.name === 'job_kill') {
+      const killed = killJobOf(text)
+      if (killed) this.settleJob(notes, killed.jobId, killed, time)
+    }
+  }
+
   /** Update one workflow item's run and re-announce the item (no lifecycle time: the app keeps its own). */
-  applyWorkflow(notes, data, reduce) {
-    let entry = typeof data?.runId === 'string' ? this.workflowItems.get(data.runId) : undefined
+  applyWorkflow(notes, data, reduce, starting = false) {
+    const key = data?.attemptId ?? data?.runId
+    let entry = typeof key === 'string' ? this.workflowItems.get(key) : undefined
+    if (starting && entry) {
+      const index = entry.turn.items.findIndex(item => item.id === entry.itemId)
+      const prior = entry.turn.items[index]?.workflowRun
+      if (prior?.attemptId !== data.attemptId) {
+        // A new attempt of the same run (Workflow resumeFromRunId): the earlier card has been resumed.
+        if (prior?.resumable === true) {
+          const item = { ...entry.turn.items[index], workflowRun: { ...prior, resumable: false, sequence: (prior.sequence ?? 0) + 1 } }
+          entry.turn.items[index] = item
+          if (entry.turn.id) notes.push({ method: item.status === 'inProgress' ? 'item/started' : 'item/completed', params: { item, threadId: this.threadId, turnId: entry.turn.id } })
+        }
+        entry = undefined
+      }
+    }
     // run-start names the run of a call still waiting for its id (the record
     // comes after start() returned, while the tool call is in progress).
-    if (!entry && typeof data?.runId === 'string') {
+    if (!entry && starting && typeof data?.runId === 'string') {
       const candidates = [...this.workflowItems.values()].filter(({ turn, itemId }) => {
         const item = turn.items.find((candidate) => candidate.id === itemId)
         return item?.workflowRun && item.workflowRun.runId === null
       })
       entry = candidates.find(({ turn, itemId }) => turn.items.find((candidate) => candidate.id === itemId)?.workflowRun.name === data.name) ?? candidates[0]
-      if (entry) this.workflowItems.set(data.runId, entry)
+      if (entry) {
+        this.workflowItems.set(data.runId, entry)
+        if (data.attemptId) this.workflowItems.set(data.attemptId, entry)
+      }
     }
     if (!entry) return
     const index = entry.turn.items.findIndex((candidate) => candidate.id === entry.itemId)
@@ -910,6 +1246,12 @@ export class ThreadProjector {
     notes.push({ method: item.status === 'inProgress' ? 'item/started' : 'item/completed', params: { item, threadId: this.threadId, turnId: entry.turn.id } })
   }
 
+  /** A user message now, or at the next turn/start when no ordinary turn is running. */
+  applyOrHoldUserMessage(notes, message, time) {
+    if (!this.current || this.current.status !== 'inProgress' || this.current.synthetic) this.heldUserMessages.push(message)
+    else this.applyUserMessage(notes, message, time)
+  }
+
   applyUserMessage(notes, message, time) {
     const turn = this.current
     if (!turn) return
@@ -918,7 +1260,35 @@ export class ThreadProjector {
     const content = toCodexInputs(message.content, { imagePath: this.imagePath })
     const text = promptText(message.content)
     if (!this.preview && text) this.preview = text.slice(0, 200)
-    this.pushItem(notes, turn, { type: 'userMessage', id: message.id, clientId: null, content }, time)
+    const clientId = this.clientIds.get(message.id) ?? null
+    this.clientIds.delete(message.id)
+    this.pushItem(notes, turn, { type: 'userMessage', id: message.id, clientId, content }, time)
+    // review/start's prompt (review.js): the turn is a review, shown as Codex enters review mode.
+    const review = reviewLabelOf(message)
+    if (review && !turn.review) {
+      turn.review = review
+      this.pushItem(notes, turn, { type: 'enteredReviewMode', id: `${message.id}-review`, review }, time)
+    }
+  }
+
+  /**
+   * thread/revert's notice (rewind.js): the turns that began after its cut
+   * (`boundarySeq`) leave the transcript; a turn without a log position goes
+   * from the one it names (`beforeTurnId`) on. The model's view already
+   * dropped them (the notice replaced their surface nodes). Idempotent: a
+   * rewind's later notices find nothing more to drop.
+   */
+  applyRewind(source) {
+    const boundary = Number.isInteger(source?.boundarySeq) ? source.boundarySeq : null
+    const named = typeof source?.beforeTurnId === 'string' ? source.beforeTurnId : null
+    this.heldUserMessages = []
+    const at = this.turns.findIndex((turn) => (boundary !== null && Number.isInteger(turn.startSeq) ? turn.startSeq > boundary : turn.id === named))
+    if (at < 0) return
+    const dropped = this.turns.splice(at)
+    const ids = new Set(dropped.map((turn) => turn.id))
+    for (const [dsh, turn] of this.byDshTurn) if (dropped.includes(turn) || ids.has(turn.id)) this.byDshTurn.delete(dsh)
+    if (this.current && ids.has(this.current.id)) this.current = null
+    if (this.lastUsageTurnId && ids.has(this.lastUsageTurnId)) this.lastUsageTurnId = this.turns.at(-1)?.id ?? null
   }
 
   /**
@@ -1016,14 +1386,23 @@ export class LiveStreamMapper {
     const stream = this.streams.get(frame.attemptId)
     if (!stream) return notes
     if (frame.type === 'end') {
-      if (frame.outcome?.kind !== 'committed' || frame.outcome.eventType !== 'assistant/message') {
-        // Abandoned attempt: clear what it showed, deltas included.
+      const merged = this.projector.mergedResponse
+      const mergedAttempt = frame.outcome?.eventType === 'assistant/attempt'
+        && merged?.seq === frame.outcome.seq && merged.turn === stream.turn && merged.step === stream.step
+      const committed = frame.outcome?.kind === 'committed' && (frame.outcome.eventType === 'assistant/message'
+        || mergedAttempt)
+      if (!committed || mergedAttempt && merged.incompleteBlocks === 'discard') {
+        // Keep durable checkpoints if settlement failed; discard only transient deltas.
         const turnId = this.projector.turnIdFor(stream.turn)
         for (const item of stream.items.values()) {
           const id = assistantItemId(stream.turn, stream.step, item.index)
-          const body = item.type === 'reasoning'
+          if (committed && merged.items.has(id)) continue
+          const checkpoint = this.projector.streamingResponse
+          const durable = checkpoint?.turn === stream.turn && checkpoint?.step === stream.step && checkpoint.items.has(id)
+            ? this.projector.byDshTurn.get(stream.turn)?.items.find(item => item.id === id) : undefined
+          const body = durable ?? (item.type === 'reasoning'
             ? { type: 'reasoning', id, summary: [], content: [], reasoningText: '' }
-            : { type: 'agentMessage', id, text: '', phase: null, memoryCitation: null, delivery: null, questions: null }
+            : { type: 'agentMessage', id, text: '', phase: null, memoryCitation: null, delivery: null, questions: null })
           if (turnId) notes.push({ method: 'item/completed', params: { item: body, threadId: this.threadId, turnId, completedAtMs: nowMs } })
         }
       }

@@ -280,17 +280,19 @@ try {
         }),
       };
     });
-  assert.equal(metrics.triggerGeometry.count, 2);
+  // Preview and Terminal (the built-in panes) precede Changes and Session options when the session has a folder.
+  assert.ok([2, 3, 4].includes(metrics.triggerGeometry.count), `titlebar buttons: ${metrics.triggerGeometry.count}`);
   assert.equal(metrics.triggerGeometry.direct, true);
   for (const box of metrics.triggerGeometry.boxes) {
     near(box.width, 24, "Titlebar button width");
     near(box.height, 24, "Titlebar button height");
   }
-  near(
-    metrics.triggerGeometry.boxes[1].x - metrics.triggerGeometry.boxes[0].right,
-    4,
-    "Titlebar gap",
-  );
+  for (let index = 1; index < metrics.triggerGeometry.boxes.length; index += 1)
+    near(
+      metrics.triggerGeometry.boxes[index].x - metrics.triggerGeometry.boxes[index - 1].right,
+      4,
+      "Titlebar gap",
+    );
   assert.equal(await changes.getAttribute("title"), null);
   assert.equal(await options.getAttribute("title"), null);
   checks.push(

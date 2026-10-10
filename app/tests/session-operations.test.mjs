@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const {createSessionOperations,reviewTarget}=createRequire(import.meta.url)('../electron/session-operations.cjs');
-function setup(handler=()=>undefined,historyMode='paginated'){
+function setup(handler=()=>undefined,historyMode='paginated',extra={}){
  const config={threadIds:['a'],archivedThreadIds:[],threadMetadata:{},sessionMetadata:{a:{additionalFolders:['/extra']}}}, events=[],requests=[];
  const expected={connectionId:'connection',connectionEpoch:1};
  // Codex 0.155.1: thread/read is metadata-only and the turn boundary comes
@@ -10,7 +10,7 @@ function setup(handler=()=>undefined,historyMode='paginated'){
  // from thread/read. historyMode is the paginated default of >=0.154 threads.
  const client={connection:{approvalConnectionId:'connection',approvalConnectionEpoch:1,closed:false},approvalSnapshot:()=>({closed:false}),request:async(method,params)=>{requests.push({method,params});const override=await handler(method,params);return override ?? (method==='thread/read'?{thread:{id:'a',cwd:'/repo',name:'Original',status:{type:'idle'},historyMode,turns:[]}}:method==='thread/turns/list'?{data:[{id:'last',status:'completed',itemsView:'summary',items:[]}],nextCursor:null,backwardsCursor:null}:method==='thread/fork'?{thread:{id:'b',cwd:'/repo',historyMode,turns:[]}}:{});}};
  let owner=client,saves=0;
- const controller=createSessionOperations({getClient:()=>owner,getConfig:()=>config,save:()=>saves++,emit:e=>events.push(e),verifyGit:async(cwd,target)=>{assert.equal(cwd,'/repo');return target;}});
+ const controller=createSessionOperations({getClient:()=>owner,getConfig:()=>config,save:()=>saves++,emit:e=>events.push(e),verifyGit:async(cwd,target)=>{assert.equal(cwd,'/repo');return target;},...extra});
  return {controller,client,config,events,requests,expected,payload:{threadId:'a',expected,permission:'plan',mode:'code'},swap:()=>{owner={};},saves:()=>saves};
 }
 const event=(method,id='turn',status='completed')=>({method,params:{threadId:'a',turn:{id,status}}});
@@ -146,4 +146,35 @@ test('compact carries the Plan mode hint and afterPlan only to the DeepSeek core
   await codex.controller.run({...codex.payload,operation:'compact',afterPlan:'ask'});
   assert.equal(Object.hasOwn(codex.requests.find(x=>x.method==='thread/resume').params,'codeDesktop'),false);
  }
+});
+// Settings › Models on Codex: fork and resume (compact/review) go through model-settings' decorateThread with the owner,
+// so a session recorded under the other provider still forks and resumes.
+test('fork, compact and review pass their params through decorateThread with the owner', async()=>{
+ const seen=[];const decorateThread=(method,params,owner)=>{seen.push([method,owner]);if(owner?.serverInfo?.engine!=='deepseek-harness')params.modelProvider??='codedesktop';return params;};
+ for(const operation of ['fork','compact','review']){
+  const s=setup(undefined,'paginated',{decorateThread});
+  await s.controller.run({...s.payload,operation,...(operation==='review'?{target:{type:'uncommittedChanges'}}:{})});
+  const method=operation==='fork'?'thread/fork':'thread/resume';
+  assert.equal(s.requests.find(x=>x.method===method).params.modelProvider,'codedesktop',operation);
+  assert.equal(seen.at(-1)[0],method);assert.equal(seen.at(-1)[1],s.client);
+ }
+ // A DeepSeek owner passes unchanged; without the hook nothing is added.
+ const ds=setup(undefined,'paginated',{decorateThread});ds.client.serverInfo={engine:'deepseek-harness'};
+ await ds.controller.run({...ds.payload,operation:'compact'});assert.equal('modelProvider' in ds.requests.find(x=>x.method==='thread/resume').params,false);
+ const bare=setup();await bare.controller.run({...bare.payload,operation:'fork'});assert.equal('modelProvider' in bare.requests.find(x=>x.method==='thread/fork').params,false);
+});
+test('/cd forks the session into another folder (relative to its own), refusing a missing folder, the root and running terminals',async()=>{
+ const fs=await import('node:fs'),os=await import('node:os'),path=await import('node:path');
+ const base=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cd-fork-'))),repo=path.join(base,'repo'),api=path.join(base,'api');fs.mkdirSync(repo);fs.mkdirSync(api);
+ let terminals=[];
+ const s=setup((method,params)=>method==='thread/read'?{thread:{id:'a',cwd:repo,name:'Original',status:{type:'idle'},historyMode:'paginated',turns:[]}}
+   :method==='thread/backgroundTerminals/list'?{data:terminals}:method==='thread/fork'?{thread:{id:'b',cwd:params.cwd,historyMode:'paginated',turns:[]}}:undefined);
+ const result=await s.controller.run({...s.payload,operation:'fork',cwd:'../api'});
+ assert.equal(s.requests.find(x=>x.method==='thread/fork').params.cwd,api);
+ assert.equal(result.thread.id,'b');
+ assert.equal(s.requests.find(x=>x.method==='thread/name/set').params.name,'Original (api)');
+ await assert.rejects(s.controller.run({...s.payload,operation:'fork',cwd:'../nowhere'}),/There is no folder/);
+ await assert.rejects(s.controller.run({...s.payload,operation:'fork',cwd:'/'}),/filesystem root/);
+ terminals=[{processId:'p1',status:'running'}];
+ await assert.rejects(s.controller.run({...s.payload,operation:'fork',cwd:api}),/background terminals/);
 });

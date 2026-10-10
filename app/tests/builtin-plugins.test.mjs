@@ -41,10 +41,17 @@ test('builtinPluginRow matches the installed bundle by name, and search covers n
   const row = { id: 'profile:dsh-purge', pluginName: 'dsh-purge', name: 'dsh-purge' };
   assert.equal(builtinPluginRow(entry, [{ pluginName: 'other' }, row]), row);
   assert.equal(builtinPluginRow(entry, [{ pluginName: 'DSH-Purge', name: 'dsh-purge' }])?.pluginName, 'DSH-Purge');
-  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: 'red-team' }).length, 1);
-  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: 'yujunzhixue' }).length, 1);
-  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: '  ' }).length, 1);
-  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: 'nope' }).length, 0);
+  const core = 'deepseek';
+  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: 'red-team', core }).length, 1);
+  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: 'yujunzhixue', core }).length, 1);
+  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: '  ', core }).length, 1);
+  assert.equal(filterBuiltinPlugins(BUILTIN_PLUGINS, { query: 'nope', core }).length, 0);
+});
+
+test('every built-in entry declares its core, and only that core lists it', () => {
+  for (const entry of BUILTIN_PLUGINS) assert.equal(typeof entry.core, 'string', `${entry.id} names its core`);
+  assert.deepEqual(BUILTIN_PLUGINS.map((entry) => entry.core), ['deepseek'], 'the Harness bundle is a DeepSeek Harness plugin');
+  for (const core of ['codex', 'zcode', 'opencode', 'mimo', 'kimi', null]) assert.deepEqual(filterBuiltinPlugins(BUILTIN_PLUGINS, { core }), [], `${core}: none`);
 });
 
 test('BuiltinPlugins renders Install while missing, the source link, and the enable switch once installed', () => {
@@ -79,7 +86,13 @@ test('the Plugins page shows the built-in section on a managing core and hides i
   const nomatch = page(storeWith(), { focus: { searchSeed: 'zzz' } });
   assert.doesNotMatch(nomatch, /data-cz-builtin/);
   assert.match(nomatch, /No plugins match your search/);
-  // Codex does not install plugins, so it draws no built-in section (and no empty-state conflict).
+  // Codex has no codeDesktop/plugin/* manager, so it draws no built-in section (and no empty-state conflict).
   const codex = renderToStaticMarkup(React.createElement(M.SourceCustomize, { section: 'customize-plugins', store: storeWith(), cwd: '/fixture', call: noBackend }));
   assert.doesNotMatch(codex, /data-cz-builtin|Built-in plugins/);
+  // A bridge that manages its own plugins never sees the Harness bundle.
+  for (const engine of ['zcode', 'opencode', 'mimo']) {
+    const html = page(storeWith(), { core: { engine, capabilities: { pluginManage: true }, configPath: null } });
+    assert.doesNotMatch(html, /data-cz-builtin|Built-in plugins/, engine);
+    assert.doesNotMatch(html, /DeepSeek Harness/, `${engine}: no DeepSeek Harness copy`);
+  }
 });

@@ -421,7 +421,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   if (!m.method) {
     const entry = pending.get(m.id); if (!entry) return;
     const { thread, kind } = entry;
-    const accepted = kind === 'permissions' ? !!m.result?.permissions?.network : kind === 'input' ? Object.values(m.result?.answers || {}).some(a => a.answers?.length) : ['accept','acceptForSession'].includes(m.result?.decision);
+    const accepted = kind === 'elicitation' ? m.result?.action === 'accept' : kind === 'permissions' ? !!m.result?.permissions?.network : kind === 'input' ? Object.values(m.result?.answers || {}).some(a => a.answers?.length) : ['accept','acceptForSession'].includes(m.result?.decision);
     fs.appendFileSync(path.join(process.env.CODE_DESKTOP_DATA,'fixture-responses.jsonl'), JSON.stringify(m) + '\n');
     notify('serverRequest/resolved', { threadId: thread.id, requestId: m.id }); pending.delete(m.id);
     if (entry.onResponse) { entry.onResponse(m); return; }
@@ -436,7 +436,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   // codeDesktop/stats/read is the DeepSeek bridge's home stats (harness usage.js codeStats); the app
   // only asks a core whose initialize lists capabilities.codeStats (fixture-core.json). Unseeded, it
   // is unknown here, as on a real Codex app-server.
-  if (['account/read','account/rateLimits/read','account/usage/read','codeDesktop/stats/read'].includes(m.method)) {
+  if (['account/read','account/rateLimits/read','account/usage/read','codeDesktop/stats/read','account/rateLimitResetCredit/consume','account/sendAddCreditsNudgeEmail'].includes(m.method)) {
     let overrides;try{overrides=JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA,'fixture-usage.json'),'utf8'));}catch{}
     if (overrides && Object.hasOwn(overrides,m.method)) {
       const reply=overrides[m.method];logRequest(m.method,p);
@@ -453,14 +453,25 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   switch (m.method) {
     case 'initialize': {
       result = { userAgent: 'codex-fixture/2',codexHome:process.env.CODEX_HOME||path.join(process.env.CODE_DESKTOP_DATA,'codex-home'),platformFamily:'unix',platformOs:'macos' };
+      // CODE_DESKTOP_FIXTURE_CORE_FILE names another seed, so one profile can host two fixture cores (cores-ui-test).
       // Optional seed: bridge capabilities to advertise (main.cjs coreInfo), read per connection so a reconnect
       // can pick up a change; e.g. {capabilities:{livePermissions:true}} for codeDesktop/thread/permissions.
-      try { const core = JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA, 'fixture-core.json'), 'utf8')); if (core?.capabilities) result.capabilities = core.capabilities; if (typeof core?.engine === 'string') result.engine = core.engine; } catch {}
+      try { const core = JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA, process.env.CODE_DESKTOP_FIXTURE_CORE_FILE || 'fixture-core.json'), 'utf8')); if (core?.capabilities) result.capabilities = core.capabilities; if (typeof core?.engine === 'string') result.engine = core.engine; } catch {}
       break;
     }
     // The DeepSeek bridge extension (harness index.js livePermissions), answered as the bridge does: applied to a
     // loaded thread only. Only a client told capabilities.livePermissions sends it.
     case 'codeDesktop/thread/permissions': logRequest(m.method, p); result = { applied: loaded.has(p.threadId) }; break;
+    // The DeepSeek bridge's codeDesktop/tools/list (harness tool-gate.js toolsListResponse); fixture-core.json `tools`
+    // replaces the default list. Only a client told capabilities.toolSelection asks.
+    case 'codeDesktop/tools/list': {
+      logRequest(m.method, p);
+      let seed = null;
+      try { seed = JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA, 'fixture-core.json'), 'utf8'))?.tools ?? null; } catch {}
+      result = seed || { tools: ['bash', 'edit', 'read', 'skill', 'write'].map(name => ({ name, kind: name === 'skill' ? 'skill' : 'builtin', description: `Fixture ${name} tool` })),
+        servers: [{ name: 'git', tools: [{ name: 'mcp__git__log', tool: 'log', description: '' }, { name: 'mcp__git__status', tool: 'status', description: '' }] }] };
+      break;
+    }
     case 'config/read':case 'configRequirements/read':case 'account/usage/read': {
       logRequest(m.method,p);let seed={};try{seed=JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA,'fixture-settings.json'),'utf8'));}catch{}
       // R04 knob (fixture-customize.json mcpConfig {name: mcp_servers table}): without a settings seed,
@@ -488,10 +499,18 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       // and fastTierModels: model ids that carry a Codex ModelServiceTier named Fast (id/name/description).
       let knob = {};
       try { knob = JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA, 'fixture-model-list.json'), 'utf8')); } catch {}
+      // ultraModels: model ids whose efforts end in Codex's top tier (…, 'xhigh', 'max', 'ultra').
+      // A `models` array in the core seed (CODE_DESKTOP_FIXTURE_CORE_FILE / fixture-core.json) replaces the catalog,
+      // so two fixture cores in one profile can list different models (cores-ui-test).
       const fastTierModels = Array.isArray(knob.fastTierModels) ? knob.fastTierModels : [];
-      const data = knob.empty ? [] : Array.from({length:6},(_,i)=>{
+      const ultraModels = Array.isArray(knob.ultraModels) ? knob.ultraModels : [];
+      let seeded = null;
+      try { seeded = JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA, process.env.CODE_DESKTOP_FIXTURE_CORE_FILE || 'fixture-core.json'), 'utf8'))?.models ?? null; } catch {}
+      const data = knob.empty ? [] : Array.isArray(seeded) ? seeded : Array.from({length:6},(_,i)=>{
         const model = i?`fixture-${i}`:'fixture';
-        return {id:`fixture-${i}`,model,displayName:i?`Test model ${i+1}`:'Test model',isDefault:i===0,defaultReasoningEffort:'low',supportedReasoningEfforts:['low','medium','high','xhigh'].map(reasoningEffort=>({reasoningEffort})),
+        const efforts = ultraModels.includes(model) ? ['low','medium','high','xhigh','max','ultra'] : ['low','medium','high','xhigh'];
+        return {id:`fixture-${i}`,model,displayName:i?`Test model ${i+1}`:'Test model',isDefault:i===0,defaultReasoningEffort:'low',
+          supportedReasoningEfforts:efforts.map(reasoningEffort=>reasoningEffort==='ultra'?{reasoningEffort,description:'Maximum reasoning with automatic task delegation'}:{reasoningEffort}),
           serviceTiers: fastTierModels.includes(model) ? [{ id: 'priority', name: 'Fast', description: '2x speed, increased usage' }] : []};
       });
       result = { data, nextCursor: null };
@@ -500,6 +519,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       break;
     }
     case 'thread/start': {
+      // An ephemeral thread is Codex's hidden title turn (native-thread-title.cjs): the fixture refuses it without
+      // logging, so a session's history and thread list stay as the UI tests expect (no generated title).
+      if (p.ephemeral === true) { send({ id: m.id, error: { code: -32600, message: 'ephemeral threads are not supported by the fixture' } }); return; }
       const id = `fixture-thread-${++db.next}`;
       const createdAt = Math.floor(Date.now()/1000);
       const t = { id, cwd:p.cwd || process.cwd(), name:'Approval test',createdAt,updatedAt:createdAt,turns:[],archived:false,historyMode:newThreadHistoryMode() };
@@ -562,6 +584,25 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       logRequest(m.method,p);logHistory(m.method,p);
       try{result=JSON.parse(fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA,'fixture-rate-limits.json'),'utf8'));}catch{result={};}break;
     }
+    // Codex 0.155.1 account/rateLimitResetCredit/consume without a fixture-usage.json override: redeems the named (else
+    // the soonest) available reset in fixture-rate-limits.json, clears the base bucket's windows and reached state, and
+    // sends the rolling account/rateLimits/updated snapshot, as the backend does. No reset left: noCredit.
+    case 'account/rateLimitResetCredit/consume': {
+      logRequest(m.method,p);logHistory(m.method,p);
+      const file=path.join(process.env.CODE_DESKTOP_DATA,'fixture-rate-limits.json');let limits={};try{limits=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}
+      const summary=limits.rateLimitResetCredits;
+      if(!summary||!(summary.availableCount>0)){result={outcome:'noCredit'};break;}
+      const credits=Array.isArray(summary.credits)?summary.credits:[];
+      if(p.creditId&&!credits.some(credit=>credit.id===p.creditId&&credit.status==='available')){result={outcome:'noCredit'};break;}
+      summary.availableCount-=1;summary.credits=credits.filter(credit=>credit.id!==(p.creditId||credits.find(entry=>entry.status==='available')?.id));
+      const base=limits.rateLimitsByLimitId?.codex||limits.rateLimits;
+      if(base){for(const slot of ['primary','secondary'])if(base[slot])base[slot]={...base[slot],usedPercent:0};base.rateLimitReachedType=null;}
+      if(limits.ordinaryUsageAllowed===false)limits.ordinaryUsageAllowed=true;
+      writeAtomic(file,JSON.stringify(limits));result={outcome:'reset'};
+      if(base)setTimeout(()=>send({method:'account/rateLimits/updated',params:{rateLimits:{...base,limitId:'codex'}}}),10);
+      break;
+    }
+    case 'account/sendAddCreditsNudgeEmail': logRequest(m.method,p);logHistory(m.method,p);result={status:'sent'};break;
     case 'thread/name/set': logRequest(m.method,p); thread.name=p.name; persist(); result={}; break;
     case 'thread/archive': logRequest(m.method, p); loaded.delete(p.threadId); thread.archived=true; persist(); result={}; break;
     case 'thread/unarchive': logRequest(m.method, p); thread.archived=false; persist(); result={thread:withMode(thread)}; break;
@@ -798,6 +839,54 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         } });
         return;
       }
+      if(text==='fixture:computer-use') {
+        // Computer use in the three shapes the app reads (src/computer-use-model.mjs): Code Desktop's computerUse item,
+        // a computer-use MCP server's tool, the Anthropic computer tool. fixture-computer.png (profile) is the screenshot.
+        let png=null;try{png=fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA,'fixture-computer.png')).toString('base64');}catch{}
+        const shot=png?`data:image/png;base64,${png}`:undefined;
+        const steps=[
+          {id:`cu-${db.next}-1`,type:'computerUse',status:'inProgress',action:{kind:'screenshot'},app:'Finder',...(shot?{screenshot:shot}:{})},
+          {id:`cu-${db.next}-2`,type:'mcpToolCall',server:'computer-use',tool:'left_click',arguments:{coordinate:[420,180]},status:'inProgress',result:png?{content:[{type:'image',mimeType:'image/png',data:png}]}:null},
+          {id:`cu-${db.next}-3`,type:'dynamicToolCall',tool:'computer',arguments:{action:'type',text:'quarterly report'},status:'inProgress'},
+          {id:`cu-${db.next}-4`,type:'computerUse',status:'inProgress',action:{kind:'drag',start_coordinate:[120,300],coordinate:[640,420]},...(shot?{screenshot:shot}:{})},
+          {id:`cu-${db.next}-5`,type:'computerUse',status:'inProgress',action:{kind:'key',keys:['cmd+s']}},
+        ];
+        let at=0;
+        steps.forEach((step,index)=>{
+          setTimeout(()=>{turn.items.push(step);persist();notify('item/started',{threadId:thread.id,turnId:turn.id,item:step});},at+=80);
+          // The last step holds ~2s so the live banner can be seen; the others finish at once.
+          setTimeout(()=>{step.status='completed';persist();notify('item/completed',{threadId:thread.id,turnId:turn.id,item:step});
+            if(index===steps.length-1)complete(thread,'COMPUTER_USE_FIXTURE_DONE');},index===steps.length-1?at+2000:at+=80);
+        });
+        return;
+      }
+      // 'fixture:workflow-tool <json>': the model calls Code Desktop's Workflow tool. Like a real core, the fixture starts the
+      // app's agent-tools MCP server (CODE_DESKTOP_AGENT_TOOLS_SERVER), lists its tools, calls Workflow with the JSON
+      // arguments (_meta.threadId names the session) and reports the tool's text as an mcpToolCall item and its reply.
+      if(text.startsWith('fixture:workflow-tool')) {
+        const call = { id:`mcp-${db.next}`, type:'mcpToolCall', server:'code_desktop', tool:'Workflow', status:'inProgress', arguments: JSON.parse(text.slice('fixture:workflow-tool'.length).trim() || '{}') };
+        turn.items.push(call); persist();
+        notify('item/started', { threadId: thread.id, turnId: turn.id, item: call });
+        const server = JSON.parse(process.env.CODE_DESKTOP_AGENT_TOOLS_SERVER || 'null');
+        if (!server) { call.status='failed'; notify('item/completed', { threadId: thread.id, turnId: turn.id, item: call }); complete(thread, 'NO_AGENT_TOOLS'); return; }
+        const { spawn } = require('node:child_process');
+        const child = spawn(server.command, server.args, { env: { ...process.env, ...server.env }, stdio: ['pipe', 'pipe', 'ignore'] });
+        const waiting = new Map(); let buffer = '', seq = 0;
+        child.stdout.on('data', chunk => { buffer += chunk; let n; while ((n = buffer.indexOf('\n')) >= 0) { const line = buffer.slice(0, n); buffer = buffer.slice(n + 1); try { const message = JSON.parse(line); waiting.get(message.id)?.(message); } catch {} } });
+        const rpc = (method, params) => new Promise(resolve => { const id = ++seq; waiting.set(id, resolve); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'); });
+        (async () => {
+          await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
+          const listed = await rpc('tools/list', {});
+          logRequest('mcp:tools/list', { tools: (listed.result?.tools || []).map(tool => tool.name), workflowDescription: listed.result?.tools?.find(tool => tool.name === 'Workflow')?.description ?? null });
+          const result = (await rpc('tools/call', { name: 'Workflow', arguments: call.arguments, _meta: { threadId: thread.id } })).result;
+          logRequest('mcp:tools/call', { name: 'Workflow', result });
+          child.kill();
+          call.status = result?.isError ? 'failed' : 'completed'; call.result = result; persist();
+          notify('item/completed', { threadId: thread.id, turnId: turn.id, item: call });
+          complete(thread, result?.content?.[0]?.text?.split('\n')[0] || 'WORKFLOW_TOOL_EMPTY');
+        })();
+        return;
+      }
       if(text==='fixture:mcp-progress') {
         // McpToolCallProgressNotification {threadId, turnId, itemId, message}.
         const call = { id:`mcp-${db.next}`, type:'mcpToolCall', server:'fixture-server', tool:'probe', status:'inProgress' };
@@ -822,6 +911,32 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         turn.items.push(reasoning);persist();notify('item/started',{threadId:thread.id,turnId:turn.id,item:{...reasoning,summary:[]}});
         setTimeout(()=>{notify('item/completed',{threadId:thread.id,turnId:turn.id,item:reasoning});complete(thread,'REASONING_FIXTURE_REPLY\n\n```js\nfunction greet(name) { return "hi " + name; }\n```');},60);
         return;
+      }
+      // mcpServer/elicitation/request (codex-schema-0.155.1 McpServerElicitationRequestParams, as Codex
+      // 0.155.1 sends it): 'fixture:elicitation-tool' an MCP tool-call approval (empty schema,
+      // _meta.codex_approval_kind mcp_tool_call, persist session/always) after its in-progress
+      // mcpToolCall item; '-form' a server form of primitive fields; '-url' url mode; '-unsupported'
+      // an openai/form request that can only be declined. The response is logged to
+      // fixture-responses.jsonl; accept completes with APPROVAL_ACCEPTED, decline/cancel APPROVAL_DENIED.
+      if(text.startsWith('fixture:elicitation')){
+        const id=`approval-${db.next}`;pending.set(id,{thread,kind:'elicitation'});
+        const base={threadId:thread.id,turnId:turn.id,serverName:'probe'};
+        let params;
+        if(text.startsWith('fixture:elicitation-form'))params={...base,mode:'form',message:'Tell the probe server about this test run.',requestedSchema:{type:'object',required:['title','count'],properties:{
+          title:{type:'string',title:'Title',description:'A short name for the run',minLength:2},
+          count:{type:'integer',title:'Count',minimum:1,maximum:5},
+          notify:{type:'boolean',title:'Notify me',default:false},
+          tier:{type:'string',title:'Tier',oneOf:[{const:'basic',title:'Basic'},{const:'pro',title:'Pro'}]},
+          tags:{type:'array',title:'Tags',items:{type:'string',enum:['unit','ui']}}}}};
+        else if(text.startsWith('fixture:elicitation-url'))params={...base,mode:'url',elicitationId:`elicit-${id}`,message:'Sign in to the probe service to continue.',url:'https://probe.example.invalid/authorize'};
+        else if(text.startsWith('fixture:elicitation-unsupported'))params={...base,mode:'openai/form',message:'An extended form this client cannot show.',requestedSchema:{type:'object',properties:{nested:{type:'object'}}}};
+        else{
+          const tool={id:`call-${id}`,type:'mcpToolCall',server:'probe',tool:'write_note',status:'inProgress',arguments:{text:'fixture note'}};
+          turn.items.push(tool);persist();notify('item/started',{threadId:thread.id,turnId:turn.id,item:tool});
+          params={...base,mode:'form',message:'Allow the probe MCP server to run tool "write_note"?',requestedSchema:{type:'object',properties:{},},
+            _meta:{codex_approval_kind:'mcp_tool_call',persist:['session','always'],tool_params:{text:'fixture note'},tool_params_display:[{name:'text',value:'fixture note',display_name:'text'}]}};
+        }
+        send({id,method:'mcpServer/elicitation/request',params});return;
       }
       const kind=text.startsWith('fixture:permissions')?'permissions':text.startsWith('fixture:file')?'file':text.startsWith('fixture:input')||text.startsWith('fixture:plan-review')?'input':'command';
       const id=`approval-${db.next}`;pending.set(id,{thread,kind});
@@ -944,7 +1059,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     // too, so a suite asserting "this method never reached the app-server" can
     // actually fail if it ever does (an unlogged default made that assertion
     // vacuous for deprecated methods such as thread/rollback).
-    default: logHistory(m.method, p, { unknownMethod: true }); send({id:m.id,error:{code:-32601,message:'Unknown test method'}});return;
+    // CODE_DESKTOP_FIXTURE_UNKNOWN_METHOD=serde answers like a real Codex 0.155.1 app-server, whose
+    // request enum rejects a method it doesn't know: -32600 "unknown variant `<method>`, expected one of …".
+    default: logHistory(m.method, p, { unknownMethod: true }); send({id:m.id,error:process.env.CODE_DESKTOP_FIXTURE_UNKNOWN_METHOD==='serde'?{code:-32600,message:`Invalid request: unknown variant \`${m.method}\`, expected one of \`initialize\`, \`thread/start\``}:{code:-32601,message:'Unknown test method'}});return;
   }
   send({id:m.id,result});
 });

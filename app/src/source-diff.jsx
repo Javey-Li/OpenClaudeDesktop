@@ -14,10 +14,15 @@ import { SourceMenu } from './source-menu.jsx';
 import { SourceSettingsButton } from './source-settings-button.jsx';
 import { CONTEXT_MENU_ALIGN_OFFSET, CONTEXT_MENU_SIDE_OFFSET } from './menu-model.mjs';
 import { hideWhitespaceChanges } from './diff-whitespace-model.mjs';
+import { subscribeDiffReveal, takeDiffReveal } from './diff-reveal.mjs';
 import { useSourcePointerResize } from './use-pointer-resize.js';
 import { DIFF_FILE_LIST_LABELS, DIFF_FILE_LIST_WIDTH, clampDiffFileListWidth, diffFileEntries, diffFileList, diffFileListCanFit, diffFileListLimit,
   isLargeDiff, kindSectionOpen, openKindSections, orderDiffSections, revealCollapsed, toggleCollapsed, treeRowTarget } from './diff-file-list-model.mjs';
 import { t, tn } from '../electron/i18n/index.mjs';
+import { SourcePopover } from './source-popover.jsx';
+import { addToPrompt, serializeLineComment } from './inline-comments.mjs';
+import { sameFindingFile } from './review-findings-model.mjs';
+import { SourceReviewFindingCard } from './source-pane-review.jsx';
 import "./source-diff.css";
 
 // Tn (panes-diff-view-current.js:377-401) with hideWhitespace: gn filters the
@@ -64,18 +69,32 @@ function metadata(file) {
   return labels;
 }
 
-function DiffLine({ row, lines, wordRanges, side }) {
+function DiffLine({ row, lines, wordRanges, side, onComment = null }) {
   if (!row) return <div className="sdiff-split-side sdiff-split-empty" aria-hidden="true"/>;
   const number = side === 'before' ? row.oldLine : row.newLine ?? row.oldLine;
-  return <div className={`sdiff-row ${row.type}${side ? ' sdiff-split-side' : ''}`} data-kind={row.type} data-side={side} data-old-line={row.oldLine ?? undefined} data-new-line={row.newLine ?? undefined}>
+  // panes-diff-view-current.js Lr (:2053-2068): a hover-revealed accent "+" in the gutter comments on the line
+  // (Shift extends the range); the line number stays plain text.
+  const commentable = onComment && Number.isFinite(number);
+  return <div className={`sdiff-row ${row.type}${side ? ' sdiff-split-side' : ''}`} data-kind={row.type} data-side={side} data-old-line={row.oldLine ?? undefined} data-new-line={row.newLine ?? undefined} data-commentable={commentable || undefined}>
+    {commentable && <button type="button" className="sdiff-gutter-add" aria-label={t("Add a comment on this line")}
+      onClick={event => onComment({ line: number, code: row.text ?? '', anchor: event.currentTarget, extend: event.shiftKey })}><Icon name="Add" size={16} weight="strong"/></button>}
     <div className="sdiff-line-number" aria-hidden="true">{number}</div>
     <div className="sdiff-code-cell"><span className="sdiff-marker" aria-hidden="true">{row.type === 'added' ? '+' : row.type === 'removed' ? '−' : ' '}</span>
       <code className="sdiff-line-content scb-code source-diff-code"><SourceHighlightedLine tokens={lines[row.side]?.[row.line] || [{ text: row.text }]} ranges={wordRanges?.[row.rowIndex]}/></code>
-      {row.notes?.map((text, index) => <div className="sdiff-note" key={index}><code>{text}</code></div>)}
+      {row.notes?.map((text, index) => <div className="sdiff-note" data-no-newline="" key={index}><span>{t('No newline at end of file')}</span></div>)}
     </div>
   </div>;
 }
-function DiffHunk({ hunk, file, scopeKey, layout, separator, wordDiff = true }) {
+// @pierre/diffs Vt (ca7ba268c): the "\ No newline at end of file" marker is metadata on the line before it, drawn as
+// a row of its own: an empty gutter cell, then the words without the backslash, on that line's change colour.
+function NoNewline({ after }) {
+  const type = after?.type === 'added' || after?.type === 'removed' ? after.type : 'context';
+  return <div className={`sdiff-row sdiff-no-newline ${type}`} data-no-newline="" data-line-type={type === 'added' ? 'change-addition' : type === 'removed' ? 'change-deletion' : 'context'}>
+    <div className="sdiff-line-number" aria-hidden="true"/>
+    <div className="sdiff-code-cell"><span className="sdiff-no-newline-text">{t('No newline at end of file')}</span></div>
+  </div>;
+}
+function DiffHunk({ hunk, file, scopeKey, layout, separator, wordDiff = true, onComment = null, renderAfter = null }) {
   const ref = useRef(null);
   const fragment = useMemo(() => previewHunks(hunk.rows)[0] || { rows: [], before: '', after: '' }, [hunk.rows]);
   const split = useMemo(() => splitDiffRows(fragment.rows), [fragment.rows]);
@@ -85,11 +104,11 @@ function DiffHunk({ hunk, file, scopeKey, layout, separator, wordDiff = true }) 
       data-separator-first={separator.first || undefined} title={hunk.header}>
       <div className="sdiff-separator-content"><span>{separator.text}</span></div>
     </div>}
-    {layout === 'split' ? split.map((pair, index) => <div className="sdiff-split-row" key={index}>
-      <DiffLine row={pair.before} side="before" lines={lines} wordRanges={wordRanges}/><DiffLine row={pair.after} side="after" lines={lines} wordRanges={wordRanges}/>
-    </div>) : fragment.rows.map((row, index) => row.type === 'note'
-      ? <div key={index} className="sdiff-note"><code>{row.text}</code></div>
-      : <DiffLine key={index} row={{ ...row, rowIndex: index }} lines={lines} wordRanges={wordRanges}/>)}
+    {layout === 'split' ? split.map((pair, index) => <React.Fragment key={index}><div className="sdiff-split-row">
+      <DiffLine row={pair.before} side="before" lines={lines} wordRanges={wordRanges} onComment={onComment}/><DiffLine row={pair.after} side="after" lines={lines} wordRanges={wordRanges} onComment={onComment}/>
+    </div>{renderAfter?.(pair.after)}</React.Fragment>) : fragment.rows.map((row, index) => row.type === 'note'
+      ? <NoNewline key={index} after={fragment.rows[index - 1]}/>
+      : <React.Fragment key={index}><DiffLine row={{ ...row, rowIndex: index }} lines={lines} wordRanges={wordRanges} onComment={onComment}/>{renderAfter?.(row)}</React.Fragment>)}
   </div>;
 }
 
@@ -251,7 +270,7 @@ function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, ac
   </div>;
 }
 
-function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, placement = "inline", fileActions = null, wordDiff = true, defaultExpanded = true, reveal = null }) {
+function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, placement = "inline", fileActions = null, wordDiff = true, defaultExpanded = true, reveal = null, review = null }) {
   // vo defaultCollapsed (panes-diff-view-current.js:5258-5276, :5647): a large
   // diff (Qe) mounts every file collapsed.
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -290,6 +309,15 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
   }, [context]);
   const bodyId = useId();
   const changes = placement === "changes";
+  // Line comments (Changes pane only): one open comment per file; Shift on another line number extends its range.
+  const [comment, setComment] = useState(null);
+  const lineComment = changes ? ({ line, code, anchor, extend }) => setComment(current => {
+    if (extend && current && !current.text) {
+      const start = Math.min(current.start, line), end = Math.max(current.end, line);
+      return { ...current, start, end, code: start === current.start ? `${current.code}\n${code}` : `${code}\n${current.code}`, anchor };
+    }
+    return { start: line, end: line, code, anchor, text: '' };
+  }) : null;
   // panes-diff-view-current.js:3279 hasBody; a fallback file's body is its raw patch.
   const hasBody = !changes || !!file.fallbackReason || file.hunks.length > 0;
   // The metadata-only body line below is reachable only in the inline placement
@@ -302,6 +330,21 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
     // Catalog clipboard failure wording (en-US ugO0/irMRD), as the code-block copy.
     catch { setCopyState(t("Couldn’t copy to the clipboard. Try again.")); }
   };
+  // Review findings on this file (Rn cards): under the row of the finding's end line; one whose line is not in a
+  // hunk sits at the top of the body. The current finding expands its file.
+  const fileFindings = useMemo(() => (review ? review.findings.filter((entry) => sameFindingFile(file.path, entry.file)) : []), [review, file.path]);
+  const shownLines = useMemo(() => new Set((context ? context.filter((region) => region.kind !== 'gap') : file.hunks)
+    .flatMap((hunk) => (hunk.rows ?? []).map((row) => row.newLine).filter(Number.isFinite))), [context, file.hunks]);
+  const currentHere = !!review?.currentId && fileFindings.some((entry) => entry.id === review.currentId);
+  useLayoutEffect(() => { if (currentHere) setExpanded(true); }, [currentHere, review?.currentSeq]);
+  const findingCard = (entry) => <SourceReviewFindingCard key={entry.id} finding={entry} current={entry.id === review.currentId} status={review.statuses?.[entry.id] ?? "open"}
+    onDismiss={() => review.onDismiss(entry.id)} onFix={review.onFix ? () => review.onFix(entry.id) : null} onNext={review.onNext ? () => review.onNext(entry.id) : null} />;
+  const renderAfter = fileFindings.length ? (row) => {
+    if (!row || !Number.isFinite(row.newLine)) return null;
+    const here = fileFindings.filter((entry) => entry.endLine === row.newLine);
+    return here.length ? here.map(findingCard) : null;
+  } : null;
+  const unplaced = fileFindings.filter((entry) => !shownLines.has(entry.endLine));
   const maximum = file.hunks.reduce((highest, hunk) => Math.max(highest,
     hunk.oldStart + hunk.oldCount - 1, hunk.newStart + hunk.newCount - 1), 1);
   return <section className="sdiff-file" ref={fileRef} data-file-path={file.path || undefined} data-complete-context={regions ? '' : undefined}>
@@ -324,13 +367,28 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
     </div>}
     {!changes && copyState && <div className="sdiff-copy-status" role="status">{copyState}</div>}
     {expanded && hasBody && <div id={bodyId} className="sdiff-file-body" tabIndex={-1} style={{ "--sdiff-number-width": `${Math.max(3, String(maximum).length)}ch` }}>
+      {unplaced.length > 0 && unplaced.map(findingCard)}
       {file.fallbackReason ? <RawPatch value={file.raw} reason={file.fallbackReason} />
         : context ? context.map(region => region.kind === 'gap'
           ? <ContextGap key={region.id} region={region} onExpand={expand}/>
-          : <DiffHunk key={region.id} hunk={region} file={file} layout={layout} wordDiff={wordDiff} scopeKey={JSON.stringify([scopeKey, file.id, file.path, region.id])}/>)
-        : file.hunks.length ? file.hunks.map((hunk, index) => <DiffHunk key={index} hunk={hunk} separator={separators[index]} file={file} layout={layout} wordDiff={wordDiff} scopeKey={JSON.stringify([scopeKey, file.id, file.path, index])}/>)
+          : <DiffHunk key={region.id} hunk={region} file={file} layout={layout} wordDiff={wordDiff} onComment={lineComment} renderAfter={renderAfter} scopeKey={JSON.stringify([scopeKey, file.id, file.path, region.id])}/>)
+        : file.hunks.length ? file.hunks.map((hunk, index) => <DiffHunk key={index} hunk={hunk} separator={separators[index]} file={file} layout={layout} wordDiff={wordDiff} onComment={lineComment} renderAfter={renderAfter} scopeKey={JSON.stringify([scopeKey, file.id, file.path, index])}/>)
           : <div className="sdiff-metadata-only">{labels.join(" · ") || t("No text hunks in this patch")}</div>}
     </div>}
+    {comment && <SourcePopover anchor={comment.anchor} side="bottom" align="start" className="sdiff-comment-popover"
+      label={comment.end !== comment.start ? t("Comment on lines {start}–{end}", { start: comment.start, end: comment.end }) : t("Comment on line {line}", { line: comment.start })}
+      onClose={() => setComment(null)} initialFocus={() => null}>
+      <div className="sdiff-comment" data-line-comment="">
+        <span className="sdiff-comment-title">{comment.end !== comment.start ? t("Comment on lines {start}–{end}", { start: comment.start, end: comment.end }) : t("Comment on line {line}", { line: comment.start })}</span>
+        <textarea autoFocus rows={3} aria-label={t("Comment")} placeholder={t("What should change here?")} value={comment.text}
+          onChange={event => { const text = event.target.value; setComment(current => current && { ...current, text }); }}
+          onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && comment.text.trim()) { event.preventDefault(); if (addToPrompt(serializeLineComment({ path, ...comment }))) setComment(null); } }}/>
+        <div className="sdiff-comment-actions">
+          <SourceSettingsButton size="sm" variant="ghost" onClick={() => setComment(null)}>{t("Cancel")}</SourceSettingsButton>
+          <SourceSettingsButton size="sm" variant="primary" disabled={!comment.text.trim()} onClick={() => { if (addToPrompt(serializeLineComment({ path, ...comment }))) setComment(null); }}>{t("Add to prompt")}</SourceSettingsButton>
+        </div>
+      </div>
+    </SourcePopover>}
   </section>;
 }
 
@@ -642,7 +700,7 @@ function ChangesFileLayout({ fileList, entries, activePath, onSelect, onOpenFile
  *   follow the column order (Mn tree/list path order, ka by kind), and selecting
  *   a row expands that file and scrolls it to the top (Zt). */
 export function SourceDiff({ value = "", scopeKey = "standalone", layout = "unified", wordWrap = true, completeContext = false, onCanFitSplitChange, foldAll = null, placement = "inline", fileActions = null,
-  wordDiff = true, hideWhitespace = false, fileList = null, onIsLargeChange }) {
+  wordDiff = true, hideWhitespace = false, fileList = null, onIsLargeChange, review = null }) {
   const root = useRef(null), [canFitSplit, setCanFitSplit] = useState(true);
   useLayoutEffect(() => observeDiffSplitFit(root.current, fit => { setCanFitSplit(fit); onCanFitSplitChange?.(fit); }), [scopeKey, onCanFitSplitChange]);
   const actualLayout = layout === "split" && canFitSplit ? "split" : "unified";
@@ -664,6 +722,13 @@ export function SourceDiff({ value = "", scopeKey = "standalone", layout = "unif
     setActivePath(path);
     setReveal((previous) => ({ path, seq: (previous?.seq ?? 0) + 1 }));
   }, []);
+  // A file row of the per-turn edits card (diff-reveal.mjs): that file's section, as a file-list selection.
+  useEffect(() => {
+    if (!changes) return undefined;
+    const take = () => { const path = takeDiffReveal(entries.map((entry) => entry.filePath)); if (path) selectFile(path); };
+    take();
+    return subscribeDiffReveal(take);
+  }, [changes, entries, selectFile]);
   // Zt: the selected file's section to the top of the scroller (block start).
   useEffect(() => {
     if (!reveal) return;
@@ -679,7 +744,7 @@ export function SourceDiff({ value = "", scopeKey = "standalone", layout = "unif
     {!listed && banner}
     {sections.map((section) => section.type === "file"
       ? <FileDiff key={`${section.id}:${section.path}`} file={section} scopeKey={scopeKey} layout={actualLayout} completeContext={completeContext} foldAll={foldAll} placement={placement} fileActions={fileActions} wordDiff={wordDiff}
-        defaultExpanded={!large} reveal={changes ? reveal : null} />
+        defaultExpanded={!large} reveal={changes ? reveal : null} review={changes ? review : null} />
       : <RawPatch key={section.id} value={section.raw} reason={section.reason} />)}
   </div>;
   if (!listed) return view;

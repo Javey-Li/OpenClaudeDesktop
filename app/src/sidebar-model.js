@@ -25,6 +25,8 @@ export const DEFAULT_SIDEBAR_PREFERENCES = Object.freeze({
   status: "active",
   stateActivityDays: 7,
   showEmptyGroups: false,
+  // Filter menu 'Show PR status' (shared-23 xF, show_pr_status; on by default).
+  showPrStatus: true,
   collapsedNested: [],
 });
 
@@ -38,6 +40,7 @@ export function normalizeSidebarPreferences(value = {}) {
     stateActivityDays: [0, 1, 3, 7, 30].includes(value.stateActivityDays)
       ? value.stateActivityDays : 7,
     showEmptyGroups: value.showEmptyGroups === true,
+    showPrStatus: value.showPrStatus !== false,
     // sidebar-groups vc().keys: folded nested heads persist as parent ids.
     collapsedNested: Array.isArray(value.collapsedNested)
       ? [...new Set(value.collapsedNested.filter((id) => typeof id === "string" && id))] : [],
@@ -168,6 +171,8 @@ export function buildSidebarGroups({
   sessions = [], preferences, metadata = {}, customGroups = [], knownFolders = [],
   state = {}, search = "", fallbackCwd = "", now = Date.now(), locale, pinnedOrder = [],
   repoIdentities = {}, projectOrder = [],
+  // Sessions whose conversation matches the search (a core with full-text search: Codex thread/search), by id.
+  contentMatches = null,
 } = {}) {
   const prefs = normalizeSidebarPreferences(preferences);
   const query = search.trim().toLocaleLowerCase(locale);
@@ -178,7 +183,7 @@ export function buildSidebarGroups({
     seen.add(session.id);
     if (prefs.status === "active" && sessionArchived(session)) return false;
     if (prefs.status === "archived" && !sessionArchived(session)) return false;
-    if (query && !sessionName(session).toLocaleLowerCase(locale).includes(query)) return false;
+    if (query && !sessionName(session).toLocaleLowerCase(locale).includes(query) && !contentMatches?.has?.(session.id)) return false;
     const time = sessionUpdatedAt(session);
     if (prefs.groupBy === "state" && prefs.stateActivityDays > 0 && time
       && !metadata[session.id]?.pinned && now - time > prefs.stateActivityDays * 86400000) return false;
@@ -511,4 +516,26 @@ export function truncateRuns(runs = [], { truncateAt, extraRevealed = 0, keepVis
   if (items.length - shown <= 1) return { ...all, extraRevealed: extra };
   const hiddenCount = items.length - shown;
   return { runs: visible, hiddenCount, revealCount: Math.min(truncateAt, hiddenCount), extraRevealed: extra, firstHiddenId: items[shown].id };
+}
+
+/**
+ * Pins and groups a core keeps on its own threads (Codex sections: Thread.section; the built-in "Pinned" section and
+ * custom groups linked by codexSectionId, electron/codex-sections.cjs), for the sessions Code Desktop has no choice
+ * recorded for. A local pin or group always wins.
+ */
+export function withCoreSections(metadata = {}, sessions = [], { customGroups = [], pinnedSectionId = null } = {}) {
+  let next = null;
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const sectionId = session?.section?.id;
+    if (!session?.id || typeof sectionId !== "string") continue;
+    const meta = metadata[session.id] ?? {};
+    const patch = {};
+    if (meta.pinned === undefined && sectionId === pinnedSectionId) patch.pinned = true;
+    else if (meta.customGroupId === undefined && sectionId !== pinnedSectionId) {
+      const group = customGroups.find((entry) => entry.codexSectionId === sectionId);
+      if (group) patch.customGroupId = group.id;
+    }
+    if (Object.keys(patch).length) { next ??= { ...metadata }; next[session.id] = { ...meta, ...patch }; }
+  }
+  return next ?? metadata;
 }

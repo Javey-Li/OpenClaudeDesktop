@@ -30,7 +30,7 @@ function useThinkingState(turnId, items, itemPhases, enabled) {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 export function SourceTranscriptStatus({ textSize = "m", turnId, turnStats, items, itemPhases,
-  runningTaskCount = 0, tasksPaneOpen = false, onToggleTasksPane = null, onToggleThinking = null, thinkingShown = false, ...state }) {
+  runningTaskCount = 0, tasksPaneOpen = false, onToggleTasksPane = null, onToggleThinking = null, thinkingShown = false, onOpenLink = null, ...state }) {
   const view = transcriptStatusPresentation(state);
   const finishedTaskCount = useFinishedTaskHold(runningTaskCount, state.sessionKey ?? null);
   const owned = turnId && turnStats?.turnId === turnId ? turnStats : null;
@@ -102,7 +102,11 @@ export function SourceTranscriptStatus({ textSize = "m", turnId, turnStats, item
           {view.retry ? <>
             <span className="sts-activity" data-retry-error="">{view.retry.error}</span><span className="sts-separator" aria-hidden="true">·</span>
             <span className="sts-stat" data-retrying="">{view.retry.label}</span>
-            {retryElapsed && <><span className="sts-separator" aria-hidden="true">·</span><span className="sts-stat" data-runtime-stat="elapsed">{retryElapsed}</span></>}
+            {view.retry.later && <><span className="sts-separator" aria-hidden="true">·</span><span className="sts-stat" data-retry-next="">{view.retry.later}</span></>}
+            {retryElapsed && !view.retry.later && <><span className="sts-separator" aria-hidden="true">·</span><span className="sts-stat" data-runtime-stat="elapsed">{retryElapsed}</span></>}
+            {view.retry.detail && <><span className="sts-separator" aria-hidden="true">·</span><span className="sts-stat sts-retry-detail" data-retry-detail="" title={view.retry.detail}>{view.retry.detail}</span></>}
+            {view.retry.link && onOpenLink && <><span className="sts-separator" aria-hidden="true">·</span>
+              <button type="button" className="sts-retry-link" data-retry-link="" onClick={() => onOpenLink(view.retry.link.url)}>{view.retry.link.label}</button></>}
           </> : idleTasks ? tasks : view.phase === "stopping" ? <>
             <span className="source-shimmer sts-activity">{label}</span>
             {tasks && <>{separator}{tasks}</>}

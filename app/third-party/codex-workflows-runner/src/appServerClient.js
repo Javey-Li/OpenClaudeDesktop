@@ -16,9 +16,11 @@ export class AppServerClient extends EventEmitter {
   #nextId = 1;
   #pending = new Map();
   #completed = [];
+  #toolHandlers = new Map();
   get pid() { return this.#child?.pid; }
   #state = "disconnected";
   #generation = 0;
+  #shutdown = false;
 
   constructor(options = {}) {
     super();
@@ -72,7 +74,8 @@ export class AppServerClient extends EventEmitter {
       this.emit("transport", { stage: "error", error: err });
     });
 
-    await this.request(
+    // Local: the initialize result (userAgent …) tells the tool-narrowing seam which core answers (toolNarrowing.js).
+    this.serverInfo = await this.request(
       "initialize",
       {
         clientInfo: this.options.clientInfo ?? {
@@ -90,6 +93,9 @@ export class AppServerClient extends EventEmitter {
   }
 
   async shutdown() {
+    // Local: fail waiting turns now; the generation bump below silences the exit event they listen for.
+    this.#shutdown = true;
+    this.emit("transport", { stage: "shutdown" });
     this.#generation += 1;
     this.#closePending(new Error("client shut down"));
     this.#state = "disconnected";
@@ -159,15 +165,30 @@ export class AppServerClient extends EventEmitter {
     return this.request("turn/interrupt", { threadId, turnId }, 15_000);
   }
 
-  waitForNotification(predicate, timeoutMs) {
+  // A structured agent owns its handler until its thread settles. Concurrent
+  // agents share the connection, never the tool handler or captured result.
+  registerToolHandler(threadId, handler) {
+    if (this.#toolHandlers.has(threadId)) throw new Error('Tool handler already registered for thread');
+    this.#toolHandlers.set(threadId, handler);
+    return () => { if (this.#toolHandlers.get(threadId) === handler) this.#toolHandlers.delete(threadId); };
+  }
+
+  // timeoutMs <= 0 or non-finite waits without a timer (callers own inactivity timeouts);
+  // an aborted `signal` rejects with its reason and removes the listeners.
+  waitForNotification(predicate, timeoutMs, signal) {
     const found=this.#completed.findIndex(predicate);
     if(found>=0)return Promise.resolve(this.#completed.splice(found,1)[0]);
+    // Local: a client that already died or was shut down never emits again.
+    if(this.#shutdown)return Promise.reject(new Error("client shut down"));
+    if(this.#state!=="ready")return Promise.reject(new Error("app-server disconnected"));
+    if(signal?.aborted)return Promise.reject(signal.reason);
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const aborted = () => { cleanup(); reject(signal.reason); };
+      const timeout = Number.isFinite(timeoutMs)&&timeoutMs>0 ? setTimeout(() => {
         cleanup();
         reject(new Error("Timed out waiting for app-server notification"));
-      }, timeoutMs);
-      const transport = (e) => { if(e.stage!=="ready"){cleanup();reject(new Error("app-server disconnected"));} };
+      }, timeoutMs) : undefined;
+      const transport = (e) => { if(e.stage!=="ready"){cleanup();reject(new Error(e.stage==="shutdown"?"client shut down":"app-server disconnected"));} };
       const listener = (n) => {
         if (!predicate(n)) return;
         const index=this.#completed.indexOf(n);if(index>=0)this.#completed.splice(index,1);
@@ -178,9 +199,11 @@ export class AppServerClient extends EventEmitter {
         clearTimeout(timeout);
         this.off("notification", listener);
         this.off("transport", transport);
+        signal?.removeEventListener("abort", aborted);
       };
       this.on("notification", listener);
       this.on("transport", transport);
+      signal?.addEventListener("abort", aborted, { once: true });
     });
   }
 
@@ -219,7 +242,9 @@ export class AppServerClient extends EventEmitter {
       this.#pending.delete(frame.id);
       clearTimeout(pending.timeout);
       if (frame.error) {
-        pending.reject(new Error(`${pending.method} failed: ${JSON.stringify(frame.error)}`));
+        const error = new Error(`${pending.method} failed: ${JSON.stringify(frame.error)}`);
+        error.code = frame.error.code; error.data = frame.error.data;
+        pending.reject(error);
       } else {
         pending.resolve(frame.result);
       }
@@ -228,8 +253,10 @@ export class AppServerClient extends EventEmitter {
 
   async #handleServerRequest(req) {
     let payload;
+    const generation = this.#generation;
     try {
-      const result = this.options.requestHandler
+      const toolHandler = req.method === 'item/tool/call' ? this.#toolHandlers.get(req.params?.threadId) : undefined;
+      const result = toolHandler ? await toolHandler(req) : this.options.requestHandler
         ? await this.options.requestHandler(req)
         : defaultServerResponse(req);
       payload = { id: req.id, result };
@@ -237,7 +264,7 @@ export class AppServerClient extends EventEmitter {
       payload = { id: req.id, error: { code: -32603, message: e?.message ?? String(e) } };
     }
     try {
-      this.#child?.stdin.write(JSON.stringify(payload) + "\n");
+      if (generation === this.#generation) this.#child?.stdin.write(JSON.stringify(payload) + "\n");
     } catch {}
   }
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { appearancePreferences, fastTierForModel, settingsPatch, validateServiceTier, DEFAULT_THEME, themePreference } from '../electron/preferences.mjs';
+import { appearancePreferences, fastTierForModel, settingsPatch, validateServiceTier, DEFAULT_THEME, themePreference, savedPermission } from '../electron/preferences.mjs';
 const models=[{model:'a',isDefault:true,serviceTiers:[{id:'priority',name:'Fast',description:'More usage'}]},{model:'b',additionalSpeedTiers:['fast'],serviceTiers:[]}];
 test('Fast is discovered from the current catalog name and ID, not legacy flags',()=>{
   assert.equal(fastTierForModel(models[0]).id,'priority');assert.equal(fastTierForModel(models[1]),null);
@@ -52,4 +52,24 @@ test('the theme defaults to system (shared-7 xh bi("userThemeMode","auto")) and 
   // main.cjs seeds new profiles with DEFAULT_THEME, not a hard-coded light.
   const main=readFileSync(new URL('../electron/main.cjs',import.meta.url),'utf8');
   assert.match(main,/theme: DEFAULT_THEME,/);assert.doesNotMatch(main,/theme: "light"/);
+});
+// coreModels belongs to the main process (prefs/core-model.mjs): a renderer value is ignored, the saved one survives patches.
+test('settingsPatch ignores a sent coreModels and keeps the saved one through a model patch',()=>{
+  const saved={model:'a',effort:'low',coreModels:{codex:{model:'a',effort:'low'}}};
+  const next=settingsPatch(saved,{model:'b',coreModels:{codex:{model:'evil',effort:'x'}}},models);
+  assert.equal(next.model,'b');
+  assert.deepEqual(next.coreModels,{codex:{model:'a',effort:'low'}});
+  assert.equal('coreModels' in settingsPatch({model:'a'},{coreModels:{codex:{model:'b',effort:'low'}}},models),false);
+});
+
+test('Bypass can be the remembered mode only while its opt-in is on, and opting out drops it to Auto',()=>{
+  assert.throws(()=>settingsPatch({permission:'auto'},{permission:'bypass'}),/Allow bypass permissions mode/);
+  const on=settingsPatch({allowBypassPermissions:true,permission:'auto'},{permission:'bypass'});
+  assert.equal(on.permission,'bypass');
+  assert.equal(settingsPatch(on,{allowBypassPermissions:false}).permission,'auto');
+  assert.equal(settingsPatch({},{allowBypassPermissions:true,permission:'bypass'}).permission,'bypass','opt-in and mode in one patch');
+  assert.equal(savedPermission({permission:'bypass',allowBypassPermissions:true}),'bypass');
+  assert.equal(savedPermission({permission:'bypass'}),'auto','a stale Bypass without the opt-in reads as Auto');
+  assert.equal(savedPermission({permission:'nope'}),'auto');
+  assert.equal(savedPermission({permission:'plan'}),'plan');
 });

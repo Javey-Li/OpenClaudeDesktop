@@ -66,6 +66,20 @@ export function utf8Length(text) {
 }
 
 // v2 UserInput text_elements use UTF-8 byte ranges in the parent text.
+/**
+ * The text an agent reads for the mentions that aren't files: a session mention ('@session:<id>' in the draft) becomes
+ * ZCode's '[#title](#id)'; a literal target ('@mcp:github') is already its text. Returns the rewritten text.
+ */
+export function agentMentionText(text, mentions = []) {
+  let out = String(text ?? "");
+  for (const entry of mentions) {
+    if (!entry?.session?.id) continue;
+    const title = String(entry.session.title || entry.session.id).replace(/[[\]]/g, "");
+    out = out.split(`@${entry.path}`).join(`[#${title}](#${entry.session.id})`);
+  }
+  return out;
+}
+
 export function mentionInputs(text, mentions = [], { name = (path) => path.split("/").filter(Boolean).pop() || path, resolvePath = (path) => path } = {}) {
   const ranges = mentionRanges(text, mentions);
   const text_elements = ranges.map((range) => ({
@@ -86,6 +100,26 @@ export function mentionInputs(text, mentions = [], { name = (path) => path.split
 // renderedText = path, metadata.positions index into the full path.
 export function mentionOptions(matches = [], { limit = MENTION_RESULT_LIMIT } = {}) {
   return matches.slice(0, limit).map((match) => {
+    // An agent @ target that stays text (Qwen's '@mcp:github' / '@ext:name'): a chip whose text is sent as typed.
+    if (match.literal === true) {
+      const text = String(match.text || "");
+      return { id: `literal-${text}`, label: String(match.name || text), description: match.description || undefined, isDirectory: false, path: text.replace(/^@/, ""),
+        renderedText: text, tooltip: text, positions: [], literal: true, icon: match.kind === "extension" ? "Plugin" : "Connectors", kind: match.kind };
+    }
+    // Another session of this core (ZCode's # session mentions): sent as '[#title](#id)', which GLM reads with
+    // ReadSessionContext.
+    if (match.session && typeof match.session.id === "string") {
+      const title = String(match.session.title || match.session.id);
+      return { id: `session-${match.session.id}`, label: title, description: match.description || undefined, isDirectory: false, path: `session:${match.session.id}`,
+        renderedText: `#${title}`, tooltip: title, positions: [], session: { id: match.session.id, title }, icon: "Chat", kind: "session" };
+    }
+    // A core reference (OpenCode `references`: a named repo or folder outside the project): inserted as '@name',
+    // sent as a mention of its folder (target).
+    if (match.reference === true) {
+      const name = String(match.path || "");
+      return { id: `reference-${name}`, label: name, description: match.description || undefined, isDirectory: true, path: name, renderedText: name,
+        tooltip: match.target || name, positions: [], target: match.target, kind: "reference" };
+    }
     const path = String(match.path || "").replace(/\\/g, "/");
     const slash = path.lastIndexOf("/");
     const label = slash === -1 ? path : path.slice(slash + 1);

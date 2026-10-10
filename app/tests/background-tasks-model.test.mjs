@@ -102,3 +102,9 @@ test('a DeepSeek child listed with thread_spawn lineage and a running spawn row 
  const listed=reduce({...emptyState,approvalConnectionId:'c'},{type:'backgroundSnapshot',id:'parent',connectionId:'c',snapshot:{children:[child],terminals:[]}});
  assert.deepEqual(backgroundTasks(listed,'parent').map(task=>[task.kind,task.threadId,task.description]),[['agent','child','Audit deps']]);
 });
+test('a terminal the core cannot stop (codeDesktop.stoppable false) is marked so no Stop is offered',()=>{
+ const own={itemId:'cmd',processId:'kimi-agent:a',command:'coder agent (a)',cwd:'/tmp',codeDesktop:{stoppable:false}};
+ const s={...emptyState,approvalConnectionId:'c',items:{parent:[]},background:{parent:{connectionId:'c',terminals:[own],knownTerminals:{cmd:own}}}};
+ assert.equal(backgroundTasks(s,'parent')[0].stoppable,false);
+ assert.equal(Object.hasOwn(backgroundTasks(state(),'parent')[0],'stoppable'),false);
+});

@@ -27,6 +27,7 @@ export const emptyState = {
   // threadId -> {turnId, message, codexErrorInfo} while Codex retries
   // (ErrorNotification willRetry:true); local observation only.
   retrying: {},
+  safetyBuffering: {},
   operations: {},
   background: {},backgroundReads: {},backgroundStarts: {},taskTurnFacts: {},
   // threadId -> turnId -> {startedAt, completedAt}: Codex Turn Unix seconds or
@@ -40,6 +41,19 @@ export const emptyState = {
   notices: [],
   // warning {threadId, message} scoped to one thread.
   warnings: {},
+  // threadId -> [{kind, summary, details, values}]: other thread-scoped notices Codex sends (guardianWarning,
+  // autoApprovalReview/strictReviewRequired, model/verification, model/rerouted, a denied network auto-review).
+  threadNotices: {},
+  // threadId -> {reviewId -> {targetItemId, status, riskLevel, rationale, action, startedAtMs, completedAtMs}}:
+  // item/autoApprovalReview/started|completed (Codex 'Approve for me', approvalsReviewer auto_review).
+  autoReviews: {},
+  // threadId -> ThreadGoal {objective, status, tokenBudget, tokensUsed, timeUsedSeconds, …} (thread/goal/updated;
+  // removed by thread/goal/cleared). Bridges may add codeDesktop {rounds, maxRounds}.
+  goals: {},
+  // threadId -> name from thread/name/updated (an agent-generated title); main.jsx applies it to the session row.
+  threadNames: {},
+  // threadId -> {runId -> HookRunSummary}: hook/started|completed.
+  hookRuns: {},
   // thread/started {thread}: identity of every thread this connection was
   // attached to, including AgentControl-spawned sub-agents.
   threads: {},
@@ -59,11 +73,41 @@ function appendNotice(list, entry) {
   if ((list || []).some((item) => item.kind === entry.kind && item.summary === entry.summary && item.details === entry.details)) return list;
   return [...list, entry].slice(-NOTICE_LIMIT);
 }
+// Fixed English sources for notices Codex sends without text of its own; the notice banner translates them.
+export const STRICT_REVIEW_REQUIRED = "This request needs additional safety checks before it can run.";
+export const CYBER_VERIFICATION = "Some cybersecurity requests need trusted access verification. Responses to them may be limited.";
+export const MODEL_REROUTED = "This turn used {to} instead of {from}.";
+export const AUTO_REVIEW_DENIED = "Auto-review denied network access.";
+export const AUTO_REVIEW_DENIED_HOST = "Auto-review denied network access to {host}.";
+export const HOOK_BLOCKED = "A {event} hook blocked this action.";
+export const HOOK_FAILED = "A {event} hook failed.";
+// HookEventName (camelCase) as the hook configs spell it: preToolUse → PreToolUse.
+const hookEventName = (name) => typeof name === "string" && name ? name[0].toUpperCase() + name.slice(1) : "hook";
+function threadNotice(method, p) {
+  if (method === "guardianWarning") return typeof p.message === "string" && p.message ? { kind: "guardian", summary: p.message, details: null } : null;
+  if (method === "autoApprovalReview/strictReviewRequired") return { kind: "strictReview", summary: STRICT_REVIEW_REQUIRED, details: null };
+  if (method === "model/verification") return Array.isArray(p.verifications) && p.verifications.includes("trustedAccessForCyber")
+    ? { kind: "verification", summary: CYBER_VERIFICATION, details: null } : null;
+  if (method === "model/rerouted") return typeof p.fromModel === "string" && typeof p.toModel === "string" && p.fromModel !== p.toModel
+    ? { kind: "rerouted", summary: MODEL_REROUTED, details: `${p.fromModel}→${p.toModel}`, values: { from: p.fromModel, to: p.toModel } } : null;
+  return null;
+}
 // Delta-only items can arrive before the resume response or item/started.
 // Symbols stay local to reducer objects and are never sent to Codex or persisted.
 const deltaOnlyFields = Symbol("deltaOnlyFields");
-const streamFields = ["text", "aggregatedOutput", "reasoningText"];
+const streamFields = ["text", "aggregatedOutput", "reasoningText", "rawReasoningText"];
 const owns = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+// The summaryIndex a streaming thought's reasoningText last reached. Codex sends
+// item/reasoning/summaryPartAdded (AgentReasoningSectionBreak) between summary
+// sections and tags each summaryTextDelta with its summaryIndex; a new section
+// starts its own paragraph, as ReasoningItem.summary parts do once completed.
+const summarySection = Symbol("summarySection");
+const SUMMARY_BREAK = "\n\n";
+function withSummarySection(item, index) {
+  if (!Number.isInteger(index) || index <= (item[summarySection] ?? 0)) return item;
+  const text = item.reasoningText || "";
+  return { ...item, [summarySection]: index, ...(text.trim() && !text.endsWith(SUMMARY_BREAK) ? { reasoningText: text + SUMMARY_BREAK } : {}) };
+}
 
 function mergeLiveItem(snapshot, current, baseline) {
   const merged = { ...snapshot, ...current };
@@ -286,6 +330,12 @@ export function isChildThread(state, threadId) {
 // sub-agent running for it? A sub-agent thread is never a sidebar row and
 // never navigable, so its approval has to be attributed to the session that
 // owns it or it can be neither answered nor flagged.
+// A turn runs or an approval waits in any session. turn/completed leaves the
+// thread's active entry as an explicit null (known idle, see isItemStreaming),
+// so a finished turn's key alone never counts as running.
+export function hasLiveWork(state) {
+  return Object.values(state?.active || {}).some(Boolean) || (state?.approvals || []).length > 0;
+}
 export function hasPendingApproval(state, threadId) {
   if (!threadId) return false;
   return (state.approvals || []).some(
@@ -313,8 +363,38 @@ function retainCompletedItemPhases(phases = {}) {
   ]));
 }
 
+// How full a session's context is in a thread/tokenUsage report: the last request's total (context-usage-model reads the
+// same field for the composer ring).
+const contextTokens = (usage) => Number.isFinite(usage?.last?.totalTokens) ? usage.last.totalTokens : null;
+// The usage a core re-sends right after compacting (Codex recompute_token_usage, compact.rs) is the context's new size:
+// the latest compaction that knows its starting size and has none yet takes it, while it is still that compaction's turn.
+function withCompactionAfter(items, p, active) {
+  const after = contextTokens(p.tokenUsage);
+  if (!(after >= 0)) return items;
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item?.type !== "contextCompaction") continue;
+    if (!Number.isFinite(item.preTokens) || Number.isFinite(item.postTokens) || after >= item.preTokens) return items;
+    const sameTurn = p.turnId ? p.turnId === item.turnId : !active || active === item.turnId;
+    if (!sameTurn) return items;
+    const next = items.slice();
+    next[index] = { ...item, postTokens: after };
+    return next;
+  }
+  return items;
+}
+
 export function reduce(state, action) {
-  if (action.type === "dismiss-operation") return { ...state, operations:{...state.operations, [action.id]:null} };
+  // expect: only that operation (an automatic dismissal must not clear a newer one that started meanwhile).
+  if (action.type === "dismiss-operation") {
+    if (action.expect !== undefined && state.operations?.[action.id] !== action.expect) return state;
+    return { ...state, operations:{...state.operations, [action.id]:null} };
+  }
+  // A reloaded window's context usage from main (init threadUsage): only where nothing newer arrived meanwhile.
+  if (action.type === "usage-restore") {
+    const missing = Object.entries(action.usage || {}).filter(([id, usage]) => usage && typeof usage === "object" && !state.usage?.[id]);
+    return missing.length ? { ...state, usage: { ...state.usage, ...Object.fromEntries(missing) } } : state;
+  }
   if(action.type==='backgroundReadStarted'){
     if(action.connectionId!==state.approvalConnectionId)return state;
     const processes=Object.fromEntries((state.items[action.id]||[]).filter(item=>item.type==='commandExecution'&&item.processId).map(item=>[item.id,item.processId]));
@@ -347,8 +427,9 @@ export function reduce(state, action) {
   }
   const approvalUpdate = reduceApprovalTransport(state, e);
   if (approvalUpdate !== undefined) return approvalUpdate;
+  // A new connection re-sends its notices (configWarning at initialize), so the old ones go with the old connection.
   if (e.kind === "connection" && !e.connected)
-    return { ...state, turnStats:{}, retrying:{}, backgroundStarts:{}, backgroundReads:{}, agentLifecycle: Object.fromEntries(Object.entries(state.agentLifecycle || {}).map(([id, entry]) => [id, {...entry, status:"unknown", completedObservedAt:null}])), active: {}, itemPhases: retainCompletedItemPhases(state.itemPhases), activeVersions: Object.fromEntries([...new Set([...Object.keys(state.active), ...Object.keys(state.items), ...Object.keys(state.activeVersions || {})])].map(id => [id, (state.activeVersions?.[id] || 0) + 1])), items: Object.fromEntries(Object.entries(state.items).map(([id, list]) => [id, list.map(item => ["inProgress", "running"].includes(item.status) ? { ...item, status: "interrupted", [connectionInterrupted]: true } : item)])) };
+    return { ...state, notices: [], turnStats:{}, retrying:{}, backgroundStarts:{}, backgroundReads:{}, agentLifecycle: Object.fromEntries(Object.entries(state.agentLifecycle || {}).map(([id, entry]) => [id, {...entry, status:"unknown", completedObservedAt:null}])), active: {}, itemPhases: retainCompletedItemPhases(state.itemPhases), activeVersions: Object.fromEntries([...new Set([...Object.keys(state.active), ...Object.keys(state.items), ...Object.keys(state.activeVersions || {})])].map(id => [id, (state.activeVersions?.[id] || 0) + 1])), items: Object.fromEntries(Object.entries(state.items).map(([id, list]) => [id, list.map(item => ["inProgress", "running"].includes(item.status) ? { ...item, status: "interrupted", [connectionInterrupted]: true } : item)])) };
   const p = e.params || {},
     id = p.threadId;
   // deprecationNotice carries no threadId and thread/started only carries the
@@ -368,8 +449,79 @@ export function reduce(state, action) {
     if (existing.includes(p.message)) return state;
     return { ...state, warnings: { ...state.warnings, [id]: [...existing, p.message].slice(-NOTICE_LIMIT) } };
   }
+  // ConfigWarningNotification {summary, details, path?, range?}: a config.toml, rules or project-trust problem
+  // that made Codex ignore part of the user's configuration (no threadId).
+  if (e.method === "configWarning") {
+    if (typeof p.summary !== "string" || !p.summary) return state;
+    const line = Number.isInteger(p.range?.start?.line) ? p.range.start.line + 1 : null;
+    const notices = appendNotice(state.notices, { kind: "config", summary: p.summary, details: typeof p.details === "string" && p.details ? p.details : null,
+      ...(typeof p.path === "string" && p.path ? { path: p.path } : {}), ...(line ? { line } : {}) });
+    return notices === state.notices ? state : { ...state, notices };
+  }
   if (e.method === "thread/started") return startThread(state, p.thread);
   if (!id) return state;
+  // Codex's ModelSafetyBufferingUpdatedNotification {threadId, turnId, model, showBufferingUi, fasterModel}: a request
+  // held for extra checks (tui chatwidget/safety_buffering.rs). Shown until the answer starts streaming or the turn ends.
+  if (e.method === "model/safetyBuffering/updated") {
+    const text = (value) => (typeof value === "string" && value ? value : null);
+    const entry = p.showBufferingUi === true ? { turnId: text(p.turnId), model: text(p.model), fasterModel: text(p.fasterModel) } : null;
+    return { ...state, safetyBuffering: { ...state.safetyBuffering, [id]: entry } };
+  }
+  if (state.safetyBuffering?.[id] && (e.method === "item/agentMessage/delta" || e.method === "turn/completed" || e.method === "turn/started"))
+    state = { ...state, safetyBuffering: { ...state.safetyBuffering, [id]: null } };
+  {
+    const notice = threadNotice(e.method, p);
+    if (notice) {
+      const list = state.threadNotices?.[id] || [], next = appendNotice(list, notice);
+      return next === list ? state : { ...state, threadNotices: { ...state.threadNotices, [id]: next } };
+    }
+  }
+  if (e.method === "item/autoApprovalReview/started" || e.method === "item/autoApprovalReview/completed") {
+    if (typeof p.reviewId !== "string" || !p.reviewId || !p.review) return state;
+    const old = state.autoReviews?.[id]?.[p.reviewId];
+    const review = { reviewId: p.reviewId, turnId: p.turnId ?? old?.turnId ?? null, targetItemId: typeof p.targetItemId === "string" ? p.targetItemId : old?.targetItemId ?? null,
+      status: p.review.status || (e.method.endsWith("completed") ? "approved" : "inProgress"), riskLevel: p.review.riskLevel ?? null,
+      rationale: typeof p.review.rationale === "string" ? p.review.rationale : null, action: p.action ?? old?.action ?? null,
+      // Kept for 'Approve once' (thread/approveGuardianDeniedAction rebuilds Codex's GuardianAssessmentEvent from them).
+      userAuthorization: p.review.userAuthorization ?? old?.userAuthorization ?? null, decisionSource: p.decisionSource ?? old?.decisionSource ?? null,
+      startedAtMs: Number.isFinite(p.startedAtMs) ? p.startedAtMs : old?.startedAtMs ?? null, completedAtMs: Number.isFinite(p.completedAtMs) ? p.completedAtMs : null };
+    let next = { ...state, autoReviews: { ...state.autoReviews, [id]: { ...state.autoReviews?.[id], [p.reviewId]: review } } };
+    // A review with no target item (network access) has no row to annotate: a denial becomes a thread notice.
+    if (!review.targetItemId && review.status === "denied") {
+      const list = next.threadNotices?.[id] || [];
+      const host = review.action?.type === "networkAccess" ? review.action.host || review.action.target || "" : "";
+      next = { ...next, threadNotices: { ...next.threadNotices, [id]: appendNotice(list, host ? { kind: "autoReviewDenied", summary: AUTO_REVIEW_DENIED_HOST, details: review.rationale, values: { host }, reviewId: review.reviewId } : { kind: "autoReviewDenied", summary: AUTO_REVIEW_DENIED, details: review.rationale, reviewId: review.reviewId }) } };
+    }
+    return next;
+  }
+  if (e.method === "thread/goal/updated") {
+    if (!p.goal || typeof p.goal.objective !== "string") return state;
+    return { ...state, goals: { ...state.goals, [id]: { ...p.goal, threadId: id } } };
+  }
+  if (e.method === "thread/goal/cleared") {
+    if (!state.goals?.[id]) return state;
+    const goals = { ...state.goals }; delete goals[id];
+    return { ...state, goals };
+  }
+  if (e.method === "thread/name/updated") {
+    const name = typeof p.threadName === "string" ? p.threadName.trim() : "";
+    if (!name || state.threadNames?.[id] === name) return state;
+    return { ...state, threadNames: { ...state.threadNames, [id]: name } };
+  }
+  if (e.method === "hook/started" || e.method === "hook/completed") {
+    const run = p.run;
+    if (!run || typeof run.id !== "string") return state;
+    let next = { ...state, hookRuns: { ...state.hookRuns, [id]: { ...state.hookRuns?.[id], [run.id]: { ...run, turnId: p.turnId ?? null } } } };
+    // A hook that blocked or failed changed what the agent did: say so (its message, else its warnings and errors).
+    if (e.method === "hook/completed" && ["blocked", "failed"].includes(run.status)) {
+      const entries = (Array.isArray(run.entries) ? run.entries : []).filter((entry) => ["error", "warning", "stop", "feedback"].includes(entry?.kind) && typeof entry.text === "string" && entry.text.trim()).map((entry) => entry.text.trim());
+      const details = [typeof run.statusMessage === "string" ? run.statusMessage.trim() : "", ...entries].filter(Boolean).join("\n") || null;
+      const list = next.threadNotices?.[id] || [];
+      next = { ...next, threadNotices: { ...next.threadNotices, [id]: appendNotice(list, { kind: run.status === "blocked" ? "hookBlocked" : "hookFailed",
+        summary: run.status === "blocked" ? HOOK_BLOCKED : HOOK_FAILED, details, values: { event: hookEventName(run.eventName) } }) } };
+    }
+    return next;
+  }
   const items = state.items[id] || [];
   // Codex retrying (ErrorNotification willRetry:true) ends as soon as the
   // stream shows progress again or the turn changes.
@@ -419,10 +571,14 @@ export function reduce(state, action) {
     const operation = state.operations?.[id];
     const associatedReview = operation?.operation === "review" && operation.turnId === p.turn.id && operation.activeTurnId === state.active[id];
     const newerTurn = state.active[id] && state.active[id] !== p.turn.id && !associatedReview;
+    // A proposed plan cut off mid-stream (item/plan/delta with no item/completed)
+    // is partial: it must not read as a finished plan ready to implement.
+    const cutPlan = (item) => item.type === "plan" && item.status === undefined && (p.turn.status === "interrupted" || p.turn.error)
+      && state.itemPhases?.[id]?.[item.id] === "streaming";
     return {
       ...state,
       items: { ...state.items, [id]: items.map(item =>
-        (["inProgress", "running"].includes(item.status) || item[connectionInterrupted]) && (!item.turnId || item.turnId === p.turn.id)
+        (["inProgress", "running"].includes(item.status) || item[connectionInterrupted] || cutPlan(item)) && (!item.turnId || item.turnId === p.turn.id)
           ? settleObservedItem(item, p.turn.status === "interrupted" ? "interrupted" : p.turn.error ? "failed" : "completed")
           : item,
       ) },
@@ -432,6 +588,8 @@ export function reduce(state, action) {
       // item); only an error without a turn identity stays thread-wide.
       turnErrors: p.turn.error && p.turn.id
         ? { ...state.turnErrors, [id]: { ...state.turnErrors?.[id], [p.turn.id]: normalizeTurnError(p.turn.error) } } : state.turnErrors,
+      // When a live failure arrived (turnErrorAt), so a later sign-in can settle an auth card ('Signed in again').
+      ...(p.turn.error && p.turn.id ? { turnErrorAt: { ...state.turnErrorAt, [id]: { ...state.turnErrorAt?.[id], [p.turn.id]: Date.now() } } } : {}),
       errors: newerTurn ? state.errors : { ...state.errors, [id]: p.turn.error && !p.turn.id ? normalizeTurnError(p.turn.error) : null },
     };
   }
@@ -441,12 +599,20 @@ export function reduce(state, action) {
   if (e.method === "error") {
     if (p.willRetry === true) {
       const count = (value) => Number.isInteger(value) && value > 0 ? value : null;
+      // A bridge's codeDesktop {nextAt (ms), action {title, message, label, link}}: OpenCode's retry, which can wait
+      // hours for a usage limit, says when it tries again and what fixes it.
+      const extra = p.codeDesktop && typeof p.codeDesktop === "object" ? p.codeDesktop : {};
+      const action = extra.action && typeof extra.action === "object" ? extra.action : null;
       return { ...state, retrying: { ...state.retrying, [id]: { turnId: p.turnId || state.active[id] || null,
         message: p.error?.message || "", codexErrorInfo: p.error?.codexErrorInfo ?? null,
-        attempt: count(p.retry?.attempt), maxRetries: count(p.retry?.maxRetries) } } };
+        attempt: count(p.retry?.attempt), maxRetries: count(p.retry?.maxRetries),
+        nextAt: Number.isFinite(extra.nextAt) ? extra.nextAt : null,
+        action: action ? { title: typeof action.title === "string" ? action.title : null, message: typeof action.message === "string" ? action.message : null,
+          label: typeof action.label === "string" ? action.label : null, link: typeof action.link === "string" && /^https?:\/\//i.test(action.link) ? action.link : null } : null } } };
     }
     const error = normalizeTurnError(p.error || {});
     if (p.turnId) return { ...state, retrying: { ...state.retrying, [id]: null },
+      turnErrorAt: { ...state.turnErrorAt, [id]: { ...state.turnErrorAt?.[id], [p.turnId]: Date.now() } },
       turnErrors: { ...state.turnErrors, [id]: { ...state.turnErrors?.[id], [p.turnId]: error } } };
     // A thread-wide failure keeps its TurnError shape for the transcript-tail card.
     return { ...state, retrying: { ...state.retrying, [id]: null }, errors: { ...state.errors, [id]: error } };
@@ -455,9 +621,12 @@ export function reduce(state, action) {
     return { ...state, plans: { ...state.plans, [id]: p.plan } };
   if (e.method === "turn/diff/updated")
     return { ...state, diffs: { ...state.diffs, [id]: p.diff } };
-  if (e.method === "thread/tokenUsage/updated")
+  if (e.method === "thread/tokenUsage/updated") {
+    const compacted = withCompactionAfter(items, p, state.active[id]);
     return { ...state, usage: { ...state.usage, [id]: p.tokenUsage },
+      ...(compacted !== items ? { items: { ...state.items, [id]: compacted } } : {}),
       turnStats: { ...state.turnStats, [id]: updateTurnUsage(state.turnStats?.[id], p, state.active[id]) } };
+  }
   if (e.method === "item/started" || e.method === "item/completed") {
     const found = items.findIndex((i) => i.id === p.item.id);
     const next = items.slice();
@@ -474,6 +643,12 @@ export function reduce(state, action) {
       ? (Number.isFinite(p.startedAtMs) ? { startedAtMs: p.startedAtMs } : {})
       : (Number.isFinite(p.completedAtMs) && !(thought && Number.isFinite(items[found]?.completedAtMs)) ? { completedAtMs: p.completedAtMs } : {});
     const item = { ...p.item, ...lifecycle, ...(p.item.type === "contextCompaction" ? {status:e.method === "item/started" ? "inProgress" : "completed"} : {}), turnId: p.turnId || state.active[id] || items[found]?.turnId };
+    // A compaction remembers how full the context was when it started (the session's last thread/tokenUsage), so its
+    // marker can say what it saved once the core re-sends the usage (withCompactionAfter). A local observation only.
+    if (p.item.type === "contextCompaction" && e.method === "item/started" && !Number.isFinite(items[found]?.preTokens)) {
+      const before = contextTokens(state.usage[id]);
+      if (before > 0) item.preTokens = before;
+    }
     if (found < 0) next.push(item);
     else next[found] = { ...next[found], ...item };
     if (thought && e.method === "item/started") delete next[found < 0 ? next.length - 1 : found].completedAtMs;
@@ -492,14 +667,45 @@ export function reduce(state, action) {
         ? { planDocs: withPlanDocument(state.planDocs, id, p.item) } : {}),
       itemPhases: observeItemPhase(state, id, p.item.id, e.method === "item/completed" ? "completed" : "streaming") };
   }
+  if (e.method === "item/reasoning/summaryPartAdded") {
+    const at = items.findIndex((i) => i.id === p.itemId);
+    const sectioned = at < 0 ? null : withSummarySection(items[at], p.summaryIndex);
+    if (!sectioned || sectioned === items[at]) return state;
+    const next = items.slice();
+    next[at] = sectioned;
+    return { ...state, items: { ...state.items, [id]: next } };
+  }
+  // TerminalInteractionNotification {threadId, turnId, itemId, processId, stdin}: Codex typed into, or (empty stdin) waited
+  // on, a running unified-exec process. Typed input joins the command item's terminalInputs ('Sent input' lines); a wait
+  // marks the item so the status row reads 'Waiting for <command>' until something else happens (Codex tui
+  // chatwidget/command_lifecycle.rs: 'Interacted with background terminal' / 'Waiting for background terminal').
+  if (e.method === "item/commandExecution/terminalInteraction") {
+    const at = items.findIndex((i) => i.id === p.itemId);
+    if (at < 0 || typeof p.stdin !== "string") return state;
+    const next = items.slice(), item = { ...items[at] };
+    if (p.stdin) {
+      item.terminalInputs = [...(Array.isArray(item.terminalInputs) ? item.terminalInputs : []), p.stdin].slice(-50);
+      delete item.terminalWaitingAt;
+    } else item.terminalWaitingAt = Date.now();
+    next[at] = item;
+    return { ...state, items: { ...state.items, [id]: next } };
+  }
+  // PlanDeltaNotification {threadId, turnId, itemId, delta} (EXPERIMENTAL): the
+  // proposed plan streams into the plan item's text like an answer does (codex
+  // TUI on_plan_delta). item/completed's PlanItem.text replaces it, since Codex
+  // warns the deltas may not add up to the completed plan.
+  const planDelta = e.method === "item/plan/delta";
   const field =
-    e.method === "item/agentMessage/delta"
+    e.method === "item/agentMessage/delta" || planDelta
       ? "text"
       : e.method === "item/commandExecution/outputDelta"
         ? "aggregatedOutput"
         : e.method === "item/reasoning/summaryTextDelta"
           ? "reasoningText"
-          : null;
+          // Raw reasoning (ReasoningTextDeltaNotification): shown only while there is no summary (reasoningText()).
+          : e.method === "item/reasoning/textDelta"
+            ? "rawReasoningText"
+            : null;
   if (field) {
     const next = items.slice();
     let at = next.findIndex((i) => i.id === p.itemId);
@@ -510,14 +716,19 @@ export function reduce(state, action) {
         [deltaOnlyFields]: [field],
         turnId: p.turnId || state.active[id],
         type:
-          field === "text"
+          planDelta
+            ? "plan"
+            : field === "text"
             ? "agentMessage"
-            : field === "reasoningText"
+            : field === "reasoningText" || field === "rawReasoningText"
               ? "reasoning"
               : "commandExecution",
       });
     }
+    if (field === "reasoningText") next[at] = withSummarySection(next[at], p.summaryIndex);
     next[at] = { ...next[at], [field]: (next[at][field] || "") + p.delta };
+    // Output arrived: a wait on this process (terminalInteraction with empty stdin) is over.
+    if (field === "aggregatedOutput" && next[at].terminalWaitingAt) delete next[at].terminalWaitingAt;
     return { ...state, items: { ...state.items, [id]: next },
       itemPhases: observeItemPhase(state, id, p.itemId, state.itemPhases?.[id]?.[p.itemId] === "completed" ? "completed" : "streaming") };
   }

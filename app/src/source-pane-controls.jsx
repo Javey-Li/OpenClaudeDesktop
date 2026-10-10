@@ -219,6 +219,8 @@ function ArrangeTrigger({ tileId, layout, expanded, onMoveToEdge, onToggleExpand
         onClick={(event) => {
           const keyboard = event.nativeEvent.detail === 0;
           if (press.current.fired && !keyboard) { press.current.fired = false; return; }
+          // A hover-open timer armed on the way in must not open the popup after the click.
+          if (!keyboard) clearTimer("hover");
           hoverSuppressed.current = !keyboard;
           onToggleExpand?.();
           if (open) closePopup();
@@ -283,7 +285,7 @@ export function PaneSettingsMenu({ paneName, sections = [], unroll = true }) {
       <SourceTooltip content={label} side="bottom" hoverable={false} open={open ? false : undefined}>
         <button ref={trigger} type="button" className="source-icon-button spc-ghost" aria-label={label} aria-haspopup="menu" aria-expanded={!!open}
           data-popup-open={open ? "" : undefined} data-pane-settings="" onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setOpen(open ? null : { token: Date.now(), entry: "first" })}
+          onClick={(event) => setOpen(open ? null : { token: Date.now(), entry: event.detail === 0 ? "first" : undefined })}
           onKeyDown={(event) => {
             if (open || event.metaKey || event.ctrlKey || event.altKey || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
             event.preventDefault();

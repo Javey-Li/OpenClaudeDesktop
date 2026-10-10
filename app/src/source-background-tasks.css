@@ -4,3 +4,4 @@
 .sbt-metadata{display:flex;flex-direction:column;gap:5px;padding-bottom:3px;overflow-wrap:anywhere}.sbt-card[data-status=running] :is(.sbt-kind,.sbt-value){color:var(--cds-text-secondary)}.sbt-section-heading h3 button:hover{color:var(--cds-text-secondary)}.sbt-finished-caret{transition:transform var(--cds-dur-fast)}
 @media(prefers-reduced-motion:reduce){.sbt-caret,.sbt-finished-caret{transition:none}}
 html[data-reduce-motion="true"] .sbt-caret, html[data-reduce-motion="true"] .sbt-finished-caret { transition: none; }
+.sbt-hint{color:var(--cds-text-secondary)}

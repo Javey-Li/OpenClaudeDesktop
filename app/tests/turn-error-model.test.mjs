@@ -7,10 +7,10 @@ import { sessionState } from "../src/sidebar-model.js";
 
 test("every CodexErrorInfo variant maps to a source category (c1298b0ba Z)", () => {
   const expected = {
-    usageLimitExceeded: "rate_limit", sessionBudgetExceeded: "rate_limit", rateLimitExceeded: "server_rate_limit",
+    usageLimitExceeded: "rate_limit", sessionBudgetExceeded: "session_budget", rateLimitExceeded: "server_rate_limit",
     serverOverloaded: "overloaded", internalServerError: "server_error", unauthorized: "auth",
     contextWindowExceeded: "context_length", badRequest: "invalid_request",
-    cyberPolicy: "unknown", misalignmentPolicyViolation: "unknown", threadRollbackFailed: "unknown", sandboxError: "unknown", other: "unknown",
+    cyberPolicy: "safety_block", misalignmentPolicyViolation: "misalignment", threadRollbackFailed: "unknown", sandboxError: "unknown", other: "unknown",
   };
   for (const [info, category] of Object.entries(expected)) assert.equal(classifyTurnError(info), category, info);
   for (const key of ["httpConnectionFailed", "responseStreamConnectionFailed", "responseStreamDisconnected", "responseTooManyFailedAttempts"])
@@ -56,7 +56,7 @@ test("details join message and additionalDetails; status comes only from the var
 test("DeepSeek failure codes: quota is the billing card, a key problem names the DeepSeek key", () => {
   const billing = describeTurnError({ message: "Insufficient Balance", codexErrorInfo: "usageLimitExceeded", additionalDetails: "QUOTA" });
   assert.deepEqual({ ...billing }, { category: "billing", headline: "Billing issue", markerLabel: "Billing issue",
-    hint: "Add credits to your DeepSeek balance to continue.", retryHelps: false, compactHelps: false, modelSwitchHelps: false, icon: "warning" });
+    hint: "Add credits to your DeepSeek balance to continue.", retryHelps: false, compactHelps: false, modelSwitchHelps: false, icon: "warning", platformUrl: "https://platform.deepseek.com/usage" });
   assert.equal(describeTurnError({ message: "x", codexErrorInfo: "usageLimitExceeded", additionalDetails: "ACCOUNT_QUOTA" }).category, "billing");
   assert.equal(describeTurnError({ message: "x", codexErrorInfo: null, additionalDetails: "QUOTA" }).category, "billing");
   // A Codex plan limit (no DeepSeek code) keeps the usage-limit card.
@@ -65,7 +65,11 @@ test("DeepSeek failure codes: quota is the billing card, a key problem names the
     const auth = describeTurnError({ message: "Authentication Fails", codexErrorInfo: "unauthorized", additionalDetails: code });
     assert.deepEqual([auth.category, auth.headline, auth.hint, auth.retryHelps], ["auth", "Authentication failed", DEEPSEEK_AUTH_HINT, false], code);
   }
-  assert.equal(DEEPSEEK_AUTH_HINT, "Check your DeepSeek API key in DeepSeek Harness settings.");
+  assert.equal(DEEPSEEK_AUTH_HINT, "Check your DeepSeek API key in Settings › Models.");
+  // The card can open the page that holds the key, and an empty DeepSeek balance links to the Platform.
+  assert.equal(describeTurnError({ message: "x", codexErrorInfo: "unauthorized", additionalDetails: "AUTH" }).settingsPage, "models");
+  assert.equal(describeTurnError({ message: "x", codexErrorInfo: null, additionalDetails: "QUOTA" }).platformUrl, "https://platform.deepseek.com/usage");
+  assert.equal(describeTurnError({ message: "x", codexErrorInfo: null, additionalDetails: "BILLING" }).platformUrl, undefined);
   assert.equal(describeTurnError({ message: "x", codexErrorInfo: "unauthorized", additionalDetails: null }).hint, "Sign in again to continue.");
   assert.equal(describeTurnError({ message: "x", codexErrorInfo: "rateLimitExceeded", additionalDetails: "RATE_LIMIT" }).category, "server_rate_limit");
 });
@@ -161,7 +165,7 @@ test("reducer: willRetry true sets retrying only; progress and turn end clear it
   let state = reduce(emptyState, started("t1"));
   const retry = { event: { method: "error", params: { threadId: "th", turnId: "t1", willRetry: true, error: { message: "429; retrying", codexErrorInfo: "rateLimitExceeded" } } } };
   state = reduce(state, retry);
-  assert.deepEqual(state.retrying.th, { turnId: "t1", message: "429; retrying", codexErrorInfo: "rateLimitExceeded", attempt: null, maxRetries: null });
+  assert.deepEqual(state.retrying.th, { turnId: "t1", message: "429; retrying", codexErrorInfo: "rateLimitExceeded", attempt: null, maxRetries: null, nextAt: null, action: null });
   assert.equal(state.turnErrors.th, undefined);
   assert.equal(state.errors.th, null);
   assert.equal(state.active.th, "t1");
@@ -221,8 +225,69 @@ test("status row: retrying replaces the working label; stop wins", () => {
   const retry = status({ ...ready, retrying: "Rate limited" });
   assert.equal(retry.phase, "running");
   assert.equal(retry.label, "Rate limited · Retrying…");
-  assert.deepEqual(retry.retry, { error: "Rate limited", label: "Retrying…" });
+  assert.deepEqual(retry.retry, { error: "Rate limited", label: "Retrying…", later: null, detail: null, link: null });
   assert.equal(status({ ...ready, retrying: "Rate limited", stopping: true }).label, "Stopping…");
   assert.equal(status({ ...ready, running: false, retrying: "Rate limited" }).phase, "idle");
   assert.equal(status(ready).retry, null);
+});
+
+test("Codex misalignment stop: precaution copy, no retry, findings and the steer to continue; the composer stays closed", async () => {
+  const { normalizeTurnError, describeTurnError, turnErrorDetails, misalignmentStop } = await import("../src/turn-error-model.mjs");
+  const stopped = normalizeTurnError({ message: "stopped", codexErrorInfo: "misalignmentPolicyViolation", additionalDetails: null, misalignment: null });
+  const plain = describeTurnError(stopped);
+  assert.equal(plain.category, "misalignment");
+  assert.equal(plain.headline, "Chat stopped as a precaution");
+  assert.equal(plain.retryHelps, false);
+  assert.equal(turnErrorDetails(stopped), "");
+  const paused = describeTurnError(normalizeTurnError({ message: "stopped", codexErrorInfo: "misalignmentPolicyViolation",
+    misalignment: { errorType: "x", detailedExplanation: "The agent edited files you didn't ask about.", steer: { message: "I acknowledge the findings; continue carefully." } } }));
+  assert.equal(paused.headline, "Chat paused as a precaution");
+  assert.equal(paused.findings, "The agent edited files you didn't ask about.");
+  assert.equal(paused.continueMessage, "I acknowledge the findings; continue carefully.");
+  const items = [{ turnId: "t1", type: "userMessage" }, { turnId: "t2", type: "userMessage" }];
+  assert.equal(misalignmentStop(items, { t2: stopped }), "t2");
+  assert.equal(misalignmentStop(items, { t1: stopped }), null, "a later turn reopens the chat");
+  assert.equal(misalignmentStop(items, { t2: stopped }, { activeTurnId: "t3" }), null);
+  // A provider 402 from a bridge is billing in the running core's words.
+  const billing = describeTurnError(normalizeTurnError({ message: "Insufficient account balance", codexErrorInfo: "usageLimitExceeded", additionalDetails: "BILLING" }));
+  assert.equal(billing.category, "billing");
+  assert.equal(billing.retryHelps, false);
+  assert.doesNotMatch(billing.hint, /DeepSeek/);
+});
+
+test("Codex safety refusals: cyberPolicy and the bio/legacy texts are a non-retryable card with Codex's links", () => {
+  const cyber = describeTurnError({ message: "blocked", codexErrorInfo: "cyberPolicy" });
+  assert.equal(cyber.category, "safety_block");
+  assert.equal(cyber.headline, "This content can’t be shown");
+  assert.equal(cyber.retryHelps, false);
+  assert.deepEqual(cyber.links.map((link) => link.label), ["Learn more"]);
+  const sol = describeTurnError({ message: "blocked", codexErrorInfo: "cyberPolicy" }, { model: "gpt-5.6-sol" });
+  assert.deepEqual(sol.links.map((link) => link.label), ["Learn more", "Apply for Daybreak"]);
+  assert.match(sol.hint, /apply for Daybreak/);
+  assert.match(describeTurnError({ codexErrorInfo: "cyberPolicy" }, { model: "gpt-6-astra" }).hint, /isn’t available for Astra/);
+  const bio = describeTurnError({ message: "This content was flagged for possible biological risk. More text", codexErrorInfo: null });
+  assert.equal(bio.category, "safety_block");
+  assert.deepEqual(bio.links.map((link) => link.label), ["Trusted Access", "Learn more"]);
+  assert.equal(turnErrorCategory({ message: JSON.stringify({ error: { code: "bio_policy", message: "x" } }) }), "safety_block");
+  assert.equal(turnErrorCategory({ message: "{not json" }), "unknown");
+});
+
+test("Codex session budget: its own card, no retry, Open config and no usage-limit wording", () => {
+  const view = describeTurnError({ message: "shared rollout token budget exhausted", codexErrorInfo: "sessionBudgetExceeded" });
+  assert.equal(view.category, "session_budget");
+  assert.equal(view.retryHelps, false);
+  assert.equal(view.editConfig, true);
+  assert.doesNotMatch(view.hint, /resets/);
+  assert.equal(retryShortLabel("sessionBudgetExceeded"), "Request failed");
+});
+
+test("a signed-out request's 401 is an auth failure with Sign in, not a network or generic API error", () => {
+  const stream = { message: "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses", codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 401 } } };
+  assert.equal(turnErrorCategory(stream), "auth");
+  assert.equal(turnErrorCategory({ message: stream.message, codexErrorInfo: null }), "auth");
+  assert.equal(turnErrorCategory({ message: "x", codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 401 } } }), "auth");
+  assert.equal(describeTurnError(stream, { signIn: true }).signIn, true);
+  // Other transport failures keep their category.
+  assert.equal(turnErrorCategory({ message: "stream closed", codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 502 } } }), "network");
+  assert.equal(turnErrorCategory({ message: "boom", codexErrorInfo: "other" }), "unknown");
 });

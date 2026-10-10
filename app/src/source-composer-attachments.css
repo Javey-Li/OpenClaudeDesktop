@@ -31,3 +31,12 @@
 html[data-local-motion="reduce"] .sca-slot, html[data-local-motion="reduce"] .sca-pill, html[data-local-motion="reduce"] .sca-remove { transition: none; }
 /* Skill chip (local representation of the official skillChip editor node): a wide flat pill
    with the Scroll glyph and the visible skill label; height stays the 40px pill row. */
+/* Snippet preview (c099c328d Uc :1247-1266): 'flex flex-col gap-1 max-h-[280px] overflow-y-auto p-md text-body
+   select-text text-left', width Ll = 320 (capped by the window); the body 'text-body text-primary whitespace-pre-wrap
+   [overflow-wrap:anywhere]'. */
+.sca-preview { max-width: calc(100vw - 16px); }
+.sca-preview-body { display: flex; flex-direction: column; gap: 4px; width: 320px; max-width: 100%; min-width: 0; max-height: 280px; overflow-y: auto; padding: var(--cds-pad-md, 12px);
+  border-radius: inherit; text-align: left; user-select: text; font-size: var(--cds-font-size-body, 13px); line-height: var(--cds-leading-body, 19px); color: var(--cds-text-primary); }
+.sca-preview-body:focus { outline: none; }
+.sca-preview-body:focus-visible { box-shadow: var(--cds-focus-shadow); }
+.sca-preview-text { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -27,7 +27,9 @@ export const MAX_ENTRIES = 50;
 export const DISPLAY_NAME_MAX = 60;
 export const PRICE_TIERS = Object.freeze(['offPeak', 'peak']);
 export const PRICE_FIELDS = Object.freeze(['cacheHit', 'cacheMiss', 'output']);
-const MODEL_ID = /^[A-Za-z0-9_.:/-]{1,128}$/;
+// The ids cores really list: Qwen suffixes its auth type (`qwen3-coder-plus(openai)`), OpenCode's models.dev ids
+// may carry `@`, and a custom provider's model ids (PROVIDER_MODEL below) `@` or `+`. Keys are only ever own properties of plain records; __proto__ is refused below.
+const MODEL_ID = /^[A-Za-z0-9_.:/()@+-]{1,128}$/;
 const EFFORT = /^[a-z0-9_-]{1,32}$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\x00-\x1f\x7f]/;
@@ -35,6 +37,15 @@ const isRecord = value => !!value && typeof value === 'object' && !Array.isArray
 const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
 
 export const isModelId = value => typeof value === 'string' && value !== '__proto__' && MODEL_ID.test(value);
+
+/**
+ * Whether a core reads per-model max tokens / temperature (codeDesktop.customization.modelParams), from its
+ * coreCapabilities(). An explicit `modelParams` capability decides; a core that doesn't declare it falls back to
+ * `customization` (every customization bridge but one reads modelParams; that one declares modelParams: false).
+ * Settings › Models shows the rows and main's decorate() sends the values on exactly this check.
+ */
+export const coreTakesModelParams = capabilities => capabilities?.modelParams !== undefined && capabilities?.modelParams !== null
+  ? capabilities.modelParams === true : capabilities?.customization === true;
 
 /** One parameter's user-facing error, or null when the value is valid (undefined = unset). */
 export function modelParamError(field, value) {
@@ -103,7 +114,7 @@ function modelMap(value, entryOf, strict, label) {
   const out = {};
   for (const key of keys) {
     if (Object.keys(out).length >= MAX_ENTRIES) break;
-    if (!isModelId(key)) { if (strict) throw new Error(t('Model ids may use letters, digits and . _ : / - only (128 characters at most).')); continue; }
+    if (!isModelId(key)) { if (strict) throw new Error(t('Model ids may use letters, digits and . _ : / ( ) @ + - only (128 characters at most).')); continue; }
     const entry = entryOf(value[key], strict);
     if (entry) out[key] = entry;
   }
@@ -215,7 +226,7 @@ export function setPrice(settings, official, modelId, tier, field, value) {
 /** Add a model with zero prices (to be edited); throws a user-facing Error. */
 export function addPrice(settings, official, modelId, displayName = '') {
   const id = String(modelId ?? '').trim();
-  if (!isModelId(id)) throw new Error(t('Model ids may use letters, digits and . _ : / - only (128 characters at most).'));
+  if (!isModelId(id)) throw new Error(t('Model ids may use letters, digits and . _ : / ( ) @ + - only (128 characters at most).'));
   const prices = effectivePrices(settings, official);
   if (prices[id]) throw new Error(t('That model already has a price.'));
   if (Object.keys(prices).length >= MAX_ENTRIES) throw new Error(t('Use {max} models or fewer.', { max: MAX_ENTRIES }));
@@ -259,6 +270,51 @@ const ROUTE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROVIDER_MODEL = /^[A-Za-z0-9_.:/@+-]{1,128}$/;
 const RESERVED_ROUTES = new Set(['deepseek']);
 
+// A model's context window (custom providers and relay models carry no such fact; the cores assume 262,144 tokens and
+// compact by it): an optional per-model token count, written into the catalog row as contextWindow.
+export const CONTEXT_WINDOW_MIN = 1024;
+export const CONTEXT_WINDOW_MAX = 100_000_000;
+/**
+ * A token count as people write it: 131072, 131,072, 128K (128,000), 1M or 1.5M (K and M are thousands and
+ * millions). null for an empty value, NaN for anything else.
+ */
+export function parseTokenCount(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isInteger(value) ? value : NaN;
+  const text = String(value).trim().replace(/[,_\s]/g, '');
+  if (!text) return null;
+  const match = /^(\d+(?:\.\d+)?)([kKmM]?)$/.exec(text);
+  if (!match) return NaN;
+  const scale = { '': 1, k: 1000, m: 1000000 }[match[2].toLowerCase()];
+  const count = Number(match[1]) * scale;
+  return Number.isInteger(count) ? count : Math.round(count);
+}
+/** The {id: tokens} context windows for the listed ids (strict: throws a user-facing Error on a bad entry). */
+export function contextWindowsFor(value, ids) {
+  const out = {};
+  if (!isRecord(value)) return out;
+  for (const id of ids) {
+    if (!Object.hasOwn(value, id)) continue;
+    const count = parseTokenCount(value[id]);
+    if (count === null) continue;
+    if (!Number.isInteger(count) || count < CONTEXT_WINDOW_MIN || count > CONTEXT_WINDOW_MAX) throw new Error(t('Invalid context window for {id}. Use a number such as 131072, 128K or 1M.', { id: id.slice(0, 40) }));
+    out[id] = count;
+  }
+  return out;
+}
+/** The context windows a /models listing reports (context_length, context_window, max_input_tokens, limit.context). */
+export function listedContextWindows(list) {
+  const out = {};
+  for (const item of Array.isArray(list) ? list : []) {
+    if (!isRecord(item)) continue;
+    const id = typeof item.id === 'string' ? item.id.replace(/^models\//, '') : typeof item.name === 'string' ? item.name.replace(/^models\//, '') : null;
+    const count = [item.contextWindow, item.context_window, item.context_length, item.max_input_tokens, item.inputTokenLimit, item.limit?.context].find(value => Number.isInteger(value));
+    if (id && Number.isInteger(count) && count >= CONTEXT_WINDOW_MIN && count <= CONTEXT_WINDOW_MAX) out[id] = count;
+  }
+  return out;
+}
+const withContextWindows = windows => (Object.keys(windows).length ? { contextWindows: windows } : {});
+
 /** The env var the core reads a route's key from. */
 export const providerKeyEnv = route => `CODE_DESKTOP_PROVIDER_KEY_${String(route).toUpperCase().replace(/-/g, '_')}`;
 
@@ -267,7 +323,7 @@ export function validateProvider(value) {
   if (!isRecord(value)) throw new Error(t('Invalid provider.'));
   const route = String(value.route ?? '').trim();
   if (!ROUTE.test(route)) throw new Error(t('Provider ids use lowercase letters, digits and - (32 characters at most).'));
-  if (RESERVED_ROUTES.has(route)) throw new Error(t('“deepseek” is the built-in DeepSeek provider. Choose another id.'));
+  if (RESERVED_ROUTES.has(route)) throw new Error(t('“deepseek” is reserved for the built-in DeepSeek API. Choose another id.'));
   const displayName = String(value.displayName ?? '').trim();
   if (displayName.length > DISPLAY_NAME_MAX || CONTROL.test(displayName)) throw new Error(t('Provider names must be {max} characters or fewer.', { max: DISPLAY_NAME_MAX }));
   const api = value.api ?? PROVIDER_PROTOCOLS[0];
@@ -281,8 +337,22 @@ export function validateProvider(value) {
   if (!models.length) throw new Error(t('List at least one model id.'));
   if (models.length > MAX_ENTRIES) throw new Error(t('Use {max} models or fewer.', { max: MAX_ENTRIES }));
   for (const id of models) if (!PROVIDER_MODEL.test(id)) throw new Error(t('Invalid model id: {id}', { id: id.slice(0, 40) }));
-  return { route, ...(displayName ? { displayName } : {}), api, baseURL, models: [...new Set(models)] };
+  const unique = [...new Set(models)], imageModels = imageSubset(value.imageModels, unique);
+  return { route, ...(displayName ? { displayName } : {}), api, baseURL, models: unique, ...(imageModels.length ? { imageModels } : {}), ...withContextWindows(contextWindowsFor(value.contextWindows, unique)) };
 }
+
+// Which of a model list accept image input. The cores only send images to a model whose catalog entry says so
+// (text-only otherwise), and a relay's or custom provider's ids carry no such facts, so the user marks them.
+// Ids not in the list are dropped.
+export const IMAGE_MODALITIES = Object.freeze(['text', 'image']);
+export function imageSubset(value, ids) {
+  const wanted = new Set((Array.isArray(value) ? value : []).map(id => String(id).trim()));
+  return ids.filter(id => wanted.has(id));
+}
+// DeepSeek's own image-capable models (dsh-llm-deepseek's catalog: deepseek-flash takes images, deepseek-v4-pro
+// doesn't), as relays usually name them. A relay saved before images could be marked starts with these on.
+const DEEPSEEK_IMAGE_MODEL = /^deepseek-(?:v4(?:\.\d+)?-)?flash$/i;
+export const defaultRelayImageModels = ids => ids.filter(id => DEEPSEEK_IMAGE_MODEL.test(id));
 
 /** Lenient read of the stored provider list. */
 export function normalizeProviders(value) {
@@ -301,7 +371,7 @@ export function providerOverlayRow(providers) {
   return { config: { providers: Object.fromEntries(list.map(provider => [provider.route, {
     ...(provider.displayName ? { displayName: provider.displayName } : {}),
     api: provider.api, baseURL: provider.baseURL, apiKeyEnv: providerKeyEnv(provider.route),
-    models: provider.models.map(id => ({ id })),
+    models: provider.models.map(id => ({ id, ...(provider.imageModels?.includes(id) ? { input: [...IMAGE_MODALITIES] } : {}), ...(provider.contextWindows?.[id] ? { contextWindow: provider.contextWindows[id] } : {}) })),
   }])) } };
 }
 
@@ -342,7 +412,8 @@ export function parseRelayModels(value) {
  */
 export function relayCatalogRow(connection) {
   if (connection?.mode !== 'relay' || !connection.relayModels?.length) return null;
-  return { config: { models: connection.relayModels.map(id => ({ id, name: id })) } };
+  const images = new Set(connection.relayImageModels ?? defaultRelayImageModels(connection.relayModels));
+  return { config: { models: connection.relayModels.map(id => ({ id, name: id, ...(images.has(id) ? { inputModalities: [...IMAGE_MODALITIES] } : {}), ...(connection.relayContextWindows?.[id] ? { contextWindow: connection.relayContextWindows[id] } : {}) })) } };
 }
 export const DEEPSEEK_ROW_ID = 'llm-deepseek';
 
@@ -354,10 +425,14 @@ export function validateConnection(value) {
   const relayBaseURL = String(input.relayBaseURL ?? '').trim().replace(/\/+$/, '');
   const error = relayBaseURL || mode === 'relay' ? relayBaseURLError(relayBaseURL) : null;
   if (error && mode === 'relay') throw new Error(error);
-  return { mode, relayBaseURL: error ? '' : relayBaseURL, relayModels: parseRelayModels(input.relayModels) };
+  const relayModels = parseRelayModels(input.relayModels);
+  // relayImageModels: absent on a connection saved before it existed → DeepSeek's image models among the ids.
+  const relayImageModels = Array.isArray(input.relayImageModels) ? imageSubset(input.relayImageModels, relayModels) : defaultRelayImageModels(relayModels);
+  const windows = contextWindowsFor(input.relayContextWindows, relayModels);
+  return { mode, relayBaseURL: error ? '' : relayBaseURL, relayModels, relayImageModels, ...(Object.keys(windows).length ? { relayContextWindows: windows } : {}) };
 }
 
 /** Lenient read of connection.json: always a valid {mode, relayBaseURL, relayModels}. */
 export function normalizeConnection(value) {
-  try { return validateConnection(value); } catch { return { mode: 'official', relayBaseURL: '', relayModels: [] }; }
+  try { return validateConnection(value); } catch { return { mode: 'official', relayBaseURL: '', relayModels: [], relayImageModels: [] }; }
 }

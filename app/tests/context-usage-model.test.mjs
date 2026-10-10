@@ -69,3 +69,27 @@ test('compactAction: hidden below 50% or while compacting, disabled while replyi
   assert.deepEqual(compactAction({ contextPct: 94, compacting: true }), { kind: 'hidden' });
   assert.deepEqual(compactAction({ contextPct: 60, minPct: 70 }), { kind: 'hidden' });
 });
+
+// hd fe/T with a plan-limit window (usage-model planUsageSummary top): the tooltip detail joins the plan summary and
+// its reset; without context the ring shows the plan percent and the label is the plain list (no 'Usage:' prefix).
+test("usage trigger names the plan window in its detail, and the ring shows plan usage without context", async () => {
+  const { usageTriggerCopy } = await import("../src/context-usage-model.mjs");
+  const plan = { summary: "45% of 5-hour limit", resets: "Resets in 2 hr 3 min", percent: 45 };
+  assert.deepEqual(usageTriggerCopy({ last: { totalTokens: 64000 }, modelContextWindow: 128000 }, { plan }),
+    { tooltip: "Context 64k / 128k (50%)", ariaLabel: "Usage: Context 64k / 128k (50%), 45% of 5-hour limit, Resets in 2 hr 3 min", ringPct: 50, contextPct: 50, detail: "45% of 5-hour limit · Resets in 2 hr 3 min" });
+  assert.deepEqual(usageTriggerCopy(null, { plan }),
+    { tooltip: "Usage", ariaLabel: "Usage, 45% of 5-hour limit, Resets in 2 hr 3 min", ringPct: 45, contextPct: null, detail: "45% of 5-hour limit · Resets in 2 hr 3 min" });
+  assert.deepEqual(usageTriggerCopy(null), { tooltip: "Usage", ariaLabel: "Usage", ringPct: 0, contextPct: null, detail: null }, "no plan: unchanged");
+  assert.equal(usageTriggerCopy(null, { plan: { summary: "This week: 80%", resets: null, percent: 80 } }).detail, "This week: 80%");
+});
+
+test('compactAction names the running core, not DeepSeek', async (context) => {
+  const i18n = await import('../electron/i18n/index.mjs');
+  const { compactAction } = await import('../src/context-usage-model.mjs');
+  const before = i18n.getAssistantName();
+  context.after(() => { i18n.setAssistantName(before); i18n.setLocale('en-US'); });
+  i18n.setAssistantName('OpenCode');
+  assert.equal(compactAction({ contextPct: 94, running: true }).reason, 'Available when OpenCode finishes this turn');
+  i18n.setLocale('zh-CN');
+  assert.equal(compactAction({ contextPct: 94, running: true }).reason, 'OpenCode 完成本轮后可用');
+});

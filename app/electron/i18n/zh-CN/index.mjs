@@ -9,6 +9,11 @@ import settings from './settings.mjs';
 import panes from './panes.mjs';
 import models from './models.mjs';
 import menus from './menus.mjs';
+import windows from './windows.mjs';
+import terminal from './terminal.mjs';
+import preview from './preview.mjs';
+import workflows from './workflows.mjs';
+import agentTools from './agent-tools.mjs';
 
 // common.mjs is merged last: its wording wins where areas disagree.
-export default Object.freeze({ ...app, ...session, ...sidebar, ...customize, ...settings, ...panes, ...models, ...menus, ...common });
+export default Object.freeze({ ...app, ...session, ...sidebar, ...customize, ...settings, ...panes, ...models, ...menus, ...terminal, ...windows, ...preview, ...workflows, ...agentTools, ...common });

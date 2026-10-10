@@ -73,3 +73,7 @@ html[data-mode=dark] .ss-mcp-empty-illustration path{fill:var(--mcp-path-dark)}
 .ss-storage-dialog footer{padding-top:0;margin-top:var(--cds-pad-lg,16px)}
 @media(prefers-reduced-motion:reduce){.ss-storage-tip{transition:none}}
 html[data-reduce-motion="true"] .ss-storage-tip { transition: none; }
+.ss-storage-cleaned{margin:8px 0 0;font-size:var(--cds-font-size-footnote,12px);color:var(--cds-text-secondary)}
+/* SettingsEmptyState under a section header (Commands, Profiles): the Developer empty block, padded instead of flex:1. */
+.ss-list-empty{padding:var(--cds-pad-xl,24px) 0}.ss-list-empty p>span{display:block}
+.ss-list-empty p.ss-error{color:var(--cds-text-danger,#bc3636)}

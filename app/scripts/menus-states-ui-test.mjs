@@ -269,18 +269,22 @@ try {
   assert.equal(metrics.modelRow.gap, "6px"); assert.equal(metrics.modelRow.radius, "6px");
   assert.equal(metrics.modelRow.fontSize, "13px"); assert.equal(metrics.modelRow.lineHeight, "19px");
   assert.equal(metrics.modelRow.separator.height, 1); assert.equal(metrics.modelRow.separator.margin, "4px 8px");
-  assert.equal(metrics.modelRow.highlighted, true, "first row highlighted on open");
-  assert.equal(metrics.modelRow.background, metrics.modelRow.ghost, "highlighted row paints fill-ghost-hover");
+  // focusItemOnOpen "auto" (vendor-frame-BmPfNbgY.js:20180-20190, :20357-20359): a mouse open highlights no row and
+  // focuses the popup itself; the highlight follows hover, and ArrowDown starts at the first row.
+  assert.equal(metrics.modelRow.highlighted, false, "a pointer open highlights no row");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("role") === "menu" && document.activeElement.getAttribute("aria-label")), "Models", "a pointer open focuses the popup");
   checks.push("Model popup: role=menu/ModelSelector, 10px radius, surface-3, shadow-popover, 4px body, 6px above the trigger, portal z 120, no transition; trigger aria-expanded/data-popup-open with ghost fill; 24px rows with 8/6/6 geometry and 1px 4/8 separators");
 
   // 4. Highlight invariants; no Fast section for a model without a service tier (shared-14 ES returns null).
   let state = await highlightState("Models");
-  assert.deepEqual([state.count, state.focused], [1, true]);
+  assert.deepEqual([state.count, state.focused], [0, false], "nothing highlighted until hover or a key");
   const secondRow = menu("Models").getByRole("menuitemradio").nth(1);
   await secondRow.hover();
   await page.waitForFunction(() => document.activeElement?.dataset.modelId === "fixture-1");
   state = await highlightState("Models");
   assert.deepEqual([state.count, state.label, state.focused], [1, "Test model 2", true], "hover moves the single highlight and focus");
+  metrics.hoveredRow = await measureRow(secondRow);
+  assert.equal(metrics.hoveredRow.background, metrics.hoveredRow.ghost, "highlighted row paints fill-ghost-hover");
   await page.keyboard.press("End");
   await page.waitForFunction(() => document.activeElement?.dataset.label === "More models");
   assert.equal((await highlightState("Models")).count, 1);
@@ -495,14 +499,18 @@ try {
     submenus: node.querySelectorAll('[aria-haspopup], [data-submenu-trigger]').length,
     items: [...node.querySelectorAll('[role^="menuitem"]')].map((item) => item.dataset.label),
   }));
-  assert.match(metrics.accountContent.header, /Menus fixture/); assert.match(metrics.accountContent.header, /DeepSeek API$/); assert.doesNotMatch(metrics.accountContent.header, /DeepSeek · DeepSeek/);
+  assert.match(metrics.accountContent.header, /Menus fixture/); // The fixture reports no engine, so it is the Codex core: the org line names it (account-label-model accountMenuLines).
+  assert.match(metrics.accountContent.header, /Codex$/); assert.doesNotMatch(metrics.accountContent.header, /DeepSeek/); assert.doesNotMatch(metrics.accountContent.header, /Codex · Codex/);
   assert.equal(metrics.accountContent.settingsShortcut, "Meta+,"); assert.equal(metrics.accountContent.settingsCaps, "⌘,");
-  assert.equal(metrics.accountContent.signOut, false, "no Sign out without a logout capability");
+  // Log out (sidebar-rows.js:16434-16440) is Sign out, after a separator, whenever Settings › Preferences offers it: the
+  // Codex fixture reports a signed-in ChatGPT account (account-settings-model accountMenuSignOut).
+  assert.equal(metrics.accountContent.signOut, true, "Sign out for a core that reports a signed-in account");
   // R02 (sidebar-rows.js:16345-16432): View changelog, then the Learn more submenu (its links have no DeepSeek URL here).
   assert.equal(metrics.accountContent.submenus, 1, "one nested submenu: Learn more");
-  // Fidelity F14 (on purpose): sidebar-rows.js:16769-16793 uV puts Usage right after Settings. R02: the retained appearance
-  // toggle sits in the Language slot; the Codex fixture has no DeepSeek key row; Keyboard shortcuts moved into Learn more.
-  assert.deepEqual(metrics.accountContent.items, ["Settings", "Usage", "Dark appearance", "View changelog", "Learn more"], "Settings, Usage, retained appearance toggle, View changelog, Learn more");
+  // Fidelity F14 (on purpose): sidebar-rows.js:16769-16793 uV puts Usage right after Settings, then Language (shared-21 $B
+  // :16218-16227, which opens "Choose your language"). $B has no light/dark row (appearance is Settings › Theme); the Codex
+  // fixture has no DeepSeek key row; Keyboard shortcuts moved into Learn more.
+  assert.deepEqual(metrics.accountContent.items, ["Settings", "Usage", "Language", "View changelog", "Learn more", "Sign out"], "Settings, Usage, Language, View changelog, Learn more, Sign out");
   // shared-21-D098Wd--.js:16424-16431: inside Learn more, the Keyboard shortcuts item carries the shortcuts_modal chord ⌘/.
   await menu("Account menu").getByRole("menuitem", { name: /^Learn more/ }).focus();
   await page.keyboard.press("ArrowRight");
@@ -513,7 +521,8 @@ try {
     width: node.getBoundingClientRect().width,
     shortcutsCaps: ((row) => row && [...row.querySelectorAll('kbd')].map((kbd) => (kbd.querySelector('[aria-hidden="true"]') ?? kbd).textContent).join(''))([...node.querySelectorAll('[role^="menuitem"]')].find((item) => item.dataset.label === "Keyboard shortcuts")?.querySelector(".smenu-shortcut")),
   }));
-  assert.deepEqual(metrics.accountLearnMore.items, ["Keyboard shortcuts"]);
+  // Then the running core's project page (descriptor homepage; Codex's GitHub repository).
+  assert.deepEqual(metrics.accountLearnMore.items, ["Keyboard shortcuts", "Codex project page"]);
   assert.ok(metrics.accountLearnMore.width >= 208, `Learn more: min-w-[208px] (${metrics.accountLearnMore.width})`);
   assert.equal(metrics.accountLearnMore.shortcutsCaps, "⌘/");
   await page.keyboard.press("ArrowLeft");
@@ -534,7 +543,7 @@ try {
   assert.equal(await page.locator('[role="menu"]').count(), 0, "View changelog removes the menu");
   await page.keyboard.press("Escape");
   await page.getByRole("dialog", { name: "What’s new", exact: true }).waitFor({ state: "detached" });
-  checks.push("Account menu: role=menu 6px above the account button, 272px (w-[17rem]) at left 8, Header with display name and the org line 'DeepSeek API' (account-label-model; a ChatGPT fixture account has no 'API key' part), Settings aria-keyshortcuts Meta+, and ⌘, caps, items Settings / Usage / Dark appearance / View changelog / Learn more, Learn more (min 208px) holding Keyboard shortcuts ⌘/, Enter opens Settings and removes the menu, View changelog opens What’s new, no Sign out");
+  checks.push("Account menu: role=menu 6px above the account button, 272px (w-[17rem]) at left 8, Header with display name and the org line naming the running core, 'Codex' on the Codex fixture (account-label-model; a ChatGPT fixture account has no 'API key' part), Settings aria-keyshortcuts Meta+, and ⌘, caps, items Settings / Usage / Language / View changelog / Learn more (no appearance row), Learn more (min 208px) holding Keyboard shortcuts ⌘/ and the core's project page, then Sign out for the signed-in fixture account, Enter opens Settings and removes the menu, View changelog opens What’s new");
 
   // 10. Filter menu (offset 4, min 200, align end) and its Status submenu.
   await page.getByRole("button", { name: /^Filter(?: \(active\))?$/ }).click();
@@ -671,39 +680,23 @@ try {
   metrics.contextRaceFromButton = await readContextMenu();
   assert.equal(metrics.contextRaceFromButton?.dataCds, "ContextMenu", "a right-click while a row's More options menu is open leaves the context menu open");
   await closeMenus();
-  // Fidelity F02 Escape layering (Base UI useDismiss, vendor-frame-BmPfNbgY.js:16734-16748): with the sidebar search
-  // open on a query that hides B, Escape in A's context menu closes only the menu (it is consumed), and the search
-  // keeps its query; hiding the search later clears the query, so no hidden filter remains.
-  const searchBox = page.getByRole("textbox", { name: "Search sessions", exact: true }), rowB = page.locator(`[data-source-session-id="${B}"]`);
-  // Fidelity F04: the header button is named "Search" (sidebar-groups.js:5352-5377 _w); the field keeps "Search sessions".
+  // Fidelity F02 Escape layering with the ⌘K palette: the header Search button (sidebar-groups.js:5352-5377 _w) opens
+  // XP in search mode, a modal (#root inert) — the sidebar never hides rows behind a filter. Escape closes only the
+  // palette, and closing clears the query, so ⌘K reopens it empty.
+  const rowB = page.locator(`[data-source-session-id="${B}"]`), palette = page.getByRole("dialog", { name: "Command palette", exact: true });
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await searchBox.fill("session A");
-  await rowB.waitFor({ state: "detached" });
-  const layeredBox = await rowA.locator(".source-session-open").boundingBox();
-  await page.mouse.click(Math.round(layeredBox.x + 40), Math.round(layeredBox.y + layeredBox.height / 2), { button: "right" });
-  await menu("Session options").waitFor(); await waitFocusIn("Session options");
+  await palette.waitFor();
+  await palette.getByRole("combobox").fill("session A");
+  metrics.escapeLayering = { mode: await palette.getAttribute("data-palette-mode"), query: await palette.getByRole("combobox").inputValue(), rowB: await rowB.count(), rootInert: await page.evaluate(() => document.getElementById("root")?.hasAttribute("inert") ?? null) };
+  assert.deepEqual(metrics.escapeLayering, { mode: "search", query: "session A", rowB: 1, rootInert: true }, "search mode palette over an inert app; every sidebar row still shows");
   await page.keyboard.press("Escape");
-  await page.waitForFunction(() => !document.querySelector('[role="menu"]'));
-  await frames(2);
-  metrics.escapeLayering = { searchVisible: await searchBox.isVisible(), query: await searchBox.inputValue(), rowB: await rowB.count() };
-  assert.deepEqual(metrics.escapeLayering, { searchVisible: true, query: "session A", rowB: 0 }, "Escape closes only the menu; the search stays with its query");
-  // Escape in the composer is consumed by its editor keymap (prosemirror baseKeymap Escape → selectParentNode), so
-  // the app handler closes nothing; either way no hidden filter remains.
-  await page.getByRole("textbox", { name: "Message DeepSeek" }).focus();
-  await page.keyboard.press("Escape");
-  await frames(2);
-  metrics.escapeLayering.composer = { searchVisible: await searchBox.count() === 1, rowB: await rowB.count() };
-  assert.ok(metrics.escapeLayering.composer.searchVisible || metrics.escapeLayering.composer.rowB === 1, "no hidden filter after Escape in the composer");
-  // An unconsumed Escape (focus on the page) hides the search, and hiding clears the query.
-  await page.evaluate(() => document.activeElement?.blur());
-  await page.keyboard.press("Escape");
-  await searchBox.waitFor({ state: "detached" });
+  await palette.waitFor({ state: "detached" });
   await rowB.waitFor();
-  await page.keyboard.press("Meta+k"); await searchBox.waitFor();
-  metrics.escapeLayering.reopenedQuery = await searchBox.inputValue();
-  assert.equal(metrics.escapeLayering.reopenedQuery, "", "hiding the search cleared its query");
-  await page.keyboard.press("Meta+k"); await searchBox.waitFor({ state: "detached" });
-  checks.push("Escape layering: with the sidebar search open on 'session A', Escape in a row context menu closes only the menu (search and query stay); an unconsumed Escape hides the search and clears the query, so every row shows and ⌘K reopens it empty (Escape in the composer leaves no hidden filter)");
+  await page.keyboard.press("Meta+k"); await palette.waitFor();
+  metrics.escapeLayering.reopenedQuery = await palette.getByRole("combobox").inputValue();
+  assert.equal(metrics.escapeLayering.reopenedQuery, "", "closing the palette cleared its query");
+  await page.keyboard.press("Escape"); await palette.waitFor({ state: "detached" });
+  checks.push("Escape layering: the header Search opens the ⌘K palette in search mode over an inert app (no sidebar filter); Escape closes only the palette and clears the query, so ⌘K reopens it empty");
   await page.locator(`[data-source-session-id="${B}"] .source-session-open`).click();
   await page.locator(".loading-state").waitFor({ state: "detached" }).catch(() => {});
   await button("Session options").waitFor();

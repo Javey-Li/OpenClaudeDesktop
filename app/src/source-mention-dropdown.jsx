@@ -57,7 +57,7 @@ export function SourceMentionDropdown({ options = [], highlighted = 0, caret, on
               <button type="button" role="option" aria-selected={selected} data-option-index={index}
                 data-highlighted={selected ? "" : undefined} className="smd-option"
                 onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(option)} onMouseEnter={() => onHover?.(index)}>
-                <span aria-hidden="true" className="smd-leading"><Icon name={option.isDirectory ? "Folder" : fileKindIcon(option.label)} size={16} /></span>
+                <span aria-hidden="true" className="smd-leading"><Icon name={option.icon || (option.isDirectory ? "Folder" : fileKindIcon(option.label))} size={16} /></span>
                 <span className="smd-text">
                   <span className={`smd-label ${option.description ? "smd-label--shrink" : ""}`} data-has-matches={lit.label ? "" : undefined}><Lit segments={lit.label} text={option.label} /></span>
                   {option.description && <span className="smd-description"><Lit segments={lit.description} text={option.description} /></span>}

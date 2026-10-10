@@ -190,6 +190,67 @@ async function additionDiff(ctx, file, numstat = false) {
   }).join('\n');
 }
 
+// The status counts of new files (git diff --no-index --numstat /dev/null <file>) without one Git process per file: a
+// checkout with thousands of untracked files (build output, a dirty workspace) otherwise runs out the query's 20 s budget
+// and the app shows "Could not read repository changes". Git's rules: a NUL in the first 8000 bytes (or more than
+// core.bigFileThreshold's default 512 MiB) is binary "-\t-", else the added count is the newline count plus one for an
+// unterminated last line (an empty file is 0). The `diff` attribute still applies under --no-index, so one batched
+// check-attr marks `-diff` (and `binary`) files binary; a file with a named diff driver is left to Git itself.
+const FIRST_FEW_BYTES = 8000;
+const BIG_FILE = 512 * 1024 * 1024;
+function countLines(chunks) {
+  let lines = 0, last = -1, seen = 0;
+  for (const chunk of chunks) {
+    if (seen < FIRST_FEW_BYTES && chunk.subarray(0, FIRST_FEW_BYTES - seen).includes(0)) return null;
+    seen += chunk.length;
+    for (let at = chunk.indexOf(10); at !== -1; at = chunk.indexOf(10, at + 1)) lines++;
+    if (chunk.length) last = chunk[chunk.length - 1];
+  }
+  return last === -1 ? 0 : lines + (last === 10 ? 0 : 1);
+}
+
+async function fileChunks(ctx, relative) {
+  const handle = await fs.open(path.join(ctx.cwd, relative), 'r');
+  try {
+    const { size } = await handle.stat();
+    if (size > BIG_FILE) return null;
+    const chunks = [];
+    for (let position = 0; position < size;) {
+      if (Date.now() > ctx.deadline) throw failure('Git workspace query timed out.', 'GIT_TIMEOUT');
+      const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, size - position));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (!bytesRead) break;
+      chunks.push(buffer.subarray(0, bytesRead)); position += bytesRead;
+    }
+    return chunks;
+  } finally { await handle.close(); }
+}
+
+async function diffAttributes(ctx, files) {
+  if (!files.length) return new Map();
+  const named = files.filter((file) => file.kind !== 'symlink');
+  if (!named.length) return new Map();
+  const response = await git(ctx, ['check-attr', '-z', '--stdin', 'diff'], { input: named.map((file) => file.path).join('\0') + '\0', paths: true });
+  const parts = response.output.split('\0'), values = new Map();
+  for (let at = 0; at + 2 < parts.length; at += 3) values.set(parts[at], parts[at + 2]);
+  return values;
+}
+
+async function additionCounts(ctx, files) {
+  const attributes = await diffAttributes(ctx, files);
+  return mapLimited(files, async (file) => {
+    // A symlink goes to Git as its link text on stdin ("-"), which no attribute names.
+    const attribute = file.kind === 'symlink' ? 'unspecified' : attributes.get(file.path) ?? 'unspecified';
+    if (attribute === 'unset') return [{ path: file.path, binary: true, added: 0, removed: 0 }];
+    if (attribute !== 'unspecified' && attribute !== 'set') return parseNumstat(await additionDiff(ctx, file, true)).map((record) => ({ ...record, path: file.path, oldPath: undefined }));
+    let chunks;
+    try { chunks = file.kind === 'symlink' ? [file.content] : await fileChunks(ctx, file.path); }
+    catch (error) { if (['ENOENT', 'ENOTDIR', 'ELOOP', 'EISDIR'].includes(error.code)) return []; throw error; }
+    const added = chunks ? countLines(chunks) : null;
+    return [{ path: file.path, binary: added === null, added: added ?? 0, removed: 0 }];
+  });
+}
+
 async function mapLimited(items, callback) {
   let cursor = 0;
   const results = new Array(items.length);
@@ -199,11 +260,15 @@ async function mapLimited(items, callback) {
   return results;
 }
 
+const OWN_WORKTREES = /^(?:.*\/)?\.code\/worktrees(?:\/|$)/;
 async function snapshot(cwd, trace) {
   const ctx = await repository(cwd, trace);
   if (!ctx) return null;
   const response = await git(ctx, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], { paths: true });
-  return { ctx, records: parseStatus(response.output) };
+  // Code Desktop's own worktrees inside the repository (.code/worktrees, main.cjs prepare-worktree) are never the main
+  // checkout's changes, even where .git/info/exclude predates them (the official status excludes .claude likewise).
+  // Filtered here: this query runs with GIT_LITERAL_PATHSPECS, so no exclude pathspec.
+  return { ctx, records: parseStatus(response.output).filter((record) => !OWN_WORKTREES.test(record.path)) };
 }
 
 const REMOTE = 'refs/remotes/origin/';
@@ -319,9 +384,7 @@ async function workspaceGitStatus(cwd, { preferredBase, trace } = {}) {
   const scope = await scopeBase(ctx, branch, { preferredBase });
   const tracked = ctx.head ? parseNumstat((await git(ctx,
     ['diff', ...DIFF_FLAGS, '--find-renames', '--ignore-submodules=none', '--numstat', '-z', scope.diffBase, '--'], { paths: true })).output) : [];
-  const additions = await mapLimited(await currentFiles(ctx, records), async (file) => {
-    return parseNumstat(await additionDiff(ctx, file, true)).map((record) => ({ ...record, path: file.path, oldPath: undefined }));
-  });
+  const additions = await additionCounts(ctx, await currentFiles(ctx, records));
   for (const record of [...tracked, ...additions.flat()]) {
     const current = byPath.get(record.path) || { path: record.path, indexStatus: ' ', worktreeStatus: 'M', untracked: false };
     byPath.set(record.path, { ...current, ...record, oldPath: record.oldPath || current.oldPath });
@@ -479,7 +542,8 @@ async function resolveRepoIdentity(cwd, { home, trace } = {}) {
     const toplevel = top.output.replace(/\n$/, '');
     const origin = await git(ctx, ['config', '--get', 'remote.origin.url'], { allowed: [0, 1] });
     const remote = origin.code === 0 ? parseRemoteUrl(origin.output) : null;
-    return { isRepo: true, toplevel, owner: remote?.owner || null, name: remote?.name || path.basename(toplevel), parent };
+    // host: where the origin lives (github.com unlocks the band's pull request action).
+    return { isRepo: true, toplevel, owner: remote?.owner || null, name: remote?.name || path.basename(toplevel), host: remote?.host || null, parent };
   } catch { return none; }
 }
 
@@ -487,6 +551,8 @@ async function resolveRepoIdentity(cwd, { home, trace } = {}) {
 function repoIdentity(cwd, options = {}) {
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return Promise.resolve(null);
   const key = cwd.replace(/[/\\]+$/, '') || cwd;
+  // fresh: read it again (the folder became a repository, or its origin changed).
+  if (options.fresh) repoIdentityCache.delete(key);
   if (!repoIdentityCache.has(key)) {
     if (repoIdentityCache.size >= REPO_IDENTITY_CACHE_LIMIT) repoIdentityCache.delete(repoIdentityCache.keys().next().value);
     repoIdentityCache.set(key, resolveRepoIdentity(key, options));

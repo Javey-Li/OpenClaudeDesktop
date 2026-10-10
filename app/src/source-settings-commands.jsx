@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { SettingsGroup, settingRow } from './source-settings-kit.jsx';
+import { SettingsEmptyState } from './source-settings-pages.jsx';
 import { SourceSettingsButton } from './source-settings-button.jsx';
 import { SourceSwitch } from './source-switch.jsx';
 import { SourceSelect } from './source-select.jsx';
@@ -158,15 +159,20 @@ export function SourceCommandsSettings({ config, desktopCall, onSave, cwd }) {
         <SourceSwitch label={t('Project commands')} checked={prefs.projectEnabled} disabled={!!pending} onChange={enabled => savePrefs('commands-project', { projectEnabled: enabled })}/>),
     ]}/>
     {listError && <p className="ss-connection-notice" role="status">{t('Couldn’t read the commands folders.')} {listError}</p>}
-    {prefs.projectEnabled && <SettingsGroup title={t('Project commands')} rowErrors={rowErrors} rows={entry?.project ? [
-      ...project.map(command => commandRow(command, handlers)),
-      ...(!project.length && !loading ? [settingRow('commands-project-empty', t('No project commands'), <span className="ccmd-path" title={entry.project.dir}>{tail(entry.project.dir)}</span>,
-        <SourceSettingsButton size="sm" variant="ghost" disabled={!!pending} onClick={() => act('commands-project-empty', () => call('reveal', { scope: 'project' }))}>{t('Reveal')}</SourceSettingsButton>)] : []),
-    ] : [settingRow('commands-project-none', loading ? t('Loading…') : t('No project open'), loading ? '' : t('Open a session in a project folder to add commands to it.'), null)]}/>}
-    <SettingsGroup title={t('Your commands')} rowErrors={rowErrors} rows={[
-      ...global.map(command => commandRow(command, handlers)),
-      ...(!global.length ? [settingRow('commands-global-empty', loading ? t('Loading…') : t('No commands yet'), loading ? '' : t('Create one with New command, or add .md files to the commands folder.'), null)] : []),
-    ]}/>
+    {/* An empty list is the centred settings empty state (illustration, secondary message, actions), not a setting row. */}
+    {prefs.projectEnabled && <SettingsGroup title={t('Project commands')} rowErrors={rowErrors} rows={entry?.project ? project.map(command => commandRow(command, handlers))
+      : loading ? [settingRow('commands-project-none', t('Loading…'), '', null)] : []}>
+      {!entry?.project && !loading && <SettingsEmptyState data-setting-id="commands-project-none" lines={[t('No project open'), t('Open a session in a project folder to add commands to it.')]}/>}
+      {entry?.project && !project.length && !loading && <SettingsEmptyState data-setting-id="commands-project-empty" lines={[t('No project commands')]} error={rowErrors['commands-project-empty']} actions={<>
+        <SourceSettingsButton variant="primary" disabled={!!pending} onClick={() => setEditor({ name: '', scope: 'project' })}>{t('New command')}</SourceSettingsButton>
+        <SourceSettingsButton disabled={!!pending} title={entry.project.dir} onClick={() => act('commands-project-empty', () => call('reveal', { scope: 'project' }))}>{t('Reveal')}</SourceSettingsButton>
+      </>}/>}
+    </SettingsGroup>}
+    <SettingsGroup title={t('Your commands')} rowErrors={rowErrors} rows={global.length ? global.map(command => commandRow(command, handlers))
+      : loading ? [settingRow('commands-global-empty', t('Loading…'), '', null)] : []}>
+      {!global.length && !loading && <SettingsEmptyState data-setting-id="commands-global-empty" lines={[t('No commands yet'), t('Create one with New command, or add .md files to the commands folder.')]} actions={
+        <SourceSettingsButton variant="primary" disabled={!!pending} onClick={() => setEditor({ name: '', scope: 'global' })}>{t('New command')}</SourceSettingsButton>}/>}
+    </SettingsGroup>
     {editor && <CommandEditor key={editor.path || 'new'} initial={editor} projectAvailable={projectAvailable}
       onCancel={() => setEditor(null)}
       onSubmit={async form => {

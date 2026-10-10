@@ -115,13 +115,15 @@ test("pre-live disabled tabs keep text-muted; the selected rule still wins after
 // with CDS Buttons; the composer warns and send() refuses before any thread/start or turn/start.
 test("no-key home: Lw outline key card with sm CDS Buttons, composer warning and a send guard", async () => {
   const main = await fs.readFile(path.join(app, "src/main.jsx"), "utf8");
-  const card = main.slice(main.indexOf('data-testid="deepseek-key-card"'), main.indexOf("The Codex core's ChatGPT sign-in"));
-  assert.match(card, /<span className="connection-card-title">\{t\("Add your DeepSeek API key"\)\}<\/span>\s*<span className="connection-card-body">\{t\("Save a key in DeepSeek Harness \(~\/\.dsh\) or set DEEPSEEK_API_KEY, then refresh\."\)\}<\/span>/);
+  const card = main.slice(main.indexOf('data-testid="deepseek-key-card"'), main.indexOf("The running core's sign-in (account-label-model"));
+  assert.match(card, /<span className="connection-card-title">\{t\("Add your DeepSeek API key"\)\}<\/span>\s*<span className="connection-card-body">\{t\("Choose Add key and paste your key to start\. A key saved in DeepSeek Harness or set as DEEPSEEK_API_KEY also works; refresh after adding one there\."\)\}<\/span>/);
   assert.match(card, /<SourceSettingsButton size="sm" onClick=\{\(\) => call\("account-auth", \{ operation: "refresh" \}\)[^\n]*>\{t\("Refresh"\)\}<\/SourceSettingsButton>/);
-  assert.match(card, /<SourceSettingsButton size="sm" variant="primary" onClick=\{\(\) => call\("external", \{ url: DEEPSEEK_KEYS_URL \}\)[^\n]*>\{t\("Get an API key"\)\}<\/SourceSettingsButton>/);
+  assert.match(card, /<SourceSettingsButton size="sm" onClick=\{\(\) => call\("external", \{ url: DEEPSEEK_KEYS_URL \}\)[^\n]*>\{t\("Get an API key"\)\}<\/SourceSettingsButton>/);
+  // The primary reopens setup's Connect a model step (the in-app key field) after 'Set up later'.
+  assert.match(card, /<SourceSettingsButton size="sm" variant="primary" onClick=\{\(\) => setOnboarding\("connect"\)\}>\{t\("Add key"\)\}<\/SourceSettingsButton>/);
   assert.doesNotMatch(card, /<button|<strong>|<Icon/);
   assert.doesNotMatch(main, /<strong>Set up DeepSeek<\/strong>/, "the Codex card no longer says Set up DeepSeek above ChatGPT copy");
-  assert.match(main, /warning=\{boot !== null && boot\?\.connected === false && !loading \? t\("Connection to DeepSeek lost\."\)\s*: boot\?\.connected && boot\.account\?\.deepseek && !boot\.account\.account \? t\("Add a DeepSeek API key to start a session\."\) : undefined\}/);
+  assert.match(main, /warning=\{boot !== null && boot\?\.connected === false && !loading \? t\("Connection to \{core\} lost\.", \{ core: coreName\(boot\?\.core\) \}\)\s*: boot\?\.connected && boot\.account\?\.deepseek && !boot\.account\.account \? t\("Add a DeepSeek API key to start a session\."\)\s*: signInRequired \? t\("Sign in to \{name\} to start a session\.", \{ name: signInPrompt\.name \}\) : undefined\}/);
   const send = main.slice(main.indexOf("async function send({ priority } = {}) {"));
   assert.match(send, /^async function send\(\{ priority \} = \{\}\) \{\n\s+if \(boot\?\.account\?\.deepseek && !boot\.account\.account\) return;/, "the guard is the first line of send()");
   const style = await fs.readFile(path.join(app, "src/style.css"), "utf8");

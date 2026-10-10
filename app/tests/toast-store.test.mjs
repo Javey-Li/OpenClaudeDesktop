@@ -42,3 +42,9 @@ test('toast clearance: innerHeight - top of the overlapping safe regions, capped
  assert.equal(toastClearance(scope,[{left:420,right:1190,top:700,width:770,height:68},{left:1000,right:1300,top:500,width:300,height:268}],768),268,'the tallest lift wins');
  assert.equal(toastClearance(scope,[],768),0);
 });
+test('only neutral, warning and danger exist; any other variant name is neutral (shared-21 HA/UA/WA/GA, shared-25 info bridge)',()=>{
+ const {store}=harness();
+ for(const variant of ['success','error','info','typo'])store.add(`m ${variant}`,{variant});
+ store.add('w',{variant:'warning'});store.add('d',{variant:'danger'});
+ assert.deepEqual(store.getSnapshot().map(entry=>entry.variant),['danger','warning','neutral','neutral','neutral','neutral']);
+});

@@ -6,7 +6,7 @@ import { useTranscriptScroll } from "./use-transcript-scroll";
 import { pathChoices } from "./file-tool-model.mjs";
 import { clipboardEnvironment, writeClipboardPayload } from "./clipboard-payload.mjs";
 import { markdownToClipboardHtml } from "./rich-copy-html.mjs";
-import { attachableSelection, fileRefMenu, linkTarget, messageMenu } from "./transcript-context-menu-model.mjs";
+import { attachSelectionChord, attachableSelection, fileRefMenu, linkTarget, messageMenu } from "./transcript-context-menu-model.mjs";
 import { useTranscriptFeedNav } from "./use-transcript-feed-nav.js";
 import "./source-transcript.css";
 import { t } from "../electron/i18n/index.mjs";
@@ -85,10 +85,13 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
     const selectionText = viewport.ownerDocument.getSelection()?.toString() ?? "";
     const link = linkTarget(target.closest("a[href]")?.href);
     const code = codeTargetOf(target);
+    // The row's turn (resolveTurn): Rewind to here on a user message, Fork from here on any message of a finished turn.
+    const turn = current.resolveTurn?.(row.dataset.transcriptItemId) ?? null;
     const entries = messageMenu({ selectionText: selectionText.trim() ? selectionText : null, codeTarget: code,
-      ...link, messageText: text, canAttach: !!current.onAttachText });
+      ...link, canOpenInPreview: link.canOpenInPreview && !!current.onOpenInPreview, messageText: text, canAttach: !!current.onAttachText,
+      canRewind: !!(turn?.user && current.onRewindTo), canFork: !!(turn?.turnId && current.onForkFrom) });
     event.preventDefault();
-    setMenu({ kind: "message", point, entries, text, code, link: link.linkHref, selectionText });
+    setMenu({ kind: "message", point, entries, text, code, link: link.linkHref, selectionText, turnId: turn?.turnId ?? null });
   }
 
   function run(id) {
@@ -111,6 +114,7 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
       case "copy-selection": void write(menu.selectionText); break;
       case "copy-code": void write(menu.code.text); break;
       case "open-link": current.onOpenLink?.(menu.link); break;
+      case "open-in-preview": current.onOpenInPreview?.(menu.link); break;
       case "copy-link": void write(menu.link); break;
       // rY: the rich text/plain + text/html payload of the footer Copy.
       case "copy-message": {
@@ -120,6 +124,8 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
         break;
       }
       case "copy-markdown": void write(menu.text); break;
+      case "rewind": if (menu.turnId) current.onRewindTo?.(menu.turnId); break;
+      case "fork": if (menu.turnId) current.onForkFrom?.(menu.turnId); break;
       // S: a live selection of at least 2 characters wins over the message.
       case "attach": {
         const selection = viewport?.ownerDocument.getSelection();
@@ -138,8 +144,7 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
     if (!canAttach || !viewport) return undefined;
     const document = viewport.ownerDocument;
     const onKey = (event) => {
-      if (event.defaultPrevented || event.repeat || event.altKey || !event.shiftKey || event.metaKey === event.ctrlKey
-        || event.key.toLowerCase() !== "l" || event.target?.closest?.(EDITABLE)) return;
+      if (event.defaultPrevented || event.repeat || !attachSelectionChord(event) || event.target?.closest?.(EDITABLE)) return;
       const selection = document.getSelection();
       if (!selection || selection.rangeCount === 0) return;
       for (let index = 0; index < selection.rangeCount; index += 1)

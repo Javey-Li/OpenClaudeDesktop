@@ -70,3 +70,4 @@ html[data-reduce-motion="true"] .stf-copy, html[data-reduce-motion="true"] .stf-
 html[data-reduce-motion="true"] .stf-copy:active .stf-button-backdrop { transform: none; }
 html[data-reduce-motion="true"] .stf-footer .stf-toolbar[data-cds="MessageActions"][data-reveal],
 html[data-local-motion="reduce"] .stf-footer .stf-toolbar[data-cds="MessageActions"][data-reveal] { transition-property: none; scale: none; }
+.stf-feedback[aria-pressed="true"]{color:var(--cds-text-primary)}

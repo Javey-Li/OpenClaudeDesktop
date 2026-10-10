@@ -759,7 +759,7 @@ try {
   await screenshot("compact-window.png");
   await size(1468);
   const divider = page.getByRole("separator", {
-    name: "Resize 1 and 2",
+    name: /^Resize Chat and /,
     exact: true,
   });
   await divider.press("End");

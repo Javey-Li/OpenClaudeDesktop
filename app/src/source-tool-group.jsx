@@ -8,6 +8,8 @@ import './source-tool-group.css';
 import { t } from '../electron/i18n/index.mjs';
 import {SourceMorphText} from './source-morph-text.jsx';
 import { groupExpansionKey, toolGroupExpansion } from './tool-group-expansion.mjs';
+import { computerUseAction, computerUseLabel } from './computer-use-model.mjs';
+import { imageGenerationState, mediaItemRow } from './media-item-model.mjs';
 
 // WM :16293–16325 / Npe :53663. A key remains for at least 650ms after
 // switching; repeated deltas don't restart the timer. Unmount cancels it.
@@ -47,7 +49,7 @@ function ToolGroupBody({ item, renderItem, pendingApprovalItemIds, transcriptVie
   });
   const state = fileRunState(presented, pendingApprovalItemIds), counts = fileRunCounts(tools);
   const summary = fileGroupPresentation(presented);
-  const running = presented.find(member => ['running', 'inProgress'].includes(member.status));
+  const running = presented.find(member => ['running', 'inProgress'].includes(member.status) || (member.type === 'imageGeneration' && imageGenerationState(member) === 'busy'));
   const key = state === 'busy' && running ? running.id : 'settled', heldKey = useHeldKey(key);
   const [mountedLive] = useState(state === 'busy');
   // Npe:53663–53730 freezes only the aggregate while a key is held. The
@@ -58,8 +60,10 @@ function ToolGroupBody({ item, renderItem, pendingApprovalItemIds, transcriptVie
   const held=heldKey==='settled'?null:presented.find(member=>member.id===heldKey);
   const live = !held ? null : (fileAction(held)||held.type==='fileChange') ? fileToolSummary([held],'busy')
     : held.type==='commandExecution' ? commandRowLabel(held.command,'busy',held.description)
+    : computerUseAction(held) ? computerUseLabel(computerUseAction(held),'busy')
     : isGenericTool(held) ? genericToolLabel(held,'busy')
-    : held.type==='collabAgentToolCall'&&agentContext ? {label:t('Running agent'),meta:agentView(agentContext.state,held).name} : null;
+    : held.type==='collabAgentToolCall'&&agentContext ? {label:t('Running agent'),meta:agentView(agentContext.state,held).name}
+    : held.type==='imageGeneration' ? {label:mediaItemRow(held).label} : null;
   const toggle = () => { if(!forcedOpen)toolGroupExpansion.set(expansionKey,!open); };
   return <div className="source-message stg" data-tool-group={item.id} data-group-state={state} data-summary-state={live?'busy':isAwaiting?'blocked':'settled'}>
     <button type="button" className="stg-trigger" aria-expanded={open} aria-controls={id} aria-label={!live && shownSummary.segments.some(segment=>segment.isError) ? [shownSummary.label,(shownCounts.added||shownCounts.removed)?`+${shownCounts.added} -${shownCounts.removed}`:null,isAwaiting?t('Needs approval'):state==='unknown'?t('Status unavailable'):null].filter(Boolean).join(' ') : undefined} onClick={toggle}>

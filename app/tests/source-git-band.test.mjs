@@ -46,6 +46,8 @@ test('gitRepoMenuItems: Ko/qo groups — Show in Finder | separator | Copy path;
   assert.deepEqual(gitRepoMenuItems({ openFolder: false }), [{ label: 'Copy path' }], 'the first non-empty group carries no separator');
   assert.deepEqual(gitRepoMenuItems({ copyPath: false }), [{ label: 'Show in Finder' }]);
   assert.deepEqual(gitRepoMenuItems({ openFolder: false, copyPath: false }), []);
+  // The composer's folder menu also opens a terminal there (its last group).
+  assert.deepEqual(gitRepoMenuItems({ openTerminal: true }).at(-1), { label: 'Open in terminal', separatorBefore: true });
 });
 
 test('band: dirty idle, dirty running and clean render no native titles; disabled Commit is described by its hidden reason', () => {
@@ -62,7 +64,7 @@ test('band: dirty idle, dirty running and clean render no native titles; disable
 
   const running = band({ status: dirty, actionDisabled: true, actionDisabledReason: COMMIT_RESPONDING_REASON });
   noTitles(running, 'running');
-  assert.equal(describedReason(running), 'Claude is working — wait for the turn to finish');
+  assert.equal(describedReason(running), 'DeepSeek is working — wait for the turn to finish');
   assert.match(running, /<button disabled="" type="button" data-cds="Button" data-variant="secondary" class="source-settings-button sg-action">/);
   // After a commit the branch stats keep the band; Commit is disabled with 'No changes to commit'.
   const committed = band({ status: { ...dirty, workingTreeDirty: false }, actionDisabled: true, actionDisabledReason: COMMIT_CLEAN_REASON });

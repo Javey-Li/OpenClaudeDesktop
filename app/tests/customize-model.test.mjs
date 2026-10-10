@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import {
   applySkillEnabled, customizeCore, filterMcp, filterPlugins, filterSkills, mcpBatchWriteParams, mcpRows, mcpServerConfigValue, mcpStatusKind,
-  patchMcpRow, pluginMenuGroups, pluginRows, shortDate, skillAuthor, skillGroupOptions, skillMenuItems, skillRows, splitArguments,
+  patchMcpRow, pluginMenuGroups, pluginRows, shortDate, skillAuthor, skillGroupOptions, skillMenuItems, skillRows, splitArguments, joinArguments,
   validateServerName, pluginDisplayNames, filterMcpByStatus, connectorDetailState, connectorDetailMessage, connectorsListView, MCP_STATUS_FILTERS, CONNECTOR_ACTION_LABELS,
   skillInvocable, skillTrigger, MCP_STATUS_LABELS, CONNECTOR_TOASTS,
 } from "../src/customize-model.mjs";
@@ -38,12 +38,25 @@ test("skills flatten per cwd, dedupe by path, sort by display name and keep real
   assert.deepEqual(rows.skills.map((row) => row.group), ["repository", "personal", "plugins", "managed", "personal"]);
 });
 
+test("a slash command a bridge lists among the skills has no switch; a skill file does", () => {
+  const rows = skillRows({ data: [{ cwd: "/r", skills: [
+    skill({ name: "init", path: "command:init", scope: "system" }),
+    skill({ name: "fixed", path: "/s/fixed/SKILL.md", toggleable: false }),
+    skill({ name: "demo" }),
+  ] }] }).skills;
+  assert.deepEqual(rows.map((row) => [row.name, row.toggleable]), [["demo", true], ["fixed", false], ["init", false]]);
+});
+
 test("author labels follow scope and plugin ownership", () => {
   const rows = skillRows(listing).skills;
   const byName = Object.fromEntries(rows.map((row) => [row.name, row]));
   assert.equal(skillAuthor(byName.zeta), "You");
   assert.equal(skillAuthor(byName["Alpha Skill"]), "Repository");
-  assert.equal(skillAuthor(byName.sys), "DeepSeek Harness");
+  // System skills ship with the running core: credited to it, never to a fixed vendor.
+  assert.equal(skillAuthor(byName.sys), "Codex", "no core: the Codex default");
+  assert.equal(skillAuthor(byName.sys, [], customizeCore({ engine: "deepseek-harness" })), "DeepSeek Harness");
+  for (const [engine, name] of [["codex", "Codex"], ["zcode", "ZCode"], ["opencode", "OpenCode"], ["mimo", "MiMo Code"], ["kimi", "Kimi Code"]])
+    assert.equal(skillAuthor(byName.sys, [], customizeCore({ engine })), name, engine);
   assert.equal(skillAuthor(byName.plug, [{ id: "acme-plugin", name: "Acme" }]), "Acme");
   assert.equal(skillAuthor(byName.plug, []), "acme-plugin");
 });
@@ -117,6 +130,10 @@ test("connector payload builders: name validation, argument splitting, stdio/url
   assert.match(validateServerName("bad name!"), /letters, digits/);
   assert.match(validateServerName(""), /Enter/);
   assert.deepEqual(splitArguments("  -y   demo "), ["-y", "demo"]);
+  // Quotes keep an argument with spaces whole; the quotes themselves never reach the server.
+  assert.deepEqual(splitArguments('-e "process.stdin.resume()" --root \'/Users/me/My Projects\''), ["-e", "process.stdin.resume()", "--root", "/Users/me/My Projects"]);
+  assert.throws(() => splitArguments('-e "unclosed'), /Close the quote/);
+  assert.equal(joinArguments(["-e", "process.stdin.resume()", "/Users/me/My Projects", 'say "hi"', ""]), '-e process.stdin.resume() "/Users/me/My Projects" \'say "hi"\' ""');
   assert.deepEqual(mcpServerConfigValue({ command: "npx", args: ["-y", "demo"] }), { command: "npx", args: ["-y", "demo"] });
   assert.deepEqual(mcpServerConfigValue({ command: "npx", args: "" }), { command: "npx" });
   assert.deepEqual(mcpServerConfigValue({ url: "https://example.invalid/mcp" }), { url: "https://example.invalid/mcp" });
@@ -379,12 +396,54 @@ test("Customize copy and controls follow boot.core: Codex servers keep config.to
     both: "Appears in the / menu. DeepSeek can also run it automatically when relevant.", slash: "Appears in the / menu." });
   assert.deepEqual(deepseek.pluginTabDescriptions, { skills: "Invoke by typing / in chat, or let DeepSeek use them automatically for relevant tasks.",
     connectors: "Tools and data sources this plugin connects to. Connect each one so DeepSeek can use it.",
-    hooks: "Commands this plugin runs automatically — on session events, or when its skills are used." });
+    hooks: "Commands this plugin runs automatically — on session events, or when its skills are used.",
+    tools: "Tools this plugin adds. DeepSeek can call them while it works." });
   assert.equal(deepseek.connectorRemoveNote, "However, DeepSeek won’t be able to access new content or perform new tasks.");
   assert.doesNotMatch(JSON.stringify(customizeCore(null)), /Claude/);
   assert.equal(customizeCore({ engine: "deepseek-harness", capabilities: { skillToggle: false } }).configFile, "the DeepSeek core profile");
   // A capability the core does not report keeps the control.
   assert.equal(customizeCore({ engine: "deepseek-harness", capabilities: {} }).mcpConfigWrite, true);
+});
+
+test("Connector copy names the file the running core writes and the core itself", () => {
+  // Codex (native): its own CLI config, shared with that CLI.
+  const codex = customizeCore({ engine: "codex", capabilities: {} });
+  assert.equal(codex.addConnectorNote, "Saved to ~/.codex/config.toml, shared with the Codex CLI.");
+  assert.equal(codex.connectorRemoved("gh"), "Removed gh from ~/.codex/config.toml.");
+  // Codex launched with CODEX_HOME reports its home (boot.core.home): the copy and skill folders follow it.
+  const moved = customizeCore({ engine: "codex", capabilities: {}, home: "/Users/u/profile/codex-home" });
+  assert.equal(moved.addConnectorNote, "Saved to ~/profile/codex-home/config.toml, shared with the Codex CLI.");
+  assert.equal(moved.configOverlay, false);
+  assert.deepEqual(moved.skillRoots, ["~/profile/codex-home/skills", "~/.agents/skills", "<workspace>/.agents/skills"]);
+  // ZCode writes the agent's own config (configPath is that file): never Codex's.
+  const zcode = customizeCore({ engine: "zcode", capabilities: { mcpConfigWrite: true }, configPath: "/Users/u/.zcode/cli/config.json" });
+  assert.equal(zcode.configOverlay, false);
+  assert.equal(zcode.addConnectorNote, "Saved to ~/.zcode/cli/config.json.");
+  assert.equal(zcode.connectorRemoved("gh"), "Removed gh from ~/.zcode/cli/config.json.");
+  assert.equal(zcode.duplicateConnector("gh"), "A connector named gh is already in ~/.zcode/cli/config.json. Remove it first or choose another name.");
+  // OpenCode / MiMo write Code Desktop's overlay (configPath) and leave the user's own file alone.
+  for (const [engine, overlay, own, name] of [["opencode", "/s/config/opencode.json", "~/.config/opencode/opencode.json", "OpenCode"], ["mimo", "/s/config/mimocode.json", "~/.config/mimocode/mimocode.jsonc", "MiMo Code"]]) {
+    const copy = customizeCore({ engine, capabilities: { mcpConfigWrite: true }, configPath: overlay });
+    assert.equal(copy.configOverlay, true, engine);
+    assert.equal(copy.configFile, overlay);
+    assert.equal(copy.addConnectorNote, `Saved to ${overlay}. Your own ${own} isn’t changed.`);
+    assert.equal(copy.connectorRemoved("gh"), `Removed gh from Code Desktop’s ${name} config. Your own ${own} isn’t changed.`);
+    assert.equal(copy.duplicateConnector("gh"), `A connector named gh already exists in ${name}. Remove it first or choose another name.`);
+  }
+  for (const engine of ["zcode", "opencode", "mimo", "kimi", "qwen", "gemini", "minimax"])
+    assert.doesNotMatch(customizeCore({ engine, capabilities: {}, configPath: null }).addConnectorNote, /codex|Codex/, engine);
+  // A core that does not write MCP config: the DeepSeek profile entry, else the core's own config.
+  assert.deepEqual(customizeCore({ engine: "deepseek-harness", capabilities: { mcpConfigWrite: false } }).connectorConfigHint, { text: "Add a {package} entry to {file}, then Reconnect.", package: "@deepseek-ai/dsh-mcp-client" });
+  assert.deepEqual(customizeCore({ engine: "kimi", capabilities: { mcpConfigWrite: false } }).connectorConfigHint, { text: "Add the server to {file}, then Reconnect." });
+  // Plugin copy names the running core; only a native core gets the protocol's plugin management.
+  assert.equal(customizeCore({ engine: "codex" }).nativePlugins, true);
+  assert.equal(customizeCore(null).nativePlugins, true);
+  for (const engine of ["deepseek-harness", "zcode", "opencode"]) assert.equal(customizeCore({ engine, capabilities: { pluginManage: true } }).nativePlugins, false, engine);
+  const zc = customizeCore({ engine: "zcode", capabilities: { pluginManage: true } });
+  assert.equal(zc.pluginRemoveBody, "The plugin is uninstalled from ZCode. You can install it again later.");
+  assert.equal(zc.officialBy, "by Z.ai (Zhipu)");
+  assert.equal(zc.pluginForm.registries, false);
+  assert.equal(customizeCore({ engine: "deepseek-harness" }).pluginForm.registries, true);
 });
 
 test("main process: a core without MCP config writes never receives config/batchWrite", async () => {
@@ -483,4 +542,28 @@ test("R04 connector copy: q87c5Fstfm Sign-in required and the source toast strin
   assert.equal(MCP_STATUS_LABELS.signIn, "Sign-in required");
   assert.deepEqual({ ...CONNECTOR_TOASTS }, { connectFailed: "Connection to server failed. You can try again.", refreshFailed: "Couldn’t refresh tools list. You can try again.",
     refreshed: "Tools list refreshed", removeFailed: "Failed to remove server" });
+});
+
+test("a core command tagged with localizationKey (MiMo's built-ins) shows the app's translation, else the core's text", async () => {
+  const { skillDescription } = await import("../src/customize-model.mjs");
+  const { setLocale } = await import("../electron/i18n/index.mjs");
+  const dream = { name: "dream", description: "manually consolidate project memory from memory files and raw trajectory", localizationKey: "mimo.slash.dream" };
+  assert.equal(skillDescription(dream), "manually consolidate project memory from memory files and raw trajectory");
+  setLocale("zh-CN");
+  try {
+    assert.equal(skillDescription(dream), "从 memory 文件与原始轨迹中手动整合项目记忆");
+    assert.equal(skillDescription({ ...dream, localizationKey: "unknown.key" }), dream.description);
+  } finally { setLocale("en-US"); }
+});
+
+test("Add connector: env and headers reach the core's config; an OAuth client only where the core takes one", () => {
+  assert.deepEqual(mcpServerValue({ command: "npx", args: ["-y", "gh"], env: { GITHUB_TOKEN: "t" } }), { command: "npx", args: ["-y", "gh"], env: { GITHUB_TOKEN: "t" } });
+  assert.deepEqual(mcpServerValue({ url: "https://m.example/mcp", http_headers: { Authorization: "Bearer x" } }), { url: "https://m.example/mcp", http_headers: { Authorization: "Bearer x" } });
+  assert.throws(() => mcpServerValue({ command: "npx", env: { "bad name": "x" } }), /environment/);
+  const oauth = { client_id: "abc", client_secret: "s", scope: "read" };
+  assert.throws(() => mcpServerValue({ url: "https://m.example/mcp", oauth }), /OAuth/);
+  assert.deepEqual(mcpServerValue({ url: "https://m.example/mcp", oauth }, { oauth: true }), { url: "https://m.example/mcp", oauth });
+  assert.deepEqual(mcpServerConfigValue({ url: "https://m.example/mcp", oauth: { clientId: " abc ", clientSecret: "", scope: "" } }), { url: "https://m.example/mcp", oauth: { client_id: "abc" } });
+  assert.throws(() => mcpServerConfigValue({ url: "https://m.example/mcp", oauth: { clientId: "", scope: "read" } }), /client ID/);
+  assert.equal(mcpRows({ data: [{ name: "sso", runtimeStatus: "failed", codeDesktop: { oauthClientRequired: true } }] })[0].oauthClient, true);
 });

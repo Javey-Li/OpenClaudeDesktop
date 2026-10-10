@@ -2,6 +2,9 @@ import {SourceProfileSetting} from './source-profile-setting.jsx';
 import {useAccountSettings} from './source-account-settings.jsx';
 import { SourceSwitch as SettingSwitch } from './source-switch.jsx';
 import { SourceSettingsButton } from './source-settings-button.jsx';
+import { ClaudeImportDialog } from './source-claude-import.jsx';
+import { coreSettingDefault, coreSettingLabel, coreSettingOptionLabel } from './core-settings-model.mjs';
+import { deviceDetail, deviceName, pairingTimeLeft, remoteEnabled, remoteStatusLabel } from './remote-control-model.mjs';
 import React, { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './icons';
@@ -18,18 +21,23 @@ import { SourceCustomize } from './source-customize.jsx';
 import { createSettingsSnapshotReader, removeDeveloperServer } from './developer-server-actions.mjs';
 import './source-settings.css';
 import { SourceUsage } from './source-usage';
+import { SourceHooksSettings } from './source-hooks-settings.jsx';
 import { DeveloperServers, StorageDialog } from './source-settings-pages.jsx';
 import { useModalPresence } from './use-modal-presence';
 import { settingsTabIndex } from './modal-presence.mjs';
 import { holdModalInert } from './modal-inert.mjs';
 import { settingsSearch, sandboxFacts, mcpStatus, desktopErrors } from './settings-model.mjs';
-import { coreEngine } from './session-engine-model.mjs';
+import { settingsCore, accountCore, accountGroupTitle, engineCopy } from './settings-core-copy.mjs';
+import { workflowSettingsGroup } from './source-settings-workflows.jsx';
+import { coreName, coreForEngine, coreCapabilities, coreSupports } from '../electron/core-registry.mjs';
 import { SettingsSearchResults } from './source-settings-search.jsx';
 import { bindSettingsAnchor } from './settings-anchor.mjs';
 import { EMPTY_SETTINGS_CATALOG, settingsCatalogGroups } from './settings-catalog-search.mjs';
 import { effortName } from './model-menu-model.mjs';
 import { SourceHarnessSettings } from './source-settings-harness.jsx';
 import { SourceCommandsSettings } from './source-settings-commands.jsx';
+import { SourceToolProfilesSettings } from './source-settings-tool-profiles.jsx';
+import { SourceCoresSettings } from './source-settings-cores.jsx';
 import { SourceThemeSettings } from './source-settings-theme.jsx';
 import { SourceModelsSettings } from './source-settings-models.jsx';
 import { withEffortDefaults } from '../electron/prefs/model-settings.mjs';
@@ -98,32 +106,56 @@ export { SourceSwitch as SettingSwitch } from './source-switch.jsx';
 // navHidden): zC (:3915-3918) drops it from the nav and the narrow tabs, the account menu opens it
 // (sidebar-rows.js:16769-16793 uV) and search still lists it (the search gets the unfiltered groups).
 const tabs = [
-  {id:'preferences',label:'Preferences',icon:'Settings',group:'Settings',keywords:['general']},
+  // Light / Dark is chosen on Preferences (the Theme page only points there): 'dark mode' finds Preferences.
+  {id:'preferences',label:'Preferences',icon:'Settings',group:'Settings',keywords:['general','dark mode','light mode']},
   {id:'theme',label:'Theme',icon:'Palette',group:'Settings',keywords:['accent','colors','font size','corner radius','density','appearance'],page:SourceThemeSettings},
   {id:'usage',label:'Usage',icon:'UsageGaugeMiddle',group:'Settings',navHidden:true},
   {id:'code',label:'Code',icon:'Code',group:'Settings'},
   {id:'instructions',label:'Instructions',icon:'BookText',group:'Settings',keywords:['custom instructions','system prompt','agents.md','project instructions'],page:SourceInstructionsSettings},
   {id:'commands',label:'Commands',icon:'SlashShortcutCommand',group:'Settings',keywords:['slash commands','prompt templates','custom commands'],page:SourceCommandsSettings},
+  {id:'profiles',label:'Profiles',icon:'Tool',group:'Settings',keywords:['tool profiles','tools','mcp','turn off tools','disable tools'],page:SourceToolProfilesSettings},
   {id:'models',label:'Models',icon:'Lightning',group:'Settings',keywords:['api key','relay','base url','proxy','max tokens','temperature','pricing','prices','cost'],page:SourceModelsSettings},
   {id:'general',label:'General',icon:'Computer',group:'Desktop app'},
   {id:'developer',label:'Developer',icon:'Wrench',group:'Desktop app'},
+  {id:'cores',label:'Cores',icon:'Box',group:'Desktop app',keywords:['core','agent','codex','deepseek harness','download','install','sdk','engine'],page:SourceCoresSettings},
   {id:'harness',label:'Harness',icon:'CommandLine',group:'Desktop app',keywords:['cordis','profile','bundles','hooks','harness plugins','overlay'],page:SourceHarnessSettings},
   {id:'customize-skills',label:'Skills',icon:'Scroll',group:'Customize',customize:true,keywords:['custom instructions','agent skills']},
   {id:'customize-connectors',label:'Connectors',icon:'Connectors',group:'Customize',customize:true,keywords:['mcp','integrations','tools']},
   {id:'customize-plugins',label:'Plugins',icon:'Plugin',group:'Customize',customize:true,keywords:['marketplace','extensions']},
+  // The core's lifecycle hooks (hooks/list): Codex's /hooks review, trust and on/off; another core's, read-only. shell:
+  // 'customize' draws it in the Customize page shell (its own h-14 header, close button absolute) like its siblings.
+  {id:'customize-hooks',label:'Hooks',icon:'CommandLine',group:'Customize',shell:'customize',keywords:['hooks','pre tool use','lifecycle','trust','review'],page:SourceHooksSettings},
 ];
 const navGroups = ['Settings','Desktop app','Customize'];
 export const SETTINGS_SECTIONS = tabs.map(t=>t.id);
-const navTabs = settingsNavSections(tabs);
+const baseNavTabs = settingsNavSections(tabs);
 // Shown labels; tabs keep the English copy, which settingsSearch also matches.
 const navLabel = Object.fromEntries(tabs.map(section=>[section.id,t(section.label)]));
+// DeepSeek's settings rows (codeDesktop/settings/read fields): label, description, and how the value is shown (seconds for
+// the shell's millisecond timeouts, KB for its output cap).
+export function harnessSettingCopy(setting) {
+  const key=`${setting?.ns}/${setting?.key}`;
+  switch(key){
+    case 'bash-sandbox/timeoutMs':return {label:t('Command timeout'),description:t('How long a shell command may run before DeepSeek stops it, unless the command asks for longer.'),scale:1000,suffix:` ${t('seconds')}`};
+    case 'bash-sandbox/maxTimeoutMs':return {label:t('Longest command timeout'),description:t('The most time a single shell command may ask for.'),scale:1000,suffix:` ${t('seconds')}`};
+    case 'bash-sandbox/maxOutputBytes':return {label:t('Command output kept'),description:t('How much of each command’s output DeepSeek keeps and reads. The rest is cut.'),scale:1024,suffix:' KB'};
+    case 'agent-loop/maxParallelToolCalls':return {label:t('Parallel tool calls'),description:t('How many safe tool calls DeepSeek may run at once in one step.')};
+    case 'subagent/maxDepth':return {label:t('Sub-agent depth'),description:t('How many levels of sub-agents may start further sub-agents. 0 turns sub-agents of sub-agents off.')};
+    case 'subagent/maxActiveSubagents':return {label:t('Sub-agents at once'),description:t('How many sub-agents may run at the same time.')};
+    case 'web-search-deepseek/maxUses':return {label:t('Web searches per request'),description:t('How many times DeepSeek may search the web while answering one message.')};
+    case 'web-search-deepseek/baseURL':return {label:t('Web search endpoint'),description:t('Where web searches are sent. Empty: the default DeepSeek endpoint.')};
+    default:return {label:key,description:''};
+  }
+}
 export function SourceSettings({ open = true, ...props }) {
   const presence = useModalPresence(open);
   return presence.present ? <SettingsContent {...props} presence={presence}/> : null;
 }
-function SettingsContent({ presence, config, model, effort, permission, boot, busy, initialSection, readUsage, desktopCall, customize, onSave, onFolder, onReconnect, onLogin, onAccountAction, onRefreshAccount, onReveal, onClose }) {
-  const [tab,setTab]=useState(()=>tabs.some(t=>t.id===initialSection)?initialSection:'preferences'), [query,setQuery]=useState(''), [pending,setPending]=useState(''), [error,setError]=useState(''), [build,setBuild]=useState(null), [focus,setFocus]=useState(null);
-  useEffect(()=>{if(tabs.some(t=>t.id===initialSection)){setTab(initialSection);setQuery('');setFocus(null);}},[initialSection]);
+function SettingsContent({ presence, config, model, effort, permission, boot, busy, coreBusy, initialSection, readUsage, usageActions, desktopCall, customize, onSave, onFolder, onReconnect, onSwitchCore, onQuickSetup, onLogin, onAccountAction, onRefreshAccount, onReveal, onClose }) {
+  // initialSection 'tab' or 'tab#rowId' (the Mode menu's Bypass 'Enable' opens 'code#bypass': the page, then the row's anchor highlight).
+  const [section,anchorRow]=String(initialSection??'').split('#');
+  const [tab,setTab]=useState(()=>tabs.some(t=>t.id===section)?section:'preferences'), [query,setQuery]=useState(''), [pending,setPending]=useState(''), [error,setError]=useState(''), [build,setBuild]=useState(null), [focus,setFocus]=useState(null);
+  useEffect(()=>{if(tabs.some(t=>t.id===section)){setTab(section);setQuery('');setFocus(null);if(anchorRow)setHighlight({id:anchorRow});}},[initialSection]);
   const catalog=useSyncExternalStore(customize?.store?.subscribe||noCatalogSubscription,customize?.store?.getSnapshot||emptyCatalog,customize?.store?.getSnapshot||emptyCatalog);
   useEffect(()=>{
     if(!customize?.store)return;
@@ -134,10 +166,62 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   },[customize?.store,customize?.cwd,customize?.threadId]);
   const [desktop,setDesktop]=useState(null),[desktopRevision,setDesktopRevision]=useState(0),[storage,setStorage]=useState(null),[rowErrors,setRowErrors]=useState({}),[searchOpen,setSearchOpen]=useState(false),[searchIndex,setSearchIndex]=useState(0),[highlight,setHighlight]=useState(null),[narrow,setNarrow]=useState(()=>innerWidth<=767);
   const refreshDesktop = useRef(null), removingServer = useRef(false);
+  const [claudeImport,setClaudeImport]=useState(false);
+  // An ACP agent's own settings (Gemini / Qwen settings.json keys; codeDesktop/coreSettings/*), for Settings › Code.
+  const [coreSettings,setCoreSettings]=useState(null);
+  const coreSettingsCore=boot?.connected&&coreSupports(boot?.core,'coreSettings');
+  useEffect(()=>{if(!coreSettingsCore){setCoreSettings(null);return undefined;}let live=true;
+    Promise.resolve(desktopCall('rpc',{method:'codeDesktop/coreSettings/read',params:{}})).then(value=>{if(live)setCoreSettings(Array.isArray(value?.settings)?value:null);},()=>{if(live)setCoreSettings(null);});
+    return()=>{live=false;};},[coreSettingsCore,boot?.core?.engine]);
+  // A core that imports other tools' sessions on request (MiMo: capabilities.historyImport, codeDesktop/history/import);
+  // imported sessions are opened from Resume a session.
+  const historySources=boot?.connected&&Array.isArray(coreCapabilities(boot?.core).historyImport)?coreCapabilities(boot?.core).historyImport:null;
+  const [historyImport,setHistoryImport]=useState(null);
+  const importHistory=source=>commit(`history-import`,{},async()=>{setHistoryImport({source,busy:true});
+    try{const result=await desktopCall('rpc',{method:'codeDesktop/history/import',params:{sources:[source]}});const stats=result?.[source]??{};setHistoryImport({source,stats});}
+    catch(error){setHistoryImport(null);throw error;}});
+  // Codex's own Memories and beta features (main.cjs 'codex-features', codex-features.cjs): read once the Codex core is
+  // connected; a beta switch applies after Codex restarts (restartPending), memories to new sessions.
+  const [codexFeatures,setCodexFeatures]=useState(null),[codexRestart,setCodexRestart]=useState(false);
+  const codexFeaturesCore=boot?.connected&&coreForEngine(boot?.core?.engine).id==='codex'&&!coreSupports(boot?.core,'permissionHints');
+  useEffect(()=>{if(!codexFeaturesCore){setCodexFeatures(null);return undefined;}let live=true;
+    Promise.resolve(desktopCall('codex-features',{op:'read'})).then(value=>{if(live)setCodexFeatures(value&&typeof value==='object'?value:null);},()=>{if(live)setCodexFeatures(null);});
+    return()=>{live=false;};},[codexFeaturesCore,boot?.core?.engine]);
+  // Codex Remote Control (remoteControl/*): read once the Codex core is connected; it needs a ChatGPT sign-in. A pairing
+  // code is polled until a device claims it or it expires; then the paired devices are read again.
+  const [remote,setRemote]=useState(null),[pairing,setPairing]=useState(null),[remoteDevices,setRemoteDevices]=useState([]),[remoteNow,setRemoteNow]=useState(()=>Date.now());
+  const remoteCore=codexFeaturesCore;
+  const loadRemoteDevices=async(environmentId)=>{if(!environmentId){setRemoteDevices([]);return;}
+    try{const result=await desktopCall('rpc',{method:'remoteControl/client/list',params:{environmentId}});setRemoteDevices(Array.isArray(result?.data)?result.data:[]);}catch{setRemoteDevices([]);}};
+  useEffect(()=>{if(!remoteCore){setRemote(null);setPairing(null);setRemoteDevices([]);return undefined;}let live=true;
+    Promise.resolve(desktopCall('rpc',{method:'remoteControl/status/read',params:{}})).then(value=>{if(!live)return;setRemote(value&&typeof value==='object'?value:null);if(value?.environmentId)void loadRemoteDevices(value.environmentId);},()=>{if(live)setRemote(null);});
+    return()=>{live=false;};},[remoteCore,boot?.core?.engine]);
+  useEffect(()=>{if(!pairing)return undefined;const timer=setInterval(async()=>{setRemoteNow(Date.now());
+    if(!pairingTimeLeft(pairing.expiresAt)){setPairing(null);return;}
+    try{const status=await desktopCall('rpc',{method:'remoteControl/pairing/status',params:{pairingCode:pairing.pairingCode,manualPairingCode:pairing.manualPairingCode??null}});
+      if(status?.claimed){setPairing(null);void loadRemoteDevices(pairing.environmentId||remote?.environmentId);}}catch{}},2000);
+    return()=>clearInterval(timer);},[pairing,remote?.environmentId]);
+  const setRemoteControl=on=>commit('remote-control',{},async()=>{const value=await desktopCall('rpc',{method:on?'remoteControl/enable':'remoteControl/disable',params:{}});
+    if(value&&typeof value==='object')setRemote(value);if(!on){setPairing(null);setRemoteDevices([]);}else if(value?.environmentId)void loadRemoteDevices(value.environmentId);});
+  const startPairing=()=>commit('remote-pair',{},async()=>{const value=await desktopCall('rpc',{method:'remoteControl/pairing/start',params:{manualCode:true}});
+    if(value?.pairingCode)setPairing(value);setRemoteNow(Date.now());});
+  const revokeDevice=device=>commit(`remote-device-${device.clientId}`,{},async()=>{if(!window.confirm(t('Remove {device}? It can no longer reach Codex on this Mac until you pair it again.',{device:deviceName(device)})))return;
+    await desktopCall('rpc',{method:'remoteControl/client/revoke',params:{environmentId:remote?.environmentId,clientId:device.clientId}});await loadRemoteDevices(remote?.environmentId);});
+  const codexFeature=(id,payload,{restart=false}={})=>commit(id,{},async()=>{const value=await desktopCall('codex-features',payload);if(value&&typeof value==='object')setCodexFeatures(value);if(restart)setCodexRestart(true);});
+  // DeepSeek's own settings pages (capabilities.harnessSettings: codeDesktop/settings/*): shell timeout and output,
+  // parallel tool calls, sub-agent limits and web search, each saved on blur and reset to its default.
+  const [harnessSettings,setHarnessSettings]=useState(null);
+  const harnessSettingsCore=boot?.connected&&coreSupports(boot?.core,'harnessSettings');
+  useEffect(()=>{if(!harnessSettingsCore){setHarnessSettings(null);return undefined;}let live=true;
+    Promise.resolve(desktopCall('rpc',{method:'codeDesktop/settings/read',params:{}})).then(value=>{if(live)setHarnessSettings(Array.isArray(value?.settings)?value:null);},()=>{if(live)setHarnessSettings(null);});
+    return()=>{live=false;};},[harnessSettingsCore]);
+  const writeHarnessSetting=(setting,value)=>commit(`dsh-${setting.ns}-${setting.key}`,{},async()=>{const result=await desktopCall('rpc',{method:'codeDesktop/settings/write',params:{ns:setting.ns,key:setting.key,value}});if(Array.isArray(result?.settings))setHarnessSettings(result);});
+  const writeCoreSetting=(key,value)=>commit(`core-${key}`,{},async()=>{const result=await desktopCall('rpc',{method:'codeDesktop/coreSettings/write',params:{key,value}});if(Array.isArray(result?.settings))setCoreSettings(result);});
   useEffect(()=>{const update=()=>setNarrow(innerWidth<=767);window.addEventListener('resize',update);return()=>window.removeEventListener('resize',update);},[]);
   useEffect(() => {
     const reader = createSettingsSnapshotReader({
       read: () => desktopCall('desktop-settings-read', { threadId: customize?.threadId }),
+      readFast: () => desktopCall('desktop-settings-read', { threadId: customize?.threadId, servers: false }),
       onValue: setDesktop,
       onError: reason => setDesktop(current => ({ ...current, errors: { ...current?.errors, connection: reason.message } })),
       refreshCatalog: () => customize?.store?.loadMcp({ force: true, cwd: customize?.cwd, threadId: customize?.threadId ?? null }),
@@ -198,7 +282,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   // changes state meanwhile. The row shows its new value at once (Dynamic workflows' optimistic `oe`, as
   // main.jsx preference() does for theme and model); a failed write drops it, so the reconciled saved value
   // shows again, with the row's below-slot message. Values clear once every write in flight has settled.
-  const [optimistic,setOptimistic]=useState({}), writes=useRef(0);
+  const [optimistic,setOptimistic]=useState({}), writes=useRef(0), [workflowAdvanced,setWorkflowAdvanced]=useState(false);
   const shownValue=(key,saved)=>Object.hasOwn(optimistic,key)?optimistic[key]:saved;
   async function commit(rowId,patch,write=()=>onSave(patch)){
     setOptimistic(v=>({...v,...patch}));setRowErrors(v=>v[rowId]?{...v,[rowId]:null}:v);writes.current++;
@@ -213,7 +297,16 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   const save=(key,value,rowId=key)=>commit(rowId,{[key]:value});
   const segments=(key,label,options)=> <SourceSegments label={label} value={shownValue(key,prefs[key] ?? config[key])} options={options} onChange={value=>save(key,value)}/>;
   const row=(id,label,description,control,searchText)=>({id,label,description,control,searchText:searchText??(typeof description==='string'?description:'')});
-  const engine=coreEngine(boot?.core), facts=sandboxFacts(desktop?.policy,desktop?.requirements,{engine}), bypass=bypassAvailability(desktop?.requirements);
+  // engine: boot.core itself (its reported capabilities win over the implied ones in coreSupports), else the chosen
+  // core id while no core has reported. Every page gate takes a core, an engine or an id.
+  const engine=settingsCore(boot,config), codexNative=coreForEngine(typeof engine==='string'?engine:engine?.engine).id==='codex'&&!coreSupports(engine,'permissionHints'), facts=sandboxFacts(desktop?.policy,desktop?.requirements,{engine}), bypass=bypassAvailability(desktop?.requirements),
+    // Requirements not read yet (no answer and no recorded failure): neutral, the opt-in stays usable (main validates every Bypass request).
+    bypassChecking=!desktop||(!Object.hasOwn(desktop,'requirements')&&!desktop.requirementsUnsupported&&!desktop.errors?.requirements&&!desktop.errors?.connection);
+  const local=engineCopy(engine);
+  // Settings › Harness edits DeepSeek Harness profile overlays only: other cores keep it out of the nav and the
+  // narrow tabs (search still finds it, and its page explains the scope); an open Harness page keeps its entry.
+  // Hooks: a core that lists them (capabilities.hooksList: Codex, the bridges whose agents have hooks).
+  const navTabs=baseNavTabs.filter(section=>(section.id!=='harness'||tab==='harness'||coreSupports(engine,'harnessProfile'))&&(section.id!=='customize-hooks'||tab==='customize-hooks'||coreSupports(engine,'hooksList')));
   // A core without MCP config writes (DeepSeek: capabilities.mcpConfigWrite false) offers no Delete.
   const mcpWritable=boot?.core?.capabilities?.mcpConfigWrite!==false;
   const booleanRow=(id,label,description,{indent=false,checked=!!shownValue(id,config[id]),disabled=false}={})=>({...row(id,label,description,<SettingSwitch label={label} checked={checked} disabled={disabled} onChange={value=>save(id,value)}/>),indent});
@@ -223,18 +316,20 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   // c71860c77:2240-2275: per-type items, unset reads as Banners, no disabled item.
   const level=id=>notificationLevel(shownValue(id,config[id]));
   const levelRow=(id,label,description)=>row(id,label,description,<SourceSelect label={t('{setting} notification level',{setting:label})} value={level(id)} align="end" className="sselect-width-160" onChange={value=>save(id,value)} items={NOTIFICATION_LEVEL_ITEMS[id]}/>);
-  const accountRows=useAccountSettings({snapshot:boot?.account,auth:boot?.auth,connected:boot?.connected,busy,engine,onLogin,onAccountAction,onRefreshAccount,onOpenExternal:url=>desktopCall('external',{url})});
+  // The running core's account, or the chosen core's while disconnected ("DeepSeek account" only on DeepSeek Harness).
+  const accountTitle=accountGroupTitle(accountCore(boot,config));
+  const accountRows=useAccountSettings({snapshot:boot?.account,auth:boot?.auth,connected:boot?.connected,busy,engine:boot?.connected?engine:accountCore(boot,config),onLogin,onAccountAction,onRefreshAccount,onOpenExternal:url=>desktopCall('external',{url})});
   const groups=[
     {tab:'preferences',title:'Appearance',rows:[
       row('theme',t('Theme'),'',segments('theme',t('Theme'),[{value:'system',label:t('System'),icon:'Computer'},{value:'light',label:t('Light'),icon:'Sun'},{value:'dark',label:t('Dark'),icon:'Moon'}])),
       row('motion',t('Motion'),t('Reduce animation in streaming responses and other interface elements.'),segments('motion',t('Motion'),[{value:'system',label:t('System')},{value:'reduce',label:t('Reduced')}])),
       // shared-21 user menu Language (y1Z3orIe9Z) / ca25db325 general › Language: here a select; changing it reloads the window.
-      row('locale',t('Language'),t('The language of menus, settings and other interface text.'),<SourceSelect label={t('Language')} value={getLocale()} align="end" className="sselect-width-160" items={LOCALES.map(entry=>({value:entry.locale,label:entry.localName}))}
-        onChange={value=>{if(value!==getLocale())void Promise.resolve(onSave({locale:value})).then(()=>globalThis.location?.reload(),()=>{});}}/>,'Language 语言'),
+      row('locale',t('Language'),t('The language of menus, settings and other interface text.'),<SourceSelect label={t('Language')} value={getLocale()} align="end" items={LOCALES.map(entry=>({value:entry.locale,label:entry.localName}))}
+        onChange={value=>{if(value!==getLocale())void Promise.resolve(onSave({locale:value})).then(()=>{try{globalThis.sessionStorage?.setItem('code-desktop:reopen-settings','preferences');}catch{}globalThis.location?.reload();},()=>{});}}/>,'Language 语言'),
     ]},
     {tab:'preferences',title:'Profile',rows:[{id:'name',label:t('What should we call you?'),description:t('Used only in this app.'),below:<SourceProfileSetting value={config.displayName || ''} onSave={value=>onSave({displayName:value})}/>}]},
     personaGroup({config,onSave,desktopCall}),
-    {tab:'preferences',title:'DeepSeek account',rows:accountRows},
+    {tab:'preferences',title:accountTitle,rows:accountRows},
     // c71860c77 pa: appearance precedes local sessions. Codex-only controls stay below.
     {tab:'code',title:'Code appearance',rows:[
       // Searchable as "Code theme" (local index entry; the official search index lists only Code font here).
@@ -250,8 +345,10 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
     {tab:'code',title:'Local sessions',rows:[
       // c71860c77:2188-2212 YlYBASRBOt with DeepSeek substituted; the <link> to Anthropic's security page has no
       // DeepSeek counterpart, so the link element is dropped.
-      row('bypass',t('Allow bypass permissions mode'),<>{t('Bypass all permission checks and let DeepSeek work uninterrupted. This works well for workflows like fixing lint errors or generating boilerplate code. Letting DeepSeek run arbitrary commands is risky and can result in data loss, system corruption, or data exfiltration (e.g., via prompt injection attacks).')}{!bypass.allowed && <span className="ss-bypass-reason"> {t(bypass.reason)}</span>}</>,<SettingSwitch label={t('Allow bypass permissions mode')} checked={shownValue('allowBypassPermissions',config.allowBypassPermissions)===true} disabled={!config.allowBypassPermissions && (!boot?.connected || !bypass.allowed)} onChange={value=>save('allowBypassPermissions',value,'bypass')}/>,t('Bypass all permission checks and let DeepSeek work uninterrupted.')),
-      booleanRow('dynamicWorkflows',t('Dynamic workflows'),t('Let DeepSeek run multiple agents in parallel for complex tasks. Workflows can use a lot of your usage limit quickly.')),
+      row('bypass',t('Allow bypass permissions mode'),<>{t('Bypass all permission checks and let DeepSeek work uninterrupted. This works well for workflows like fixing lint errors or generating boilerplate code. Letting DeepSeek run arbitrary commands is risky and can result in data loss, system corruption, or data exfiltration (e.g., via prompt injection attacks).')}{!bypass.allowed && !bypassChecking && <span className="ss-bypass-reason"> {t(bypass.reason)}</span>}</>,<SettingSwitch label={t('Allow bypass permissions mode')} checked={shownValue('allowBypassPermissions',config.allowBypassPermissions)===true} disabled={!config.allowBypassPermissions && (!boot?.connected || (!bypass.allowed && !bypassChecking))} onChange={value=>save('allowBypassPermissions',value,'bypass')}/>,t('Bypass all permission checks and let DeepSeek work uninterrupted.')),
+      // c71860c77:2180-2245: the Dynamic workflows switch comes straight after Bypass; Code Desktop's extra workflow rows
+      // (source-settings-workflows.jsx: engine, keyword, size, Advanced) nest beneath it, indented, only while it is on.
+      ...workflowSettingsGroup({config,boot,engine,shownValue,save,rowErrors,setRowErrors,models,advanced:workflowAdvanced,setAdvanced:setWorkflowAdvanced,desktopCall,cwd:customize?.cwd??config.cwd??null}).rows,
       levelRow('permissionNotifications',t('Permission requests'),t('DeepSeek needs your approval to use a tool.')),
       levelRow('questionNotifications',t('Questions'),t('DeepSeek is asking you to choose between options.')),
       levelRow('completeNotifications',t('Task complete'),t('DeepSeek finished and is waiting for your input.')),
@@ -262,14 +359,132 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
       // c71860c77:2376-2398 g: the custom choice goes through the folder picker; only the saved location shows.
       row('worktreeLocation',t('Worktree location'),t('Where to store Git worktrees for isolated coding sessions.'),<div className="ss-worktree-control"><SourceSelect label={t('Worktree location')} align="end" value={shownValue('worktreeLocation',config.worktreeLocation)||'project'} title={config.worktreeLocation==='custom'?config.worktreeDirectory:'.code/worktrees'} onChange={value=>value==='custom'?commit('worktreeLocation',{},async()=>{const c=await desktopCall('desktop-worktree-folder');if(c)await onSave({worktreeLocation:c.worktreeLocation});setDesktopRevision(n=>n+1);}):save('worktreeLocation','project')} items={[{value:'project',label:t('Inside project'),description:'.code/worktrees'},{value:'custom',label:t('Custom…')}]}/>{config.worktreeLocation==='custom'&&config.worktreeDirectory&&<div className="ss-worktree-path" title={config.worktreeDirectory}>{config.worktreeDirectory}</div>}</div>),
       row('sandbox',t('Sandbox mode'),t(facts.reason),<span>{facts.mode||t('Unavailable')}</span>),
+      // turn/start sandboxPolicy.networkAccess for workspace-write turns (permission-policy.mjs turnPermissionParams).
+      // A core without a sandbox (descriptor or reported capability sandbox: false) has nothing to open.
+      // sandboxNetwork 'always' (the core's sandbox limits file writes only): a read-only fact, never a switch that does nothing.
+      ...(coreForEngine(typeof engine==='string'?engine:engine?.engine).sandbox===false||coreCapabilities(engine).sandbox===false?[]
+        :coreCapabilities(engine).sandboxNetwork==='always'?[row('sandboxNetworkAccess',t('Sandbox network access'),t('{core}’s sandbox limits file writes only, so commands it runs can always use the network.',{core:coreName(engine)}),<span>{t('Always on')}</span>)]
+        :[booleanRow('sandboxNetworkAccess',t('Sandbox network access'),t('Let commands that {core} runs in its sandbox use the network, including a proxy on this computer. Applies in Auto, Manual and Accept edits; Plan stays offline.',{core:coreName(engine)}))]),
+    ]},
+    // c71860c77 section "preview" (legacy: "Claude can start dev servers, open a live preview, and verify code changes with
+    // screenshots, snapshots, and DOM inspection."): the app's preview tools for every core; unset reads as on.
+    {tab:'code',title:'Preview',rows:[
+      booleanRow('agentPreview',t('Let DeepSeek use the preview'),t('DeepSeek can start your dev servers, open them in the Preview pane, and check its changes with screenshots, page snapshots and clicks. Outside sites always ask first.'),{checked:shownValue('agentPreview',config.agentPreview)!==false}),
     ]},
     {tab:'code',title:'Model and permissions',rows:[
       // Disabled only where the original disables: the model and effort pickers while a turn is busy.
       row('model',t('Model'),t('Used for your next message.'),<SourceSelect label={t('Default model')} value={shownValue('model',model)} disabled={busy||!boot?.connected} items={models.map(m=>({value:m.model,label:m.displayName||m.model}))} onChange={value=>{const next=models.find(m=>m.model===value);if(next)commit('model',{model:next.model,effort:next.defaultReasoningEffort});}}/>),
-      row('effort',t('Reasoning effort'),t('Available levels come from the selected model.'),<SourceSelect label={t('Default reasoning effort')} value={shownValue('effort',effort)} disabled={busy||!chosen} items={((models.find(m=>m.model===shownValue('model',model))||chosen)?.supportedReasoningEfforts||[]).map(e=>({value:e.reasoningEffort,label:effortName(e.reasoningEffort)}))} onChange={value=>save('effort',value)}/>),
+      // A model that reports no effort levels (a custom-provider or relay model) has nothing to pick: the row says so and
+      // shows 'Model default', as the composer's effort chip does, instead of an empty list.
+      ...(()=>{const shownModel=models.find(m=>m.model===shownValue('model',model))||chosen,efforts=shownModel?.supportedReasoningEfforts||[];
+        return [shownModel&&!efforts.length
+          ? row('effort',t('Reasoning effort'),t('Not available for this model.'),<SourceSelect label={t('Default reasoning effort')} value="default" disabled items={[{value:'default',label:t('Model default')}]} onChange={()=>{}}/>)
+          : row('effort',t('Reasoning effort'),t('Available levels come from the selected model.'),<SourceSelect label={t('Default reasoning effort')} value={shownValue('effort',effort)} disabled={busy||!chosen} items={efforts.map(e=>({value:e.reasoningEffort,label:effortName(e.reasoningEffort)}))} onChange={value=>save('effort',value)}/>)];})(),
       row('fast',t('Fast mode'),fast ? t('{description}. Applies to your next message.',{description:fast.description || t('Uses the model’s Fast service tier')}) : t('Not available for this model.'),<SettingSwitch label={t('Enable fast mode')} checked={!!fast&&!!shownValue('fastMode',config.fastMode)} disabled={!fast||!boot?.connected||busy} onChange={value=>save('fastMode',value,'fast')}/>),
-      row('permissions',t('Permission mode'),t('Auto asks when needed. Manual always asks before making changes. Accept edits applies file edits without asking. Plan is read-only.'),<SourceSelect label={t('Default permission mode')} value={shownValue('permission',permission)} disabled={busy} onChange={value=>save('permission',value,'permissions')} items={[{value:'auto',label:t('Auto')},{value:'ask',label:t('Manual')},{value:'acceptEdits',label:t('Accept edits')},{value:'plan',label:t('Plan')}]}/>),
+      // The Codex core's own web search mode and personality (main.cjs adds them to its thread and turn requests).
+      ...(codexNative?[
+        row('codexWebSearch',t('Web search'),t('Whether Codex can search the web: cached results, live results, or not at all. Applies to sessions you start or reopen.'),<SourceSelect label={t('Web search')} value={shownValue('codexWebSearch',config.codexWebSearch)||'default'} disabled={busy} onChange={value=>save('codexWebSearch',value)}
+          items={[{value:'default',label:t('Codex default')},{value:'cached',label:t('Cached')},{value:'live',label:t('Live')},{value:'disabled',label:t('Off')}].filter(item=>item.value==='default'||!Array.isArray(desktop?.requirements?.requirements?.allowedWebSearchModes)||desktop.requirements.requirements.allowedWebSearchModes.includes(item.value))}/>),
+        row('codexPersonality',t('Response style'),chosen?.supportsPersonality===false?t('Not available for this model.'):t('How Codex talks to you. Applies to your next message.'),<SourceSelect label={t('Response style')} value={shownValue('codexPersonality',config.codexPersonality)||'default'} disabled={busy||chosen?.supportsPersonality===false} onChange={value=>save('codexPersonality',value)}
+          items={[{value:'default',label:t('Codex default')},{value:'friendly',label:t('Friendly'),description:t('Warm, collaborative, and helpful.')},{value:'pragmatic',label:t('Pragmatic'),description:t('Concise, task-focused, and direct.')},{value:'none',label:t('None')}]}/>),
+        // Codex's /import: the Claude Code setup (CLAUDE.md, MCP servers, skills, hooks, commands, sessions).
+        row('codexImport',t('Import from Claude Code'),t('Bring over your CLAUDE.md, MCP servers, skills, hooks, commands and recent sessions. You choose what to import.'),
+          <SourceSettingsButton size="sm" disabled={!boot?.connected} onClick={()=>setClaudeImport(true)}>{t('Import…')}</SourceSettingsButton>),
+        // Codex's permission profiles (codex-permissions.mjs; its /permissions): what Auto, Manual and Accept edits may
+        // write and reach. 'Follow config.toml' keeps default_permissions; Plan and Bypass keep their own sandbox.
+        ...(desktop?.codexPermissions?[(()=>{const info=desktop.codexPermissions,profiles=info.profiles||[],configured=info.configured&&!info.configured.startsWith(':')?info.configured:null;
+          const saved=shownValue('codexPermissionProfile',info.choice??null),value=saved===null||saved===undefined?'config':saved===''?'app':saved;
+          const appDescription=info.writableRoots?.length||info.networkAccess?t('The session folder plus the writable folders and network setting in your Codex config.toml.'):t('The session folder, as set by the mode.');
+          return row('codexPermissionProfile',t('Permission profile'),t('What Codex may write and reach in Auto, Manual and Accept edits. Plan and Bypass keep their own access. Applies to your next message.'),
+            <SourceSelect label={t('Permission profile')} align="end" value={value} disabled={busy} onChange={next=>save('codexPermissionProfile',next==='config'?null:next==='app'?'':next)}
+              items={[{value:'config',label:configured?t('Follow config.toml ({profile})',{profile:configured}):t('Follow config.toml'),description:configured?(profiles.find(p=>p.id===configured)?.description??null):appDescription},
+                {value:'app',label:t('Code Desktop sandbox'),description:appDescription},
+                ...profiles.map(profile=>({value:profile.id,label:profile.id,description:profile.allowed?profile.description:t('Not allowed by your organization'),disabled:!profile.allowed}))]}/>);})()]:[]),
+      ]:[]),
+      row('permissions',t('Permission mode'),t('Auto asks when needed. Manual always asks before making changes. Accept edits applies file edits without asking. Plan is read-only.'),<SourceSelect label={t('Default permission mode')} value={shownValue('permission',permission)} disabled={busy} onChange={value=>save('permission',value,'permissions')} items={[{value:'auto',label:t('Auto')},{value:'ask',label:t('Manual')},{value:'acceptEdits',label:t('Accept edits')},{value:'plan',label:t('Plan')},
+        // Bypass as the default only while its opt-in (Code › Allow bypass permissions mode) is on; main re-checks it.
+        ...(config.allowBypassPermissions===true?[{value:'bypass',label:t('Bypass permissions')}]:[])]}/>),
     ]},
+    // The agent's own settings it lets Code Desktop change (core-settings-model.mjs labels): applied when its process
+    // next starts (an idle session restarts at once).
+    ...(coreSettings?.settings?.length?[{tab:'code',title:t('{core} settings',{core:coreName(boot?.core)}),rows:coreSettings.settings.map(setting=>{
+      const {label,description}=coreSettingLabel(setting.key,boot?.core),id=`core-${setting.key}`,current=setting.value??setting.default;
+      const control=setting.type==='boolean'?<SettingSwitch label={label} checked={current===true} disabled={busy} onChange={value=>writeCoreSetting(setting.key,value)}/>
+        :setting.type==='select'?<SourceSelect label={label} align="end" value={setting.value??'__default'} disabled={busy} onChange={value=>writeCoreSetting(setting.key,value==='__default'?null:value)}
+          items={[{value:'__default',label:coreSettingDefault(setting)},...setting.options.map(option=>({value:option,label:coreSettingOptionLabel(setting.key,option)}))]}/>
+        :<input data-cds="TextInput" className="cds-input cds-reset" aria-label={label} defaultValue={setting.value??''} placeholder={coreSettingDefault(setting)} disabled={busy}
+          inputMode={setting.type==='string'?undefined:'decimal'} key={`${setting.key}:${setting.value}`}
+          onBlur={event=>{const text=event.target.value.trim();const value=!text?null:setting.type==='string'?text:Number(text);if(value===setting.value||(value===null&&setting.value===null))return;if(value!==null&&setting.type!=='string'&&!Number.isFinite(value)){event.target.value=setting.value??'';return;}writeCoreSetting(setting.key,value);}}
+          onKeyDown={event=>{if(event.key==='Enter')event.currentTarget.blur();}}/>;
+      return row(id,label,description,control);
+    })}]:[]),
+    ...(harnessSettings?.settings?.length?[{tab:'code',title:'DeepSeek settings',rows:harnessSettings.settings.map(setting=>{
+      const {label,description,scale=1,suffix=''}=harnessSettingCopy(setting),id=`dsh-${setting.ns}-${setting.key}`;
+      const shown=value=>value===null||value===undefined?'':setting.type==='integer'?String(Math.round(value/scale*100)/100):String(value);
+      const control=<span className="ss-dsh-setting">
+        <input data-cds="TextInput" className="cds-input cds-reset" aria-label={label} defaultValue={setting.overridden?shown(setting.value):''} placeholder={setting.default!==null&&setting.default!==undefined?t('Default: {value}',{value:`${shown(setting.default)}${suffix}`}):t('Default')}
+          inputMode={setting.type==='integer'?'decimal':'url'} disabled={busy||harnessSettings.writable===false} key={`${id}:${setting.value}:${setting.overridden}`}
+          onBlur={event=>{const text=event.target.value.trim();if(!text){if(setting.overridden)writeHarnessSetting(setting,null);return;}
+            const value=setting.type==='integer'?Math.round(Number(text)*scale):text;if(setting.type==='integer'&&!Number.isFinite(value)){event.target.value=setting.overridden?shown(setting.value):'';return;}
+            if(setting.overridden&&value===setting.value)return;writeHarnessSetting(setting,value);}}
+          onKeyDown={event=>{if(event.key==='Enter')event.currentTarget.blur();}}/>
+        {suffix&&<span className="ss-dsh-unit">{suffix.trim()}</span>}
+        {setting.overridden&&<SourceSettingsButton size="sm" variant="ghost" disabled={busy} onClick={()=>writeHarnessSetting(setting,null)}>{t('Reset')}</SourceSettingsButton>}
+      </span>;
+      return row(id,label,description,control);
+    })}]:[]),
+    // Codex /memories: the feature, whether new sessions use and make memories, and a confirmed reset (memory/reset).
+    ...(codexFeatures?.memories?[{tab:'code',title:'Memories',rows:[
+      row('codex-memories',t('Memories'),t('Let Codex remember useful details from your sessions and use them in new ones. Off by default; changes apply to new sessions.'),
+        <SettingSwitch label={t('Memories')} checked={codexFeatures.memories.enabled} disabled={busy} onChange={value=>codexFeature('codex-memories',{op:'set-feature',name:'memories',enabled:value})}/>),
+      ...(codexFeatures.memories.enabled?[
+        row('codex-use-memories',t('Use memories'),t('New sessions can draw on what Codex remembered.'),
+          <SettingSwitch label={t('Use memories')} checked={codexFeatures.memories.useMemories} disabled={busy} onChange={value=>codexFeature('codex-use-memories',{op:'set-memories',useMemories:value})}/>),
+        row('codex-generate-memories',t('Generate memories'),t('Codex keeps memories from your sessions, the current one included. Turn off to keep sensitive work out of them.'),
+          <SettingSwitch label={t('Generate memories')} checked={codexFeatures.memories.generateMemories} disabled={busy} onChange={value=>codexFeature('codex-generate-memories',{op:'set-memories',generateMemories:value})}/>),
+      ]:[]),
+      row('codex-reset-memories',t('Reset all memories'),
+        `${t('Clears what Codex remembered on this computer. Your sessions stay.')}${Number.isFinite(codexFeatures.memories.status?.threads)?` ${tn(codexFeatures.memories.status.threads,'{count} session summarized so far.','{count} sessions summarized so far.')}`:''}`,
+        <SourceSettingsButton size="sm" variant="secondary" disabled={busy} onClick={()=>{if(window.confirm(t('Reset all memories? Codex forgets everything it remembered on this computer. This can’t be undone.')))codexFeature('codex-reset-memories',{op:'reset-memories',confirmed:true});}}>{t('Reset…')}</SourceSettingsButton>),
+    ]}]:[]),
+    // Codex Remote Control (`codex remote-control`): reach this Mac's Codex sessions from the ChatGPT app on another device.
+    ...(remote?[{tab:'code',title:t('Remote control'),rows:[
+      row('remote-control',t('Remote control'),`${t('Check on and answer Codex sessions on this Mac from the ChatGPT app on your phone or another computer, signed in to the same ChatGPT account.')} ${t('Status: {status}',{status:remoteStatusLabel(remote.status)})}`,
+        <SettingSwitch label={t('Remote control')} checked={remoteEnabled(remote.status)} disabled={busy||account?.type!=='chatgpt'} onChange={value=>setRemoteControl(value)}/>),
+      ...(account?.type!=='chatgpt'?[row('remote-signin',t('Needs a ChatGPT sign-in'),t('Remote control works through your ChatGPT account. Sign in with ChatGPT under Account to use it.'),null)]:[]),
+      ...(remoteEnabled(remote.status)?[
+        row('remote-pair',t('Pair a device'),pairing&&pairingTimeLeft(pairing.expiresAt,remoteNow)
+          ?t('In the ChatGPT app, enter {code}. The code expires in {time}.',{code:pairing.manualPairingCode||pairing.pairingCode,time:pairingTimeLeft(pairing.expiresAt,remoteNow)})
+          :t('Get a short code to enter in the ChatGPT app on the device you want to use.'),
+          pairing&&pairingTimeLeft(pairing.expiresAt,remoteNow)
+            ?<span className="ss-remote-code"><code data-remote-pairing-code="">{pairing.manualPairingCode||pairing.pairingCode}</code><SourceSettingsButton size="sm" variant="ghost" onClick={()=>setPairing(null)}>{t('Cancel')}</SourceSettingsButton></span>
+            :<SourceSettingsButton size="sm" variant="secondary" disabled={busy} onClick={()=>startPairing()}>{t('Pair a device')}</SourceSettingsButton>),
+        ...remoteDevices.filter(device=>device&&typeof device.clientId==='string').map(device=>row(`remote-device-${device.clientId}`,deviceName(device),deviceDetail(device,getLocale(),remoteNow),
+          <SourceSettingsButton size="sm" variant="ghost" disabled={busy} onClick={()=>revokeDevice(device)}>{t('Remove')}</SourceSettingsButton>)),
+      ]:[]),
+    ]}]:[]),
+    // Codex /experimental: its beta features (Worktrees and Prevent sleep are Code Desktop's own). Codex reads them at start.
+    ...(codexFeatures?.beta?.length?[{tab:'code',title:'Beta features',rows:[
+      ...codexFeatures.beta.map(feature=>row(`codex-beta-${feature.name}`,t(feature.displayName),
+        [t(feature.description),feature.name==='realtime_conversation'?t('Voice isn’t in Code Desktop yet; it works with /voice in the Codex terminal.'):''].filter(Boolean).join(' '),
+        <SettingSwitch label={t(feature.displayName)} checked={feature.enabled} disabled={busy} onChange={value=>codexFeature(`codex-beta-${feature.name}`,{op:'set-feature',name:feature.name,enabled:value},{restart:true})}/>)),
+      ...(codexRestart?[row('codex-beta-restart',t('Restart Codex to apply'),t('Beta features take effect when Codex starts.'),
+        <SourceSettingsButton size="sm" variant="primary" disabled={busy||!customize?.onRestartCore} onClick={()=>{setCodexRestart(false);customize?.onRestartCore?.();}}>{t('Restart')}</SourceSettingsButton>)]:[]),
+    ]}]:[]),
+    ...(historySources?.length?[{tab:'code',title:t('Import sessions'),rows:[row('history-import',t('Import sessions from other tools'),
+      historyImport?.stats?t('Imported {imported} of {scanned} sessions ({skipped} already here). Open them from Resume a session.',{imported:historyImport.stats.imported??0,scanned:historyImport.stats.scanned??0,skipped:(historyImport.stats.skipped??0)+(historyImport.stats.resynced??0)})
+        :t('{core} can copy your Claude Code, Codex or OpenCode conversations into its own history. Nothing is imported until you choose.',{core:coreName(boot?.core)}),
+      <span className="ccmd-actions">{historySources.map(source=><SourceSettingsButton key={source} size="sm" busy={historyImport?.busy&&historyImport.source===source} disabled={busy||!!historyImport?.busy}
+        onClick={()=>void importHistory(source)}>{source==='cc'?'Claude Code':source==='codex'?'Codex':'OpenCode'}</SourceSettingsButton>)}</span>)]}]:[]),
+    // The DeepSeek core's uploads besides the model request (code-desktop-app cordis.patch.yml, main.cjs
+    // CODE_DESKTOP_SHARE_*): off unless the user turns them on, as the official app's switch allows. A change restarts
+    // the core so the next request follows it.
+    ...(coreSupports(engine,'harnessProfile')?[{tab:'code',title:'Privacy',rows:[
+      row('deepseekSessionLog',t('Share session logs with DeepSeek'),t('With the official DeepSeek API, each request also uploads this session’s log (your prompts, file contents the agent read, command output and the working folder) and the list of installed Harness plugins. Restarts the core.'),
+        <SettingSwitch label={t('Share session logs with DeepSeek')} checked={shownValue('deepseekSessionLog',config.deepseekSessionLog)===true} disabled={busy} onChange={value=>commit('deepseekSessionLog',{deepseekSessionLog:value},async()=>{await onSave({deepseekSessionLog:value});customize?.onRestartCore?.();})}/>),
+      row('deepseekFeedbackSharing',t('Share feedback with DeepSeek'),t('/feedback uploads this session so far to DeepSeek with an anonymous ID. When off, feedback stays on this computer. Restarts the core.'),
+        <SettingSwitch label={t('Share feedback with DeepSeek')} checked={shownValue('deepseekFeedbackSharing',config.deepseekFeedbackSharing)===true} disabled={busy} onChange={value=>commit('deepseekFeedbackSharing',{deepseekFeedbackSharing:value},async()=>{await onSave({deepseekFeedbackSharing:value});customize?.onRestartCore?.();})}/>),
+    ]}]:[]),
     // c71860c77-B72Ova_w It: version (wt renders nothing until the version is known), Run on startup, Menu bar,
     // Storage. Its own 'Keep computer awake' (scheduled tasks while the app is open) has no local counterpart;
     // the Code page's keep-awake rows stay on the Code page. While the desktop snapshot loads, the fallback
@@ -281,19 +496,21 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
       row('storage',t('Storage'),t('See how much space Code Desktop uses on this computer.'),<SourceSettingsButton size="sm" onClick={()=>setStorage(true)}>{t('Manage')}</SourceSettingsButton>),
     ]},
     {tab:'developer',title:'Local MCP servers',rows:[
-      row('mcp-config',t('Configuration'),t('Local MCP servers from your DeepSeek Harness configuration.'),<button disabled={!boot?.connected} onClick={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))}>{t('Edit config')}</button>),
-      ...(desktop?.servers||[]).map(server=>row('mcp-'+server.name,server.name,server.toolsError||`${tn(Object.keys(server.tools||{}).length,'{count} tool','{count} tools')} · ${server.authStatus}`,<span>{t(mcpStatus(server))}</span>)),
+      row('mcp-config',t('Configuration'),local.mcp,<button disabled={!boot?.connected} onClick={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))}>{t('Edit config')}</button>),
+      ...(desktop?.servers||[]).map(server=>row('mcp-'+server.name,server.name,(server.toolsError&&t(server.toolsError))||`${tn(Object.keys(server.tools||{}).length,'{count} tool','{count} tools')} · ${server.authStatus}`,<span>{t(mcpStatus(server))}</span>)),
       ...(desktop?.servers?.length===0?[row('mcp-empty',t('No servers added'),'',null)]:[]),
     ]},
     {tab:'developer',title:'Local engine',rows:[
       // c71860c77-CCdfSDER F/I: the page's actions are CDS Buttons (shared-frame Ao); busy keeps the name 'Reconnect'.
-      row('connection',t('DeepSeek core'),boot?.connected?t('Connected'):t('Disconnected'),<SourceSettingsButton variant="secondary" size="sm" busy={pending==='reconnect'} disabled={busy} onClick={()=>action('reconnect',onReconnect)}>{t('Reconnect')}</SourceSettingsButton>),
-      row('engine',t('Engine'),t('Uses DeepSeek Harness with the DeepSeek API key saved in ~/.dsh. Settings here do not rewrite your DeepSeek Harness configuration.'),null),
+      row('connection',local.label,boot?.connected?t('Connected'):t('Disconnected'),<SourceSettingsButton variant="secondary" size="sm" busy={pending==='reconnect'} disabled={busy} onClick={()=>action('reconnect',onReconnect)}>{t('Reconnect')}</SourceSettingsButton>),
+      row('engine',t('Engine'),local.engine,null),
     ]},
   ];
   // Profile belongs in Preferences, before Appearance (c0db37792:1391–1403).
-  groups.sort((a,b)=>a.tab==='preferences'&&b.tab==='preferences'?(['Profile','Persona','DeepSeek account','Appearance'].indexOf(a.title)-['Profile','Persona','DeepSeek account','Appearance'].indexOf(b.title)):0);
-  const results=settingsSearch(tabs,[...groups,...settingsCatalogGroups(catalog,{cwd:customize?.cwd,threadId:customize?.threadId??null})],query),shown=groups.filter(group=>group.tab===tab&&group.title!=='Local MCP servers'&&!tabs.find(t=>t.id===group.tab)?.customize);
+  groups.sort((a,b)=>a.tab==='preferences'&&b.tab==='preferences'?(['Profile','Persona',accountTitle,'Appearance'].indexOf(a.title)-['Profile','Persona',accountTitle,'Appearance'].indexOf(b.title)):0);
+  // Only DeepSeek's Models page has a key field (its connection rows): elsewhere 'api key' doesn't lead there.
+  const searchTabs=coreForEngine(typeof engine==='string'?engine:engine?.engine).id==='deepseek'?tabs:tabs.map(tab=>tab.id==='models'?{...tab,keywords:tab.keywords.filter(word=>word!=='api key')}:tab);
+  const results=settingsSearch(searchTabs,[...groups,...settingsCatalogGroups(catalog,{cwd:customize?.cwd,threadId:customize?.threadId??null})],query),shown=groups.filter(group=>group.tab===tab&&group.title!=='Local MCP servers'&&!tabs.find(t=>t.id===group.tab)?.customize);
   const chooseResult=result=>{
     const destination=result.targetSection||result.tab;
     setTab(destination);setQuery('');setSearchOpen(false);setSearchIndex(0);
@@ -302,11 +519,16 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   };
   useEffect(()=>{if(searchOpen)root.current?.querySelector('.ss-search-results [data-highlighted]')?.scrollIntoView({block:'nearest'});},[query,searchIndex,searchOpen]);
   const activeTab=tabs.find(t=>t.id===tab);
-  const pageProps={config,boot,model,effort,busy,engine,desktopCall,onSave,onReconnect,customize,cwd:customize?.cwd??config.cwd,threadId:customize?.threadId??null};
+  // coreBusy: any session's turn or approval is live (switching or removing the running core stops it); busy covers
+  // only the open session, so it stands in until the app passes coreBusy.
+  // onOpenSetting(tab,rowId): a page's link to a setting whose home is another page (Theme › Light or dark → Preferences
+  // › Theme), opened with the same anchor highlight as 'tab#rowId'.
+  const openSetting=(section,rowId)=>{if(!tabs.some(entry=>entry.id===section))return;setTab(section);setQuery('');setFocus(null);if(rowId)setHighlight({id:rowId});};
+  const pageProps={config,boot,model,effort,busy,coreBusy:coreBusy??busy,engine,desktopCall,onSave,onReconnect,onSwitchCore,onQuickSetup,onOpenSetting:openSetting,customize,cwd:customize?.cwd??config.cwd,threadId:customize?.threadId??null};
   const customizePage=activeTab?.customize&&customize ? <SourceCustomize key={JSON.stringify([tab,customize.cwd,customize.threadId])} section={tab} store={customize.store} threadId={customize.threadId} cwd={customize.cwd} call={customize.call}
     core={boot?.core} onEditConfig={boot?.connected?()=>desktopCall('desktop-edit-config'):undefined}
-    onUseSkill={customize.onUseSkill} onOpenExternal={customize.onOpenExternal} onRevealPath={customize.onRevealPath} focus={focus} mcpDefinitions={desktop?.mcpDefinitions}
-    onRestartCore={customize.onRestartCore}
+    onUseSkill={customize.onUseSkill} onOpenExternal={customize.onOpenExternal} onRevealPath={customize.onRevealPath} focus={focus} mcpDefinitions={desktop?.mcpDefinitions} mcpServers={desktop?.servers}
+    onRestartCore={customize.onRestartCore} onHarnessCall={payload=>desktopCall('harness-profile',payload)}
     onNavigate={(section,target)=>{setFocus(target||null);setTab(section);setQuery('');}} /> : null;
   const closeSearch=()=>{setSearchOpen(false);setQuery('');setSearchIndex(0);};
   // cc011544b _t: the field (icon + input, no clear button; Escape clears) focuses its input when clicked.
@@ -325,6 +547,10 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
     {searchOpen&&<SettingsSearchResults results={results} query={query} active={searchIndex} onActive={setSearchIndex} onSelect={chooseResult}/>}
   </div>;
   const selectTab = id => { setTab(id);setQuery('');setError('');setFocus(null);setHighlight(null);setSearchOpen(false); };
+  // Official Customize nav entries are links (shared-22 :2568-2593 href /customize/skills …) and a detail is a query on
+  // that route, so clicking the current Customize entry from a skill, connector or plugin detail returns to its list:
+  // a fresh reset token re-runs the page's useCatalogNavigation (focus null would be a no-op when already null).
+  const customizeNavFocus = entry => entry.customize&&entry.id===tab?{reset:Date.now()}:null;
   const usagePage = tab==='usage';
   const usageIdentity=JSON.stringify([boot?.connected,account?.type,account?.email,account?.planType]);
   // shared-22:4511-4515 ye and cc011544b's page header CloseButton: both are named 'Close'.
@@ -337,10 +563,12 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
       if(index<0||event.nativeEvent.isComposing||event.altKey||event.metaKey||event.ctrlKey)return;
       const next=settingsTabIndex(index,controls.length,event.key,getComputedStyle(event.currentTarget).direction==='rtl');
       if(next===null)return;event.preventDefault();event.stopPropagation();controls[next].focus();controls[next].scrollIntoView({block:'nearest',inline:'nearest'});
-    }}>{navTabs.map(t=><button role="tab" aria-selected={tab===t.id} tabIndex={tab===t.id?0:-1} key={t.id} onFocus={()=>selectTab(t.id)} onClick={()=>selectTab(t.id)}>{navLabel[t.id]}</button>)}</div></header>:<nav className="ss-nav" aria-label={t('Settings')}>{searchField}<div className="ss-nav-scroll scroll-fade-y scroll-fade-size-6">{navGroups.map(group=><div key={group}><p>{t(group)}</p><ul>{navTabs.filter(t=>t.group===group).map(t=><li key={t.id}><button aria-current={tab===t.id?'page':undefined} onClick={()=>{setTab(t.id);setQuery('');setError('');setFocus(null);setHighlight(null);setSearchOpen(false);}}><Icon name={t.icon} size={20}/><span>{navLabel[t.id]}</span></button></li>)}</ul></div>)}</div></nav>}
-    <div className="ss-pane" data-customize={!!activeTab?.customize}>
+    }}>{navTabs.map(t=><button role="tab" aria-selected={tab===t.id} tabIndex={tab===t.id?0:-1} key={t.id} onFocus={()=>selectTab(t.id)} onClick={()=>{selectTab(t.id);setFocus(customizeNavFocus(t));}}>{navLabel[t.id]}</button>)}</div></header>:<nav className="ss-nav" aria-label={t('Settings')}>{searchField}<div className="ss-nav-scroll scroll-fade-y scroll-fade-size-6">{navGroups.map(group=><div key={group}><p>{t(group)}</p><ul>{navTabs.filter(t=>t.group===group).map(t=><li key={t.id}><button aria-current={tab===t.id?'page':undefined} onClick={()=>{setTab(t.id);setQuery('');setError('');setFocus(customizeNavFocus(t));setHighlight(null);setSearchOpen(false);}}><Icon name={t.icon} size={20}/><span>{navLabel[t.id]}</span></button></li>)}</ul></div>)}</div></nav>}
+    <div className="ss-pane" data-customize={!!activeTab?.customize||activeTab?.shell==='customize'}>
     {!usagePage&&!narrow&&<div className="ss-page-header">{closeButton}</div>}
-    <div className="ss-content" key={tab} data-page={tab}>{error&&<p className="ss-error" role="alert">{error}</p>}{['code','developer'].includes(tab)&&desktopErrors(desktop?.errors).map(notice=><p className="ss-connection-notice" role="status" key={notice.key}>{notice.message}</p>)}{tab==='developer'&&<DeveloperServers desktop={desktop} connected={boot?.connected} pending={!!pending} error={rowErrors['mcp-config']} onRemove={customize?.call&&mcpWritable ? removeServer : undefined} onEditConfig={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))} onDocs={()=>action('mcp-config',()=>desktopCall('external',{url:'https://modelcontextprotocol.io/quickstart'}))}/>} {customizePage}{activeTab?.page&&<activeTab.page {...pageProps}/>}{tab==='usage'&&<SourceUsage key={usageIdentity} readUsage={readUsage} engine={engine} onOpenLink={url=>Promise.resolve(desktopCall('external',{url})).catch(()=>{})}/>} {shown.map(group=><section className="ss-group" key={group.tab+group.title}><h3 tabIndex={-1} className="text-heading-semibold settings-row-title">{t(group.title)}</h3><div className="settings-group-dividers">{(group.skeleton?group.rows.filter(row=>row.id==='version'):group.rows).map(row=><SettingRow key={row.id} row={row} error={rowErrors[row.id]}/>)}{group.skeleton&&[0,1,2].map(index=><SettingSkeletonRow key={index}/>)}</div></section>)}</div></div>
+    <div className="ss-content" key={tab} data-page={tab}>{error&&<p className="ss-error" role="alert">{error}</p>}{['code','developer'].includes(tab)&&desktopErrors(desktop?.errors).map(notice=><p className="ss-connection-notice" role="status" key={notice.key}>{notice.message}</p>)}{tab==='developer'&&<DeveloperServers desktop={desktop} connected={boot?.connected} pending={!!pending} error={rowErrors['mcp-config']} onRemove={customize?.call&&mcpWritable ? removeServer : undefined} onEditConfig={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))} onDocs={()=>action('mcp-config',()=>desktopCall('external',{url:'https://modelcontextprotocol.io/quickstart'}))}/>} {customizePage}{activeTab?.page&&<activeTab.page {...pageProps}/>}{tab==='usage'&&<SourceUsage key={usageIdentity} readUsage={readUsage} consumeResetCredit={usageActions?.consumeResetCredit} sendCreditsNudge={usageActions?.sendCreditsNudge} engine={engine} models={boot?.models} onOpenLink={url=>Promise.resolve(desktopCall('external',{url})).catch(()=>{})}/>} {shown.map(group=><section className="ss-group" key={group.tab+group.title}><h3 tabIndex={-1} className="text-heading-semibold settings-row-title">{t(group.title)}</h3><div className="settings-group-dividers">{(group.skeleton?group.rows.filter(row=>row.id==='version'):group.rows).map(row=><SettingRow key={row.id} row={row} error={rowErrors[row.id]}/>)}{group.skeleton&&[0,1,2].map(index=><SettingSkeletonRow key={index}/>)}</div></section>)}
+      {claudeImport&&<ClaudeImportDialog open desktopCall={desktopCall} cwds={[customize?.cwd].filter(Boolean)} onClose={()=>setClaudeImport(false)}
+        onDone={()=>{void customize?.store?.loadSkills?.({cwd:customize?.cwd,force:true});void customize?.store?.loadMcp?.({cwd:customize?.cwd,threadId:customize?.threadId??null,force:true});setDesktopRevision(n=>n+1);}}/>}</div></div>
   </section>{storage&&<StorageDialog call={desktopCall} settingsRoot={root} onClose={()=>setStorage(false)}/>}</div>,document.body);
 }
 // c71860c77-B72Ova_w It fallback: a row of two text bars (h-5 w-36 / h-5 w-72) beside a 40×24 pill, drawn with

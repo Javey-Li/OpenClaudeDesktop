@@ -35,7 +35,7 @@ export const POPOVER_PADDINGS = Object.freeze(["none", "xs", "sm", "md", "lg"]);
 // Base UI hands initialFocus the interaction that opened the popup
 // (mouse/touch/pen/keyboard); the last pointer or key press stands in for it.
 let lastInteraction = "keyboard";
-if (typeof document !== "undefined") {
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
   document.addEventListener("pointerdown", (event) => { lastInteraction = event.pointerType || "mouse"; }, true);
   document.addEventListener("keydown", () => { lastInteraction = "keyboard"; }, true);
 }

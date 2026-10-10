@@ -40,7 +40,7 @@ const statsA = {
 const statsB = {...statsA, dailyActivity: [...statsA.dailyActivity.slice(0, 2), {date: T0, messageCount: 10, sessionCount: 1, toolCallCount: 1}]}
 // A ledger that would read very differently: it must not reach the card.
 const ledger = {startedAt: new Date().toISOString(), days: {[T0]: {v: 2, messages: 999, sessions: 99, tokens: 5, hours: {3: 999}, models: {'fixture-5': 5}}}}
-await fs.writeFile(path.join(profile, 'preferences.json'), JSON.stringify({cwd: workspace, theme: 'light', mode: 'code', threadIds: [], activity: ledger, stats: {}}))
+await fs.writeFile(path.join(profile, 'preferences.json'), JSON.stringify({cwd: workspace, theme: 'light', mode: 'code', threadIds: [], activity: ledger, stats: {}, onboarded: true /* first-run setup (source-onboarding.jsx) already done; this suite is about the home card */}))
 await fs.writeFile(path.join(profile, 'fixture-core.json'), JSON.stringify({capabilities: {codeStats: true}}))
 const writeAtomic = async (file, value) => {await fs.writeFile(file + '.tmp', JSON.stringify(value)); await fs.rename(file + '.tmp', file)}
 const usageFixture = value => writeAtomic(path.join(profile, 'fixture-usage.json'), value)
@@ -169,8 +169,8 @@ try {
       buttons: [...node.querySelectorAll('button')].map(button => [button.textContent.trim(), button.dataset.cds, button.dataset.variant, button.dataset.size ?? null])}
   })
   assert.deepEqual({...keyShape, ring: undefined}, {outline: true, padding: '8px 12px 12px', radius: '8px', maxWidth: '480px', ring: undefined,
-    title: ['Add your DeepSeek API key', '13px', await color('var(--cds-text-primary)')], body: ['Save a key in DeepSeek Harness (~/.dsh) or set DEEPSEEK_API_KEY, then refresh.', await color('var(--cds-text-secondary)')],
-    buttons: [['Refresh', 'Button', 'secondary', 'sm'], ['Get an API key', 'Button', 'primary', 'sm']]})
+    title: ['Add your DeepSeek API key', '13px', await color('var(--cds-text-primary)')], body: ['Choose Add key and paste your key to start. A key saved in DeepSeek Harness or set as DEEPSEEK_API_KEY also works; refresh after adding one there.', await color('var(--cds-text-secondary)')],
+    buttons: [['Refresh', 'Button', 'secondary', 'sm'], ['Get an API key', 'Button', 'secondary', 'sm'], ['Add key', 'Button', 'primary', 'sm']]})
   assert.match(keyShape.ring, /0px 0px 0px 1px/, 'epitaxy-card-outline ring')
   report.metrics.keyCard = keyShape
   // The composer warns instead of letting a doomed send reach turn/start; Enter keeps the draft and starts nothing.

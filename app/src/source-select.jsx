@@ -8,7 +8,8 @@ import './source-select.css';
 
 // Independent CDS Combobox single/select branch (shared-frame xb → Tb → Eb).
 // Options are the caller's actual data; selection never changes on mere focus.
-export function SourceSelect({ label, value, items, onChange, disabled = false, align = 'start', className = '', title, style }) {
+// triggerProps: extra attributes for the combobox button (a form's id, aria-describedby/-invalid/-required, data-*).
+export function SourceSelect({ label, value, items, onChange, disabled = false, align = 'start', className = '', title, style, triggerProps = null }) {
   const [open, setOpen] = useState(false), trigger = useRef(null);
   const id = useId(), selected = items.find(item => String(item.value) === String(value));
   const searchable = items.length > 5;
@@ -17,7 +18,7 @@ export function SourceSelect({ label, value, items, onChange, disabled = false, 
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const close = restore => { setOpen(false); if (restore) trigger.current?.focus({ preventScroll: true }); };
   return <div className={`sselect ${className}`} data-cds="Combobox" data-disabled={disabled || undefined} style={style}>
-    <button ref={trigger} type="button" role="combobox" aria-label={label} title={title}
+    <button {...triggerProps} ref={trigger} type="button" role="combobox" aria-label={label} title={title}
       aria-haspopup="listbox" aria-expanded={open && !disabled} aria-controls={open && !disabled ? id : undefined}
       data-value={value ?? ''} disabled={disabled} className="sselect-trigger"
       onClick={() => open ? close(false) : show('selected')}

@@ -94,6 +94,8 @@
 .sdiff-raw-code { overflow: auto; margin: 0; padding: 4px 0; white-space: pre; font: inherit; }
 .sdiff-raw-code > code { display: block; min-width: max-content; padding-inline: 8px; white-space: pre; font: inherit; }
 .sdiff-note code { font: inherit; }
+/* [data-no-newline] (c49d7f557): the preceding line's background; the words in the muted code colour. */
+.sdiff-no-newline .sdiff-no-newline-text, .sdiff-note[data-no-newline] { color: var(--cds-text-muted); }
 @media (pointer: coarse) { .sdiff-copy { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .sdiff-caret { transition: none; } }
 html[data-reduce-motion="true"] .sdiff-caret { transition: none; }
@@ -138,3 +140,20 @@ html[data-reduce-motion="true"] .sdiff-tree-caret { transition:none; }
 .sdiff-changes-layout[data-resizing] { user-select:none; }
 .sdiff-changes-layout[data-resizing] * { cursor:col-resize !important; }
 .sdiff-changes-layout[data-resizing] :is(.sdiff-file-list-divider, .sdiff-file-list-edge) > span { opacity:1; background:var(--cds-fill-primary); }
+/* Line comments: Lr (panes-diff-view-current.js:2053-2068) in the @pierre/diffs gutter utility slot (absolute,
+   top/bottom 0, my-auto, -left-0.5): cda9b4504 "flex size-4 items-center justify-center rounded bg-fill-accent
+   text-on-accent hover:bg-fill-accent-hover", shown on the hovered line (or while it has keyboard focus). */
+.sdiff-row[data-commentable] { position: relative; }
+.sdiff-gutter-add { position: absolute; top: 0; bottom: 0; left: -2px; z-index: 1; display: flex; align-items: center; justify-content: center;
+  width: 1rem; height: 1rem; margin-block: auto; padding: 0; border: 0; border-radius: var(--cds-radius); white-space: normal; touch-action: none;
+  background: var(--cds-fill-accent); color: var(--cds-on-accent, #fff); opacity: 0; pointer-events: none; }
+.sdiff-gutter-add:hover { background: var(--cds-fill-accent-hover, var(--cds-fill-accent)); }
+.sdiff-row[data-commentable]:hover > .sdiff-gutter-add, .sdiff-gutter-add:focus-visible { opacity: 1; pointer-events: auto; }
+.sdiff-gutter-add:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.sdiff-row[data-commentable] > .sdiff-line-number { grid-column: 1; }
+.sdiff-row[data-commentable] > .sdiff-code-cell { grid-column: 2; }
+.sdiff-comment { display: flex; flex-direction: column; gap: var(--cds-gap-sm, 8px); width: min(340px, calc(100vw - 2rem)); }
+.sdiff-comment-title { font-size: var(--cds-font-size-footnote, 12px); color: var(--cds-text-secondary); }
+.sdiff-comment textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 6px 8px; border: 1px solid var(--cds-border); border-radius: 6px; background: var(--cds-surface-1); color: var(--cds-text-primary); font: inherit; font-size: var(--cds-font-size-body, 13px); }
+.sdiff-comment textarea:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.sdiff-comment-actions { display: flex; justify-content: flex-end; gap: var(--cds-gap-xs, 4px); }

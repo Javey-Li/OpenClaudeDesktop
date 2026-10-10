@@ -15,7 +15,11 @@ test('normalizeModelParams clamps finite values and drops unknown fields and ids
     'bad id!': { maxTokens: 1000 },
     'nan': { maxTokens: NaN, temperature: Infinity },
     'str': { maxTokens: '1000' },
+    'acme/coder@2025+fast': { temperature: 0.5 },
+    'qwen3-coder-plus(openai)': { maxTokens: 4096 },
   }), {
+    'acme/coder@2025+fast': { temperature: 0.5 },
+    'qwen3-coder-plus(openai)': { maxTokens: 4096 },
     'deepseek-flash': { maxTokens: 8000, temperature: 0.46 },
     'deepseek-v4-pro': { maxTokens: 256, temperature: 2 },
     big: { maxTokens: 1000000, temperature: 0 },

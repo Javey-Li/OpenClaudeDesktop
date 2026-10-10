@@ -78,7 +78,17 @@ test("a DeepSeek retry with counts reads \"{short error} · Retrying (n/max)\" (
   assert.deepEqual([state.retrying["thread-a"].attempt, state.retrying["thread-a"].maxRetries], [1, 5]);
   const view = status({ ...ready, running: true, retrying: retryingStatus(state.retrying["thread-a"]) });
   assert.equal(view.label, "Rate limited · Retrying (1/5)");
-  assert.deepEqual(view.retry, { error: "Rate limited", label: "Retrying (1/5)" });
+  assert.deepEqual(view.retry, { error: "Rate limited", label: "Retrying (1/5)", later: null, detail: null, link: null });
+  // OpenCode's usage-limit retry (codeDesktop nextAt + action): the next try's time, the cause and the remedy link.
+  const later = reduce(state, { event: { method: "error", params: { threadId: "thread-a", turnId: "turn-a", willRetry: true,
+    error: { message: "Weekly usage limit reached.", codexErrorInfo: "usageLimitExceeded" }, retry: { attempt: 1, maxRetries: 5 },
+    codeDesktop: { nextAt: 10_000_000, action: { title: "Go limit reached", message: "Resets in 1 hour", label: "Add balance", link: "https://opencode.ai/workspace/w/go" } } } } });
+  const long = retryingStatus(later.retrying["thread-a"], { now: 10_000_000 - 3_600_000 });
+  assert.match(long.later, /^Next try at /);
+  assert.equal(long.detail, "Go limit reached — Resets in 1 hour");
+  assert.deepEqual(long.link, { url: "https://opencode.ai/workspace/w/go", label: "Add balance" });
+  assert.match(status({ ...ready, running: true, retrying: long }).label, /^Rate limited · Retrying \(1\/5\) · Next try at .+ · Go limit reached — Resets in 1 hour$/);
+  assert.equal(retryingStatus({ ...later.retrying["thread-a"], action: { link: "javascript:alert(1)" } }).link, null);
   // No maximum (an unbounded policy) or no counts at all (Codex): today's label.
   assert.equal(status({ ...ready, running: true, retrying: { error: "Rate limited", attempt: 7, maxRetries: null } }).label, "Rate limited · Retrying…");
   assert.equal(status({ ...ready, running: true, retrying: retryingStatus({ codexErrorInfo: null }) }).label, "Request failed · Retrying…");

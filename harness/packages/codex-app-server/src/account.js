@@ -21,9 +21,11 @@ export const DEEPSEEK_KEY_REF = 'DEEPSEEK_API_KEY'
  *   keyInfo: CredentialInfo of DEEPSEEK_API_KEY; platformState: the DeepSeek
  *   account's AccountView (status 'signed-out' | 'credential-stored').
  */
-export function accountReadResponse({ keyInfo, platformState } = {}) {
+export function accountReadResponse({ keyInfo, platformState, otherProviders = false } = {}) {
   const keyConfigured = keyInfo?.configured === true
-  const configured = keyConfigured || platformState?.status === 'credential-stored'
+  // otherProviders: a Code Desktop custom provider has a key (CODE_DESKTOP_PROVIDER_KEY_*), so a session can
+  // run on it without a DeepSeek key.
+  const configured = keyConfigured || platformState?.status === 'credential-stored' || otherProviders === true
   return {
     account: configured ? { type: 'apiKey' } : null,
     requiresOpenaiAuth: false,

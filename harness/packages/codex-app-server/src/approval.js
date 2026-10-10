@@ -47,9 +47,16 @@ const PARENT_SEGMENT = /(^|[\\/])\.\.([\\/]|$)/
 
 /** Tools that never change anything; Ask mode lets them run without a prompt. */
 export const READ_ONLY_TOOLS = new Set(['read', 'read_image', 'glob', 'grep', 'web_fetch', 'web_search', 'todo_write', 'job_output', 'job_list', 'list_agents', 'get_goal', 'skill', 'exit_plan_mode', 'ask_user_question'])
+// The goal bookkeeping tools (dsh tool-goal create_goal / update_goal) change only the session's own goal record, like
+// todo_write: the official runtime's approval asks only for sandbox escalations, so Ask mode never stops an unattended
+// /goal on a card about marking it complete.
+export const SESSION_STATE_TOOLS = new Set(['create_goal', 'update_goal'])
 // A sub-agent reporting to (or stopping) an adjacent agent changes no file;
 // a continuable child is told to send its result with send_message.
 const CHILD_QUIET_TOOLS = new Set(['send_message', 'interrupt_agent'])
+// Code Desktop's own tools (app-tools.js): no card in Ask mode, the app asks the user itself where it matters (as Codex
+// runs them with default_tools_approval_mode "approve").
+const isAppTool = (toolName) => typeof toolName === 'string' && toolName.startsWith('mcp__code_desktop__')
 // Delegation levels rootThreadFor walks before giving up.
 const MAX_DELEGATION_WALK = 8
 
@@ -350,14 +357,15 @@ export async function livePermissions(live, params, apply) {
  * What the bridge does with one Harness approval/request before any card.
  * The call's Ask-mode record is consumed first (the same call can ask twice:
  * its Ask-mode ask, then a sandbox escalation), even when Plan refuses it.
- *   reject   Plan: the read-only sandbox's escalations are refused, never offered
+ *   reject   Plan and a review turn (mode 'review', review.js): the read-only sandbox's escalations are refused,
+ *            never offered
  *   allow    a write/edit escalation inside the extra roots, or a remembered grant
  *   ask      a card, with its origin, reason and session grant
  * @param {{request: {callId: string, toolName: string, reason?: string, displayReason?: object}, askedCalls: Set<string>, permission: {mode?: string, extraRoots: string[]}, item?: object, args?: object, cwd?: string, grants: SessionGrants}} input
  */
 export async function approvalDecision({ request, askedCalls, permission, item, args, cwd, grants }, resolveReal = realpath) {
   const origin = askedCalls.delete(request.callId) ? 'ask' : 'escalation'
-  if (permission.mode === 'plan' || permission.approvalPolicy === 'never') return { kind: 'reject', origin }
+  if (permission.mode === 'plan' || permission.mode === 'review' || permission.approvalPolicy === 'never') return { kind: 'reject', origin }
   const mode = origin === 'escalation' ? escalationModeOf(request) : null
   // A folder the client declared writable needs no card for a file write
   // (Harness workspace-write only knows cwd). Only a recognised sandbox
@@ -407,7 +415,7 @@ export function rootThreadFor(agent, threads, headerOf = () => undefined) {
  * @returns {'ask-client' | 'next'}
  */
 export function childDecision({ rootPolicy, toolName }) {
-  return rootPolicy === 'untrusted' && !READ_ONLY_TOOLS.has(toolName) && !CHILD_QUIET_TOOLS.has(toolName) ? 'ask-client' : 'next'
+  return rootPolicy === 'untrusted' && !READ_ONLY_TOOLS.has(toolName) && !isAppTool(toolName) && !SESSION_STATE_TOOLS.has(toolName) && !CHILD_QUIET_TOOLS.has(toolName) ? 'ask-client' : 'next'
 }
 
 /**
@@ -417,7 +425,7 @@ export function childDecision({ rootPolicy, toolName }) {
  * @returns {Promise<'ask' | 'next'>}
  */
 export async function preExecuteDecision({ permission, toolName, args, cwd }, resolveReal = realpath) {
-  if (permission?.approvalPolicy !== 'untrusted' || READ_ONLY_TOOLS.has(toolName)) return 'next'
+  if (permission?.approvalPolicy !== 'untrusted' || READ_ONLY_TOOLS.has(toolName) || SESSION_STATE_TOOLS.has(toolName) || isAppTool(toolName)) return 'next'
   return await acceptsEdit({ permission, toolName, args, cwd }, resolveReal) ? 'next' : 'ask'
 }
 

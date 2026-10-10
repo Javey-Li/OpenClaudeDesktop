@@ -38,6 +38,7 @@
   transition: box-shadow var(--cds-dur-fast, 60ms);
 }
 .sua-copy:hover { color: var(--cds-text-primary); }
+.sua-copy:disabled { opacity: var(--cds-opacity-disabled, .5); pointer-events: none; }
 .sua-copy:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
 .sua-button-backdrop {
   position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit;

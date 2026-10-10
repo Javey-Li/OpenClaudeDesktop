@@ -72,3 +72,9 @@
   border-radius: var(--cds-radius); background: var(--cds-fill-secondary); box-shadow: inset 0 0 0 1px var(--cds-fill-secondary-ring), 0 1px 2px #0000000d;
   color: var(--cds-text-primary); font-size: var(--cds-font-size-body, 13px); line-height: var(--cds-leading-body, 19px); font-weight: 400; white-space: nowrap; }
 .sg-stale-fill.sg-diff { gap: 4px; font-weight: 500; }
+/* git-status-card.js:4985-5020: Create PR and its options caret, joined as one split control. */
+.sg-pr { display: inline-flex; align-items: center; flex-shrink: 0; }
+.sg-pr .sg-pr-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sg-pr .sg-pr-main [data-cds-part="paint"] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sg-pr .sg-pr-more { margin-left: 1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.sg-pr .sg-pr-more [data-cds-part="paint"] { border-top-left-radius: 0; border-bottom-left-radius: 0; }

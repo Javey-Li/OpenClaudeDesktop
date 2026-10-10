@@ -1,9 +1,12 @@
 // The shared runtime owns submission, identity and draft lifetime.
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useApprovalDraft } from "./use-approval-draft.js";
-import { approvalActionIndex, approvalAnnouncement, approvalCardModel, approvalHasVisibleIntersection, approvalKeyIntent, createApprovalHotkeyArming, detailsOverflow, scrollRegionProps } from "./approval-card-model.mjs";
+import { approvalActionIndex, approvalAnnouncement, approvalCardModel, approvalHasVisibleIntersection, approvalKeyIntent, createApprovalHotkeyArming, detailsOverflow, elicitationFormContent, elicitationInitialValues, scrollRegionProps } from "./approval-card-model.mjs";
 import { SourceShortcut } from "./source-shortcut.jsx";
+import { SourceSelect } from "./source-select.jsx";
+import { Icon } from "./icons";
 import { usePersona } from "./use-persona.js";
+import { useCardHotkeys } from "./use-card-hotkeys.js";
 import { assistantName } from "./persona-store.mjs";
 import "./source-approval-card.css";
 import { t } from "../electron/i18n/index.mjs";
@@ -76,7 +79,7 @@ export function ActionButton({ action, busy, busyAction, enabled, onAction, shor
     data-approval-primary={action.primary ? "" : undefined}
     data-approval-action={action.key} disabled={!enabled && !busy}
     aria-disabled={busy || !enabled || undefined} aria-busy={spinning || undefined}
-    aria-keyshortcuts={shortcut}
+    aria-keyshortcuts={shortcut} title={action.title || undefined}
     onClick={event => {
       if (busy || !enabled) { event.preventDefault(); event.stopPropagation(); return; }
       onAction(action.key);
@@ -181,6 +184,63 @@ export function useHotkeyArming(root, armKey, active) {
   return () => clock.current.isArmed();
 }
 
+// mcpServer/elicitation/request form mode: one control per primitive field of the
+// requested schema (approval-card-model.mjs elicitationFields). Values live only in
+// the card; Submit sends them through the same ticket as any approval.
+const TEXT_INPUT_TYPE = { email: "email", uri: "url", date: "date" };
+// The CDS checkbox mark (composer worktree, question card): a native input for form semantics and
+// validation focus, painted as the Claude box with an accent fill and a Check when checked.
+function ElicitationCheckbox(props) {
+  return <span className="sac-field-checkbox-box">
+    <input {...props} type="checkbox" className="sac-field-checkbox" />
+    <Icon name="Check" size={16} weight="strong" style={{ fontSize: 12 }} />
+  </span>;
+}
+function ElicitationField({ field, value, disabled, invalid, onChange, idPrefix }) {
+  const id = `${idPrefix}-${field.id}`, hintId = field.description ? `${id}-hint` : undefined;
+  const label = <span className="sac-field-label">{field.label}
+    {field.required && <span className="sac-field-required">{t("Required")}</span>}</span>;
+  const hint = field.description && <span id={hintId} className="sac-field-hint">{field.description}</span>;
+  const common = { id, disabled, "aria-describedby": hintId, "aria-invalid": invalid || undefined,
+    "aria-required": field.required || undefined, "data-elicitation-field": field.id };
+  if (field.type === "boolean")
+    return <div className="sac-field sac-field-check">
+      <ElicitationCheckbox {...common} checked={value === true} onChange={event => onChange(event.target.checked)} />
+      <label htmlFor={id}>{label}</label>{hint}
+    </div>;
+  if (field.type === "multiselect")
+    return <fieldset className="sac-field sac-field-set" disabled={disabled} aria-describedby={hintId}
+      aria-invalid={invalid || undefined} data-elicitation-field={field.id}>
+      <legend>{label}</legend>{hint}
+      {field.options.map((option, index) => <label key={option.value} className="sac-field-option">
+        <ElicitationCheckbox id={index === 0 ? id : undefined}
+          checked={Array.isArray(value) && value.includes(option.value)}
+          onChange={event => onChange(event.target.checked
+            ? [...(value ?? []), option.value] : (value ?? []).filter(entry => entry !== option.value))} />
+        <span>{option.label}</span>
+      </label>)}
+    </fieldset>;
+  return <div className="sac-field">
+    <label htmlFor={id}>{label}</label>{hint}
+    {field.type === "select"
+      // The app's own popover select (Settings' SourceSelect), not the OS menu; its trigger keeps the field's id,
+      // hint, invalid and data-elicitation-field so validation can focus it.
+      ? <SourceSelect className="sac-field-select" label={field.label} value={value ?? ""} disabled={disabled} triggerProps={common}
+          items={[...(!field.required || field.default == null ? [{ value: "", label: t("Choose…") }] : []),
+            ...field.options.map(option => ({ value: option.value, label: option.label }))]}
+          onChange={onChange} />
+      : <input {...common} className="sac-field-control" value={value ?? ""} onChange={event => onChange(event.target.value)}
+          type={field.type === "number" || field.type === "integer" ? "number" : TEXT_INPUT_TYPE[field.format] ?? "text"}
+          step={field.type === "integer" ? 1 : field.type === "number" ? "any" : undefined}
+          min={field.minimum ?? undefined} max={field.maximum ?? undefined}
+          maxLength={field.maxLength ?? undefined} autoComplete="off" spellCheck={false} />}
+  </div>;
+}
+
+function openExternalLink(url) {
+  return window.desktop?.call?.("external", { url }) ?? Promise.reject(new Error(t("Could not open the link.")));
+}
+
 export function SourceApprovalCardView({ request, item, busy = false, busyAction = null,
   error = "", onAction, enabled = true, isActive = true, menuOpen = false,
   armKey, renderDetails, className = "" }) {
@@ -194,15 +254,64 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
   const hotkeyArmed = useHotkeyArming(root, identity, isActive);
   const overflow = useOverflowFocus(body, `${expanded}:${model.detail?.text ?? ""}:${model.reason ?? ""}:${JSON.stringify(model.context)}`);
   const reasonOverflow = useOverflowFocus(reason, model.reason ?? "");
-  useLayoutEffect(() => { setExpanded(true); }, [identity]);
+  const fields = model.elicitation?.mode === "form" ? model.elicitation.fields : null;
+  const [formValues, setFormValues] = useState(() => elicitationInitialValues(fields));
+  const [formError, setFormError] = useState(null);
+  const formId = useId();
+  useLayoutEffect(() => {
+    setExpanded(true);
+    setFormValues(elicitationInitialValues(fields));
+    setFormError(null);
+  }, [identity]); // eslint-disable-line react-hooks/exhaustive-deps -- a new request starts a new draft
   const actionable = enabled && isActive && typeof onAction === "function" && model.supported;
-  const submit = action => { if (actionable && !busy) onAction(action); };
+  // Deny with feedback (model.declineFeedback): an optional note the core continues with instead.
+  const [feedbackOpen, setFeedbackOpen] = useState(false), [feedback, setFeedback] = useState("");
+  const feedbackRef = useRef(null), feedbackId = useId();
+  useLayoutEffect(() => { setFeedbackOpen(false); setFeedback(""); }, [identity]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A card that appears inside an existing tool row (Code Desktop's own approvals: preview_start, an outside site,
+  // run_in_terminal, a workflow) grows that row instead of adding tail content: while the transcript follows the
+  // end, it is brought fully into view as a new item would be (the scroller's scroll-padding keeps it above the composer).
+  useEffect(() => {
+    const node = root.current;
+    if (!node || node.closest?.(".source-transcript-frame")?.getAttribute("data-following") !== "true") return undefined;
+    const frame = requestAnimationFrame(() => { if (node.isConnected) node.scrollIntoView?.({ block: "nearest", behavior: "auto" }); });
+    return () => cancelAnimationFrame(frame);
+  }, [identity]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (feedbackOpen) feedbackRef.current?.focus({ preventScroll: true }); }, [feedbackOpen]);
+  const submit = action => {
+    if (!actionable || busy) return;
+    if (model.declineFeedback && action === model.deny?.key && feedbackOpen && feedback.trim()) {
+      onAction(action, { feedback: feedback.trim() });
+      return;
+    }
+    if (fields && action === "accept") {
+      const result = elicitationFormContent(fields, formValues);
+      if (result.error) {
+        setFormError(result);
+        const control = root.current?.querySelector(`[data-elicitation-field="${CSS.escape(result.fieldId)}"]`);
+        (control?.matches("fieldset") ? control.querySelector("input") : control)?.focus();
+        return;
+      }
+      setFormError(null);
+      onAction(action, { content: result.content });
+      return;
+    }
+    onAction(action);
+  };
+  const [linkError, setLinkError] = useState("");
+  const openLink = () => {
+    setLinkError("");
+    Promise.resolve().then(() => openExternalLink(model.elicitation.url))
+      .catch(() => setLinkError(t("Could not open the link.")));
+  };
   const shortcutEnabled = actionable && !busy && !menuOpen;
   // The ⌘⏎ keycap follows the same active/menu gate but survives busy (faded, ks :2886 opacity-0),
   // so the stable-size busy action keeps its width.
   const primaryKeycap = actionable && !menuOpen ? "cmd+enter" : undefined;
   const primaryShortcut = "Meta+Enter Control+Enter";
 
+  // The allow the shifted chord picks (approvalKeyIntent): the persistent one, else the session one.
+  const shiftedAllow = model.allows?.find(allow => allow.persistent)?.key ?? "acceptForSession";
   function keyDown(event) {
     const element = event.target;
     const editor = element.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],[role="menu"],[role="listbox"]');
@@ -227,6 +336,16 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
       buttons[approvalActionIndex(intent.key, index, buttons.length)]?.focus();
     }
   }
+  // The official hotkey hook (Xf) listens on the document: from the session's empty composer or an unfocused
+  // page, Esc denies and ⌘⏎ / ⇧⌘⏎ allow, with the same intents (and arming) as keys in the card's content,
+  // so an Esc meant as Deny never falls through to the composer's Stop.
+  useCardHotkeys(root, shortcutEnabled, (key, event) => {
+    const intent = approvalKeyIntent(event, { target: "content", model, busy, active: actionable, menuOpen, armed: hotkeyArmed() });
+    if (!intent) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (intent.type === "action" && currentlyVisible(root.current)) submit(intent.action);
+  }, currentlyVisible);
   // approval-current.js:15399-15470 EM B: with t.meta the title is "Allow Claude to <b>{action}</b>
   // <meta>{metaText}</meta>?", both parts span.text-primary [unicode-bidi:plaintext], inside a span
   // that is line-clamp-2 when t.clampTitle && y (:15254 y = detail !== meta || foldedDetail; the
@@ -250,23 +369,44 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
           ? <button type="button" className="sac-heading" aria-expanded={expanded}
               aria-controls={detailsId} onClick={() => setExpanded(value => !value)}><span data-clamp={clamp}>{title}</span></button>
           : <div className="sac-heading"><span data-clamp={clamp}>{title}</span></div>}
-        {(model.reason || model.context.length > 0 || model.detail) && <div className="sac-content">
+        {(model.reason || model.message || model.context.length > 0 || model.detail || fields || model.elicitation?.mode === "url" || model.elicitation?.mode === "toolSuggestion") && <div className="sac-content">
           {/* approval-current.js:15275-15284 D, before the other content blocks: the decision
               reason in a 3-line scroll clamp (wM) whose "Reason" label is its accessible name
               while it scrolls (cf6ae6197 bv); no visible label. */}
           {model.reason && <div ref={reason} className="sac-reason scroll-fade-y scroll-fade-size-[8px]"
             {...scrollRegionProps(t("Reason"), reasonOverflow)}>{model.reason}</div>}
+          {/* An MCP elicitation's own message (server text, shown as written). */}
+          {model.message && <p className="sac-message">{model.message}</p>}
           {model.context.map(part => <p key={part.key} className="sac-context" data-context={part.key}>{part.text}</p>)}
           {model.detail && <div id={detailsId} className="sac-details" hidden={!expanded}>
-            {renderDetails ? renderDetails(model.detail, model) : <pre className="sac-code">{model.detail.text}</pre>}
+            {renderDetails ? renderDetails(model.detail, model) : <pre className="sac-code" title={model.detail.raw}>{model.detail.text}</pre>}
+          </div>}
+          {(model.elicitation?.mode === "url" || model.elicitation?.mode === "toolSuggestion") && model.elicitation.openable && <div className="sac-link">
+            <ActionButton action={{ key: "open-link", label: model.elicitation.mode === "toolSuggestion" ? t("Open install page") : t("Open link"), primary: false }} busy={false}
+              enabled={actionable && !busy} onAction={openLink} />
+          </div>}
+          {linkError && <p role="alert" className="sac-error">{linkError}</p>}
+          {fields && <div className="sac-form" role="group" aria-label={t("Requested information")}>
+            {fields.map(field => <ElicitationField key={field.id} field={field} idPrefix={formId}
+              value={formValues[field.id]} disabled={!actionable || busy} invalid={formError?.fieldId === field.id}
+              onChange={value => { setFormError(null); setFormValues(values => ({ ...values, [field.id]: value })); }} />)}
           </div>}
         </div>}
       </div>
     </div>
-    {error && <p role="alert" className="sac-error">{error}</p>}
+    {(formError?.error || error) && <p role="alert" className="sac-error">{formError?.error || error}</p>}
+    {model.declineFeedback && feedbackOpen && <div className="sac-feedback">
+      <label htmlFor={feedbackId} className="sac-visually-hidden">{t("What should {name} do instead?", { name: assistantName() })}</label>
+      <textarea ref={feedbackRef} id={feedbackId} rows={2} maxLength={4000} value={feedback} disabled={!actionable || busy}
+        placeholder={t("Tell {name} what to do instead (optional)", { name: assistantName() })} onChange={event => setFeedback(event.target.value)} />
+    </div>}
     {model.supported && <footer ref={actions} className="sac-actions">
-      <ActionButton action={model.deny} busy={busy} busyAction={busyAction} enabled={actionable}
-        shortcut={shortcutEnabled ? "Escape" : undefined} onAction={submit} />
+      <span className="sac-deny">
+        <ActionButton action={model.declineFeedback && feedbackOpen && feedback.trim() ? { ...model.deny, label: t("Deny with feedback") } : model.deny} busy={busy} busyAction={busyAction} enabled={actionable}
+          shortcut={shortcutEnabled ? "Escape" : undefined} onAction={submit} />
+        {model.declineFeedback && !feedbackOpen && <button type="button" className="sac-feedback-toggle" disabled={!actionable || busy}
+          onClick={() => setFeedbackOpen(true)}>{t("Add feedback")}</button>}
+      </span>
       <div className="sac-allows" onClickCapture={event => {
         if (!clickArmed()) { event.preventDefault(); event.stopPropagation(); }
       }}>
@@ -274,7 +414,7 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
           busy={busy} busyAction={busyAction} enabled={actionable} onAction={submit}
           keycap={action.primary ? primaryKeycap : undefined}
           shortcut={shortcutEnabled ? action.primary ? primaryShortcut
-            : "Meta+Shift+Enter Control+Shift+Enter" : undefined} />)}
+            : action.key === shiftedAllow ? "Meta+Shift+Enter Control+Shift+Enter" : undefined : undefined} />)}
       </div>
     </footer>}
     {busy && <BusyAnnouncement />}
@@ -288,8 +428,9 @@ export function SourceApprovalCard({ runtime, request, item, getVisibleThreadId,
   if (!approvalCardModel(request, item).supported)
     return <SourceApprovalCardView {...presentation} request={request} item={item} enabled={false} />;
   if (!ticket || !view || view.phase !== "pending") return null;
-  const submit = async action => {
-    const result = await runtime.submit(ticket, action, respond, { getVisibleThreadId });
+  // extra.content: an elicitation form's answers (approval-draft-model responsePayload).
+  const submit = async (action, extra) => {
+    const result = await runtime.submit(ticket, action, respond, { getVisibleThreadId, ...(extra && { response: extra }) });
     if (result.status === "answered") onResolved({ request, ticket: result.ticket });
     else if (result.status === "error") onError({ request, ticket: result.ticket, message: result.message });
   };

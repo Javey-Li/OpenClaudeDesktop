@@ -1,11 +1,11 @@
-import { t, getLocale } from "../electron/i18n/index.mjs";
+import { t, getLocale, getAssistantName } from "../electron/i18n/index.mjs";
 // Composer usage trigger copy and context ring (2.2553.1).
 // shared-14-BOJVa-jT.js:9700-9793: iT/oT/sT compact token format, dT thresholds
 // (lT 75 / uT 90), pT fill vars, xT ring (yT 12, bT 2), ST summary.
 // c360a9e1c-GPs-MV9u.js:4065-4295 hd/_d: ge tooltip, le ringPct, Se aria-label.
-// The composer has no plan-limit meter (md planWindow/planPct/planResets), so
-// fe/T are null locally and the tooltip detail (be joined by " · ") is empty;
-// nothing is invented for it.
+// The plan-limit meter (md planWindow/planPct/planResets) comes from the core's
+// account/rateLimits/read (Codex); a core without plan limits leaves fe/T null and
+// the tooltip detail (be joined by " · ") empty; nothing is invented for it.
 
 // shared-14 oT(e, sT): >=1e9 B; >=1e6 M (rolls to B at 1000M); >=1e3 k (rolls
 // to M); else String(e). sT drops a trailing ".0".
@@ -58,15 +58,22 @@ export function contextSummary(used, max, allowOver = false) {
 // usage is the thread tokenUsage (thread/tokenUsage/updated): used =
 // last.totalTokens, max = modelContextWindow. fresh = the composer has no
 // session yet (sessionRef null); locally the draft/New composer.
-export function usageTriggerCopy(usage, { fresh = false } = {}) {
+// plan: the core's plan-limit window (usage-model planUsageSummary top, from account/rateLimits/read and its
+// account/rateLimits/updated merges): { summary: hd fe ('{pct}% of 5-hour limit' / '{limit}: {pct}%'), resets: hd T,
+// percent }. With it the tooltip detail is [fe, T] and, without context, the ring shows the plan percent (hd le).
+export function usageTriggerCopy(usage, { fresh = false, plan = null } = {}) {
   const used = usage?.last?.totalTokens;
   const hasUsage = Number.isFinite(used);
-  if (!hasUsage && !fresh) return { tooltip: t("Usage"), ariaLabel: t("Usage"), ringPct: 0, contextPct: null, detail: null };
+  const details = [plan?.summary ?? null, plan?.resets ?? null].filter(Boolean);
+  const list = (parts) => new Intl.ListFormat(getLocale(), { type: "unit" }).format(parts);
+  if (!hasUsage && !fresh) {
+    const label = t("Usage");
+    return { tooltip: label, ariaLabel: list([label, ...details]), ringPct: Number.isFinite(plan?.percent) ? plan.percent : 0, contextPct: null, detail: details.length ? details.join(" · ") : null };
+  }
   const max = hasUsage && usage.modelContextWindow > 0 ? usage.modelContextWindow : null;
   const { summary, contextPct } = contextSummary(hasUsage ? used : 0, max);
-  const tooltip = t("Context {summary}", { summary }), details = [];
-  const parts = new Intl.ListFormat(getLocale(), { type: "unit" }).format([tooltip, ...details]);
-  return { tooltip, ariaLabel: t("Usage: {parts}", { parts }), ringPct: contextPct ?? 0, contextPct, detail: details.length ? details.join(" · ") : null };
+  const tooltip = t("Context {summary}", { summary });
+  return { tooltip, ariaLabel: t("Usage: {parts}", { parts: list([tooltip, ...details]) }), ringPct: contextPct ?? 0, contextPct, detail: details.length ? details.join(" · ") : null };
 }
 
 // Usage popover panel (c2d611398-m3q28S31.js I/V over c360a9e1c hd :4065-4232): contextMode = ie || re || c
@@ -87,11 +94,22 @@ export function usagePanelCopy(usage, { fresh = false } = {}) {
 // 'Available when Claude finishes this turn' (the agent here is DeepSeek); otherwise the action is enabled. The
 // 'Compacts automatically at {pct}%' hint (Cw) needs the core's auto-compact threshold, which is unknown locally.
 export const COMPACT_MIN_PCT = 50;
-export const COMPACT_REPLYING_REASON = t("Available when DeepSeek finishes this turn");
+// The 'Compacts automatically at {pct}%' threshold: a core that reports its auto-compact token limit (thread/tokenUsage
+// codeDesktop.autoCompactTokens) against the context window, else Codex's own rule (protocol openai_models.rs
+// auto_compact_token_limit: 90% of the context window unless config.toml lowers it), else unknown (null).
+export function autoCompactPercent(core, usage) {
+  const window = usage?.modelContextWindow;
+  const limit = usage?.codeDesktop?.autoCompactTokens;
+  if (Number.isFinite(limit) && limit > 0 && Number.isFinite(window) && window > 0) return Math.max(1, Math.min(100, Math.round((limit / window) * 100)));
+  const engine = typeof core === "string" ? core : core?.engine;
+  return engine === "codex" || (!engine && core?.id === "codex") ? 90 : null;
+}
+// Names the running core's assistant (OpenCode, Codex, Kimi…), read when the reason is shown.
+export const compactReplyingReason = (assistant = getAssistantName()) => t("Available when {assistant} finishes this turn", { assistant });
 export const COMPACT_RECONNECT_REASON = t("Available when reconnected");
 export function compactAction({ contextPct = null, running = false, connected = true, compacting = false, minPct = COMPACT_MIN_PCT } = {}) {
   if (contextPct === null || contextPct === undefined || !Number.isFinite(contextPct) || contextPct < minPct || compacting) return { kind: "hidden" };
   if (!connected) return { kind: "disabled", reason: COMPACT_RECONNECT_REASON };
-  if (running) return { kind: "disabled", reason: COMPACT_REPLYING_REASON };
+  if (running) return { kind: "disabled", reason: compactReplyingReason() };
   return { kind: "enabled" };
 }

@@ -4,6 +4,7 @@
 // quit. Only an idle session is released; turn/start, thread/resume and
 // the session actions reopen it through the core when it is used again.
 // Codex keeps every resumed thread subscribed (unchanged).
+import { coreSupports } from "../electron/core-registry.mjs";
 
 /**
  * What a session still has in flight, over the renderer state: an open turn
@@ -28,7 +29,7 @@ export function sessionWork({ id, active = {}, approvals = [], ownerOf = (thread
  *   running for it; resumed: the ids this window resumed (only those are loaded).
  */
 export function shouldUnload({ previous, next, engine, active = false, pendingApproval = false, queued = false, resumed } = {}) {
-  if (engine !== "deepseek" || !previous || previous === next) return false;
+  if (!coreSupports(engine, "unloadOnNavigate") || !previous || previous === next) return false;
   if (active || pendingApproval || queued) return false;
   return resumed instanceof Set && resumed.has(previous);
 }

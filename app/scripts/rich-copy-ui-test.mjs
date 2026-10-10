@@ -209,7 +209,7 @@ try {
   await page.locator('[data-transcript-item-id="rc-md-answer"]').hover();
   await footer("rc-md-turn").locator(".stf-toolbar").waitFor();
   await waitOpacity(`.stf-footer[data-turn-copy-id="rc-md-turn"] .stf-toolbar`, 1);
-  const glyph = () => glyphOf(footer("rc-md-turn").locator('.stf-copy [data-cds="Icon"]'));
+  const glyph = () => glyphOf(footer("rc-md-turn").locator('.stf-copy:not([data-message-action]):not([data-feedback]) [data-cds="Icon"]'));
   const copyGlyph = await glyph();
   assert.deepEqual(copyGlyph, [glyphs.Copy], "idle footer shows the Copy glyph");
   await footer("rc-md-turn").getByRole("button", { name: "Copy", exact: true }).click();
@@ -244,7 +244,7 @@ try {
   metrics.assistantFeedbackMs = await page.evaluate(() => performance.now()) - assistantCopiedAt;
   assert.ok(metrics.assistantFeedbackMs >= 1850 && metrics.assistantFeedbackMs < 3200, `assistant feedback lasted ${metrics.assistantFeedbackMs}ms`);
   metrics.assistantGeometry = await footer("rc-md-turn").evaluate(node => {
-    const button = node.querySelector(".stf-copy"), box = button.getBoundingClientRect();
+    const button = node.querySelector(".stf-copy:not([data-message-action]):not([data-feedback])"), box = button.getBoundingClientRect();
     return { gap: node.getBoundingClientRect().top - node.previousElementSibling.getBoundingClientRect().bottom, rowHeight: node.getBoundingClientRect().height,
       width: box.width, height: box.height, glyph: getComputedStyle(button.querySelector('[data-cds="Icon"]')).fontSize };
   });
@@ -261,8 +261,10 @@ try {
   const contextMenu = page.getByRole("menu", { name: "Message actions", exact: true });
   await contextMenu.waitFor();
   metrics.contextMenuItems = await contextMenu.locator('[role="menuitem"]').evaluateAll(nodes => nodes.map(node => node.dataset.label));
-  assert.deepEqual(metrics.contextMenuItems, ["Copy message", "Copy message as Markdown", "Attach message as context"]);
-  assert.equal(await contextMenu.locator('[role="separator"]').count(), 1);
+  // The fixture core serves thread/fork, so an idle session's assistant message also offers Fork from here
+  // (after its own separator; Rewind to here is for user messages only).
+  assert.deepEqual(metrics.contextMenuItems, ["Copy message", "Copy message as Markdown", "Attach message as context", "Fork from here"]);
+  assert.equal(await contextMenu.locator('[role="separator"]').count(), 2);
   await contextMenu.getByRole("menuitem", { name: "Copy message", exact: true }).click();
   await contextMenu.waitFor({ state: "detached" });
   for (let attempt = 0; attempt < 40 && (await readText()) !== ASSISTANT_MD; attempt += 1) await page.waitForTimeout(50);
@@ -285,7 +287,7 @@ try {
   assert.equal(escape.text.endsWith("\n"), true, "user plain text keeps its trailing newline (trim:false, byte-exact)");
   metrics.userEscape = { text: escape.text, normalized: escape.normalized, anchors: escape.anchors };
   metrics.userGeometry = await userRow("rc-escape-user").evaluate(node => {
-    const button = node.querySelector(".sua-copy"), box = button.getBoundingClientRect();
+    const button = node.querySelector(".sua-copy:not([data-message-action])"), box = button.getBoundingClientRect();
     return { rowHeight: node.getBoundingClientRect().height, width: box.width, height: box.height, glyph: getComputedStyle(button.querySelector('[data-cds="Icon"]')).fontSize,
       bubbleToRow: node.getBoundingClientRect().top - node.parentElement.querySelector(".source-user-bubble").getBoundingClientRect().bottom };
   });
@@ -314,7 +316,7 @@ try {
   await waitStatus(userStatus("rc-prose-user"), "");
   await stubClipboard("richDeny");
   await bubble("rc-prose-user").hover();
-  const userGlyph = () => glyphOf(userRow("rc-prose-user").locator('.sua-copy [data-cds="Icon"]'));
+  const userGlyph = () => glyphOf(userRow("rc-prose-user").locator('.sua-copy:not([data-message-action]) [data-cds="Icon"]'));
   assert.deepEqual(await userGlyph(), [glyphs.Copy], "user Copy idles on the Copy glyph");
   await userRow("rc-prose-user").getByRole("button", { name: "Copy", exact: true }).click();
   await waitStatus(userStatus("rc-prose-user"), "Copied");

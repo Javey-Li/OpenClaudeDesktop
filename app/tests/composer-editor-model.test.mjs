@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EditorState,NodeSelection} from 'prosemirror-state';
 import {history,undo,redo,closeHistory} from 'prosemirror-history';
-import {composerSchema,composerText,composerDocument,composerTextOffset,composerPosition,composerSelection,commandTransaction,selectCommandBefore,reconcileComposerText,composerArgumentHint,commandSeparatorPlugin,restoreCommandSeparators,mentionTransaction,skillTransaction,mentionLabel} from '../src/composer-editor-model.mjs';
+import {composerSchema,composerText,composerDocument,composerTextOffset,composerPosition,composerSelection,commandTransaction,selectCommandBefore,reconcileComposerText,composerArgumentHint,commandSeparatorPlugin,restoreCommandSeparators,mentionTransaction,skillTransaction,mentionLabel,composerEchoTracker} from '../src/composer-editor-model.mjs';
 import {mentionToken,mentionInputs} from '../src/mention-model.mjs';
 import {parseSessionCommand} from '../src/session-command-model.mjs';
 import {skillChipInput} from '../src/composer-attachments-model.mjs';
@@ -76,4 +76,21 @@ test('Add › Skills replaces any skill chip with the picked one at the start of
  assert.equal(composerText(picked.apply(skillTransaction(picked,{id:'pdf'})).doc),'/pdf /theme ','a command chip is not a skill chip and stays');
  assert.equal(commandTransaction(seed('/p'),{id:'pdf',kind:'skill'}).doc.firstChild.firstChild.attrs.kind,'skill');
  assert.equal(commandTransaction(seed('/th'),command).doc.firstChild.firstChild.attrs.kind,'command');
+});
+test('echo tracker: an older copy of the editor\'s own text is stale, an outside value or a cleared draft is applied',()=>{
+ const echoes=composerEchoTracker();let typed='';
+ for(const ch of 'The quick brown fox jumps over the lazy dog, then types a long prompt quickly ultracode ENDCALL'){typed+=ch;echoes.sent(typed);}
+ // A render that lags behind the typing hands back earlier copies, in order: none of them resets the document.
+ assert.equal(echoes.classify('The quick',typed),'stale');
+ assert.equal(echoes.classify('The quick brown fox jumps over',typed),'stale');
+ assert.equal(echoes.classify(typed.slice(0,-3),typed),'stale');
+ // Once the parent catches up the history is dropped, so the same older text later is an outside change.
+ assert.equal(echoes.classify(typed,typed),'current');assert.equal(echoes.size,0);
+ assert.equal(echoes.classify('The quick',typed),'external');
+ // A session switch / recall that never came from the editor is applied.
+ echoes.sent('abc');assert.equal(echoes.classify('something else','abc'),'external');assert.equal(echoes.size,0);
+ // The draft cleared after a send clears the composer even if the user had emptied it just before.
+ echoes.sent('');echoes.sent('h');echoes.sent('hi');assert.equal(echoes.classify('','hi'),'external');
+ // Repeated identical reports are kept once; the history is bounded.
+ const bounded=composerEchoTracker(4);for(let i=0;i<10;i++){bounded.sent(String(i));bounded.sent(String(i));}assert.equal(bounded.size,4);assert.equal(bounded.classify('2','9'),'external');
 });

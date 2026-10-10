@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { THEME_DEFAULT } from '../electron/prefs/theme.mjs';
-import { THEME_PRESETS, THEME_STYLE_ID, ROOT_PROPS, RADIUS_BASE, themePreset, presetValue, themeRootStyle, themeCss, applyCustomTheme, themeDensity,
+import { THEME_PRESETS, THEME_STYLE_ID, ROOT_PROPS, RADIUS_BASE, themePreset, presetValue, themeRootStyle, themeCss, hslTriplet, mixHex, accentFamily, applyCustomTheme, themeDensity,
   exportThemeFile, importThemeFile, onAccent, relativeLuminance, fontStack, fontFamilies, loadFontFamilies, FALLBACK_FONTS, parseHex, FONT_SCALE_OPTIONS } from '../src/theme-custom-model.mjs';
 
 const app = path.resolve(import.meta.dirname, '..');
@@ -54,6 +54,31 @@ test('themeRootStyle: nothing for the default; rem scale and a full accent role 
   assert.equal(style['--cds-role-accent-fill-hover'], 'color-mix(in oklab, #4d6bfe 85%, white)');
   assert.equal(style['--cds-role-accent-on'], '#fff');
   assert.ok(Object.keys(style).every(prop => ROOT_PROPS.includes(prop)));
+  // The legacy accent family (focus outlines, link hover) follows the custom accent too.
+  assert.equal(style['--accent-100'], hslTriplet('#4d6bfe'));
+  assert.equal(style['--accent-200'], hslTriplet('#4d6bfe'));
+});
+
+test('hslTriplet/mixHex: the design-system HSL triplet form and white/black mixes', () => {
+  assert.equal(hslTriplet('#2f855a'), '150 47.8% 35.3%');
+  assert.equal(hslTriplet('#ffffff'), '0 0% 100%');
+  assert.equal(hslTriplet('#ff0000'), '0 100% 50%');
+  assert.equal(hslTriplet('#0000ff'), '240 100% 50%');
+  assert.equal(mixHex('#2f855a', 1, 'white'), '#2f855a');
+  assert.equal(mixHex('#2f855a', 0, 'black'), '#000000');
+  assert.equal(mixHex('#000000', 0.5, 'white'), '#808080');
+  const family = accentFamily('#2f855a');
+  const lightness = triplet => Number(triplet.split(' ')[2].replace('%', ''));
+  assert.ok(lightness(family.light['000']) < lightness(family[100]) && lightness(family.dark['000']) > lightness(family[100]), '000 is darker in light, lighter in dark');
+  assert.ok(lightness(family.light[900]) > 80 && lightness(family.dark[900]) < 30, '900 is the tinted surface in each mode');
+});
+
+test('themeCss: a custom accent rewrites the mode-dependent accent steps and the page selection', () => {
+  const css = themeCss({ accent: '#2f855a' }), family = accentFamily('#2f855a');
+  assert.ok(css.includes(`html:root[data-custom-theme]{--accent-000:${family.light['000']};--accent-900:${family.light[900]};}`), '(0,2,1) beats the light v2 block');
+  assert.ok(css.includes(`html:root[data-custom-theme][data-mode=dark]{--accent-000:${family.dark['000']};--accent-900:${family.dark[900]};}`), '(0,3,1) beats the dark v2 block');
+  assert.ok(css.includes(':where(:root[data-custom-theme]) ::selection{background-color:color-mix(in srgb, #2f855a 30%, transparent);}'), 'zero-specificity scope keeps hideselection rules winning');
+  assert.equal(themeCss({ accent: '' }), '');
 });
 
 test('onAccent picks the WCAG higher-contrast text colour', () => {
@@ -67,7 +92,7 @@ test('onAccent picks the WCAG higher-contrast text colour', () => {
 
 test('themeCss: font and radius rules scoped to :root[data-custom-theme], outranking density and dyslexic rules', () => {
   assert.equal(themeCss(undefined), '');
-  assert.equal(themeCss({ accent: '#000000', fontScale: 1.2, density: 'comfortable' }), '', 'root inline props and data-density need no stylesheet');
+  assert.equal(themeCss({ fontScale: 1.2, density: 'comfortable' }), '', 'root inline props and data-density need no stylesheet');
   const font = themeCss({ uiFont: 'Inter, "PingFang SC", sans-serif' });
   assert.ok(font.includes('--font-ui:"Inter", "PingFang SC", sans-serif, var(--cds-font-system);'));
   assert.ok(font.includes('--cds-font-sans:"Inter", "PingFang SC", sans-serif, var(--cds-font-system);'));
@@ -114,6 +139,10 @@ test('applyCustomTheme sets props, attribute and stylesheet, and the default the
   assert.ok(style.textContent.includes('"Inter"') && style.textContent.includes('--radius-lg:0.75rem;'));
   applyCustomTheme(doc, { customTheme: { accent: '#7c3aed' } });
   assert.equal(doc.props.has('--cds-rem-scale'), false, 'a dropped field clears its prop');
+  assert.equal(doc.props.get('--accent-100'), hslTriplet('#7c3aed'));
+  assert.ok(!doc.getElementById(THEME_STYLE_ID).textContent.includes('"Inter"'), 'a dropped font leaves only the accent rules');
+  applyCustomTheme(doc, { customTheme: { fontScale: 1.1 } });
+  assert.equal(doc.props.has('--accent-100'), false, 'a dropped accent clears the accent family');
   assert.equal(doc.getElementById(THEME_STYLE_ID), null);
   assert.equal(doc.head.children.length, 0);
   applyCustomTheme(doc, { customTheme: null });
@@ -189,17 +218,24 @@ before(async () => {
 after(() => server?.close());
 
 test('Theme page: groups, rows and controls per the settings IA', () => {
-  const html = render(React.createElement(Page, { config: { customTheme: { preset: 'clay', accent: '#d97757' }, codeThemeLight: 'github-light' }, desktopCall: async () => null, onSave: async () => ({}) }));
+  const html = render(React.createElement(Page, { config: { customTheme: { preset: 'clay', accent: '#d97757' }, codeThemeLight: 'github-light' }, desktopCall: async () => null, onSave: async () => ({}), onOpenSetting: () => {} }));
   const titles = [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3>/g)].map(match => match[1]);
-  assert.deepEqual(titles, ['Theme', 'Colors', 'Typography', 'Shape', 'Code theme', 'Preview']);
+  assert.deepEqual(titles, ['Theme', 'Colors', 'Typography', 'Shape', 'Code', 'Preview']);
   const ids = [...html.matchAll(/data-setting-id="([^"]+)"/g)].map(match => match[1]);
-  assert.deepEqual(ids, ['themePreset', 'themeAccent', 'themeUiFont', 'themeCodeFont', 'themeFontScale', 'themeDensity', 'themeRadius', 'themeCodeTheme']);
-  for (const label of ['Theme preset', 'Light code theme', 'Dark code theme']) assert.match(html, new RegExp(`role="combobox" aria-label="${label}"`));
-  for (const label of ['Accent color picker', 'Accent color hex', 'Interface font family', 'Code font family']) assert.ok(html.includes(`aria-label="${label}"`), label);
-  for (const label of ['Font size', 'Density', 'Corner radius']) assert.ok(html.includes(`role="radiogroup" aria-label="${label}"`), label);
-  for (const text of ['Import…', 'Export…', 'Reset to default', 'Clear', 'Sharp', 'Extra', '85%', '125%', 'Comfortable']) assert.ok(html.includes(`>${text}<`), text);
+  // One home per setting: light/dark (Preferences), code theme / code font / Interface font (Code) are links here.
+  assert.deepEqual(ids, ['themePreset', 'themeMode', 'themeAccent', 'themeUiFont', 'themeFontScale', 'themeDensity', 'themeRadius', 'themeCodeAppearance']);
+  // Font size and Corner radius are 160px selects (Claude keeps segments to 2–3 choices); Density stays segmented.
+  for (const label of ['Theme preset', 'Font size', 'Corner radius']) assert.match(html, new RegExp(`role="combobox" aria-label="${label}"`));
+  for (const label of ['Light code theme', 'Dark code theme', 'Code font family']) assert.ok(!html.includes(`aria-label="${label}"`), `${label} lives on the Code page`);
+  for (const label of ['Accent color picker', 'Accent color hex', 'Custom interface font']) assert.ok(html.includes(`aria-label="${label}"`), label);
+  for (const text of ['Open Preferences', 'Open Code settings', 'Interface font settings']) assert.ok(html.includes(`>${text}<`), text);
+  for (const label of ['Density']) assert.ok(html.includes(`role="radiogroup" aria-label="${label}"`), label);
+  for (const label of ['Font size', 'Corner radius']) assert.ok(!html.includes(`role="radiogroup" aria-label="${label}"`), `${label} is a select`);
+  for (const text of ['Import…', 'Export…', 'Reset to default', 'Clear', '100%', 'Default', 'Comfortable']) assert.ok(html.includes(`>${text}<`), text);
   assert.match(html, /data-value="clay"/, 'the preset select shows the matching built-in');
-  assert.match(html, /type="color"[^>]*value="#d97757"/);
+  // No native colour input: a swatch button (its popover lists the preset accents) beside the hex field.
+  assert.doesNotMatch(html, /type="color"/);
+  assert.match(html, /class="ss-theme-custom-swatch" aria-label="Accent color picker" data-value="#d97757"/);
   assert.match(html, /<datalist id="[^"]+"><option value="SF Pro"/);
   assert.match(html, /class="ss-theme-custom-preview" aria-hidden="true" inert=""/);
 });

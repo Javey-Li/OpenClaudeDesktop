@@ -4,7 +4,8 @@ import {withLocalCommandRows,rewindChoices,transcriptMarkdown} from '../src/slas
 test('trigger and argument hints enforce range and whitespace limits',()=>{
  assert.equal(slashQuery('/'),'');for(const input of ['x/','/ ','/foo\nbar','/'+ 'a'.repeat(51)])assert.equal(slashQuery(input),null);
  assert.equal(commandArgumentHint('/fork '),'[prompt]');assert.equal(commandArgumentHint('/name '),'[new title]');assert.equal(commandArgumentHint('/fork x'),'');assert.equal(commandArgumentHint('/fork '+' '.repeat(129)),'');
- assert.match(parseSessionCommand('/cd ~/x').error,/Changing the directory/);assert.match(parseSessionCommand('/feedback').error,/isn’t available/);
+ // /cd <path> is a command now (a fork into that folder, Codex's /cd): it parses with its path.
+ assert.equal(parseSessionCommand('/cd ~/x').error,null);assert.equal(parseSessionCommand('/cd ~/x').args,'~/x');assert.match(parseSessionCommand('/feedback').error,/isn’t available/);
 });
 test('local status rows retain chronological anchors and never mutate protocol items',()=>{
  const items=[{id:'a'},{id:'b'}],rows=[{id:'s',after:'a'},{id:'s2',after:'a'}];assert.deepEqual(withLocalCommandRows(items,rows).map(i=>i.id),['a','s','s2','b']);assert.equal(items.length,2);assert.equal(rows[0].localCommand,undefined);

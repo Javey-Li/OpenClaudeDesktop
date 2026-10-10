@@ -36,7 +36,7 @@ try{
  assert.equal(await page.locator('.claude-spark').evaluate(e=>e.complete&&e.naturalWidth>0),true);
  await page.screenshot({path:path.join(evidence,'packaged-home.png')});
  await page.getByRole('button',{name:'Account menu'}).click();await page.getByRole('menuitem',{name:/Settings/}).click();await page.getByRole('radio',{name:'Dark',exact:true}).click();await page.waitForFunction(()=>document.documentElement.dataset.mode==='dark');await page.getByRole('dialog',{name:'Settings',exact:true}).getByRole('button',{name:'Close',exact:true}).click();await page.screenshot({path:path.join(evidence,'packaged-dark.png')});
- await page.getByRole('button',{name:'Account menu'}).click();await page.getByRole('menuitem',{name:'Light appearance',exact:true}).click();
+ await page.evaluate(theme=>window.desktop.call('settings',{theme}),'light');await page.waitForFunction(()=>document.documentElement.dataset.mode==='light');
  await page.getByRole('textbox',{name:'Message DeepSeek'}).fill('Reply with CODE_DESKTOP_PACKAGED_OK on the first line, then a fenced js code block containing exactly: const packaged = true; Do not use tools.');
  await page.getByRole('button',{name:'Send message',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.assistant-message')?.textContent.includes('CODE_DESKTOP_PACKAGED_OK')&&!document.querySelector('.source-working'),{},{timeout:150000});

@@ -3,12 +3,15 @@ import { t } from "../electron/i18n/index.mjs";
 //
 // messageMenu: scroll-messages-current.js:33652-33818 CY. Items in order —
 // Copy (the selection, cmd+c); Copy code block / Copy path / Copy code over
-// code that is not inside a link; Open in default browser (http/https only)
-// and Copy link over a link; a separator when anything came before the
+// code that is not inside a link; Open in default browser (http/https only),
+// Open in Preview (official: 'Open in Browser pane', :33727-33760; Code Desktop's pane is the Preview: a loopback http/https page while the
+// session has a Preview pane, canOpenInPreview) and Copy link over a link; a separator when anything came before the
 // message items; Copy message and Copy message as Markdown; a separator
 // before Attach selection as context (cmd+shift+l, a selection of at least 2
-// characters) or Attach message as context. No Fork or Rewind: the DeepSeek
-// core lists thread/fork and thread/revert as unsupported. No image items:
+// characters) or Attach message as context; then Rewind to here (a user
+// message) and Fork from here (approval-current.js message menu onFork), each
+// only where the core serves thread/revert / thread/fork and the session is
+// idle (canRewind / canFork, decided by the caller). No image items:
 // response images keep their own menu (source-response-image.jsx).
 //
 // fileRefMenu: c856385e2-k3utJqnh.js Mn/Z for a transcript file reference —
@@ -19,22 +22,28 @@ const separator = Object.freeze({ type: "separator" });
 const item = (id, label, extra = {}) => ({ type: "item", id, label, ...extra });
 
 // scroll-messages-current.js:33094-33115 qJ/JJ/YJ: a link counts only for
-// these protocols, and only http/https can open in the browser.
+// these protocols, and only http/https can open in the browser. A page on
+// this computer (localhost, 127.x, ::1, *.localhost, 0.0.0.0) can also open in
+// the Preview pane (CY linkTarget.canOpenInPreview).
 const LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:", "irc:", "ircs:", "xmpp:", "computer:"]);
+export function isLoopbackHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  return host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "0.0.0.0" || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
 export function linkTarget(href) {
-  if (!href) return { linkHref: null, canOpenInBrowser: false };
+  if (!href) return { linkHref: null, canOpenInBrowser: false, canOpenInPreview: false };
   try {
-    const protocol = new URL(href).protocol;
-    return { linkHref: LINK_PROTOCOLS.has(protocol) ? href : null, canOpenInBrowser: protocol === "http:" || protocol === "https:" };
+    const url = new URL(href), protocol = url.protocol, web = protocol === "http:" || protocol === "https:";
+    return { linkHref: LINK_PROTOCOLS.has(protocol) ? href : null, canOpenInBrowser: web, canOpenInPreview: web && isLoopbackHost(url.hostname) };
   } catch {
-    return { linkHref: null, canOpenInBrowser: false };
+    return { linkHref: null, canOpenInBrowser: false, canOpenInPreview: false };
   }
 }
 
 /** True when the selection is long enough to attach (CY w / S: trimmed ≥ 2). */
 export const attachableSelection = (text) => typeof text === "string" && text.trim().length >= 2;
 
-export function messageMenu({ selectionText = null, codeTarget = null, linkHref = null, canOpenInBrowser = false, messageText, canAttach = false } = {}) {
+export function messageMenu({ selectionText = null, codeTarget = null, linkHref = null, canOpenInBrowser = false, canOpenInPreview = false, messageText, canAttach = false, canRewind = false, canFork = false } = {}) {
   const selection = typeof selectionText === "string" && selectionText.trim() !== "" ? selectionText : null;
   const link = linkHref || null;
   const code = link ? null : codeTarget?.text ? codeTarget : null;
@@ -45,6 +54,7 @@ export function messageMenu({ selectionText = null, codeTarget = null, linkHref 
   if (code) entries.push(item("copy-code", code.isBlock ? t("Copy code block") : code.isPath ? t("Copy path") : t("Copy code")));
   if (link) {
     if (canOpenInBrowser) entries.push(item("open-link", t("Open in default browser")));
+    if (canOpenInPreview) entries.push(item("open-in-preview", t("Open in Preview")));
     entries.push(item("copy-link", t("Copy link")));
   }
   const before = entries.length > 0;
@@ -54,6 +64,9 @@ export function messageMenu({ selectionText = null, codeTarget = null, linkHref 
   if (attach) entries.push(attachableSelection(selection)
     ? item("attach", t("Attach selection as context"), { shortcut: "cmd+shift+l" })
     : item("attach", t("Attach message as context")));
+  if ((canRewind || canFork) && entries.length) entries.push(separator);
+  if (canRewind) entries.push(item("rewind", t("Rewind to here")));
+  if (canFork) entries.push(item("fork", t("Fork from here")));
   return entries;
 }
 
@@ -100,3 +113,7 @@ export function messageItemText(item) {
   const text = (item.content || []).filter((part) => part.type === "text" || part.text).map((part) => part.text || "").join("\n");
   return text !== "" ? text : undefined;
 }
+
+// cf74bc599 df / attachTerminalOutput "cmd+shift+l": ⇧⌘L (or ⇧⌃L) attaches a selection made inside the transcript.
+export const attachSelectionChord = (event) => !!event && !event.altKey && !!event.shiftKey && !!event.metaKey !== !!event.ctrlKey
+  && typeof event.key === "string" && event.key.toLowerCase() === "l";

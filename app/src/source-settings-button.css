@@ -25,6 +25,11 @@
 .source-settings-button[data-variant=primary] .ssb-paint { background:var(--cds-fill-primary); }
 .source-settings-button[data-variant=primary]:is(:hover,[aria-haspopup][aria-expanded=true]) .ssb-paint { background:var(--cds-fill-primary-hover); }
 .source-settings-button[data-variant=danger] .ssb-paint { background:var(--cds-fill-danger); }
+/* brand (Z variant "brand": bg-fill-brand / hover / text-on-brand, the /btw side chat's Send). */
+.source-settings-button[data-variant=brand] { color:var(--cds-on-brand);font-weight:var(--cds-font-weight-medium);--cds-font-axis-wght:var(--cds-font-axis-wght-medium); }
+.source-settings-button[data-variant=brand] .ssb-squish { inset:.5px; }
+.source-settings-button[data-variant=brand] .ssb-paint { background:var(--cds-fill-brand); }
+.source-settings-button[data-variant=brand]:is(:hover,[aria-haspopup][aria-expanded=true]) .ssb-paint { background:var(--cds-fill-brand-hover); }
 .source-settings-button[data-variant=danger]:is(:hover,[aria-haspopup][aria-expanded=true]) .ssb-paint { background:var(--cds-fill-danger-hover); }
 .source-settings-button[data-cds=Button]:focus-visible { outline:none;box-shadow:var(--cds-focus-shadow); }
 .source-settings-button[data-cds=Button][data-variant=danger]:focus-visible { box-shadow:var(--cds-focus-shadow-danger); }

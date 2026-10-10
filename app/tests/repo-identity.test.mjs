@@ -36,7 +36,7 @@ test('repoIdentity: worktrees share owner/name, a repo without a remote has no o
     clearRepoIdentityCache();
     const [a, b, c, d, missing] = await Promise.all([main, path.join(root, 'widget-feature'), path.join(local, 'sub'), plain, path.join(root, 'gone')]
       .map((cwd) => repoIdentity(cwd, { home: root })));
-    assert.deepEqual({ ...a, toplevel: undefined }, { isRepo: true, toplevel: undefined, owner: 'acme', name: 'widget', parent: '~' });
+    assert.deepEqual({ ...a, toplevel: undefined }, { isRepo: true, toplevel: undefined, owner: 'acme', name: 'widget', host: 'github.com', parent: '~' });
     assert.equal(b.owner, 'acme'); assert.equal(b.name, 'widget');
     assert.deepEqual({ isRepo: c.isRepo, owner: c.owner, name: c.name, parent: c.parent }, { isRepo: true, owner: null, name: 'scratch', parent: '~/scratch' });
     assert.deepEqual(d, { isRepo: false, toplevel: null, owner: null, name: null, parent: '~' });

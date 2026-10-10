@@ -43,6 +43,24 @@ function ChangesIndicatorIcon() {
   );
 }
 
+// sidebar-groups.js:2774-2840 Ib: df-collapsed-chrome = Nb (2685, collapsed trigger "Show sidebar", Kl cmd+b) then
+// df-collapsed-nav around Pb (2752-2766, qM with placement "sidebar"). The session titlebar shows it while the sidebar
+// is collapsed; a tabbed split view (source-split-view.jsx) shows it at the start of its tab strip instead.
+export function SourceCollapsedChrome({ onExpand, peekOpen = false, onPeekEnter, onPeekLeave, historyAt = 0, historyLength = 1, travel }) {
+  return (
+    <div className="df-collapsed-chrome">
+      {/* sidebar-groups.js:2679-2750 Nb: a pointerenter opens the peek; aria-expanded follows it,
+          aria-controls names the sidebar body (the peek card) and the trigger is bg-neutral-30 while open. */}
+      <ToolButton label={t("Show sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.show} icon="Sidebar" onClick={onExpand}
+        aria-expanded={peekOpen} aria-controls="frame-peek-popover" data-peek-open={peekOpen || undefined}
+        onPointerEnter={onPeekEnter} onPointerLeave={onPeekLeave} />
+      <div className="df-collapsed-nav">
+        <SourceNavButtons placement="sidebar" historyAt={historyAt} historyLength={historyLength} travel={travel} />
+      </div>
+    </div>
+  );
+}
+
 // Hp → Hf → kf/Bp/bp; shared-12 Wm/Km/Ym/qm/th.
 // See analysis/source-titlebar-batch1.md for source/version boundaries.
 export function SourceTitlebar({
@@ -62,6 +80,19 @@ export function SourceTitlebar({
   historyLength = 1,
   travel,
   changesDirty = false,
+  // Terminal pane toggle (cc70f2bdf Hc terminal item, icon CommandLinePrompt): shown when main.jsx can open the pane;
+  // terminalBusy draws the activity dot ("Terminal (command running)") while the pane is hidden.
+  terminalAvailable = false,
+  terminalBusy = false,
+  // Preview pane toggle (panes-toggle-current.js:3091-3130: icon Play, "Preview"); previewRunning draws the activity
+  // dot ("Preview (dev server running)") while the pane is closed.
+  previewAvailable = false,
+  previewRunning = false,
+  // Split view (official Im split pane titlebar): each side's titlebar ends with its own ghost X
+  // (epitaxy-pane-close-control, "Close split view") that closes this side; closeSplitShortcut is the ⌃⌘W chord,
+  // shown on the focused side only since the chord closes the focused side.
+  onCloseSplit,
+  closeSplitShortcut,
   // F08 collapsed hover peek (main.jsx): open state and the trigger's pointer handlers.
   peekOpen = false,
   onPeekEnter,
@@ -72,6 +103,15 @@ export function SourceTitlebar({
   const [saving, setSaving] = useState(false);
   const [renameError, setRenameError] = useState("");
   const [compact, setCompact] = useState(false);
+  // Narrower than the lead's floor (glyph, a 32px title, the gap, the folder icon chip): the chip is dropped
+  // instead of showing as a clipped sliver beside the actions.
+  const [folderHidden, setFolderHidden] = useState(false);
+  // Too narrow for the lead and every action (a small window with a pane open): the Preview and Terminal toggles,
+  // which the ⋯ Session options menu also lists, step out so the title, the folder chip and the remaining actions
+  // never draw over each other. fullTrailing is the actions' width with every toggle shown.
+  const [cramped, setCramped] = useState(false);
+  const foldedActivity = cramped && ((previewAvailable && previewRunning && !panes.has("preview")) || (terminalAvailable && terminalBusy && !panes.has("terminal")));
+  const fullTrailing = useRef(0);
   const input = useRef(null),
     titleButton = useRef(null),
     inner = useRef(null),
@@ -117,14 +157,28 @@ export function SourceTitlebar({
     const row = inner.current;
     if (!row || !session || section !== "new") {
       setCompact(false);
+      setFolderHidden(false);
+      setCramped(false);
       return;
     }
     let frame;
     const measure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
+        const actions = trailing.current;
+        if (actions && !actions.hasAttribute("data-cramped"))
+          fullTrailing.current = actions.offsetWidth;
+        // The lead's floor: origin glyph, a 32px title, the gap and the folder icon chip.
+        const leadFloor = 32 + 32 + 4 + 24 + 12;
+        const hideable = !!actions?.querySelector("[data-pane-toggle]");
+        setCramped((was) =>
+          hideable &&
+          (was
+            ? row.clientWidth < fullTrailing.current + leadFloor + 24
+            : row.clientWidth < fullTrailing.current + leadFloor),
+        );
         const available =
-          row.clientWidth - (trailing.current?.offsetWidth || 0) - 12;
+          row.clientWidth - (actions?.offsetWidth || 0) - 12;
         const required =
           32 +
           (titleMeasure.current?.offsetWidth || 0) +
@@ -133,6 +187,7 @@ export function SourceTitlebar({
               .columnGap,
           ) || 6) +
           (folderMeasure.current?.offsetWidth || 0);
+        setFolderHidden(available < 32 + 32 + 4 + 24);
         setCompact((was) =>
           was ? available - required < 96 : available < required,
         );
@@ -206,21 +261,8 @@ export function SourceTitlebar({
   }
   return (
     <header className="workspace-toolbar st-toolbar window-drag">
-      {collapsed && (
-        // sidebar-groups.js:2774-2840 Ib: df-collapsed-chrome = Nb (2685,
-        // collapsed trigger "Show sidebar", Kl cmd+b) then df-collapsed-nav
-        // around Pb (2752-2766, qM with placement "sidebar").
-        <div className="df-collapsed-chrome">
-          {/* sidebar-groups.js:2679-2750 Nb: a pointerenter opens the peek; aria-expanded follows it,
-              aria-controls names the sidebar body (the peek card) and the trigger is bg-neutral-30 while open. */}
-          <ToolButton label={t("Show sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.show} icon="Sidebar" onClick={onExpand}
-            aria-expanded={peekOpen} aria-controls="frame-peek-popover" data-peek-open={peekOpen || undefined}
-            onPointerEnter={onPeekEnter} onPointerLeave={onPeekLeave} />
-          <div className="df-collapsed-nav">
-            <SourceNavButtons placement="sidebar" historyAt={historyAt} historyLength={historyLength} travel={travel} />
-          </div>
-        </div>
-      )}
+      {collapsed && <SourceCollapsedChrome onExpand={onExpand} peekOpen={peekOpen} onPeekEnter={onPeekEnter} onPeekLeave={onPeekLeave}
+        historyAt={historyAt} historyLength={historyLength} travel={travel} />}
       <div
         ref={inner}
         className="st-inner epitaxy-titlebar"
@@ -231,7 +273,7 @@ export function SourceTitlebar({
             {t(section[0].toUpperCase() + section.slice(1))}
           </span>
         ) : session ? (
-          <div className="st-lead" data-pills-compact={compact || undefined}>
+          <div className="st-lead" data-pills-compact={compact || undefined} data-folder-hidden={folderHidden || undefined}>
             {/* c360a9e1c-GPs-MV9u.js:6347-6360 yp: the labelled origin glyph is
                 wrapped in Zt (shared-frame Nu, `no as Zt` :177; default side
                 "top", which flips below at the window top) with content =
@@ -318,7 +360,7 @@ export function SourceTitlebar({
                 aria-expanded={menuKind === "folder"}
                 data-popup-open={menuKind === "folder" ? "" : undefined}
                 disabled={loading}
-                onClick={(event) => onMenu?.("folder", event.currentTarget)}
+                onClick={(event) => onMenu?.("folder", event.currentTarget, undefined, event.detail === 0 ? "first" : undefined)}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   onMenu?.("folder", event.currentTarget);
@@ -360,7 +402,7 @@ export function SourceTitlebar({
           </div>
         ) : null}
         <SourceTooltipGroup>
-          <div ref={trailing} className="st-trailing panel-toggles">
+          <div ref={trailing} className="st-trailing panel-toggles" data-cramped={cramped || undefined}>
             {/* titlebar-release-notes.js:5238-5256 V: ghost text-accent button
                 only while `justUpdated || modalOpen` (whats-new-model.mjs). */}
             {!session && section === "new" && showWhatsNew && (
@@ -374,6 +416,48 @@ export function SourceTitlebar({
             )}
             {session && section === "new" && (
               <>
+                {previewAvailable && (
+                  <ToolButton
+                    label={previewRunning && !panes.has("preview") ? t("Preview (dev server running)") : t("Preview")}
+                    icon="Play"
+                    active={panes.has("preview")}
+                    aria-pressed={panes.has("preview")}
+                    aria-keyshortcuts="Meta+Shift+P"
+                    data-pane-toggle="preview"
+                    disabled={loading}
+                    tooltip={{ content: previewRunning && !panes.has("preview") ? t("Preview (dev server running)") : t("Preview"), shortcut: "cmd+shift+p",
+                      side: "bottom", hoverable: true, automatic: false, open: menuKind ? false : undefined }}
+                    onClick={() => onTogglePane?.("preview")}
+                  >
+                    {previewRunning && !panes.has("preview") ? (
+                      <span className="st-indicator-grid">
+                        <span className="st-indicator-icon"><Icon name="Play" /></span>
+                        <span aria-hidden="true" data-cds-part="indicator" className="st-indicator"><span className="st-indicator-dot" /></span>
+                      </span>
+                    ) : undefined}
+                  </ToolButton>
+                )}
+                {terminalAvailable && (
+                  <ToolButton
+                    label={terminalBusy && !panes.has("terminal") ? t("Terminal (command running)") : t("Terminal")}
+                    icon="CommandLinePrompt"
+                    active={panes.has("terminal")}
+                    aria-pressed={panes.has("terminal")}
+                    aria-keyshortcuts="Meta+J Control+`"
+                    data-pane-toggle="terminal"
+                    disabled={loading}
+                    tooltip={{ content: terminalBusy && !panes.has("terminal") ? t("Terminal (command running)") : t("Terminal"), shortcut: "cmd+j",
+                      side: "bottom", hoverable: true, automatic: false, open: menuKind ? false : undefined }}
+                    onClick={() => onTogglePane?.("terminal")}
+                  >
+                    {terminalBusy && !panes.has("terminal") ? (
+                      <span className="st-indicator-grid">
+                        <span className="st-indicator-icon"><Icon name="CommandLinePrompt" /></span>
+                        <span aria-hidden="true" data-cds-part="indicator" className="st-indicator"><span className="st-indicator-dot" /></span>
+                      </span>
+                    ) : undefined}
+                  </ToolButton>
+                )}
                 <ToolButton
                   label={CHANGES_TOOLTIP.content}
                   icon="ChangesPlusMinus"
@@ -393,7 +477,7 @@ export function SourceTitlebar({
                   ) : undefined}
                 </ToolButton>
                 <ToolButton
-                  label={t("Session options")}
+                  label={foldedActivity ? t("Session options (a dev server or command is running)") : t("Session options")}
                   icon="DotsVertical"
                   {...menuTriggerProps({
                     open: menuKind === "titlebar",
@@ -408,10 +492,36 @@ export function SourceTitlebar({
                     open: menuKind ? false : undefined,
                   }}
                   onClick={(event) =>
-                    onMenu?.("titlebar", event.currentTarget, session)
+                    // Base UI: only a keyboard press (detail 0) opens with the first item highlighted.
+                    onMenu?.("titlebar", event.currentTarget, session, event.detail === 0 ? "first" : undefined)
                   }
-                />
+                >
+                  {/* A cramped titlebar folds the Preview and Terminal toggles into this menu: their activity dot moves here. */}
+                  {foldedActivity ? (
+                    <span className="st-indicator-grid">
+                      <span className="st-indicator-icon"><Icon name="DotsVertical" /></span>
+                      <span aria-hidden="true" data-cds-part="indicator" className="st-indicator"><span className="st-indicator-dot" /></span>
+                    </span>
+                  ) : undefined}
+                </ToolButton>
               </>
+            )}
+            {onCloseSplit && (
+              <ToolButton
+                label={t("Close split view")}
+                icon="X"
+                className="code-icon-button epitaxy-pane-close-control"
+                data-split-close=""
+                tooltip={{
+                  content: t("Close split view"),
+                  shortcut: closeSplitShortcut,
+                  side: "bottom",
+                  hoverable: true,
+                  automatic: false,
+                  open: menuKind ? false : undefined,
+                }}
+                onClick={onCloseSplit}
+              />
             )}
           </div>
         </SourceTooltipGroup>

@@ -97,17 +97,20 @@ function writeAtomic(fs, file, value) {
 // manage()/unmanage(): listeners on the window, debounced saves and the close flush.
 function trackWindowState(win, { file, screen, state, delay = SAVE_DELAY_MS, fs = nodeFs, timers = { setTimeout, clearTimeout } }) {
   let current = { ...state }, timer = null, failed = false, disposed = false;
+  // A window that has no frame file yet (a cascaded File › New Window, a first launch) writes its frame on the next
+  // save or its close even if it never moved: a relaunch then reopens it where it was, not over the main window.
+  let unsaved = (() => { try { return typeof fs.existsSync === "function" && !fs.existsSync(file); } catch { return false; } })();
   const capture = () => {
     if (win.isDestroyed() || win.isMinimized()) return false;
     const bounds = win.getBounds(), isMaximized = win.isMaximized(), isFullScreen = win.isFullScreen();
     const next = { ...current, ...(isMaximized || isFullScreen ? {} : bounds), isMaximized, isFullScreen,
       displayBounds: (screen.getDisplayMatching(bounds) || screen.getPrimaryDisplay()).bounds };
-    const changed = failed || ["x", "y", "width", "height", "isMaximized", "isFullScreen"].some((key) => next[key] !== current[key]);
+    const changed = failed || unsaved || ["x", "y", "width", "height", "isMaximized", "isFullScreen"].some((key) => next[key] !== current[key]);
     current = next;
     return changed;
   };
   const write = () => {
-    try { writeAtomic(fs, file, current); failed = false; }
+    try { writeAtomic(fs, file, current); failed = false; unsaved = false; }
     catch { failed = true; }
   };
   const flush = () => {
@@ -127,5 +130,28 @@ function trackWindowState(win, { file, screen, state, delay = SAVE_DELAY_MS, fs 
   win.on("closed", dispose);
   return { flush, dispose, get state() { return { ...current }; } };
 }
+// Multi-window (window-registry.cjs): every main window keeps its own frame. The first window ("main") keeps the
+// original userData/window-state.json; another window's key names its own file.
+const CASCADE_OFFSET = 24;
+function windowStateFile(key = "main") {
+  return key === "main" || typeof key !== "string" || !/^[a-z0-9-]{1,40}$/.test(key) ? WINDOW_STATE_FILE : `window-state-${key}.json`;
+}
+// A new window without a saved frame opens over the window it came from, shifted down and right (macOS cascade),
+// kept inside that display's work area; with no source window it keeps the stored/default frame (centred).
+function cascadeWindowState(state, from, screen, offset = CASCADE_OFFSET) {
+  const source = validRect(from && { x: Math.round(from.x), y: Math.round(from.y), width: Math.round(from.width), height: Math.round(from.height) });
+  if (!source || state.isMaximized || state.isFullScreen) return state;
+  const frame = { x: source.x + offset, y: source.y + offset, width: source.width, height: source.height };
+  const area = (screen.getDisplayMatching(frame) || screen.getPrimaryDisplay()).workArea;
+  let placed = fitInto(frame, area);
+  // Pushed back onto the source corner by the work area's edge: start the cascade at the area's origin instead.
+  if (placed.x === source.x && placed.y === source.y) placed = fitInto({ ...frame, x: area.x, y: area.y }, area);
+  return { ...state, ...placed };
+}
+// A window closed for good (not by a quit) forgets its frame; the main window's file is kept for the next one.
+function forgetWindowState(file, { fs = nodeFs } = {}) {
+  if (path.basename(file) === WINDOW_STATE_FILE) return false;
+  try { fs.rmSync(file, { force: true }); return true; } catch { return false; }
+}
 module.exports = { DEFAULT_WINDOW_SIZE, WINDOW_STATE_FILE, SAVE_DELAY_MS, WINDOW_EVENTS, validWindowState, placeOnDisplays,
-  loadWindowState, windowStateBounds, restoreWindowState, trackWindowState };
+  loadWindowState, windowStateBounds, restoreWindowState, trackWindowState, windowStateFile, cascadeWindowState, forgetWindowState };

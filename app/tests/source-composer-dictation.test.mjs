@@ -66,6 +66,16 @@ test('Model and Effort triggers carry no native title; the Effort trigger is nam
   assert.match(model, /aria-label="Model"/); assert.match(effort, /aria-label="Effort: Low"/);
   assert.match(trigger(render({ effort: 'high', model: { model: 'deepseek-flash', displayName: 'DeepSeek-V41-Flash', supportedReasoningEfforts: [{ reasoningEffort: 'off' }, { reasoningEffort: 'high' }] } }), 'sc-effort-trigger'), /aria-label="Effort: High"/);
 });
+// Purple top tier on the chip (a requested extension: the source chip is plain, effort.js:255; the tint mirrors the
+// shared-14 :6565 'text-pro font-medium' row): only the ultra id is marked, never DeepSeek's highest level.
+test('the Effort chip is marked data-top-tier only for ultra', () => {
+  const astra = { model: 'gpt-6-astra', displayName: 'GPT-6 Astra', supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(reasoningEffort => ({ reasoningEffort })) };
+  const deepseek = { model: 'deepseek-flash', displayName: 'DeepSeek', supportedReasoningEfforts: ['off', 'low', 'high', 'max'].map(reasoningEffort => ({ reasoningEffort })) };
+  const ultra = trigger(render({ effort: 'ultra', model: astra }), 'sc-effort-trigger');
+  assert.match(ultra, /data-top-tier=""/); assert.match(ultra, /aria-label="Effort: Ultra"/);
+  assert.doesNotMatch(trigger(render({ effort: 'max', model: astra }), 'sc-effort-trigger'), /data-top-tier/);
+  assert.doesNotMatch(trigger(render({ effort: 'max', model: deepseek }), 'sc-effort-trigger'), /data-top-tier/);
+});
 test('fast live region: role=status polite sr-only text follows fastMode, only with a Fast tier', () => {
   const region = html => [...html.matchAll(/<span role="status" aria-live="polite" class="sr-only">([^<]*)<\/span>/g)].map(match => match[1]);
   assert.deepEqual(region(render({ fastAvailable: true, fastMode: false })), ['Fast mode off']);

@@ -61,7 +61,8 @@ try{
  // shared-19 Kh/qh, cb24e6301 planReopen): in a session File's ⌘W is Close Session and the renderer's ⌘W closes the
  // session view (Home) instead of the window, which never sees a close; ⇧⌘T reopens it. Home keeps Close Window ⌘W.
  step('close-session');await app.evaluate(({BrowserWindow})=>{globalThis.__mainCloses=0;BrowserWindow.getAllWindows()[0].on('close',()=>{globalThis.__mainCloses+=1;});});
- const fileItems=()=>app.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='File').submenu.items.filter(item=>item.visible&&item.type!=='separator').slice(2).map(item=>[item.label,item.accelerator,item.enabled]));
+ // The close block follows New Session and the ewr Open… block (Open File… ⌘O, Open Folder… ⇧⌘O).
+ const fileItems=()=>app.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='File').submenu.items.filter(item=>item.visible&&item.type!=='separator').filter((item,index,items)=>index>items.findIndex(entry=>entry.label==='Open Folder…')).map(item=>[item.label,item.accelerator,item.enabled]));
  const sessionRow=()=>page.locator(`[data-source-session-id="${SESSION}"] [data-row-main-button]`);
  const sessionOpen=()=>sessionRow().evaluate(node=>node.getAttribute('aria-current')==='page');
  const onHome=()=>page.evaluate(()=>!document.querySelector('[data-row-main-button][aria-current="page"]')&&!!document.querySelector('.source-sidebar-nav-row[aria-current="page"]'));

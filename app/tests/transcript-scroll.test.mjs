@@ -138,18 +138,27 @@ test("Space activates historical rows before generic downward navigation, preser
   );
 });
 
-test("content growth cannot turn a native scrollbar upward movement into a layout clamp", () => {
+test("during a layout change an upward movement is the user's only with a real intent", () => {
+  // A transient shrink-and-regrow clamps scrollTop below a maximum that has
+  // grown again (recorded: top 399 → 393 while the maximum went 399 → 460,
+  // with no wheel, key or pointer input): following must stay pinned.
+  const regrow = { delta: -6, top: 393, maximum: 460, layoutChanged: true, explicitIntent: false, programmatic: false };
+  assert.equal(isUserScrollMovement(regrow), false);
+  assert.equal(isUserScrollMovement({ ...regrow, delta: -120, top: 780, maximum: 1050 }), false);
+  // A scrollbar drag (mousedown on the viewport: dragActive) or a wheel/key/touch still releases.
   assert.equal(
     isUserScrollMovement({
       delta: -120,
       top: 780,
       maximum: 1050,
       layoutChanged: true,
-      explicitIntent: false,
+      explicitIntent: true,
       programmatic: false,
     }),
     true,
   );
+  // Without a layout change any movement is the user's.
+  assert.equal(isUserScrollMovement({ ...regrow, layoutChanged: false }), true);
   assert.equal(
     isUserScrollMovement({
       delta: 120,
@@ -174,9 +183,10 @@ test("a reduced maximum clamp is preserved, while explicit drag and keyboard int
   };
   assert.equal(isUserScrollMovement(clamp), false);
   assert.equal(isUserScrollMovement({ ...clamp, explicitIntent: true }), true);
-  assert.equal(isUserScrollMovement({ ...clamp, top: 650 }), true);
+  assert.equal(isUserScrollMovement({ ...clamp, top: 650 }), false);
+  assert.equal(isUserScrollMovement({ ...clamp, top: 650, explicitIntent: true }), true);
   assert.equal(
-    isUserScrollMovement({ ...clamp, top: 650, programmatic: true }),
+    isUserScrollMovement({ ...clamp, top: 650, explicitIntent: true, programmatic: true }),
     false,
   );
 });

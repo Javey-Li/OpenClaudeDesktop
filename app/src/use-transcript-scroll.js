@@ -87,9 +87,14 @@ export function identityMatches(identity, expected = {}) {
   );
 }
 
-// A resize may clamp scrollTop to the new maximum. A meaningful movement
-// below that maximum cannot be explained by such a clamp. This also covers
-// native scrollbar implementations that do not dispatch DOM mouse events.
+// A resize may clamp scrollTop to the new maximum, and a row that shrinks and
+// regrows inside one frame (a placeholder swapped for the real row) clamps it
+// below a maximum that has already grown again by the time the scroll event is
+// read. So while the layout changed, an upward movement is the user's only with
+// a real intent: a wheel, key or touch (userScrollPending) or a pointer press on
+// the viewport, which Chromium also dispatches for its own scrollbar
+// (dragActive). Without that, following stays pinned and the next frame
+// returns to the tail.
 // scroll-follow-current.js:31 (le) and :655-670: a smooth jump glides for up
 // to 1500ms; while it glides its own scroll events are not user movement,
 // unless a wheel, key or touch intent arrives (which ends the glide).
@@ -119,12 +124,7 @@ export function isUserScrollMovement({
 }) {
   if (programmatic) return false;
   if (gliding && !explicitIntent) return false;
-  return (
-    !layoutChanged ||
-    explicitIntent ||
-    delta > 2 ||
-    (delta < -2 && top < maximum - 2)
-  );
+  return !layoutChanged || explicitIntent || delta > 2;
 }
 
 function visible(viewport) {
@@ -431,6 +431,8 @@ export function useTranscriptScroll({ sessionKey, ready }) {
     }
     function onKey(event) {
       if (!live() || !visible(viewport)) return;
+      // Split view: a key from outside this transcript belongs to the focused side, not the one that stands down.
+      if (!viewport.contains(event.target) && viewport.closest?.("[data-split-inactive]")) return;
       const intent = transcriptKeyIntent(event, {
         inViewport: viewport.contains(event.target),
         bodyTarget: event.target === viewport.ownerDocument.body,

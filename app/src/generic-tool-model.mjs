@@ -1,6 +1,7 @@
 import {commandRowState} from './command-row-model.mjs';
 import {stripAnsi} from './ansi-model.mjs';
 import {t,tn} from '../electron/i18n/index.mjs';
+import {appToolLabel,appToolCall} from './agent-tool-titles.mjs';
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const string=value=>typeof value==='string'?value:'';
 export const isGenericTool=item=>['webSearch','mcpToolCall','dynamicToolCall','functionCallOutput'].includes(item?.type);
@@ -47,11 +48,17 @@ export function genericToolLabel(item,state=commandRowState(item)) {
   const query=string(item.query)||string(action?.query)||(Array.isArray(action?.queries)?action.queries.filter(q=>typeof q==='string').join(', '):'');
   return {label:busy?t('Searching web'):failed?t('Failed to search web'):t('Searched web'),meta:query||null};
  }
+ // A call the core rerouted as invalid (OpenCode/MiMo's `invalid` tool: no such tool, or arguments that don't fit):
+ // the tool the model tried, as a failed call.
+ if(item.type==='dynamicToolCall'&&item.codeDesktop?.invalidTool===true)return {label:busy?t('Using {tool}',{tool:string(item.tool)||t('Tool')}):t('Couldn’t use {tool}',{tool:string(item.tool)||t('Tool')}),meta:null};
  const harness=harnessTool(item);
  if(harness!==null&&Object.hasOwn(HARNESS_TOOLS,harness)) {
   const {verbs:[running,done,failedVerb],meta}=HARNESS_TOOLS[harness](item);
   return {label:busy?running:failed?failedVerb??done:done,meta};
  }
+ // Code Desktop's own tools (the code_desktop MCP server: preview, …) read as what they did.
+ const app=appToolLabel(item,state);
+ if(app)return app;
  // Any other Harness tool: its presenter title ("Create goal") when the bridge sent one.
  if(harness!==null&&string(item.title).trim())return {label:item.title,meta:null};
  const tool=string(item.tool)||string(item.name)||t('Tool');
@@ -61,6 +68,8 @@ export function genericToolLabel(item,state=commandRowState(item)) {
  return {label:t(busy?'Using {tool}':'Used {tool}',{tool:`${scope?`${scope}: `:''}${name}`}),meta:null};
 }
 function inputs(item) {
+ // A Workflow call's inline script is saved with its run (the Tasks pane shows it): its row lists the other inputs.
+ if(appToolCall(item)?.tool==='Workflow')return record(item.arguments)?Object.entries(item.arguments).filter(([key])=>key!=='script'):[];
  if(item.type!=='webSearch')return record(item.arguments)?Object.entries(item.arguments):item.arguments!==undefined&&item.arguments!==null?[['arguments',item.arguments]]:[];
  const action=record(item.action)?item.action:{},pairs=[];
  if(action.type==='openPage'||action.type==='findInPage') {
@@ -135,7 +144,27 @@ export function todoChecklist(item) {
 // Each pair also keeps why it has no real answer (`unanswered`: 'skipped' with
 // neither a selection nor custom text, 'dismissed' when the call was stopped), as
 // the source ps (c06cf64bb) keeps it apart from the answer text.
+// Code Desktop's AskUserQuestion (agent-tools/ask.mjs answerText): Claude Code's sentence, each answered question as
+// "question"="answer" (no double quote inside either: the tool writes them as '), a skipped one left out.
+function appAnswerPairs(item,state) {
+ const questions=(Array.isArray(item.arguments?.questions)?item.arguments.questions:[]).filter(entry=>record(entry)&&string(entry.question).trim());
+ if(!questions.length)return null;
+ if(state==='busy'||state==='blocked')return questions.map(entry=>({question:entry.question,answer:null}));
+ if(state==='stopped')return questions.map(entry=>({question:entry.question,answer:t('Not answered'),unanswered:'dismissed'}));
+ const text=output(item).trim();
+ if(/^The user did not answer these questions/.test(text))return questions.map(entry=>({question:entry.question,answer:t('Not answered'),unanswered:'dismissed'}));
+ if(/^The user skipped the questions/.test(text))return questions.map(entry=>({question:entry.question,answer:t('Skipped'),unanswered:'skipped'}));
+ if(!text.startsWith('User has answered your questions: '))return null;
+ return questions.map(entry=>{
+  const key=`"${string(entry.question).replace(/\s+/g,' ').trim().replace(/"/g,"'")}"="`,at=text.indexOf(key);
+  if(at<0)return {question:entry.question,answer:t('Skipped'),unanswered:'skipped'};
+  const start=at+key.length,end=text.indexOf('"',start);
+  const answer=end>start?text.slice(start,end).trim():'';
+  return answer?{question:entry.question,answer}:{question:entry.question,answer:t('Skipped'),unanswered:'skipped'};
+ });
+}
 function answerPairs(item,state) {
+ if(appToolCall(item)?.tool==='AskUserQuestion')return appAnswerPairs(item,state);
  if(harnessTool(item)!=='ask_user_question')return null;
  const questions=(Array.isArray(item.arguments?.questions)?item.arguments.questions:[]).filter(entry=>record(entry)&&string(entry.question).trim());
  if(!questions.length)return null;
@@ -180,6 +209,7 @@ export function questionOutcome(item,state=commandRowState(item)) {
 // as KO sends only a non-error (or interrupted) question to Qoe.
 export function genericToolBody(item,state=commandRowState(item)) {
  const harness=harnessTool(item);
+ if(state!=='failed'&&appToolCall(item)?.tool==='AskUserQuestion'&&questionAnswers(item,state))return 'questions';
  if(state==='failed'||harness===null)return 'details';
  if(harness==='exit_plan_mode')return 'none';
  if(harness==='todo_write')return todoChecklist(item).length?'todos':'none';

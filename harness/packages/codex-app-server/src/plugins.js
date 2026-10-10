@@ -20,6 +20,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { RpcError, invalidParams } from './transport.js'
+import { UNAVAILABLE_BUNDLES } from './catalog.js'
 
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/u
 const MAX_SPEC = 2048
@@ -96,14 +97,22 @@ export async function pluginRequest(method, params, manager) {
       if (typeof requestId !== 'string' || !REQUEST_ID.test(requestId)) throw invalidParams('requestId is required')
       return requireManager(manager).cancelInstall(requestId)
     }
-    case 'codeDesktop/plugin/setEnabled':
+    case 'codeDesktop/plugin/setEnabled': {
       if (typeof params?.enabled !== 'boolean') throw invalidParams('enabled must be true or false')
-      return requireManager(manager).setBundleEnabled(nameParam(params?.pluginName), params.enabled)
+      const name = nameParam(params?.pluginName)
+      // A bundle that can't work in Code Desktop (catalog.js UNAVAILABLE_BUNDLES) is never turned on from here: Agent
+      // Team would take the sub-agents away, Schedule would never start. Turning one off still works.
+      if (params.enabled && Object.hasOwn(UNAVAILABLE_BUNDLES, name)) throw new RpcError(-32600, 'This plugin can’t run in Code Desktop, so it stays off.')
+      return requireManager(manager).setBundleEnabled(name, params.enabled)
+    }
     case 'codeDesktop/plugin/remove':
       return requireManager(manager).removeBundle(nameParam(params?.pluginName))
+    case 'codeDesktop/plugin/registries':
+      // The install form's source picker: {registry, fallbackRegistries, resolved}.
+      return requireManager(manager).registries()
     default:
       return undefined
   }
 }
 
-export const PLUGIN_METHODS = new Set(['codeDesktop/plugin/inspect', 'codeDesktop/plugin/install', 'codeDesktop/plugin/cancelInstall', 'codeDesktop/plugin/setEnabled', 'codeDesktop/plugin/remove'])
+export const PLUGIN_METHODS = new Set(['codeDesktop/plugin/inspect', 'codeDesktop/plugin/install', 'codeDesktop/plugin/cancelInstall', 'codeDesktop/plugin/setEnabled', 'codeDesktop/plugin/remove', 'codeDesktop/plugin/registries'])

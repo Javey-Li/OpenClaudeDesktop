@@ -120,7 +120,7 @@ try {
   assert.equal(await trigger().getAttribute("aria-expanded"), "true");
   // F07 shared-14-BOJVa-jT.js:10259-10273 nE/rE (local: default, acceptEdits, plan; auto first) with
   // aE copy (:10283-10440): Manual 'Always ask before making changes', Accept edits 'Automatically
-  // accept all file edits'. Bypass stays hidden without the Settings opt-in.
+  // accept all file edits'. The Bypass mode stays out of the radios without the Settings opt-in.
   assert.equal(await popup.getByRole("menuitemradio").count(), 4);
   for (const [index, [value, label, description]] of [["auto", "Auto", "DeepSeek handles permission decisions"], ["ask", "Manual", "Always ask before making changes"],
     ["acceptEdits", "Accept edits", "Automatically accept all file edits"], ["plan", "Plan", "Create a plan before making changes"]].entries()) {
@@ -133,8 +133,12 @@ try {
   }
   assert.equal(await popup.getByRole("separator").count(), 0);
   assert.equal(await popup.locator('[data-cds="Icon"]').count(), 1, "Only the selected Check glyph is rendered");
-  assert.equal(await popup.locator(".smenu-check").count(), 4, "All rows reserve their check slot");
-  assert.doesNotMatch(await popup.innerText(), /Claude|Bypass/);
+  assert.equal(await popup.locator(".smenu-check").count(), 4, "All mode rows reserve their check slot");
+  // No mode row is Bypass before the opt-in; only the trailing 'Bypass permissions · Enable' row names it.
+  assert.doesNotMatch(await popup.innerText(), /Claude/);
+  assert.equal(await popup.locator('[data-permission-value="bypass"]').count(), 0);
+  assert.deepEqual(await popup.locator('[data-permission-action="enable-bypass"]').evaluate(node => [node.getAttribute("role"), node.querySelector(".smenu-label").textContent, node.querySelector(".sp-permission-enable-text").textContent, !!node.querySelector(".smenu-check")]),
+    ["menuitem", "Bypass permissions", "Enable", false]);
   // wy() (ion-dist cf6ae6197): the configured default mode gets a trailing neutral xxs Badge 'Default'.
   metrics.defaultBadge = await popup.locator('[data-cds="Badge"]').evaluate(node => {
     const css = getComputedStyle(node), item = node.closest('[role="menuitemradio"]');
@@ -171,12 +175,18 @@ try {
   await page.screenshot({ path: path.join(evidence, "permission-source-light.png") });
   checks.push("Current chin DOM menu: Mode header, Auto/Manual/Accept edits/Plan in the nE order with the aE copy, radio/check/number semantics, a trailing xxs neutral Default badge on the saved mode, compact source dimensions");
 
+  // Before the Bypass opt-in the last row is 'Bypass permissions · Enable' (approval-shared-current.js :8781-8799):
+  // reachable by keyboard, but it has no digit and selects no mode.
+  assert.equal(await popup.locator('[data-permission-action="enable-bypass"]').getAttribute("aria-keyshortcuts"), null);
   await page.keyboard.press("End");
+  await page.waitForFunction(() => document.activeElement?.dataset.permissionAction === "enable-bypass");
+  await page.keyboard.press("ArrowUp");
   await page.waitForFunction(() => document.activeElement?.dataset.permissionValue === "plan");
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.waitForFunction(() => document.activeElement?.dataset.permissionValue === "auto");
   await page.keyboard.press("ArrowUp");
-  await page.waitForFunction(() => document.activeElement?.dataset.permissionValue === "plan");
+  await page.waitForFunction(() => document.activeElement?.dataset.permissionAction === "enable-bypass");
   await page.keyboard.press("Home");
   await page.waitForFunction(() => document.activeElement?.dataset.permissionValue === "auto");
   await page.keyboard.press("3");
@@ -225,9 +235,10 @@ try {
   for (const [value, label, policy, sandbox] of [
     ["auto", "Auto", "on-request", "workspaceWrite"],
     ["ask", "Manual", "untrusted", "workspaceWrite"],
-    // Codex has no accept-edits policy: Manual's untrusted + workspaceWrite, no DeepSeek hint.
-    ["acceptEdits", "Accept edits", "untrusted", "workspaceWrite"],
-    ["plan", "Plan", "on-request", "readOnly"],
+    // A core without permission hints (permission-policy.mjs): Accept edits is on-request + workspaceWrite (Codex
+    // applies workspace patches without asking), Plan is read-only with approvalPolicy never (nothing escalates).
+    ["acceptEdits", "Accept edits", "on-request", "workspaceWrite"],
+    ["plan", "Plan", "never", "readOnly"],
   ]) {
     await select(value, label);
     const text = `fixture:complete permission-${value}`;
@@ -247,12 +258,17 @@ try {
     assert.equal(request.params.sandboxPolicy.networkAccess, false);
     if (sandbox === "workspaceWrite") assert.deepEqual(request.params.sandboxPolicy.writableRoots, [workspace]);
     assert.equal(Object.hasOwn(request.params, "codeDesktop"), false, "the Codex fixture gets no mode hint");
+    // The fixture reports no engine, so it is the Codex core, whose descriptor implies collaboration modes
+    // (cores/codex.mjs): main completes the Mode's native collaborationMode with the turn's model and effort.
+    assert.equal(request.params.collaborationMode?.mode, value === "plan" ? "plan" : "default", "the Codex core gets its native collaboration mode");
+    assert.ok(typeof request.params.collaborationMode.settings.model === "string" && request.params.collaborationMode.settings.model, "completed with a model");
+    assert.equal(request.params.collaborationMode.settings.developer_instructions, null);
   }
   const initialStart = (await requests()).find((request) => request.method === "thread/start");
   assert.equal(initialStart.params.approvalPolicy, "on-request");
   assert.equal(initialStart.params.sandbox, "workspace-write");
   assert.equal(initialStart.params.approvalsReviewer, "user");
-  checks.push("Real fixture thread/start and four turn/start requests retain Codex on-request/untrusted (Manual and Accept edits), workspaceWrite/readOnly, network=false and user reviewer mapping");
+  checks.push("Real fixture thread/start and four turn/start requests map a core without permission hints: Auto and Accept edits on-request, Manual untrusted, Plan never + readOnly, workspaceWrite/readOnly, network=false, user reviewer, and the Codex core's native collaborationMode (plan for Plan, default otherwise)");
 
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(800, 600));
   await openMenu();
@@ -274,7 +290,8 @@ try {
   await waitUntil(async () => (await requests()).slice(requestCountBeforeRestart)
     .some((request) => request.method === "thread/resume" && request.params.threadId === threadId), "Plan resume after restart");
   const resume = (await requests()).slice(requestCountBeforeRestart).find((request) => request.method === "thread/resume");
-  assert.equal(resume.params.approvalPolicy, "on-request");
+  // Plan on a core without permission hints is never + read-only on the thread too (permission-policy.mjs).
+  assert.equal(resume.params.approvalPolicy, "never");
   assert.equal(resume.params.sandbox, "read-only");
   assert.equal(resume.params.approvalsReviewer, "user");
   await openMenu();

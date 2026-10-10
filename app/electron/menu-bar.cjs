@@ -56,7 +56,7 @@ function createMenuBar({ Tray, Menu, nativeImage, app, iconPath, menuModel, getW
     }
     if (disposed || !tray || tray.isDestroyed()) return;
     const owned = owns(getClient(), identity());
-    const rows = menuModel.trayUsageRows({ account: getAccount(), limits: owned ? cache.limits : null, limitsFailed: owned && cache.failed }, app.getLocale());
+    const rows = menuModel.trayUsageRows({ account: getAccount(), limits: owned ? cache.limits : null, limitsFailed: owned && cache.failed }, menuModel.uiLocale?.() || app.getLocale());
     const template = menuModel.trayMenuTemplate({ appName: app.name, rows }).map(item =>
       item.id === 'show' ? { ...item, click: showApp } : item.id === 'quit' ? { ...item, click: () => app.quit() } : item);
     tray.popUpContextMenu(Menu.buildFromTemplate(template));

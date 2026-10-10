@@ -14,6 +14,8 @@ html[data-local-motion="reduce"] .source-spark.persona-spark { animation: none !
 .persona-field-input > input { flex: 1 1 auto; min-width: 0; }
 .persona-help { color: var(--cds-text-secondary); font-size: calc(13px * var(--cds-rem-scale, 1)); }
 .persona-help code { font-family: var(--cds-font-mono, ui-monospace, monospace); }
-.persona-icon-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.persona-icon-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-start; min-width: 0; max-width: 100%; }
 .persona-preview { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; flex: none; }
 .persona-preview .source-spark { width: 24px; height: 24px; }
+/* The icon picker (preview, segments, Choose image…) is in the row's below slot, so it never crowds the label or
+   scrolls Settings sideways; on a narrow window its controls wrap among themselves. */

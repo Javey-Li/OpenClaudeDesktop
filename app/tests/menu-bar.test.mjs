@@ -28,6 +28,15 @@ test('tray rows follow tOr/sOr: plan, peak usage, unavailable only without any s
   assert.deepEqual(trayUsageRows({account,limits:limits(90),limitsFailed:true},'en-US'),[]);
 });
 
+test('tray rows show a bridge sign-in name as it is, and only Codex plan ids as "{plan} plan"',()=>{
+ assert.deepEqual(labels(trayUsageRows({account:chatgpt('Z.ai Coding Plan'),limits:limits(40)},'en-US')),['Z.ai Coding Plan','Usage: 40%']);
+ assert.deepEqual(labels(trayUsageRows({account:chatgpt('OpenAI, GitHub Copilot'),limits:null},'en-US')),['OpenAI, GitHub Copilot']);
+ assert.deepEqual(labels(trayUsageRows({account:chatgpt('ChatGPT Pro/Plus'),limits:null},'en-US')),['ChatGPT Pro/Plus']);
+ // A Codex plan id the labels don't know yet still reads as a plan.
+ assert.deepEqual(labels(trayUsageRows({account:chatgpt('business_plus'),limits:null},'en-US')),['business plus plan']);
+ assert.deepEqual(labels(trayUsageRows({account:chatgpt('self_serve_business_prolite'),limits:null},'en-US')),['Business plan']);
+});
+
 test('menu template matches NOr with M5n separator collapsing',()=>{
  assert.deepEqual(labels(trayMenuTemplate({appName:'Code Desktop',rows:[]})),['Show App','---','Quit Code Desktop']);
  assert.deepEqual(labels(trayMenuTemplate({appName:'Code Desktop',rows:[{label:'Pro plan',enabled:false}]})),['Show App','---','Pro plan','---','Quit Code Desktop']);

@@ -30,10 +30,11 @@ test('a text tab renders the breadcrumb subheader and two numbered rows (no Back
   assert.match(viewer, /^<div data-file-viewer="" class="epitaxy-diff sfv-viewer">/);
   const rows = [...viewer.matchAll(/<div class="sfv-line" data-line="(\d+)"><span class="sfv-number" data-number="(\d+)" aria-hidden="true"><\/span><code class="scb-code source-diff-code">([^<]*)<\/code><\/div>/g)];
   assert.deepEqual(rows.map((row) => [row[1], row[2], row[3]]), [['1', '1', 'a\n'], ['2', '2', 'b\n']], 'exactly two numbered rows');
-  const button = markup.match(/<button type="button" class="sfv-path"[^>]*>/)[0];
-  assert.match(button, /aria-label="Copy path src\/app\.js"/);
-  assert.match(button, /title="\/tmp\/work\/src\/app\.js"/);
-  assert.match(markup, /<span data-file-breadcrumb="" class="sfv-breadcrumb"><span dir="ltr" class="sfv-breadcrumb-path"><span class="sfv-crumb sfv-crumb-dir">src<\/span><span class="sfv-crumb-separator">\/<\/span><span class="sfv-crumb sfv-crumb-name">app\.js<\/span><\/span><\/span>/);
+  // A local session's breadcrumb has a folder lister (Yo with a lister): a plain div whose segments open
+  // "Files in {folder}"; the copy-path button is the no-lister variant (SourceFileBreadcrumb without one).
+  const path = markup.match(/<div class="sfv-path" data-breadcrumb-lister=""[^>]*>/)[0];
+  assert.match(path, /title="\/tmp\/work\/src\/app\.js"/);
+  assert.match(markup, /<span data-file-breadcrumb="" class="sfv-breadcrumb"><span dir="ltr" class="sfv-breadcrumb-path"><button type="button" class="sfv-crumb sfv-crumb-button sfv-crumb-dir"[^>]*>src<\/button><span aria-hidden="true" class="sfv-crumb-separator">\/<\/span><button type="button" class="sfv-crumb sfv-crumb-button sfv-crumb-name"[^>]*>app\.js<\/button><\/span><\/span>/);
   assert.match(markup, /<div class="epitaxy-panel-subheader sfv-subheader">/);
   assert.doesNotMatch(markup, /Back to files|source-file-location|Opening file…|source-panel-error/);
   // The scroller is the .source-file-preview element; its text is the file.
@@ -57,11 +58,11 @@ test('a chip line range marks rows line..endLine with data-active and the scroll
 test('loading, unavailable, binary and empty bodies keep the breadcrumb subheader', () => {
   const loading = panel({ view: filesView({ path: 'src/app.js', preview: true }) });
   assert.match(loading, /<span role="status" aria-label="Loading file" class="leading-\[0\]">/);
-  assert.match(loading, /aria-label="Copy path src\/app\.js"/);
+  assert.match(loading, /data-breadcrumb-lister="" title="\/tmp\/work\/src\/app\.js"/);
   const missing = panel({ view: filesView({ path: 'src/missing.js', unavailable: 'missing' }) });
   assert.match(missing, /<div role="alert" class="flex h-full flex-col items-center justify-center gap-md px-lg py-lg text-center source-empty-state">/);
   assert.match(text(missing), /Couldn’t find this fileIt may have been deleted or moved\.src\/missing\.js/);
-  assert.match(missing, /aria-label="Copy path src\/missing\.js"/);
+  assert.match(missing, /data-breadcrumb-lister="" title="\/tmp\/work\/src\/missing\.js"/);
   const binary = panel({ view: filesView({ path: 'img.bin', unavailable: 'binary' }) });
   assert.match(text(binary), /This file looks like binary data and can’t be previewed as text\./);
   assert.match(binary, /<button data-step="1" type="button" data-cds="Button" data-variant="secondary"[^>]*>.*View as text anyway/);
@@ -71,7 +72,8 @@ test('loading, unavailable, binary and empty bodies keep the breadcrumb subheade
   assert.doesNotMatch(empty, /data-file-viewer/);
   const outside = panel({ view: filesView({ path: '/etc/hosts', unavailable: 'outside_root' }) });
   assert.match(text(outside), /This file is outside the working directoryIt can’t be opened here, but it may still exist on disk\./);
-  assert.match(outside, /aria-label="Copy path \/etc\/hosts" title="\/etc\/hosts"/);
+  assert.match(outside, /data-breadcrumb-lister="" title="\/etc\/hosts"/);
+  assert.doesNotMatch(outside, /data-breadcrumb-segment/, 'a path outside the workspace lists nothing');
 });
 
 test('the plain-text notice appears only for a highlightable file above the highlighter limits', () => {

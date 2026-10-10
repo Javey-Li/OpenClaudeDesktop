@@ -36,12 +36,12 @@ test("code targets: block, inline path and inline code labels; a link suppresses
 });
 
 test("links: only listed protocols count, only http(s) open in the browser", () => {
-  assert.deepEqual(linkTarget("https://example.com"), { linkHref: "https://example.com", canOpenInBrowser: true });
-  assert.deepEqual(linkTarget("mailto:a@example.com"), { linkHref: "mailto:a@example.com", canOpenInBrowser: false });
-  assert.deepEqual(linkTarget("javascript:alert(1)"), { linkHref: null, canOpenInBrowser: false });
-  assert.deepEqual(linkTarget("file:///etc/hosts"), { linkHref: null, canOpenInBrowser: false });
-  assert.deepEqual(linkTarget("not a url"), { linkHref: null, canOpenInBrowser: false });
-  assert.deepEqual(linkTarget(null), { linkHref: null, canOpenInBrowser: false });
+  assert.deepEqual(linkTarget("https://example.com"), { linkHref: "https://example.com", canOpenInBrowser: true, canOpenInPreview: false });
+  assert.deepEqual(linkTarget("mailto:a@example.com"), { linkHref: "mailto:a@example.com", canOpenInBrowser: false, canOpenInPreview: false });
+  assert.deepEqual(linkTarget("javascript:alert(1)"), { linkHref: null, canOpenInBrowser: false, canOpenInPreview: false });
+  assert.deepEqual(linkTarget("file:///etc/hosts"), { linkHref: null, canOpenInBrowser: false, canOpenInPreview: false });
+  assert.deepEqual(linkTarget("not a url"), { linkHref: null, canOpenInBrowser: false, canOpenInPreview: false });
+  assert.deepEqual(linkTarget(null), { linkHref: null, canOpenInBrowser: false, canOpenInPreview: false });
   assert.deepEqual(shape(messageMenu({ selectionText: "a b", ...linkTarget("mailto:a@example.com"), messageText: "m" })),
     ["Copy [cmd+c]", "Copy link", "---", "Copy message", "Copy message as Markdown"]);
 });

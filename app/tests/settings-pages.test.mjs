@@ -135,3 +135,55 @@ test('Runtime measures the core codex.cjs resolveCore runs: the DeepSeek Harness
   assert.deepEqual(report.areas.find(item => item.id === 'runtime').kinds, [{ id: 'core', label: 'Codex', bytes: 7 }]);
   assert.equal(report.areas.find(item => item.id === 'runtime').versionCount, 1);
 });
+
+// Each core says where it keeps a session (descriptor sessionStore): Qwen and Gemini chats count as this app's history;
+// a core with one session database reports its history unmeasured and the database as an outside kind.
+test('Storage follows the running core’s session layout: Qwen and Gemini chat files, database cores unmeasured', async t => {
+  const { coreById } = await import('../electron/core-registry.mjs');
+  const root = await fixture(t), userData = path.join(root, 'profile'), id = '0bcf06d8-2b01-4cf6-bdcf-3ebefe3f94c1', foreign = '1095ef1c-1df0-4c71-ad5e-21f72885873e';
+  await fs.mkdir(userData);
+  const qwen = path.join(root, 'qwen');
+  await write(path.join(qwen, 'projects', '-Users-me-project', 'chats', `${id}.jsonl`), '12345');
+  await write(path.join(qwen, 'projects', '-Users-me-project', 'chats', `${foreign}.jsonl`), '12');
+  await write(path.join(qwen, 'settings.json'), '1');
+  const q = await storageReport({ userData, codexHome: qwen, coreName: 'Qwen Code', threadIds: [id], sessionStore: coreById('qwen').sessionStore });
+  assert.deepEqual(kinds(area(q, 'code')), { history: 5, worktrees: 0, otherHistory: 3 });
+  assert.equal(area(q, 'code').bytes, 5); assert.equal(area(q, 'code').historyUnmeasured, undefined);
+  const gemini = path.join(root, 'gemini');
+  await write(path.join(gemini, 'tmp', 'project', 'chats', `session-2026-09-20T10-00-${id.slice(0, 8)}.jsonl`), '1234');
+  await write(path.join(gemini, 'tmp', 'project', 'chats', id, 'sub.jsonl'), '12');
+  await write(path.join(gemini, 'tmp', 'project', id, 'plans', 'plan.md'), '1');
+  await write(path.join(gemini, 'tmp', 'project', 'chats', `session-2026-09-20T11-00-${foreign.slice(0, 8)}.jsonl`), '123456');
+  await write(path.join(gemini, 'settings.json'), '1');
+  const g = await storageReport({ userData, codexHome: gemini, coreName: 'Gemini CLI', threadIds: [id], sessionStore: coreById('gemini').sessionStore });
+  assert.deepEqual(kinds(area(g, 'code')), { history: 7, worktrees: 0, otherHistory: 7 });
+  const kimi = path.join(root, 'kimi');
+  await write(path.join(kimi, 'sessions', 'wd-hash', id, 'agents', 'main', 'wire.jsonl'), '123');
+  await write(path.join(kimi, 'sessions', 'wd-hash', foreign, 'agents', 'main', 'wire.jsonl'), '1');
+  const k = await storageReport({ userData, codexHome: kimi, coreName: 'Kimi Code', threadIds: [id], sessionStore: coreById('kimi').sessionStore });
+  assert.deepEqual(kinds(area(k, 'code')), { history: 3, worktrees: 0, otherHistory: 1 });
+  // ZCode: every session in ~/.zcode/cli/db (below its home); OpenCode: its data folder outside the bridge state.
+  const zcode = path.join(root, 'zcode');
+  await write(path.join(zcode, 'cli', 'db', 'db.sqlite'), '1234567890');
+  await write(path.join(zcode, 'cli', 'config.json'), '12');
+  const z = await storageReport({ userData, codexHome: zcode, coreName: 'ZCode', threadIds: [id], sessionStore: coreById('zcode').sessionStore });
+  assert.deepEqual(kinds(area(z, 'code')), { history: 0, worktrees: 0, sharedHistory: 10, otherHistory: 2 });
+  assert.equal(area(z, 'code').historyUnmeasured, true); assert.equal(area(z, 'code').bytes, 0);
+  const shared = area(z, 'code').kinds.find((kind) => kind.id === 'sharedHistory');
+  assert.deepEqual([shared.outside, shared.shared, shared.template, shared.values], [true, true, 'All {core} history, including these sessions', { core: 'ZCode' }]);
+  assert.equal(area(z, 'code').kinds[0].unmeasured, true);
+  const home = path.join(root, 'home'), state = path.join(root, 'opencode-state');
+  await write(path.join(home, '.local', 'share', 'opencode', 'opencode.db'), '123456');
+  await write(path.join(state, 'overlay.json'), '1');
+  const o = await storageReport({ userData, codexHome: state, coreName: 'OpenCode', threadIds: [id], sessionStore: coreById('opencode').sessionStore, userHome: home });
+  assert.deepEqual(kinds(area(o, 'code')), { history: 0, worktrees: 0, sharedHistory: 6, otherHistory: 1 });
+  assert.equal(JSON.stringify([q, g, z, o]).includes(root), false, 'no paths reach the renderer');
+});
+
+test('sessionStore from a descriptor or an Extension Pack is checked before it is used', () => {
+  const { cleanSessionStore } = pages;
+  assert.deepEqual(cleanSessionStore({ files: ['projects/*/chats/<id>.jsonl', '../escape/<id>', '/abs/<id>', '~/x', 7] }), { files: ['projects/*/chats/<id>.jsonl'] });
+  assert.deepEqual(cleanSessionStore({ database: 'cli/db' }), { database: 'cli/db' });
+  assert.deepEqual(cleanSessionStore({ database: '~/.local/share/opencode' }), { database: '~/.local/share/opencode' });
+  for (const bad of [{ database: '/etc' }, { database: '~/../x' }, { database: 'a/../../b' }, { files: [] }, 'sessions', null]) assert.equal(cleanSessionStore(bad), null, JSON.stringify(bad));
+});

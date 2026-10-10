@@ -27,10 +27,11 @@ try{
  metrics.context=await page.locator('.sc-context-row').evaluate(node=>({paddingBottom:getComputedStyle(node).paddingBottom,addFolderWidth:node.querySelector('.sc-add-folder').getBoundingClientRect().width,chipToCardGap:document.querySelector('.sc-surface').getBoundingClientRect().top-node.querySelector('.sc-context-chip').getBoundingClientRect().bottom}));
  assert.deepEqual(metrics.context,{paddingBottom:'4px',addFolderWidth:28,chipToCardGap:10});
  const editor=page.getByRole('textbox',{name:'Message DeepSeek'});
- await editor.fill(Array.from({length:20},(_,i)=>`Draft line ${i+1}`).join('\n'));
- assert.equal(await editor.evaluate(node=>node.getBoundingClientRect().height),190);
+ await editor.fill(Array.from({length:30},(_,i)=>`Draft line ${i+1}`).join('\n'));
+ // CDS editor qc max-h-96 (source-composer.jsx): grows to 24rem before it scrolls.
+ assert.equal(await editor.evaluate(node=>node.getBoundingClientRect().height),384);
  await editor.fill('');assert.equal(await editor.evaluate(node=>node.getBoundingClientRect().height),24);
- checks.push('source chin height 20px, Add 20px/16px glyph, no dictation control (hideDictation branch) so Mode directly follows Add, and one autosize owner clamps the editor to 24–190px');
+ checks.push('source chin height 20px, Add 20px/16px glyph, no dictation control (hideDictation branch) so Mode directly follows Add, and one autosize owner clamps the editor to 24–384px (max-h-96)');
  await page.getByRole('button',{name:'Model',exact:true}).click();
  const modelMenu=page.getByRole('menu',{name:'Models',exact:true}); await modelMenu.waitFor();
  assert.equal(await modelMenu.locator('[aria-checked="true"]').getAttribute('data-model-id'),'fixture');
@@ -72,7 +73,7 @@ try{
  await page.getByRole('tab',{name:'Models',exact:true}).click();await page.getByText('No model usage in this range').waitFor();await page.getByRole('tab',{name:'Overview',exact:true}).click();
  await page.getByRole('button',{name:'What’s new',exact:true}).click();const releaseNotes=page.getByRole('dialog',{name:'What’s new',exact:true});await releaseNotes.waitFor();/* R03: the shared Dialog's bleed header Close (titlebar-release-notes.js B). */await releaseNotes.getByRole('button',{name:'Close',exact:true}).click();await releaseNotes.waitFor({state:'detached'});checks.push('local release notes');
  await page.getByRole('button',{name:'Account menu'}).click();await page.getByRole('menuitem',{name:/Settings/}).click();await page.getByRole('radio',{name:'Dark',exact:true}).click();await page.waitForFunction(()=>document.documentElement.dataset.mode==='dark');assert.equal(await page.locator('html').getAttribute('data-mode'),'dark');await page.getByRole('dialog',{name:'Settings',exact:true}).getByRole('button',{name:'Close',exact:true}).click();await page.screenshot({path:path.join(evidence,'code-source-dark.png')});
- await page.getByRole('button',{name:'Account menu'}).click();await page.getByRole('menuitem',{name:'Light appearance',exact:true}).click();
+ {const settingsDialog=page.getByRole('dialog',{name:'Settings',exact:true});if(await settingsDialog.count()){await page.keyboard.press('Escape');await settingsDialog.waitFor({state:'detached'});}}await page.evaluate(theme=>window.desktop.call('settings',{theme}),'light');await page.waitForFunction(()=>document.documentElement.dataset.mode==='light');/* no appearance items in the account menu (Claude parity) */
  await page.getByRole('separator',{name:'Resize sidebar'}).focus();await page.keyboard.press('ArrowRight');assert.equal(await page.locator('.app-sidebar').evaluate(e=>e.getBoundingClientRect().width),296);await page.keyboard.press('ArrowLeft');checks.push('appearance and keyboard sidebar resize');
  await page.locator('body').click({position:{x:600,y:400}}); await page.screenshot({path:path.join(evidence,'code-source-light.png')});
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(800,600));

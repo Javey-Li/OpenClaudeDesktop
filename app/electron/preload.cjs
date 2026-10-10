@@ -4,8 +4,15 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 // nativeTheme. A failure leaves the renderer on its media-query fallback.
 let appearance = null;
 try { appearance = ipcRenderer.sendSync("desktop:appearance") ?? null; } catch {}
+// Electron prefixes every rejection with its transport ("Error invoking remote method 'desktop:call': Error: …"):
+// unwrapped here, once, so no component ever shows it (src/action-error-model.mjs cleanErrorReason, the same pattern).
+const IPC_PREFIX = /^Error invoking remote method '[^']+': (?:Error: )?/gm;
+const unwrapped = (promise) => promise.catch((error) => {
+  const message = String(error?.message ?? error ?? "").replace(IPC_PREFIX, "");
+  throw new Error(message);
+});
 contextBridge.exposeInMainWorld("desktop", {
-  call: (action, params) => ipcRenderer.invoke("desktop:call", action, params),
+  call: (action, params) => unwrapped(ipcRenderer.invoke("desktop:call", action, params)),
   appearance,
   // Finder drops arrive as File objects; only the main process may stat them.
   pathForFile: (file) => { try { return webUtils.getPathForFile(file) || ""; } catch { return ""; } },
@@ -13,5 +20,16 @@ contextBridge.exposeInMainWorld("desktop", {
     const listener = (_e, event) => handler(event);
     ipcRenderer.on("desktop:event", listener);
     return () => ipcRenderer.removeListener("desktop:event", listener);
+  },
+  // Built-in terminal pane (terminal-service.cjs): requests, fire-and-forget keystrokes and the output/state events,
+  // on their own channels so terminal output never passes through the app's desktop:event reducer.
+  terminal: {
+    call: (op, params) => unwrapped(ipcRenderer.invoke("terminal:call", String(op), params ?? {})),
+    write: (id, data) => { if (typeof id === "string" && typeof data === "string") ipcRenderer.send("terminal:write", id, data); },
+    onEvent: (handler) => {
+      const listener = (_e, event) => handler(event);
+      ipcRenderer.on("terminal:event", listener);
+      return () => ipcRenderer.removeListener("terminal:event", listener);
+    },
   },
 });

@@ -480,7 +480,7 @@ try {
 
   // 2.2553.1 Mh: "Resize {i} and {i+1}".
   const divider = page.getByRole("separator", {
-    name: "Resize 1 and 2",
+    name: /^Resize Chat and /,
     exact: true,
   });
   await divider.focus();

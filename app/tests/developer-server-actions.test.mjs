@@ -1,3 +1,5 @@
+import { registerCodexPack } from './codex-pack.mjs';
+registerCodexPack();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canRemoveDeveloperServer, removeDeveloperServer } from '../src/developer-server-actions.mjs';
@@ -22,12 +24,40 @@ test('confirmed removal uses the production RPC adapter and awaits refresh after
   const backend = operations.createCustomizeOperations({ getClient: () => client, getConfig: () => ({}), knownCwd: cwd => cwd });
   let prompt = '';
   const result = await removeDeveloperServer('local', { confirm: message => { prompt = message; return true; }, call: backend.run,
-    refresh: async () => { events.push('refresh'); } });
+    refresh: async () => { events.push('refresh'); }, core: { engine: 'deepseek-harness' } });
   assert.equal(result, true); assert.match(prompt, /“local”/); assert.match(prompt, /DeepSeek Harness configuration/);
   assert.deepEqual(events, [
     { method: 'config/batchWrite', params: { edits: [{ keyPath: 'mcp_servers.local', value: null, mergeStrategy: 'replace' }], reloadUserConfig: true } },
     { method: 'config/mcpServer/reload', params: {} }, 'refresh',
   ]);
+});
+
+test('the confirm names the running core’s configuration, never a fixed DeepSeek Harness', async () => {
+  const { removeDeveloperServerPrompt } = await import('../src/developer-server-actions.mjs');
+  const { setLocale, setAssistantName } = await import('../electron/i18n/index.mjs');
+  for (const [core, name] of [['deepseek', 'DeepSeek Harness'], [{ engine: 'deepseek-harness' }, 'DeepSeek Harness'], [{}, 'Codex'], ['codex', 'Codex'],
+    [{ engine: 'zcode' }, 'ZCode'], ['opencode', 'OpenCode'], ['mimo', 'MiMo Code']])
+    assert.match(removeDeveloperServerPrompt('local', core), new RegExp(`This changes the ${name} configuration\\.`), JSON.stringify(core));
+  // A caller without boot.core (Settings › Developer before any core reports) gets the core this window runs, so the
+  // DeepSeek core keeps its exact wording; only an assistant no core owns gets the neutral copy.
+  try {
+    for (const [assistant, expected] of [['DeepSeek', /This changes the DeepSeek Harness configuration\./], ['Codex', /This changes the Codex configuration\./],
+      ['GLM', /This changes the ZCode configuration\./], ['Acme', /This changes the agent core’s configuration\./]]) {
+      setAssistantName(assistant);
+      for (const core of [undefined, null, '']) {
+        const prompt = removeDeveloperServerPrompt('local', core);
+        assert.match(prompt, /“local”/); assert.match(prompt, expected, `${assistant} ${core}`);
+      }
+    }
+    setAssistantName('Codex');
+    let shown = '';
+    await removeDeveloperServer('local', { confirm: message => { shown = message; return false; }, call() {}, refresh() {} });
+    assert.match(shown, /Codex configuration/); assert.doesNotMatch(shown, /DeepSeek/);
+  } finally { setAssistantName('DeepSeek'); }
+  let asked = '';
+  await removeDeveloperServer('local', { confirm: message => { asked = message; return false; }, call() {}, refresh() {}, core: { engine: 'zcode' } });
+  assert.match(asked, /ZCode configuration/);
+  try { setLocale('zh-CN'); assert.match(removeDeveloperServerPrompt('local', 'codex'), /这会更改 Codex 配置/); } finally { setLocale('en-US'); }
 });
 
 test('a write/reload error still refreshes and remains visible even if the refresh also fails', async () => {

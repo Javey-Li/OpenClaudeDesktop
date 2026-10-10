@@ -58,3 +58,22 @@
   font-size: var(--_prose-h4-size);
   line-height: var(--_prose-h4-leading);
 }
+
+/* A task's own state beyond done / in progress (MiMo: abandoned, blocked): a small muted tag, never struck through. */
+.source-plan-step-state { display: inline-block; margin-inline-start: 6px; padding: 0 6px; border-radius: 999px; background: var(--cds-fill-ghost-hover); color: var(--cds-text-muted); font-size: var(--cds-font-size-footnote, 12px); text-decoration: none; }
+/* Plan comments (panes-tile-current.js:1600-1700): the hint, the Comment button under a selection, the comment
+   editor and the list below the plan. Theme tokens only; no motion. */
+.source-plan > .mx-auto { position: relative; }
+.spp-comment-hint { margin: 0 0 var(--cds-gap-md, 12px); font-size: var(--cds-font-size-footnote, 12px); line-height: var(--cds-leading-footnote, 16px); color: var(--cds-text-muted); }
+.spp-comment-start { position: absolute; z-index: 2; box-shadow: var(--cds-shadow-md, 0 4px 12px #0002); }
+.spp-comment-editor { display: flex; flex-direction: column; gap: var(--cds-gap-sm, 8px); padding: var(--cds-pad-md, 8px); border: 1px solid var(--cds-border); border-radius: 8px; background: var(--cds-surface-1); }
+.spp-comment-editor[style] { position: absolute; z-index: 3; box-shadow: var(--cds-shadow-md, 0 4px 12px #0002); }
+.spp-comment-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 6px 8px; border: 1px solid var(--cds-border); border-radius: 6px; background: var(--cds-page-bg, var(--cds-surface-1)); color: var(--cds-text-primary); font: inherit; font-size: var(--cds-font-size-body, 13px); }
+.spp-comment-editor textarea:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
+.spp-comment-quote { margin: 0; padding: 2px 8px; border-left: 2px solid var(--cds-border-strong, var(--cds-border)); color: var(--cds-text-secondary); font-size: var(--cds-font-size-footnote, 12px); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 96px; overflow: auto; }
+.spp-comment-actions { display: flex; justify-content: flex-end; gap: var(--cds-gap-xs, 4px); }
+.spp-comments { margin-top: var(--cds-pad-lg, 16px); display: flex; flex-direction: column; gap: var(--cds-gap-sm, 8px); }
+.spp-comments h2 { margin: 0; }
+.spp-comment { display: flex; flex-direction: column; gap: 4px; padding: var(--cds-pad-md, 8px); border-radius: 8px; background: var(--cds-alpha-1); }
+.spp-comment-text { margin: 0; color: var(--cds-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.spp-comments-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cds-gap-sm, 8px); font-size: var(--cds-font-size-footnote, 12px); }

@@ -243,7 +243,7 @@ try {
   checks.push("F07 described delegation: 'Auditing the login flow' while running (secondary model, no name), 'Audited the login flow' when done with the muted model still shown");
   await page.emulateMedia({reducedMotion:'reduce'});
   await page.screenshot({path:path.join(directory,'completed-light.png')});
-  await page.getByRole('button',{name:'Account menu',exact:true}).click();await page.getByRole('menuitem',{name:'Dark appearance',exact:true}).click();
+  await page.evaluate(()=>{document.documentElement.dataset.mode='dark';}); // no appearance row in the account menu (shared-21 $B)
   await page.waitForFunction(()=>document.documentElement.dataset.mode==='dark');
   await page.screenshot({path:path.join(directory,'completed-dark.png')});
   assert.deepEqual(rendererErrors,[]);

@@ -1,0 +1,54 @@
+/* Vpe card (ion-dist c425fb3cf): mt-pad-xs, L = flex w-full select-text flex-col gap-1 rounded-lg px-md py-xs
+   shadow-[inset_0_0_0_1px_var(--cds-border)]. */
+.ste-edits.ste-edits.source-message {
+  display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; width: 100%; max-width: 100%;
+  margin-top: var(--cds-pad-xs, 4px); padding: var(--cds-pad-xs, 4px) var(--cds-pad-md, 8px);
+  border-radius: var(--radius-lg, .5rem); box-shadow: inset 0 0 0 1px var(--cds-border);
+  font-size: var(--cds-font-size-body); line-height: var(--cds-leading-body); color: var(--cds-text-primary);
+  user-select: text; -webkit-user-select: text;
+}
+/* Header: ee = -mr-0.5 flex min-w-0 items-center gap-1 with Undo / View changes, else R = flex min-w-0 items-center gap-1. */
+.ste-header { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ste-header-actions { margin-inline-end: -2px; }
+.ste-label { flex-shrink: 0; color: var(--cds-text-primary); }
+.ste-grow { flex: 1 1 auto; min-width: 0; }
+/* Undo: ghost xxs, text-muted hover:text-secondary text-footnote; View changes: secondary xxs, text-footnote text-secondary. */
+.ste-edits .ste-undo, .ste-edits .ste-view { flex-shrink: 0; font-size: var(--cds-font-size-footnote, 12px); }
+.ste-edits .ste-undo { color: var(--cds-text-muted); }
+.ste-edits .ste-undo:hover { color: var(--cds-text-secondary); }
+.ste-edits .ste-view { color: var(--cds-text-secondary); }
+/* z: -mx-[calc(var(--cds-pad-md)-1px)] h-px shrink-0 bg-alpha-2 (edge to edge inside the 1px ring). */
+.ste-separator { flex-shrink: 0; height: 1px; margin-inline: calc((var(--cds-pad-md, 8px) - 1px) * -1); background: var(--cds-alpha-2); }
+/* B: ul role=list flex w-full min-w-0 flex-col; each li flex min-w-0. */
+.ste-list { display: flex; flex-direction: column; width: 100%; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.ste-list-item { display: flex; min-width: 0; }
+/* V = -mx-pad-xs flex min-w-0 items-center rounded-[5px] px-xs py-xs text-left hover:bg-fill-ghost-hover focus-visible:shadow-focus;
+   H (list rows) adds grow gap-md, U (the single-file header) grow gap-1. */
+.ste-file-row {
+  display: flex; flex: 1 1 auto; align-items: center; gap: var(--cds-gap-md, 12px); min-width: 0;
+  margin: 0 calc(var(--cds-pad-xs, 4px) * -1); padding: var(--cds-pad-xs, 4px);
+  border: 0; border-radius: 5px; outline: none; background: transparent; color: inherit; font: inherit; text-align: left;
+  transition: background-color var(--cds-dur-fast, 60ms) ease-out;
+}
+.ste-file-row:hover { background: var(--cds-fill-ghost-hover); }
+.ste-file-row:focus-visible { box-shadow: var(--cds-focus-shadow); }
+.ste-file-row-header { gap: 4px; }
+/* x8 without an opener: Rpe (list) flex min-w-0 grow items-center gap-md py-xs, zpe (header) gap-1 py-xs. */
+.ste-file-static { display: flex; flex: 1 1 auto; align-items: center; gap: var(--cds-gap-md, 12px); min-width: 0; padding-block: var(--cds-pad-xs, 4px); }
+.ste-file-static-header { flex: 0 1 auto; gap: 4px; }
+/* b8: flex min-w-0 items-center gap-1, icon size xs shrink-0 text-muted, name min-w-0 truncate text-body text-primary. */
+.ste-file-name-wrap { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ste-file-icon { flex-shrink: 0; color: var(--cds-text-muted); }
+.ste-file-name { min-width: 0; overflow: hidden; color: var(--cds-text-primary); text-overflow: ellipsis; white-space: nowrap; }
+/* y8: flex shrink-0 items-center gap-0.5 text-body tabular-nums, the sans font. */
+.ste-counts { display: inline-flex; flex-shrink: 0; align-items: center; gap: 2px; font-size: var(--cds-font-size-body); font-variant-numeric: tabular-nums; }
+.ste-adds { color: var(--cds-text-git-added, var(--cds-text-success)); }
+.ste-dels { color: var(--cds-text-git-removed, var(--cds-text-danger)); }
+/* Lpe / $v: shrink-0 text-secondary, CaretRight 14px (rotate-90 while expanded, duration-fast). */
+.ste-caret { display: inline-flex; flex-shrink: 0; color: var(--cds-text-secondary); }
+.ste-more { gap: var(--cds-gap-md, 12px); }
+.ste-more-label { min-width: 0; overflow: hidden; color: var(--cds-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.ste-more-caret { transition: transform var(--cds-dur-fast, 60ms); }
+.ste-more-caret[data-expanded] { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .ste-more-caret, .ste-file-row { transition: none; } }
+html[data-reduce-motion="true"] .ste-more-caret, html[data-reduce-motion="true"] .ste-file-row { transition: none; }

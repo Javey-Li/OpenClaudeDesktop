@@ -1,11 +1,52 @@
+import { registerCodexPack } from './codex-pack.mjs';
+registerCodexPack();
 import test from 'node:test';import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';
 import {settingsSearch,sandboxFacts,mcpStatus,desktopErrors,DEEPSEEK_SANDBOX_REASON} from '../src/settings-model.mjs';
 import {configReadResponse} from '../../harness/packages/codex-app-server/src/catalog.js';
 import desktop from '../electron/desktop-settings.cjs';
 const {desktopPatch,createDesktopSettings,desktopPreferences,defaults:desktopDefaults}=desktop;
 test('settings search ranks whole labels, word starts and fragments, without returning unsupported rows',()=>{const sections=[{id:'code',label:'Code'},{id:'general',label:'General'}],groups=[{tab:'code',rows:[{id:'awake',label:'Keep computer awake'},{id:'fast',label:'Fast mode'}]}];assert.equal(settingsSearch(sections,groups,'fast')[0].id,'fast');assert.equal(settingsSearch(sections,groups,'keep awake')[0].id,'awake');assert.equal(settingsSearch(sections,groups,'code')[0].tab,'code');assert.deepEqual(settingsSearch(sections,groups,'billing'),[]);assert.equal(settingsSearch(sections,groups,'').length,2);});
-test('sandbox only reports management from real requirements or relevant origins',()=>{assert.equal(sandboxFacts(null,null).mode,null);assert.equal(sandboxFacts({config:{sandbox_mode:'read-only'},origins:{model:{name:{type:'mdm'}}}},{}).reason,'Managed by DeepSeek');assert.equal(sandboxFacts({config:{sandbox_mode:'workspace-write'}},{requirements:{allowedSandboxModes:['workspace-write']}}).reason,'Managed by your organization');assert.equal(sandboxFacts({config:{sandbox_mode:'danger-full-access',approval_policy:'never'}},{}).bypass,true);assert.equal(mcpStatus({runtimeStatus:'connected'}),'Running');assert.equal(mcpStatus({runtimeStatus:'connected',toolsError:'failed discovery'}),'Failed');assert.equal(mcpStatus({runtimeStatus:null}),'Status unavailable');});
-test('DeepSeek sandbox row reads the bridge config/read with the Mode-menu reason; Codex keeps its wording',()=>{const bridge=configReadResponse({mcpEntries:[{options:{id:'gh',name:'@deepseek-ai/dsh-mcp-client',config:{serverName:'gh',transport:'stdio',command:'npx',args:['-y','x'],env:{TOKEN:'secret'}}}}]});const facts=sandboxFacts(bridge,{requirements:null},{engine:'deepseek'});assert.equal(facts.mode,'workspace-write');assert.equal(facts.reason,DEEPSEEK_SANDBOX_REASON);assert.equal(facts.reason,'Set per session with the Mode menu (DeepSeek Harness permission presets).');assert.equal(facts.bypass,false);assert.equal(sandboxFacts(bridge,{requirements:null}).reason,'Managed by DeepSeek');assert.equal(sandboxFacts(null,null,{engine:'deepseek'}).mode,null);assert.equal(sandboxFacts(bridge,{requirements:{allowedSandboxModes:['read-only']}},{engine:'deepseek'}).reason,'Managed by your organization');});
+test('sandbox only reports management from real requirements or relevant origins',()=>{assert.equal(sandboxFacts(null,null).mode,null);assert.equal(sandboxFacts({config:{sandbox_mode:'read-only'},origins:{model:{name:{type:'mdm'}}}},{}).reason,'The Mode menu sets this for each message, overriding your Codex configuration. Choose Bypass permissions for full access.');assert.equal(sandboxFacts({config:{sandbox_mode:'workspace-write'}},{requirements:{allowedSandboxModes:['workspace-write']}}).reason,'Managed by your organization');assert.equal(sandboxFacts({config:{sandbox_mode:'danger-full-access',approval_policy:'never'}},{}).bypass,true);assert.equal(mcpStatus({runtimeStatus:'connected'}),'Running');assert.equal(mcpStatus({runtimeStatus:'connected',toolsError:'failed discovery'}),'Failed');assert.equal(mcpStatus({runtimeStatus:null}),'Status unavailable');});
+test('DeepSeek sandbox row reads the bridge config/read with the Mode-menu reason; Codex names itself',()=>{const bridge=configReadResponse({mcpEntries:[{options:{id:'gh',name:'@deepseek-ai/dsh-mcp-client',config:{serverName:'gh',transport:'stdio',command:'npx',args:['-y','x'],env:{TOKEN:'secret'}}}}]});const facts=sandboxFacts(bridge,{requirements:null},{engine:'deepseek'});assert.equal(facts.mode,'workspace-write');assert.equal(facts.reason,DEEPSEEK_SANDBOX_REASON);assert.equal(facts.reason,'Set per session with the Mode menu (DeepSeek Harness permission presets).');assert.equal(facts.bypass,false);assert.equal(sandboxFacts(bridge,{requirements:null}).reason,'The Mode menu sets this for each message, overriding your Codex configuration. Choose Bypass permissions for full access.');assert.equal(sandboxFacts(null,null,{engine:'deepseek'}).mode,null);assert.equal(sandboxFacts(bridge,{requirements:{allowedSandboxModes:['read-only']}},{engine:'deepseek'}).reason,'Managed by your organization');});
+// Audit 11/19/39/61/83: the reason and mode name the running core (descriptor), never a fixed DeepSeek, in both languages.
+test('sandbox row copy names the running core on every core',async()=>{
+ const {setAssistantName,setLocale}=await import('../electron/i18n/index.mjs');
+ const {registerCores,coreById,coreForEngine,coreCapabilities}=await import('../electron/core-registry.mjs');
+ const config=mode=>({config:{sandbox_mode:mode,approval_policy:'on-request'}});
+ try{
+  for(const name of ['Codex','GLM']){setAssistantName(name);
+   // Codex: config/read reports no sandbox_mode; the app sets it per turn from the Mode menu.
+   assert.deepEqual([sandboxFacts(config(null),null,{engine:'codex'}).reason,sandboxFacts(config(null),null,{engine:'codex'}).mode],['Set per session with the Mode menu.','Per session']);
+   assert.equal(sandboxFacts(config('read-only'),null,{engine:'codex'}).reason,'The Mode menu sets this for each message, overriding your Codex configuration. Choose Bypass permissions for full access.');
+   assert.equal(sandboxFacts(config('read-only'),null,{engine:'codex'}).mode,'read-only');
+   // Bridges that sandbox commands (Seatbelt) get the Mode-menu reason; one whose descriptor or reported
+   // capabilities say sandbox: false gets "None" (keyed on the registry, so this holds before and after a core declares it).
+   for(const engine of ['zcode','opencode','mimo','kimi',{engine:'zcode'}]){const id=typeof engine==='string'?engine:engine.engine,unsandboxed=coreForEngine(id).sandbox===false||coreCapabilities(engine).sandbox===false,facts=sandboxFacts(config('workspace-write'),null,{engine});
+    assert.deepEqual([facts.reason,facts.mode],unsandboxed?[`${coreForEngine(id).name} doesn’t sandbox commands. The Mode menu sets which ones need your approval.`,'None']:['Set per session with the Mode menu.','workspace-write'],JSON.stringify(engine));}
+   for(const [engine,core] of [['codex','Codex'],['zcode','ZCode'],['opencode','OpenCode'],['deepseek','DeepSeek Harness']])assert.equal(sandboxFacts(null,null,{engine}).reason,`${core} configuration is unavailable.`);
+   for(const engine of ['codex','zcode','opencode','mimo'])for(const result of [config(null),config('workspace-write'),null])assert.doesNotMatch(sandboxFacts(result,null,{engine}).reason,/DeepSeek/,engine);
+  }
+  // A core without a sandbox (descriptor or reported sandbox: false) says so instead of echoing a synthetic mode.
+  registerCodexPack([{...coreById('zcode'),sandbox:false}]);
+  const none=sandboxFacts(config('workspace-write'),null,{engine:'zcode'});
+  assert.deepEqual([none.reason,none.mode],['ZCode doesn’t sandbox commands. The Mode menu sets which ones need your approval.','None']);
+  registerCodexPack([]);
+  assert.equal(sandboxFacts(config('workspace-write'),null,{engine:{engine:'opencode',capabilities:{sandbox:false}}}).mode,'None');
+  setLocale('zh-CN');setAssistantName('Codex');
+  for(const result of [config(null),config('read-only'),null])assert.doesNotMatch(sandboxFacts(result,null,{engine:'codex'}).reason,/DeepSeek/);
+  assert.match(sandboxFacts(config('read-only'),null,{engine:'codex'}).reason,/Codex/);
+  assert.match(sandboxFacts(config('workspace-write'),null,{engine:'deepseek'}).reason,/DeepSeek Harness/);
+ }finally{registerCodexPack([]);setLocale('en-US');setAssistantName('DeepSeek');}
+});
+// ZCode runs approved commands unconfined (zcode-bridge README: "ZCode has no sandbox"), while its config/read
+// reports a synthetic sandbox_mode; the row must say "None", not "workspace-write". Pending the descriptor
+// (app/electron/cores/zcode.mjs `sandbox: false`) or the bridge's initialize capabilities.sandbox: false.
+test('ZCode sandbox row says it does not sandbox commands',async()=>{
+ const {coreCapabilities,coreForEngine}=await import('../electron/core-registry.mjs');
+ assert.ok(coreForEngine('zcode').sandbox===false||coreCapabilities('zcode').sandbox===false);
+ const facts=sandboxFacts({config:{sandbox_mode:'workspace-write',approval_policy:'on-request'}},null,{engine:'zcode'});
+ assert.deepEqual([facts.mode,facts.reason],['None','ZCode doesn’t sandbox commands. The Mode menu sets which ones need your approval.']);
+});
 test('settings pages never print raw RPC failures; only a lost core gets one short notice',()=>{assert.deepEqual(desktopErrors({policy:{code:-32601}}),[]);assert.deepEqual(desktopErrors({policy:'config/read is not supported by the DeepSeek core yet.',servers:'boom'}),[]);assert.deepEqual(desktopErrors(undefined),[]);const notices=desktopErrors({connection:'Error invoking remote method: DeepSeek connection changed.',policy:'x'});assert.equal(notices.length,1);assert.equal(notices[0].key,'connection');assert.doesNotMatch(notices[0].message,/invoking|connection changed/);});
 test('desktop preference validation rejects unsupported levels and archive periods',()=>{assert.throws(()=>desktopPatch({archiveInactiveDays:3}));assert.throws(()=>desktopPatch({keepAwake:1}));assert.throws(()=>desktopPatch({completeNotifications:'automatic'}));assert.deepEqual(desktopPatch({keepAwake:true,archiveInactiveDays:14,arbitrary:'x'}),{keepAwake:true,archiveInactiveDays:14});});
 function fixture(overrides={}){const config={threadIds:['t'],archivedThreadIds:[],keepAwake:true,completeNotifications:'banner',notificationSound:'none',...overrides},calls=[],pm=new EventEmitter(),window=new EventEmitter();let battery=false,focus=false;pm.isOnBatteryPower=()=>battery;window.isFocused=()=>focus;window.show=()=>calls.push('show');window.focus=()=>calls.push('focus');class Notice extends EventEmitter{static isSupported(){return true;}constructor(options){super();calls.push(['notice',options]);}show(){calls.push('notice-show');}close(){calls.push('notice-close');}}
@@ -69,3 +110,18 @@ test('main seeds the renderer config with the defaults and maps a saved Task com
  for(const line of ['permissionNotifications: "banner"','questionNotifications: "banner"','completeNotifications: "banner"','keepAwake: true','keepAwakeOnBattery: true'])assert.ok(block.includes(line),line);
  assert.match(main,/if \(config\.completeNotifications === "badge"\) config\.completeNotifications = "banner";/);
 });
+// Losing the core names that core (Audit: "Couldn’t load settings from the DeepSeek core" read "GLM core" on ZCode):
+// boot.core / a core id when the page passes one, else the core this window runs (windowCore), translated.
+test('the lost-core notice names the running core, never a fixed DeepSeek',async()=>{
+ const {setAssistantName,setLocale}=await import('../electron/i18n/index.mjs');const {windowCore}=await import('../src/settings-model.mjs');
+ const message=(errors,options)=>desktopErrors(errors,options)[0]?.message;
+ try{
+  for(const [engine,name] of [['zcode','ZCode'],[{engine:'zcode',capabilities:{}},'ZCode'],['codex','Codex'],[{engine:'deepseek-harness'},'DeepSeek Harness'],['kimi','Kimi Code']])
+   assert.equal(message({connection:'x'},{engine}),`Couldn’t load settings from ${name}. Reconnect and try again.`,JSON.stringify(engine));
+  for(const [assistant,name] of [['DeepSeek','DeepSeek Harness'],['GLM','ZCode'],['Codex','Codex']]){setAssistantName(assistant);assert.equal(windowCore()?.name,name);assert.equal(message({connection:'x'}),`Couldn’t load settings from ${name}. Reconnect and try again.`);}
+  setAssistantName('Acme');assert.equal(windowCore(),null);assert.equal(message({connection:'x'}),'Couldn’t load settings from the agent core. Reconnect and try again.');
+  assert.deepEqual(desktopErrors({policy:'x'},{engine:'zcode'}),[]);
+  setLocale('zh-CN');assert.equal(message({connection:'x'},{engine:'zcode'}),'无法从 ZCode 加载设置。请重新连接后重试。');
+ }finally{setLocale('en-US');setAssistantName('DeepSeek');}
+});
+test('a session kept awake from its row menu holds the Mac awake while it runs, with the app-wide switch off',()=>{const f=fixture({keepAwake:false,sessionMetadata:{t:{keepAwake:true}}});f.service.observe(started('a'));assert.equal(f.service.snapshot().powerActive,true);f.service.observe(completed('a'));assert.equal(f.service.snapshot().powerActive,false);f.config.sessionMetadata.t.keepAwake=false;f.service.observe(started('b'));assert.equal(f.service.snapshot().powerActive,false);f.service.dispose();});

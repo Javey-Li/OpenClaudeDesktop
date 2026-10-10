@@ -1,4 +1,5 @@
 import { t } from '../electron/i18n/index.mjs';
+import { commandText } from './shell-command-model.mjs';
 import { formatDuration } from './command-row-model.mjs';
 
 const count = value => Number.isSafeInteger(value) && value >= 0;
@@ -57,7 +58,7 @@ export function subscribeTurnClock(startedAt, notify, host = globalThis) {
   return () => { live = false; host.clearTimeout(timer); };
 }
 
-const tools = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch']);
+const tools = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'webSearch', 'computerUse']);
 const liveTurnItems = (turnId, items, phases) => items.filter(item => item.turnId === turnId
   && (phases[item.id] === 'streaming' || ['inProgress', 'running'].includes(item.status)) && phases[item.id] !== 'completed');
 
@@ -135,6 +136,13 @@ export function thinkingLabel(state, seconds) {
  * compaction and tool labels keep precedence over the thinking label. */
 export function turnActivity(turnId, items = [], phases = {}, seconds, thinking = thinkingState(turnId, items, phases)) {
   if (!turnId) return null;
+  // Codex waits on a background terminal (terminalInteraction with empty stdin) and nothing has happened since: the
+  // turn's newest item is that command (tui command_lifecycle.rs 'Waiting for background terminal · <command>').
+  const newest = [...items].reverse().find(item => item?.turnId === turnId);
+  if (newest?.type === 'commandExecution' && newest.terminalWaitingAt) {
+    const command = commandText(newest.command).replace(/\s+/g, ' ').trim();
+    return { kind: 'tools', label: command ? t('Waiting for {command}', { command: command.length > 48 ? `${command.slice(0, 47)}…` : command }) : t('Waiting for a background terminal') };
+  }
   const live = liveTurnItems(turnId, items, phases);
   if (live.some(item => item.type === 'contextCompaction')) return { kind: 'compacting', label: t('Compacting session…') };
   if (live.some(item => tools.has(item.type))) return { kind: 'tools', label: t('Running tools…') };

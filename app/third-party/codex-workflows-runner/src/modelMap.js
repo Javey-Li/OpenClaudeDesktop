@@ -21,6 +21,42 @@ const MODEL_ALIASES = {
   "gpt-5.6": "gpt-5.6-sol",
 };
 
+// Local: a small or fast variant ("gpt-5.4-mini", "gpt-5.3-codex-spark") is "mini" or "spark" as a whole word of the
+// id, never inside another word: a MiniMax id ("m:minimax:MiniMax-M3:v:") is a full model.
+const LITE_VARIANT = /(?:^|[-_./:\s])(?:mini|spark)(?=$|[-_./:\s])/i;
+export const isLiteVariant = (id) => LITE_VARIANT.test(String(id));
+
+// Local: a core's own Claude tier map (context.tiers, from the core descriptor's workflowModelTiers via
+// CODE_DESKTOP_WORKFLOW_MODEL_TIERS): per tier, case-insensitive patterns tried in order against the listed ids.
+function tierPick(patterns, available) {
+  if (!Array.isArray(patterns)) return undefined;
+  for (const pattern of patterns) {
+    let rule;
+    try { rule = new RegExp(String(pattern), "i"); } catch { continue; }
+    const hit = available.find((m) => rule.test(m));
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+// Local: a catalog that lists Claude models itself (OpenCode, MiMo: "anthropic/claude-opus-4-5",
+// "openrouter/anthropic/claude-opus-4.5"): a tier alias takes the newest listed model of that tier, the session's own
+// model first when it is one, then one from the session's provider.
+function familyPick(family, available, session) {
+  const listed = available.filter((m) => claudeFamily(m) === family);
+  if (!listed.length) return undefined;
+  if (session && listed.includes(session)) return session;
+  const provider = (m) => (String(m).includes("/") ? String(m).slice(0, String(m).lastIndexOf("/")) : "");
+  const version = (m) => (String(m).match(/\d+(?:[.-]\d+)*/g) ?? []).join(".").split(/[.-]/).filter(Boolean).map(Number);
+  const newer = (a, b) => {
+    const x = version(a), y = version(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (y[i] ?? -1) - (x[i] ?? -1); if (d) return d; }
+    return a.length - b.length;
+  };
+  const own = session ? listed.filter((m) => provider(m) === provider(session)) : [];
+  return [...(own.length ? own : listed)].sort(newer)[0];
+}
+
 // Matches Claude full ids ("claude-opus-4-8") and bare aliases ("opus").
 function claudeFamily(id) {
   const s = String(id).toLowerCase();
@@ -39,16 +75,31 @@ function claudeFamily(id) {
  *   unknown but unavailable           -> undefined (config default) + warn
  * If `available` is empty (model/list unavailable), Claude ids still map to their
  * top preference and other ids pass through unchanged.
+ * Local: `context` ({customProvider, sessionModel}, codexAgent.js modelResolution) says whether the endpoint serves
+ * the catalog. On a custom endpoint (Codex with its own model_provider, or a session model the catalog doesn't
+ * list) a Claude alias inherits the session's model instead of becoming a catalog id the endpoint doesn't serve,
+ * and with a custom model_provider any other id is passed through for the endpoint to decide.
  */
-export function resolveModel(requested, available = [], log = () => {}) {
+export function resolveModel(requested, available = [], log = () => {}, context = {}) {
   if (!requested || /^(inherit|default)$/i.test(requested)) return undefined;
 
+  // Local: an exact catalog id stays as it is, a Claude one too (OpenCode lists "anthropic/claude-opus-4-5"), and a
+  // session model the catalog lists is the session's even when it is a Claude model.
+  if (available.includes(requested)) return requested;
+  const session = typeof context.sessionModel === "string" && context.sessionModel && (!claudeFamily(context.sessionModel) || available.includes(context.sessionModel)) ? context.sessionModel : undefined;
+  const offCatalog = !!context.customProvider || (session !== undefined && available.length > 0 && !available.includes(session) && !available.includes(MODEL_ALIASES[session.toLowerCase()]));
   const family = claudeFamily(requested);
+  if (family && offCatalog) {
+    log(`model: '${requested}' (Claude) → the session's model${session ? ` '${session}'` : ""} (this endpoint serves its own models, not the catalog Codex lists)`);
+    return session === undefined ? undefined : resolveModel(session, available, () => {}, { customProvider: context.customProvider });
+  }
   if (family) {
     const prefs = FAMILY_PREFERENCES[family] || [];
     const pick = available.length
-      ? (prefs.find((m) => available.includes(m)) ??
-         available.find((m) => !/mini|spark/.test(m)) ??
+      ? (tierPick(context.tiers?.[family], available) ??
+         familyPick(family, available, session) ??
+         prefs.find((m) => available.includes(m)) ??
+         available.find((m) => !isLiteVariant(m)) ??
          available[0])
       : prefs[0];
     if (pick) {
@@ -69,6 +120,7 @@ export function resolveModel(requested, available = [], log = () => {}) {
   }
 
   if (!available.length) return requested; // non-Claude id, can't validate — trust it
+  if (context.customProvider) return requested; // Local: the custom endpoint, not Codex's catalog, knows its models
 
   log(`model: '${requested}' not exposed by Codex → using config default (have: ${available.join(", ")})`);
   return undefined;
@@ -106,7 +158,7 @@ export function pickFrontier(models = []) {
       isDefault: typeof m === "object" && !!m?.isDefault,
       hidden: typeof m === "object" && !!m?.hidden,
     }))
-    .filter((m) => m.id && !m.hidden && !/(mini|spark)/i.test(m.id));
+    .filter((m) => m.id && !m.hidden && !isLiteVariant(m.id));
   if (!eligible.length) return undefined;
   eligible.sort(
     (a, b) =>

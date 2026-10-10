@@ -5,7 +5,8 @@
 // IME composition never toggles; the caller still preventDefaults a held repeat.
 // toggleDiffFileList "cmd+shift+y" KeyY (sidebar-rows.js:14247-14253): main.jsx
 // routes 'file-list' with fileListRoute below.
-const PANE_CODES = { KeyD: "changes", KeyF: "files", KeyY: "file-list" };
+// togglePreview "cmd+shift+p" (shared-21-D098Wd--.js:14146-14207, the app's Preview mode).
+const PANE_CODES = { KeyD: "changes", KeyF: "files", KeyY: "file-list", KeyP: "preview" };
 export function paneShortcutKind(event) {
   if (!event || !event.metaKey || !event.shiftKey || event.ctrlKey || event.altKey || event.isComposing) return null;
   return PANE_CODES[event.code] ?? null;

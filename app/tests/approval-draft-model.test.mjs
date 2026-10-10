@@ -1132,7 +1132,7 @@ test("R07 plan card payloads: Reject / Revise keep planning, Accept continues in
   assert.deepEqual(planReviewResponse("revise", { feedback: "   " }), { answers: { "plan-review": { answers: ["Keep planning"] } } });
   assert.deepEqual(planReviewResponse("accept", { target: "acceptEdits" }),
     { answers: { "plan-review": { answers: ["Approve"] } }, codeDesktop: { afterPlan: "ask" } });
-  for (const [target, afterPlan] of [["acceptEdits", "acceptEdits"], ["auto", "auto"], ["ask", "ask"], ["bypass", "auto"], [undefined, "auto"]])
+  for (const [target, afterPlan] of [["acceptEdits", "acceptEdits"], ["auto", "auto"], ["ask", "ask"], ["bypass", "bypass"], ["plan", "auto"], [undefined, "auto"]])
     assert.deepEqual(planReviewResponse("primary", { target }).codeDesktop, { afterPlan });
   assert.throws(() => planReviewResponse("allow"), /Unsupported plan review/);
   const request = planRequest();
@@ -1157,9 +1157,10 @@ test("R07 plan card payloads: Reject / Revise keep planning, Accept continues in
     // The main-process mapper carries the answers and the codeDesktop.afterPlan extension.
     assert.deepEqual(approvalResponse(current, sent), expected);
   }
-  // The extension belongs to a plan review only, never names Bypass, and has no other fields.
+  // The extension belongs to a plan review only, names a plan target (Bypass is validated by main.cjs first), and has no other fields.
   const plan = planRequest();
-  for (const codeDesktop of [{ afterPlan: "bypass" }, { afterPlan: "plan" }, { afterPlan: "ask", extra: 1 }, "ask", null, []])
+  assert.deepEqual(approvalResponse(plan, { answers: { "plan-review": { answers: ["Approve"] } }, codeDesktop: { afterPlan: "bypass" } }).codeDesktop, { afterPlan: "bypass" });
+  for (const codeDesktop of [{ afterPlan: "plan" }, { afterPlan: "ask", extra: 1 }, "ask", null, []])
     assert.throws(() => approvalResponse(plan, { answers: { "plan-review": { answers: ["Approve"] } }, codeDesktop }), /Invalid plan approval/);
   assert.throws(() => approvalResponse(questionRequest(), { answers: { choice: { answers: ["Alpha"] }, text: { answers: ["x"] } }, codeDesktop: { afterPlan: "ask" } }), /Invalid plan approval/);
   // Only the review's 'Keep planning' + feedback pair may carry two values on a single-select question.

@@ -19,6 +19,10 @@ const SEPARATOR = Object.freeze({ type: "separator" });
 // it acts), so the click is not dispatched again. Mouse clicks always are.
 const rendererOwned = (event) => event?.triggeredByAccelerator === true && event.metaKey === true;
 const dispatch = (emit, payload) => (_item, window, event) => { if (!rendererOwned(event)) emit(payload, window); };
+// hNr(n, "ctrl") for the Split View items: their ⌃ chords are matched by the renderer (source-split-view.jsx,
+// official OR), so a click that came through its own accelerator with ⌃ held is not dispatched twice.
+const rendererOwnedCtrl = (event) => event?.triggeredByAccelerator === true && event.ctrlKey === true;
+const splitDispatch = (emit, command) => (_item, window, event) => { if (!rendererOwnedCtrl(event)) emit({ kind: "split-view", command }, window); };
 // Gtr: About, Settings… (KK shows the main window first, then navigates),
 // Services, Hide / Hide Others / Show All, Quit. The update items (Wtr) have
 // no local updater.
@@ -40,8 +44,10 @@ function appSubmenu(emit) {
     ],
   };
 }
-// lwr: New Session (cwr, CmdOrCtrl+N), the ewr Open… block (Open Folder…,
-// CmdOrCtrl+Shift+O; Open File… has no local file opener), then nwr. iwr
+// lwr: New Session (cwr, CmdOrCtrl+N), the ewr Open… block (Open File…, ZCr
+// CmdOrCtrl+O: the renderer opens it in the Files pane, starting a session
+// draft in its folder when no open session holds it; Open Folder…,
+// CmdOrCtrl+Shift+O), then nwr. iwr
 // names the ⌘W item: "Close Session" (xdFFXdcjAb) while the renderer reports
 // a session view (lSr: sessionPanes.diff.enabled, here session.open), else
 // "Close Pane" while it reports a closable pane; either comes with Close
@@ -52,7 +58,7 @@ function appSubmenu(emit) {
 // owr: the renderer's keydown owns ⌘W in the main window (pR), so a ⌘W that
 // reached Close Session through its accelerator is marked and main.cjs does
 // not dispatch it again; a pane window's ⌘W closes that window.
-function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { available: false, enabled: false }, emit }) {
+function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { available: false, enabled: false }, newWindow = true, emit }) {
   const closeWindow = (accelerator = "CmdOrCtrl+W") => ({ label: t("Close Window"), accelerator, role: "close" });
   const closeSession = (_item, window, event) => emit({ kind: "close-session", ...(rendererOwned(event) ? { accelerator: true } : {}) }, window);
   const close = session.open
@@ -66,7 +72,15 @@ function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { 
     : [];
   return [
     { label: t("New Session"), accelerator: "CmdOrCtrl+N", click: (_item, window) => emit({ kind: "new-session" }, window) },
+    // ⇧⌘N is Claude Desktop's "New session with current settings" (2.2553.1 palette new_code_session_from_current).
+    { label: t("New Session with Current Settings"), accelerator: "CmdOrCtrl+Shift+N", click: (_item, window) => emit({ kind: "new-session-current" }, window) },
+    // Multi-window (window-registry.cjs): an empty main window with its own sidebar selection and layout (no
+    // accelerator: the official popouts have none). Disabled at window-registry.cjs MAX_WINDOWS, with the reason as
+    // its macOS tooltip, so the item never just does nothing.
+    { label: t("New Window"), enabled: newWindow !== false, ...(newWindow === false ? { toolTip: t("Close a window before opening another.") } : {}),
+      click: (_item, window) => emit({ kind: "new-window" }, window) },
     SEPARATOR,
+    { label: t("Open File…"), accelerator: "CmdOrCtrl+O", click: (_item, window) => emit({ kind: "open-file" }, window) },
     { label: t("Open Folder…"), accelerator: "CmdOrCtrl+Shift+O", click: (_item, window) => emit({ kind: "open-folder" }, window) },
     SEPARATOR,
     ...close,
@@ -157,7 +171,7 @@ function zoomMenuItems({ zoomed, emit }) {
   ];
 }
 // bNr: one gNr Show/Hide item per session pane with a local counterpart
-// (Changes CmdOrCtrl+Shift+D, Files CmdOrCtrl+Shift+F; Terminal, Preview and
+// (Changes CmdOrCtrl+Shift+D, Files CmdOrCtrl+Shift+F, Terminal Command+J; Preview and
 // Side Chat have none), labelled Hide only while the pane is enabled and open,
 // enabled from the renderer's sessionPanes report, then Close Pane
 // (CmdOrCtrl+\, enabled from closePane). Clicks go through RZ.
@@ -166,9 +180,16 @@ function paneMenuItems({ panes, closePane }, emit) {
     const { enabled, open } = panes[kind];
     return { label: enabled && open ? hide : show, accelerator, enabled, click: dispatch(emit, { kind: "toggle-pane", pane: kind }) };
   };
+  // bNr's order: Terminal, Changes, Preview, Files, Side Chat, then Close Pane.
   return [
+    // _Nr("Command+J"): Show/Hide Terminal (the built-in terminal pane; ⌃` toggles it too), once the renderer reports it.
+    ...(panes.terminal ? [pane("terminal", t("Show Terminal"), t("Hide Terminal"), "Command+J")] : []),
     pane("changes", t("Show Changes"), t("Hide Changes"), "CmdOrCtrl+Shift+D"),
+    // Show/Hide Preview, CmdOrCtrl+Shift+P (the source's Preview mode accelerator), once the renderer reports it.
+    ...(panes.preview ? [pane("preview", t("Show Preview"), t("Hide Preview"), "CmdOrCtrl+Shift+P")] : []),
     pane("files", t("Show Files"), t("Hide Files"), "CmdOrCtrl+Shift+F"),
+    // Show/Hide Side Chat (CmdOrCtrl+;, the /btw card), reported only where the core serves side questions.
+    ...(panes.sideChat ? [pane("sideChat", t("Show Side Chat"), t("Hide Side Chat"), "CmdOrCtrl+;")] : []),
     { label: t("Close Pane"), accelerator: "CmdOrCtrl+\\", enabled: closePane.enabled, click: dispatch(emit, { kind: "close-pane" }) },
   ];
 }
@@ -177,16 +198,19 @@ function paneMenuItems({ panes, closePane }, emit) {
 // Sidebar" : "Show Sidebar"); the "Sidebar" checkbox variant is
 // Windows/Linux only. Its click is dispatchToggleSidebar(Menu) in the focused
 // renderer, mirrored here as the {kind:"toggle-sidebar"} desktop event. The
-// source's leading "Command Palette…" item and the Split View submenu have no
-// local counterpart. Then bNr's pane items, dNr zoom, Reload (fNr,
+// leading "Command Palette…" (CmdOrCtrl+K) toggles the ⌘K palette (source-sidebar-palette.jsx). Then
+// bNr's pane items, yNr's Split View submenu (splitViewSubmenu), dNr zoom, Reload (fNr,
 // CmdOrCtrl+R) and Enter/Exit Full Screen (Control+Command+F, xNr toggles the
 // focused window). Developer tools live in the source's hidden Developer
 // menu; locally Toggle Developer Tools stays in View for unpackaged builds.
-function viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, emit }) {
+function viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, splitState, emit }) {
   return [
+    { label: t("Command Palette…"), accelerator: "CmdOrCtrl+K", click: dispatch(emit, { kind: "open-search", toggle: true }) },
     { label: sidebarOpen ? t("Hide Sidebar") : t("Show Sidebar"), accelerator: "CmdOrCtrl+B", click: () => emit({ kind: "toggle-sidebar" }) },
     SEPARATOR,
     ...paneMenuItems(state, emit),
+    SEPARATOR,
+    splitViewSubmenu(splitMenuState(splitState), emit),
     SEPARATOR,
     ...zoomMenuItems({ zoomed, emit }),
     SEPARATOR,
@@ -195,6 +219,26 @@ function viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, 
     SEPARATOR,
     { label: fullScreen ? t("Exit Full Screen") : t("Enter Full Screen"), accelerator: "Control+Command+F", click: (_item, window) => emit({ kind: "toggle-full-screen" }, window) },
   ];
+}
+// yNr: View › Split View with vNr's accelerators, enabled from the focused window's report (official
+// reportSplitViewMenuState; src/split-view-model.mjs splitMenuState). Each click is {kind:"split-view", command}
+// for that window. A two-column split has no rows, so New Session Below and Move Split View Up / Down are omitted.
+function splitViewSubmenu(state, emit) {
+  const item = (label, command, enabled, accelerator) => ({ label, ...(accelerator ? { accelerator } : {}), enabled: enabled === true, click: splitDispatch(emit, command) });
+  return {
+    label: t("Split View"),
+    submenu: [
+      item(t("New Session on the Right"), "new-right", state.newRight, "Control+Command+\\"),
+      SEPARATOR,
+      item(t("Focus Next Split View"), "focus-next", state.split, "Control+]"),
+      item(t("Focus Previous Split View"), "focus-previous", state.split, "Control+["),
+      SEPARATOR,
+      item(t("Move Split View Left"), "move-left", state.moveLeft),
+      item(t("Move Split View Right"), "move-right", state.moveRight),
+      SEPARATOR,
+      item(t("Close Split View"), "close", state.split, "Control+Command+W"),
+    ],
+  };
 }
 // kNr: Minimize, Zoom, Show Main Window (KK), Bring All to Front.
 function windowMenu(emit) {
@@ -226,12 +270,12 @@ function helpMenu(emit) {
     ],
   };
 }
-function appMenuTemplate({ sidebarOpen, canGoBack = false, canGoForward = false, zoomed = false, fullScreen = false, allowDevTools = false, menuState: state = menuState(), emit }) {
+function appMenuTemplate({ sidebarOpen, canGoBack = false, canGoForward = false, zoomed = false, fullScreen = false, allowDevTools = false, menuState: state = menuState(), splitState, newWindow = true, emit }) {
   return [
     appSubmenu(emit),
-    { label: t("File"), submenu: fileMenuItems({ closePane: state.closePane.enabled, session: state.session, reopenClosed: state.reopenClosed, emit }) },
+    { label: t("File"), submenu: fileMenuItems({ closePane: state.closePane.enabled, session: state.session, reopenClosed: state.reopenClosed, newWindow, emit }) },
     { label: t("Edit"), submenu: editMenuItems(emit) },
-    { label: t("View"), submenu: viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, emit }) },
+    { label: t("View"), submenu: viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, splitState, emit }) },
     { label: t("Go"), submenu: goMenuItems({ canGoBack, canGoForward, emit }) },
     windowMenu(emit),
     helpMenu(emit),
@@ -255,9 +299,16 @@ function navigationState(payload) {
 // anything but true reads as false.
 function menuState(payload) {
   const pane = (value) => ({ enabled: value?.enabled === true, open: value?.open === true });
-  return { panes: { changes: pane(payload?.panes?.changes), files: pane(payload?.panes?.files) }, closePane: { enabled: payload?.closePane?.enabled === true },
+  return { panes: { changes: pane(payload?.panes?.changes), files: pane(payload?.panes?.files),
+    ...(payload?.panes?.terminal ? { terminal: pane(payload.panes.terminal) } : {}),
+    ...(payload?.panes?.preview ? { preview: pane(payload.panes.preview) } : {}),
+    ...(payload?.panes?.sideChat ? { sideChat: pane(payload.panes.sideChat) } : {}) }, closePane: { enabled: payload?.closePane?.enabled === true },
     session: { open: payload?.session?.open === true },
     reopenClosed: { available: payload?.reopenClosed?.available === true, enabled: payload?.reopenClosed?.enabled === true } };
+}
+// The renderer's "split-menu-state" report (split-view-model.mjs splitMenuState): anything but true is false.
+function splitMenuState(payload) {
+  return { newRight: payload?.newRight === true, split: payload?.split === true, moveLeft: payload?.moveLeft === true, moveRight: payload?.moveRight === true };
 }
 // vSr/_Sr: the menu is rebuilt only when a reported flag changed.
 function sameMenuState(a, b) {
@@ -278,4 +329,4 @@ function activateAction({ exists, minimized, visible, hasVisibleWindows }) {
   return visible ? null : "show";
 }
 module.exports = { appMenuTemplate, zoomMenuItems, goMenuItems, sidebarCollapsedPatch, navigationState, menuState, sameMenuState,
-  closeAction, activateAction, rendererOwned };
+  closeAction, activateAction, rendererOwned, splitMenuState };

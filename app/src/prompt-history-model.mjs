@@ -92,3 +92,52 @@ export function promptHistoryStatus(nav) {
   if (!nav) return "";
   return `History ${nav.index}/${nav.total}${nav.hasDraft ? " ↓ to restore your draft" : ""}`;
 }
+
+// Ctrl+R reverse history search (c099c328d-CbkcmYSW.js:4516-4715 _d, header wm :8571-8608). Pure: the caller applies
+// `text` (caret "start" for a match or the restored draft on cancel, "end" on accept) without an undo step.
+// state: null while idle, else {query, prompts (newest first, deduplicated), index (-1 = none), draft, failed,
+// matchIndex, total}. Keys while searching: Ctrl+R / ↑ the next older match, ↓ the next newer one, Esc cancels and
+// restores the draft, Backspace drops a character (an empty query cancels), Enter / Tab / ←/→ / Home / End accept,
+// a printable character extends the query; IME composition and ⌘/Ctrl+V/X accept and let the key through.
+export const HISTORY_SEARCH_HINT_DELAY = 6000;
+export const isHistorySearchKey = (event = {}) => {
+  const key = String(event.key ?? "");
+  const nonLatin = /^[^a-z]$/iu.test(key) || key === "Dead" || key === "Unidentified";
+  return (key.toLowerCase() === "r" || (event.code === "KeyR" && nonLatin)) && !!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.composing;
+};
+function searchFrom(state, query, from, step) {
+  const { prompts } = state, total = prompts.length;
+  if (query === "") return { state: { ...state, query, index: -1, failed: false, matchIndex: 0 }, action: "update", text: state.draft, caret: "start" };
+  const needle = query.toLowerCase();
+  for (let at = from; at >= 0 && at < prompts.length; at += step)
+    if (prompts[at].toLowerCase().includes(needle)) return { state: { ...state, query, index: at, failed: false, matchIndex: at + 1, total }, action: "update", text: prompts[at], caret: "start" };
+  return { state: { ...state, query, failed: true, matchIndex: 0, total }, action: "update" };
+}
+export function historySearchStep(state, event = {}) {
+  const key = String(event.key ?? "");
+  if (!state) {
+    if (!isHistorySearchKey(event) || event.inEditor === false) return { state: null, action: "none" };
+    const seen = new Set();
+    const prompts = (Array.isArray(event.prompts) ? event.prompts : []).slice().reverse().filter((text) => typeof text === "string" && !seen.has(text) && (seen.add(text), true));
+    return { state: { query: "", prompts, index: -1, draft: typeof event.text === "string" ? event.text : "", failed: false, matchIndex: 0, total: prompts.length }, action: "start" };
+  }
+  const lower = key.toLowerCase();
+  if (event.composing || key === "Dead" || key === "Process" || ((event.ctrlKey || event.metaKey) && !event.altKey && (lower === "v" || lower === "x")))
+    return { state: null, action: "accept", pass: true, caret: "end" };
+  const { query, index } = state;
+  if (isHistorySearchKey(event) || key === "ArrowUp") return searchFrom(state, query, index + 1, 1);
+  if (key === "ArrowDown") return searchFrom(state, query, index - 1, -1);
+  if (key === "Escape") return { state: null, action: "cancel", text: state.draft, caret: "start" };
+  if (key === "Backspace") return query === "" ? { state: null, action: "cancel", text: state.draft, caret: "start" } : searchFrom(state, query.slice(0, -1), Math.max(index, 0), 1);
+  if (["Enter", "Tab", "ArrowLeft", "ArrowRight", "Home", "End"].includes(key)) return { state: null, action: "accept", caret: "end" };
+  if (key.length === 1 && !event.metaKey && !(event.ctrlKey && !event.altKey)) return searchFrom(state, query + key, Math.max(index, 0), 1);
+  return { state, action: "swallow" };
+}
+// The sr-only live status (c099c328d :8940-8960): 'Search history: {query}', ' — match # of {total}' while a match is
+// shown, ' — no match' when nothing matches.
+export function historySearchStatus(search, translate = (text, values) => text.replace(/\{(\w+)\}/g, (_, name) => values?.[name] ?? "")) {
+  if (!search) return "";
+  return translate("Search history: {query}", { query: search.query })
+    + (search.matchIndex > 0 ? translate(" — match {index} of {total}", { index: search.matchIndex, total: search.total }) : "")
+    + (search.failed ? translate(" — no match") : "");
+}

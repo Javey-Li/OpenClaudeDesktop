@@ -124,7 +124,7 @@ test('sessionUsageSummaries: live from memory, cache by revision, at most 4 read
     assert.deepEqual(reads, [])
     assert.deepEqual(errors, [])
     const stored = JSON.parse(fs.readFileSync(path.join(dir, 'usage-cache.json'), 'utf8'))
-    assert.equal(stored.version, 3)
+    assert.equal(stored.version, 4)
     assert.equal(stored.timeZone, 'Test/Zone')
     assert.deepEqual(Object.keys(stored.sessions), ['s0'])
     assert.deepEqual(stored.sessions.s0, { revision: 'r1', summary: { days: { '2026-09-30': 271 }, longestTurnSec: 0, stats: foldSessionStats(logs.get('s0')), billing: foldSessionBilling(logs.get('s0')) } })
@@ -231,13 +231,15 @@ test('the version-1 and version-2 usage caches are refolded once: its summaries 
     assert.equal(accountTokenUsage(summaries, '2026-09-30').summary.lifetimeTokens, 271, 'account usage reads the same fold')
     // A version-2 entry with a malformed stats fold is dropped too.
     const stored = JSON.parse(fs.readFileSync(path.join(dir, 'usage-cache.json'), 'utf8'))
-    assert.equal(stored.version, 3)
+    assert.equal(stored.version, 4)
     // A version-2 file (no billing fold) is refolded too.
     fs.writeFileSync(path.join(dir, 'usage-cache.json'), JSON.stringify({ ...stored, version: 2 }))
     assert.equal(new UsageCache(dir, { timeZone: 'Test/Zone' }).get('s0', 'r1'), undefined)
+    fs.writeFileSync(path.join(dir, 'usage-cache.json'), JSON.stringify({ ...stored, version: 3 }))
+    assert.equal(new UsageCache(dir, { timeZone: 'Test/Zone' }).get('s0', 'r1'), undefined, 'version 3 cannot account for streamed responses')
     const { billing, ...noBilling } = stored.sessions.s0.summary
     fs.writeFileSync(path.join(dir, 'usage-cache.json'), JSON.stringify({ ...stored, sessions: { s0: { revision: 'r1', summary: noBilling } } }))
-    assert.equal(new UsageCache(dir, { timeZone: 'Test/Zone' }).get('s0', 'r1'), undefined, 'a version-3 entry without billing is dropped')
+    assert.equal(new UsageCache(dir, { timeZone: 'Test/Zone' }).get('s0', 'r1'), undefined, 'a current entry without billing is dropped')
     assert.ok(billing['2026-09-30'])
     stored.sessions.s0.summary.stats.days['2026-09-30'].messages = -1
     fs.writeFileSync(path.join(dir, 'usage-cache.json'), JSON.stringify(stored))

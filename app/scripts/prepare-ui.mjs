@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import './build-workflow-parser.mjs';
+import './build-workflow-schema.mjs';
 const root = path.resolve(import.meta.dirname, "..");
 const source = path.resolve(root, "../reference/current-2.2553.1/ion-dist/assets/v1");
 const dest = path.join(root, "public/assets/v1");
@@ -149,7 +151,7 @@ for (const folder of ["src", "electron", "build/highlight-notices", "build/edito
     if ((await fs.stat(file)).isFile()) buildSources.push(path.relative(root, file));
   }
 }
-buildSources.push("package.json", "package-lock.json", "vite.config.js", "index.html", "scripts/prepare-ui.mjs");
+buildSources.push("package.json", "package-lock.json", "vite.config.js", "index.html", "scripts/prepare-ui.mjs", "scripts/build-workflow-parser.mjs");
 const sourceHashes = [];
 for (const file of buildSources.sort()) sourceHashes.push({ path: file, sha256: digest(await fs.readFile(path.join(root, file))) });
 await fs.writeFile(path.join(root, "public/build-info.json"), JSON.stringify({

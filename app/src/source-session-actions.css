@@ -11,3 +11,47 @@
 .shortcuts-label{display:flex;align-items:center;gap:8px;color:var(--cds-text-secondary);font-size:var(--text-sm);line-height:var(--text-sm--line-height)}
 .shortcuts-keys{display:flex;align-items:center;gap:8px}
 .shortcuts-or{color:var(--cds-text-muted);font-size:var(--text-xs);line-height:var(--text-xs--line-height)}
+/* /status credits and limit notice (Codex status/rate_limits.rs credit rows). */
+.session-limit-notice{margin:12px 0;padding:8px 10px;border-radius:7px;background:var(--cds-bg-accent);color:var(--cds-text-primary)!important;overflow-wrap:anywhere}
+.session-limit-notice[data-tone=danger]{background:var(--cds-bg-danger)}
+.session-limit-notice strong{font-weight:600}
+.session-limit-resets{margin:12px 0;font-size:12px}
+/* FeedbackShareDialog: the feedback text being sent, quoted under the disclosure. */
+.session-action-dialog .feedback-share-text { margin: 12px 0 0; padding: 6px 10px; border-left: 2px solid var(--cds-border-strong, var(--cds-border)); color: var(--cds-text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
+/* RewindDialog: 'Also restore files the agent changed' (a core with capabilities.rewindFiles). */
+.session-action-dialog .slash-rewind-files { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--cds-text-primary); }
+/* Copy session ID: a quiet text button beside the id. */
+.session-status-details .session-status-copy{margin-left:6px;padding:0;border:0;background:none;color:var(--cds-text-secondary);font:inherit;font-size:11px;text-decoration:underline;text-underline-offset:2px;cursor:default}
+.session-status-details .session-status-copy:hover{color:var(--cds-text-primary)}
+/* /help: this session's slash commands, then links to shortcuts, settings, What's new and the core's docs. */
+.session-action-dialog .slash-help-commands{margin-top:12px;border-top:.5px solid var(--cds-border);padding-top:8px}
+.session-action-dialog .slash-help-commands h3{font-size:13px;font-weight:600;margin:4px 0 8px;color:var(--cds-text-primary)}
+.session-action-dialog .slash-help-commands dl{margin:0;max-height:260px;overflow-y:auto;display:flex;flex-direction:column}
+.session-action-dialog .slash-help-commands dl>div{display:grid;grid-template-columns:minmax(96px,34%) minmax(0,1fr);gap:12px;padding:6px 0;border-bottom:.5px solid var(--cds-border)}
+.session-action-dialog .slash-help-commands dl>div:last-child{border-bottom:0}
+.session-action-dialog .slash-help-commands dt{font-family:var(--cds-font-mono);font-size:12px;color:var(--cds-text-primary);overflow-wrap:anywhere}
+.session-action-dialog .slash-help-commands dd{margin:0;font-size:12px;color:var(--cds-text-secondary);overflow-wrap:anywhere}
+.session-action-dialog .slash-help-hint{color:var(--cds-text-muted)}
+.session-action-dialog .slash-help-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+/* Rewind choices: one row per message, the mark beside its text (the question card's sq-option / sq-radio-mark),
+   scoped past the generic dialog label/input rules above. The native input is visually hidden but focusable. */
+.session-action-dialog .slash-rewind-list{gap:0;border:1px solid var(--cds-border);border-radius:8px;padding:0}
+.session-action-dialog .slash-rewind-option{position:relative;display:flex;flex-direction:row;align-items:flex-start;gap:var(--cds-gap-md,12px);margin:0;padding:var(--cds-pad-md,10px) var(--cds-pad-lg,12px);color:var(--cds-text-primary);font-size:13px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.session-action-dialog .slash-rewind-list .slash-rewind-option+.slash-rewind-option{border-top:1px solid var(--cds-border)}
+.session-action-dialog .slash-rewind-list .slash-rewind-option:hover{background:var(--cds-fill-ghost-hover)}
+.session-action-dialog .slash-rewind-list .slash-rewind-option[data-checked]{background:var(--cds-alpha-1)}
+.session-action-dialog .slash-rewind-files.slash-rewind-option{padding:0;margin:12px 0}
+.session-action-dialog .slash-rewind-option:has(.slash-rewind-input:disabled){opacity:.6}
+.session-action-dialog .slash-rewind-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;overflow:hidden;clip-path:inset(50%)}
+.session-action-dialog .slash-rewind-input:focus-visible{box-shadow:none}
+.session-action-dialog .slash-rewind-option:has(.slash-rewind-input:focus-visible) .slash-rewind-mark{box-shadow:var(--cds-focus-shadow)}
+.session-action-dialog .slash-rewind-mark{display:flex;flex:none;align-items:center;justify-content:center;box-sizing:border-box;width:var(--cds-checkbox,16px);height:var(--cds-checkbox,16px);margin-top:calc((1lh - var(--cds-checkbox,16px)) / 2);border:1px solid var(--cds-border-strong);border-radius:9999px;background:transparent;color:var(--cds-on-accent)}
+.session-action-dialog .slash-rewind-mark[data-kind=checkbox]{border-radius:var(--cds-checkbox-radius,4px)}
+.session-action-dialog .slash-rewind-mark[data-checked]{border:0;background:var(--cds-fill-accent)}
+.session-action-dialog .slash-rewind-dot{width:calc(var(--cds-checkbox,16px) - .625rem * var(--cds-rem-scale,1));height:calc(var(--cds-checkbox,16px) - .625rem * var(--cds-rem-scale,1));border-radius:9999px;background:var(--cds-on-accent)}
+.session-action-dialog .slash-rewind-text{min-width:0;flex:1}
+.session-action-dialog .session-action-field{display:flex;flex-direction:column;gap:7px;margin:16px 0}
+/* /status footer: hint at the start, Copy session info and Refresh grouped at the end; a gap under the header. */
+.session-status-actions{display:flex;align-items:center;gap:12px;margin-left:auto;flex:none}
+.slash-local-status .session-status-details{margin-top:12px}
+.session-action-dialog footer:has(>.session-status-actions){display:flex;align-items:center;gap:12px;margin-top:12px}

@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { createCustomizeStore } from '../src/customize-store.mjs';
-import { customizeCore, pluginChangeOutcome, pluginInstallStatus, pluginRows, appendPluginLog, PLUGIN_LOG_LIMIT } from '../src/customize-model.mjs';
+import { availablePluginRows, customizeCore, nativePluginActions, pluginChangeOutcome, pluginInstallStatus, pluginRows, appendPluginLog, PLUGIN_LOG_LIMIT } from '../src/customize-model.mjs';
 const require = createRequire(import.meta.url);
 const { createCustomizeOperations } = require('../electron/customize-operations.cjs');
 
@@ -32,7 +32,8 @@ test('plugin rows carry what management may do; only a core that says so manages
   assert.deepEqual([x.removable, x.manageable, x.loadError, x.version, x.enabled], [true, true, 'Cannot find module', '1.2.3', false]);
   assert.equal(customizeCore({ engine: 'deepseek', capabilities: { pluginManage: true } }).pluginManage, true);
   assert.equal(customizeCore({ engine: 'deepseek', capabilities: {} }).pluginManage, false);
-  assert.equal(customizeCore(null).pluginManage, false, 'Codex keeps the read-only page');
+  assert.equal(customizeCore(null).pluginManage, false, 'Codex has no codeDesktop/plugin/* manager');
+  assert.equal(customizeCore(null).nativePlugins, true, 'Codex manages plugins through the protocol itself');
 });
 
 test('change results become page outcomes', () => {
@@ -100,10 +101,21 @@ test('main-process operations validate and need a managing core', async () => {
   assert.equal(requests.at(-1).method, 'codeDesktop/plugin/install');
   assert.ok(requests.at(-1).timeout >= 10 * 60 * 1000, 'an install may take minutes');
   await assert.rejects(ops.run({ operation: 'plugin-install', spec: '--registry=x', requestId: 'r1' }), /package name/);
+  await assert.rejects(ops.run({ operation: 'plugin-catalog' }), /not supported/, 'a codeDesktop/plugin/* core never gets the native path');
   await assert.rejects(ops.run({ operation: 'plugin-install', spec: 'p', requestId: '../x' }), /Invalid install request/);
   await assert.rejects(ops.run({ operation: 'plugin-set-enabled', pluginName: 'p', enabled: 'yes' }), /Invalid plugin state/);
   await ops.run({ operation: 'plugin-remove', pluginName: 'dsh-plugin-x' });
   assert.deepEqual(requests.at(-1), { method: 'codeDesktop/plugin/remove', params: { pluginName: 'dsh-plugin-x' }, timeout: 5 * 60 * 1000 });
+  // The install source picker: a registry URL passes through, anything else is refused.
+  await ops.run({ operation: 'plugin-inspect', spec: 'p', registry: 'https://registry.npmmirror.com/' });
+  assert.deepEqual(requests.at(-1).params, { spec: 'p', registry: 'https://registry.npmmirror.com/' });
+  await ops.run({ operation: 'plugin-install', spec: 'p', requestId: 'r2', registry: 'https://registry.npmjs.org/' });
+  assert.deepEqual(requests.at(-1).params, { spec: 'p', requestId: 'r2', registry: 'https://registry.npmjs.org/' });
+  await ops.run({ operation: 'plugin-inspect', spec: 'p', registry: '' });
+  assert.deepEqual(requests.at(-1).params, { spec: 'p' }, 'Automatic sends no registry');
+  await assert.rejects(ops.run({ operation: 'plugin-inspect', spec: 'p', registry: 'file:///etc' }), /Invalid registry/);
+  await ops.run({ operation: 'plugin-registries' });
+  assert.equal(requests.at(-1).method, 'codeDesktop/plugin/registries');
   capabilities = {};
   await assert.rejects(ops.run({ operation: 'plugin-inspect', spec: 'p' }), /not supported/);
 });
@@ -133,4 +145,166 @@ test('the add form, restart notice and detail controls render their states', () 
   const detail = renderToStaticMarkup(React.createElement(M.PluginDetail, { plugin: x, detail: { description: 'X' }, error: '', skills: [], view: null, onView() {}, onBack() {}, onSkill() {}, copy: customizeCore({ engine: 'deepseek', capabilities: { pluginManage: true } }), manage: React.createElement('span', { 'data-manage': '' }) }));
   assert.match(detail, /data-manage=""/);
   assert.match(detail, /This plugin could not load: Cannot find module/);
+});
+
+// Codex 0.155.1 plugin/list (shape from a real app-server run with an isolated CODEX_HOME).
+const codexList = { marketplaces: [{ name: 'demo-market', path: '/m/.agents/plugins/marketplace.json', interface: { displayName: 'Demo Market' }, plugins: [
+  { id: 'hello@demo-market', name: 'hello', version: null, localVersion: '0.1.0', installed: false, enabled: false, source: { type: 'local', path: '/m/plugins/hello' }, availability: 'AVAILABLE', interface: { displayName: null, shortDescription: 'Says hello' } },
+  { id: 'done@demo-market', name: 'done', localVersion: '1.0.0', installed: true, enabled: true, source: { type: 'local' }, availability: 'AVAILABLE', interface: {} },
+] }, { name: 'remote', path: null, plugins: [{ id: 'r@remote', name: 'r', installed: false, availability: 'AVAILABLE' }] }], marketplaceLoadErrors: [] };
+
+// 0.155.1 PluginInstallPolicy: NOT_AVAILABLE can't be installed, INSTALLED_BY_DEFAULT is turned off rather than removed.
+test('native core (Codex): install policy hides uninstallable rows and Remove for default plugins', async () => {
+  const listed = { marketplaces: [{ name: 'm', path: '/m/marketplace.json', plugins: [
+    { id: 'ok@m', name: 'ok', installed: false, availability: 'AVAILABLE', installPolicy: 'AVAILABLE' },
+    { id: 'blocked@m', name: 'blocked', installed: false, availability: 'AVAILABLE', installPolicy: 'NOT_AVAILABLE' },
+    { id: 'default@m', name: 'default', installed: true, enabled: true, installPolicy: 'INSTALLED_BY_DEFAULT', source: { type: 'local' } },
+    { id: 'mine@m', name: 'mine', installed: true, enabled: true, installPolicy: 'AVAILABLE', source: { type: 'local' } },
+  ] }] };
+  assert.deepEqual(availablePluginRows(listed).map((row) => row.id), ['ok@m']);
+  const rows = pluginRows(listed);
+  assert.deepEqual(nativePluginActions(rows.find((row) => row.id === 'default@m')), { canToggle: true, canRemove: false });
+  assert.deepEqual(nativePluginActions(rows.find((row) => row.id === 'mine@m')), { canToggle: true, canRemove: true });
+  // The detail page's native controls follow it: a switch, and Remove only for a plugin Codex won't reinstall.
+  const store = { setNativePluginEnabled() {}, uninstallPlugin() {} };
+  const controls = (row) => renderToStaticMarkup(React.createElement(M.PluginManageControls, { plugin: row, store, actions: { ...nativePluginActions(row), toggle() {}, remove() {} } }));
+  // c26e90ba3 header actions: Remove lives in the ⋯ "More options for {name}" menu, drawn only when it has an item.
+  assert.doesNotMatch(controls(rows.find((row) => row.id === 'default@m')), /More options for default|>Remove</);
+  assert.match(controls(rows.find((row) => row.id === 'mine@m')), /aria-label="More options for mine" aria-haspopup="menu"/);
+  assert.doesNotMatch(controls(rows.find((row) => row.id === 'mine@m')), /data-variant="secondary"[^>]*>.*?Remove/, 'no inline Remove button in the title row');
+});
+
+test('native core (Codex): available rows, validated protocol operations', async () => {
+  assert.deepEqual(availablePluginRows(codexList), [{ id: 'hello@demo-market', pluginName: 'hello', name: 'hello', description: 'Says hello', author: '', version: '0.1.0', marketplaceName: 'Demo Market', marketplacePath: '/m/.agents/plugins/marketplace.json' }]);
+  assert.equal(pluginRows(codexList)[0].version, '1.0.0', 'a local plugin shows its manifest version');
+  const requests = [];
+  let serverInfo = { capabilities: {} };
+  const client = { start: async () => {}, get serverInfo() { return serverInfo; }, request: async (method, params, timeout) => {
+    requests.push({ method, params, timeout });
+    if (method === 'plugin/list') return codexList;
+    if (method === 'plugin/installed') return { marketplaces: [{ name: 'demo-market', path: '/m/.agents/plugins/marketplace.json', plugins: [codexList.marketplaces[0].plugins[1]] }] };
+    return {};
+  } };
+  const ops = createCustomizeOperations({ getClient: () => client, getConfig: () => ({ threadIds: [] }), knownCwd: (cwd) => cwd });
+  // Nothing unlisted is ever sent.
+  await assert.rejects(ops.run({ operation: 'plugin-install-native', marketplacePath: '/m/.agents/plugins/marketplace.json', pluginName: 'hello' }), /Unknown plugin/);
+  await assert.rejects(ops.run({ operation: 'plugin-uninstall', pluginId: 'done@demo-market' }), /Unknown plugin/);
+  await ops.run({ operation: 'plugin-catalog', cwd: '/repo' });
+  assert.deepEqual(requests.find((entry) => entry.method === 'plugin/list' && !entry.params.marketplaceKinds), { method: 'plugin/list', params: { cwds: ['/repo'] }, timeout: undefined });
+  assert.deepEqual(requests.filter((entry) => entry.params?.marketplaceKinds).map((entry) => entry.params.marketplaceKinds[0]), ['shared-with-me', 'workspace-directory', 'created-by-me-remote'], 'the workspace marketplaces are asked for too');
+  await ops.run({ operation: 'plugin-install-native', marketplacePath: '/m/.agents/plugins/marketplace.json', pluginName: 'hello' });
+  assert.deepEqual(requests.at(-1).params, { marketplacePath: '/m/.agents/plugins/marketplace.json', pluginName: 'hello' });
+  assert.equal(requests.at(-1).method, 'plugin/install');
+  await assert.rejects(ops.run({ operation: 'plugin-install-native', marketplacePath: '/elsewhere', pluginName: 'hello' }), /Unknown plugin/);
+  await ops.run({ operation: 'plugins' });
+  await ops.run({ operation: 'plugin-enable-native', pluginId: 'done@demo-market', enabled: false });
+  assert.deepEqual(requests.at(-1).params, { keyPath: 'plugins.done@demo-market', value: { enabled: false }, mergeStrategy: 'upsert' });
+  assert.equal(requests.at(-1).method, 'config/value/write');
+  await assert.rejects(ops.run({ operation: 'plugin-enable-native', pluginId: 'done@demo-market', enabled: 'no' }), /Invalid plugin state/);
+  await ops.run({ operation: 'plugin-uninstall', pluginId: 'done@demo-market' });
+  assert.deepEqual(requests.at(-1).params, { pluginId: 'done@demo-market' });
+  await assert.rejects(ops.run({ operation: 'plugin-uninstall', pluginId: 'done@demo-market' }), /Unknown plugin/, 'an uninstalled id is forgotten');
+  await ops.run({ operation: 'marketplace-add', source: ' owner/repo ' });
+  assert.deepEqual(requests.at(-1).params, { source: 'owner/repo' });
+  await assert.rejects(ops.run({ operation: 'marketplace-add', source: '--upload-pack=x' }), /Enter a marketplace/);
+  // A bridge (or the DeepSeek core) never receives the native methods.
+  for (const engine of ['zcode', 'opencode', 'deepseek-harness']) {
+    serverInfo = { engine, capabilities: { pluginManage: true } };
+    await assert.rejects(ops.run({ operation: 'marketplace-add', source: 'owner/repo' }), /not supported/, engine);
+  }
+});
+
+test('main process: connector refusals name the running core and its file', async () => {
+  const client = (serverInfo) => ({ start: async () => {}, serverInfo, request: async (method) => (method === 'mcpServerStatus/list' ? { data: [{ name: 'gh' }] } : {}) });
+  const run = (serverInfo, p) => createCustomizeOperations({ getClient: () => client(serverInfo), getConfig: () => ({ threadIds: [] }), knownCwd: (cwd) => cwd }).run(p);
+  await assert.rejects(run({ engine: 'kimi', configPath: '/h/.kimi-code/config.toml', capabilities: { mcpConfigWrite: false } }, { operation: 'mcp-add', name: 'x', command: 'npx' }),
+    /^Error: Connector changes are not supported by Kimi Code\. Add the server to \/h\/\.kimi-code\/config\.toml, then Reconnect\.$/);
+  const ops = createCustomizeOperations({ getClient: () => client({ engine: 'zcode', configPath: '/h/.zcode/cli/config.json', capabilities: {} }), getConfig: () => ({ threadIds: [] }), knownCwd: (cwd) => cwd });
+  await ops.run({ operation: 'mcp' });
+  await assert.rejects(ops.run({ operation: 'mcp-add', name: 'gh', command: 'npx' }), /already in \/h\/\.zcode\/cli\/config\.json/);
+  // Plugin management refusals name the running program too (a native pack reports no engine: the core it spawned).
+  await assert.rejects(run({ engine: 'kimi', capabilities: {} }, { operation: 'plugin-inspect', spec: 'x' }), /^Error: Plugin management is not supported by Kimi Code\.$/);
+  await assert.rejects(run({ engine: 'zcode', capabilities: { pluginManage: true } }, { operation: 'plugin-catalog' }), /^Error: Plugin management is not supported by ZCode\.$/);
+  const pack = createCustomizeOperations({ getClient: () => ({ ...client({ capabilities: {} }), spawnedCore: 'opencode' }), getConfig: () => ({ threadIds: [] }), knownCwd: (cwd) => cwd });
+  await assert.rejects(pack.run({ operation: 'plugin-remove', pluginName: 'x' }), /not supported by OpenCode\./);
+  // Main-process copy is translated like the renderer's.
+  const i18n = await import('../electron/i18n/index.mjs');
+  try {
+    i18n.setLocale('zh-CN');
+    await assert.rejects(run({ engine: 'kimi', capabilities: {} }, { operation: 'plugin-inspect', spec: 'x' }), /^Error: Kimi Code 不支持插件管理。$/);
+    await assert.rejects(run({ engine: 'kimi', configPath: '/h/k.toml', capabilities: { mcpConfigWrite: false } }, { operation: 'mcp-add', name: 'x', command: 'npx' }), /^Error: Kimi Code 不支持更改连接器。请将服务器添加到 \/h\/k\.toml，然后重新连接。$/);
+  } finally { i18n.setLocale('en-US'); }
+});
+
+test('native core (Codex): the store re-lists after a change; the page offers marketplaces, Available and Remove', async () => {
+  const calls = [];
+  const call = (kind, payload) => { calls.push(payload.operation); if (payload.operation === 'plugin-catalog') return Promise.resolve(codexList); if (payload.operation === 'marketplace-add') return Promise.resolve({ marketplaceName: 'demo-market', alreadyAdded: false }); if (payload.operation === 'plugin-uninstall') return Promise.reject(new Error('plugin is not installed')); return Promise.resolve({ marketplaces: [] }); };
+  const store = createCustomizeStore({ call, setTimeout: () => 0, clearTimeout: () => {} });
+  await store.loadPlugins({ cwd: '/r' });
+  await store.loadPluginCatalog({ cwd: '/r' });
+  assert.deepEqual(store.getSnapshot().catalog.rows.map((row) => row.id), ['hello@demo-market']);
+  const added = await store.addMarketplace('owner/repo');
+  assert.deepEqual([added.ok, added.result.marketplaceName], [true, 'demo-market']);
+  assert.ok(calls.filter((op) => op === 'plugin-catalog').length >= 2 && calls.filter((op) => op === 'plugins').length >= 2, 'both lists reload');
+  assert.deepEqual(await store.uninstallPlugin('x@y'), { ok: false, message: 'plugin is not installed' });
+
+  const rows = pluginRows({ marketplaces: [{ name: 'demo-market', path: '/m/.agents/plugins/marketplace.json', interface: { displayName: 'Demo Market' }, plugins: [codexList.marketplaces[0].plugins[1]] }] });
+  const snapshot = { skills: { skills: [], errors: [], status: 'ready', cwd: '/r' }, plugins: { rows, status: 'ready', cwd: '/r' }, mcp: { rows: [], status: 'ready', cwd: '/r', threadId: null }, pluginOps: { install: null, restartRequired: false },
+    catalog: { rows: availablePluginRows(codexList), status: 'ready', cwd: '/r' } };
+  const pageStore = { getSnapshot: () => snapshot, subscribe: () => () => {}, loadSkills() {}, loadPlugins() {}, loadMcp() {}, loadPluginCatalog() {} };
+  const html = renderToStaticMarkup(React.createElement(M.SourceCustomize, { section: 'customize-plugins', store: pageStore, cwd: '/r', call() { throw Error('SSR'); }, core: { engine: 'codex', capabilities: {} } }));
+  // cf0e8a0d3 Ya: the header action is the Add plugin menu (visible "Add"), whose item adds a marketplace.
+  assert.match(html, /<div class="cz-actions"><button aria-label="Add plugin" aria-haspopup="menu"[^>]*data-variant="primary"[^>]*>.*?>Add<\/span><\/button><\/div>/);
+  assert.doesNotMatch(html, /cz-form/, 'no inline add form in the page body');
+  assert.match(html, /data-cz-available=""/);
+  assert.match(html, /data-available-plugin="hello@demo-market"/);
+  assert.match(html, /<h3>Installed<\/h3>/);
+  assert.doesNotMatch(html, /Built-in plugins|DeepSeek Harness/);
+  const form = renderToStaticMarkup(React.createElement(M.AddMarketplaceForm, { store: pageStore, onClose() {}, copy: customizeCore({ engine: 'codex' }) }));
+  assert.match(form, /Add a plugin marketplace to Codex from a git URL, owner\/repo or a local folder\./);
+  assert.match(form, /aria-label="Marketplace source"/);
+  assert.match(form, /<form class="cz-dialog-form" aria-label="Add marketplace"/);
+  assert.match(form, /<footer class="sdlg-footer[^"]*">.*?>Cancel<.*?>Add<\/span><\/button><\/footer>/);
+  const controls = renderToStaticMarkup(React.createElement(M.PluginManageControls, { plugin: rows[0], store: pageStore, copy: customizeCore({ engine: 'codex' }), actions: { canToggle: true, canRemove: true, toggle() {}, remove() {} } }));
+  assert.match(controls, /role="switch" aria-label="Turn done off"/);
+  assert.match(controls, /<div class="cz-plugin-manage" data-plugin-manage=""><button aria-label="More options for done" aria-haspopup="menu"[^>]*data-variant="ghost"/, 'the ⋯ menu comes before the switch');
+});
+
+test('native core (Codex): workspace sharing rows, validated share operations and the share controls', async () => {
+  const mine = { id: 'tool@local', name: 'tool', installed: true, enabled: true, source: { type: 'local', path: '/home/p/tool' },
+    shareContext: { remotePluginId: 'rp_1', shareUrl: 'https://chatgpt.com/p/rp_1', discoverability: 'UNLISTED', creatorName: 'Ana' } };
+  const listed = { marketplaces: [{ name: 'local', path: '/m/marketplace.json', plugins: [mine] }] };
+  const row = pluginRows(listed)[0];
+  assert.equal(row.sourcePath, '/home/p/tool');
+  assert.deepEqual(row.share, { remotePluginId: 'rp_1', url: 'https://chatgpt.com/p/rp_1', discoverability: 'UNLISTED', creator: 'Ana' });
+  assert.equal(pluginRows({ marketplaces: [{ name: 'g', path: '/g', plugins: [{ id: 'g@g', name: 'g', installed: true, source: { type: 'git', url: 'https://x', path: 'sub' } }] }] })[0].sourcePath, null, 'only a local folder can be shared');
+  const remote = { marketplaces: [{ name: 'shared-mp', path: null, codeDesktop: { shareKind: 'shared-with-me' }, plugins: [{ id: 's@shared-mp', name: 's', installed: false, availability: 'AVAILABLE', shareContext: { remotePluginId: 'rp_2', creatorName: 'Bo' } }] }] };
+  assert.deepEqual(availablePluginRows(remote).map((entry) => [entry.marketplaceName, entry.remoteMarketplaceName, entry.shareKind, entry.sharedBy, entry.marketplacePath]), [['Shared with you', 'shared-mp', 'shared-with-me', 'Bo', null]]);
+
+  const requests = [];
+  const client = { start: async () => {}, serverInfo: { capabilities: {} }, request: async (method, params) => {
+    requests.push({ method, params });
+    if (method === 'plugin/installed' || (method === 'plugin/list' && !params.marketplaceKinds)) return structuredClone(listed);
+    if (method === 'plugin/share/save') return { remotePluginId: 'rp_1', shareUrl: 'https://chatgpt.com/p/rp_1' };
+    return {};
+  } };
+  const ops = createCustomizeOperations({ getClient: () => client, getConfig: () => ({ threadIds: [] }), knownCwd: (cwd) => cwd });
+  await assert.rejects(ops.run({ operation: 'plugin-share', pluginPath: '/home/p/tool' }), /Unknown plugin/, 'nothing unlisted is shared');
+  await ops.run({ operation: 'plugins' });
+  await ops.run({ operation: 'plugin-share', pluginPath: '/home/p/tool', discoverability: 'bogus', remotePluginId: 'rp_1' });
+  assert.deepEqual(requests.at(-1), { method: 'plugin/share/save', params: { pluginPath: '/home/p/tool', discoverability: 'UNLISTED', remotePluginId: 'rp_1' } });
+  await assert.rejects(ops.run({ operation: 'plugin-share', pluginPath: '/etc' }), /Unknown plugin/);
+  await assert.rejects(ops.run({ operation: 'plugin-unshare', remotePluginId: 'rp_x' }), /Unknown plugin/);
+  await ops.run({ operation: 'plugin-unshare', remotePluginId: 'rp_1' });
+  assert.deepEqual(requests.at(-1), { method: 'plugin/share/delete', params: { remotePluginId: 'rp_1' } });
+
+  const html = renderToStaticMarkup(React.createElement(M.PluginShareControls, { plugin: row, store: { sharePlugin: async () => ({ ok: true }), unsharePlugin: async () => ({ ok: true }) } }));
+  assert.match(html, /data-plugin-share/);
+  assert.match(html, /Shared with your workspace by Ana\./);
+  assert.match(html, /Copy link/);
+  assert.match(html, /Stop sharing/);
+  assert.match(html, /Update sharing/);
+  const fresh = renderToStaticMarkup(React.createElement(M.PluginShareControls, { plugin: { ...row, share: null }, store: {} }));
+  assert.match(fresh, /Share this plugin with your ChatGPT workspace\./);
+  assert.doesNotMatch(fresh, /Stop sharing|Copy link/);
 });

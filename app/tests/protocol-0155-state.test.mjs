@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyState, reduce, ownerThreadId, isChildThread, childThreadIds, isSubAgentThread, hasPendingApproval } from "../src/state.js";
+import { emptyState, reduce, ownerThreadId, isChildThread, childThreadIds, isSubAgentThread, hasPendingApproval, hasLiveWork, isItemStreaming } from "../src/state.js";
+import { reasoningText } from "../src/transcript-item-visibility.mjs";
 
 const event = (method, params) => ({ event: { method, params } });
 const thread = (id, extra = {}) => ({ id, sessionId: id, parentThreadId: null, historyMode: "paginated", model: "gpt-6-astra", agentNickname: null, agentRole: null, status: { type: "idle" }, turns: [], ...extra });
@@ -123,9 +124,42 @@ test("unconsumed 0.155.1 notifications leave the state untouched instead of thro
     ["skills/changed", {}],
     ["mcpServer/startupStatus/updated", { name: "files" }],
     ["hook/started", { threadId: "a", hook: {} }],
-    ["item/plan/delta", { threadId: "a", itemId: "p1", delta: "x" }],
-    ["guardianWarning", { threadId: "a", message: "x" }],
   ]) assert.equal(reduce(base, event(method, params)), base, `${method} must be inert`);
+});
+
+test("guardianWarning, strict review, cyber verification, reroutes and configWarning become notices; goals, names and auto-reviews are kept", () => {
+  let s = reduce(emptyState, event("thread/started", { thread: thread("a") }));
+  s = reduce(s, event("guardianWarning", { threadId: "a", message: "Auto-review is unavailable." }));
+  s = reduce(s, event("guardianWarning", { threadId: "a", message: "Auto-review is unavailable." }));
+  s = reduce(s, event("autoApprovalReview/strictReviewRequired", { threadId: "a", turnId: "t", startedAtMs: 1 }));
+  s = reduce(s, event("model/verification", { threadId: "a", turnId: "t", verifications: ["trustedAccessForCyber"] }));
+  s = reduce(s, event("model/rerouted", { threadId: "a", turnId: "t", fromModel: "gpt-5.6", toModel: "gpt-5.6-mini", reason: "highRiskCyberActivity" }));
+  assert.deepEqual(s.threadNotices.a.map(n => n.kind), ["guardian", "strictReview", "verification", "rerouted"]);
+  assert.deepEqual(s.threadNotices.a[3].values, { from: "gpt-5.6", to: "gpt-5.6-mini" });
+  s = reduce(s, event("configWarning", { summary: "Error parsing rules; custom rules not applied.", details: "bad token", path: "/x/default.rules", range: { start: { line: 2, column: 0 }, end: { line: 2, column: 3 } } }));
+  assert.deepEqual(s.notices.at(-1), { kind: "config", summary: "Error parsing rules; custom rules not applied.", details: "bad token", path: "/x/default.rules", line: 3 });
+  s = reduce(s, event("thread/goal/updated", { threadId: "a", turnId: null, goal: { threadId: "a", objective: "ship", status: "active", tokenBudget: null, tokensUsed: 5, timeUsedSeconds: 2, createdAt: 1, updatedAt: 2 } }));
+  assert.equal(s.goals.a.status, "active");
+  s = reduce(s, event("thread/goal/cleared", { threadId: "a" }));
+  assert.equal(s.goals.a, undefined);
+  s = reduce(s, event("thread/name/updated", { threadId: "a", threadName: " Fix login " }));
+  assert.equal(s.threadNames.a, "Fix login");
+  s = reduce(s, event("item/autoApprovalReview/started", { threadId: "a", turnId: "t", startedAtMs: 5, reviewId: "r1", targetItemId: "c1", review: { status: "inProgress", riskLevel: null, userAuthorization: null, rationale: null }, action: { type: "command", source: "shell", command: "rm x", cwd: "/w" } }));
+  s = reduce(s, event("item/autoApprovalReview/completed", { threadId: "a", turnId: "t", startedAtMs: 5, completedAtMs: 9, reviewId: "r1", targetItemId: "c1", decisionSource: "agent", review: { status: "denied", riskLevel: "high", userAuthorization: null, rationale: "Deletes files." }, action: { type: "command", source: "shell", command: "rm x", cwd: "/w" } }));
+  assert.deepEqual([s.autoReviews.a.r1.status, s.autoReviews.a.r1.riskLevel, s.autoReviews.a.r1.rationale, s.autoReviews.a.r1.targetItemId], ["denied", "high", "Deletes files.", "c1"]);
+  s = reduce(s, event("item/autoApprovalReview/completed", { threadId: "a", turnId: "t", startedAtMs: 5, completedAtMs: 9, reviewId: "r2", targetItemId: null, decisionSource: "agent", review: { status: "denied", riskLevel: "medium", userAuthorization: null, rationale: "Unknown host." }, action: { type: "networkAccess", target: "https://x.test", host: "x.test", protocol: "https", port: 443 } }));
+  // reviewId: the notice's 'Approve once' rebuilds Codex's denial event from that review (/auto-review).
+  assert.deepEqual(s.threadNotices.a.at(-1), { kind: "autoReviewDenied", summary: "Auto-review denied network access to {host}.", details: "Unknown host.", values: { host: "x.test" }, reviewId: "r2" });
+  // A new connection drops the old connection-wide notices.
+  assert.deepEqual(reduce(s, { event: { kind: "connection", connected: false } }).notices, []);
+});
+
+test("raw reasoning (item/reasoning/textDelta) streams into the thought when there is no summary", () => {
+  let s = reduce(emptyState, event("thread/started", { thread: thread("a") }));
+  s = reduce(s, event("item/reasoning/textDelta", { threadId: "a", turnId: "t", itemId: "r", delta: "thinking ", contentIndex: 0 }));
+  s = reduce(s, event("item/reasoning/textDelta", { threadId: "a", turnId: "t", itemId: "r", delta: "hard", contentIndex: 0 }));
+  assert.equal(s.items.a[0].type, "reasoning");
+  assert.equal(s.items.a[0].rawReasoningText, "thinking hard");
 });
 
 test("a sub-agent is classified by Thread.source, not only by parentThreadId", () => {
@@ -160,3 +194,63 @@ test("an approval raised on a sub-agent thread belongs to the session that owns 
   assert.equal(hasPendingApproval({ approvals: [{ id: "req-3", params: { threadId: "root" } }] }, "root"), true,
     "an ordinary session approval still matches with no parent table at all");
 });
+
+test("item/plan/delta streams Codex's proposed plan into the plan item; item/completed's text is authoritative", () => {
+  let s = reduce(emptyState, event("thread/started", { thread: thread("a") }));
+  s = reduce(s, event("turn/started", { threadId: "a", turn: { id: "t", status: "inProgress", items: [] } }));
+  s = reduce(s, event("item/started", { threadId: "a", turnId: "t", item: { type: "plan", id: "p", text: "" } }));
+  s = reduce(s, event("item/plan/delta", { threadId: "a", turnId: "t", itemId: "p", delta: "# Plan\n" }));
+  s = reduce(s, event("item/plan/delta", { threadId: "a", turnId: "t", itemId: "p", delta: "1. Read" }));
+  assert.deepEqual([s.items.a.length, s.items.a[0].type, s.items.a[0].text], [1, "plan", "# Plan\n1. Read"]);
+  assert.equal(isItemStreaming(s, "a", s.items.a[0]), true);
+  s = reduce(s, event("item/completed", { threadId: "a", turnId: "t", item: { type: "plan", id: "p", text: "# Plan\n1. Read the code" } }));
+  assert.equal(s.items.a[0].text, "# Plan\n1. Read the code", "the completed PlanItem.text replaces the concatenated deltas");
+  assert.equal(isItemStreaming(s, "a", s.items.a[0]), false);
+  // A delta before item/started creates the row typed plan, never an answer.
+  let early = reduce(emptyState, event("thread/started", { thread: thread("b") }));
+  early = reduce(early, event("item/plan/delta", { threadId: "b", turnId: "t2", itemId: "p2", delta: "Step" }));
+  assert.deepEqual([early.items.b[0].type, early.items.b[0].text], ["plan", "Step"]);
+});
+
+test("a plan cut off by an interrupted turn is settled as interrupted, not left as a finished plan", () => {
+  let s = reduce(emptyState, event("thread/started", { thread: thread("a") }));
+  s = reduce(s, event("turn/started", { threadId: "a", turn: { id: "t", status: "inProgress", items: [] } }));
+  s = reduce(s, event("item/started", { threadId: "a", turnId: "t", item: { type: "plan", id: "p", text: "" } }));
+  s = reduce(s, event("item/plan/delta", { threadId: "a", turnId: "t", itemId: "p", delta: "1. Half" }));
+  const done = reduce(s, event("turn/completed", { threadId: "a", turn: { id: "t", status: "completed", items: [] } }));
+  assert.equal(done.items.a[0].status, undefined, "a completed turn leaves the plan as Codex sent it");
+  const cut = reduce(s, event("turn/completed", { threadId: "a", turn: { id: "t", status: "interrupted", items: [] } }));
+  assert.equal(cut.items.a[0].status, "interrupted");
+});
+
+test("reasoning summary sections stream as separate paragraphs (summaryPartAdded / summaryIndex)", () => {
+  let s = reduce(emptyState, event("thread/started", { thread: thread("a") }));
+  const delta = (text, summaryIndex) => event("item/reasoning/summaryTextDelta", { threadId: "a", turnId: "t", itemId: "r", delta: text, summaryIndex });
+  s = reduce(s, delta("**Reading**\n", 0));
+  s = reduce(s, delta("checked the tests.", 0));
+  s = reduce(s, event("item/reasoning/summaryPartAdded", { threadId: "a", turnId: "t", itemId: "r", summaryIndex: 1 }));
+  s = reduce(s, delta("**Planning the fix**\n", 1));
+  s = reduce(s, delta("I will update it.", 1));
+  assert.equal(reasoningText(s.items.a[0]), "**Reading**\nchecked the tests.\n\n**Planning the fix**\nI will update it.");
+  // Without summaryPartAdded, a new summaryIndex alone starts the paragraph; a repeated break adds nothing.
+  s = reduce(s, delta("**Done**", 2));
+  s = reduce(s, event("item/reasoning/summaryPartAdded", { threadId: "a", turnId: "t", itemId: "r", summaryIndex: 2 }));
+  assert.equal(reasoningText(s.items.a[0]), "**Reading**\nchecked the tests.\n\n**Planning the fix**\nI will update it.\n\n**Done**");
+  // A break for an unknown item, or before any text, changes nothing.
+  assert.equal(reduce(s, event("item/reasoning/summaryPartAdded", { threadId: "a", turnId: "t", itemId: "nope", summaryIndex: 1 })), s);
+  let fresh = reduce(emptyState, event("thread/started", { thread: thread("b") }));
+  fresh = reduce(fresh, event("item/reasoning/summaryTextDelta", { threadId: "b", turnId: "t", itemId: "r", delta: "first", summaryIndex: 1 }));
+  assert.equal(fresh.items.b[0].reasoningText, "first");
+});
+
+test("hasLiveWork: a finished turn's explicit null active entry is not a running response", () => {
+  let s = reduce(emptyState, event("thread/started", { thread: thread("a") }));
+  assert.equal(hasLiveWork(s), false);
+  s = reduce(s, event("turn/started", { threadId: "a", turn: { id: "t", status: "inProgress", items: [] } }));
+  assert.equal(hasLiveWork(s), true);
+  s = reduce(s, event("turn/completed", { threadId: "a", turn: { id: "t", status: "completed", items: [] } }));
+  assert.deepEqual(s.active, { a: null });
+  assert.equal(hasLiveWork(s), false, "switching cores after a finished turn needs no 'a response is running' confirmation");
+  assert.equal(hasLiveWork({ ...s, approvals: [{ id: 1, method: "item/commandExecution/requestApproval", params: { threadId: "a" } }] }), true);
+});
+

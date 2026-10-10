@@ -189,7 +189,9 @@ try{
  // he context menu (panes-tabs-current.js:470-485), anchored bottom/start to the tab root.
  // F11: the tab menu now leads with the l_ file items (panes-tile-current.js:6809-6862: Mn Attach as context, Copy, Show in
  // Finder, then Reveal in file tree) and a separator (he renderTabMenuItems); labels are read from .smenu-label.
- const FILE_ITEMS=['Attach as context','Copy','Show in Finder','Reveal in file tree'];
+ // kn's 'Open in' submenu lists the editors installed on this Mac (main.cjs installed-editors); absent when there are none.
+ const OPEN_IN=(await page.evaluate(()=>window.desktop.call('installed-editors'))).length?['Open in']:[];
+ const FILE_ITEMS=['Attach as context','Copy',...OPEN_IN,'Show in Finder','Reveal in file tree'];
  const menuItems=()=>page.locator('[data-cds="ContextMenu"] [role="menuitem"]').evaluateAll(nodes=>nodes.map(n=>(n.querySelector('.smenu-label')?.textContent??n.textContent).trim()));
  const openMenu=async name=>{await tabRoot(name).locator('[role="tab"]').click({button:'right'});await page.locator('[data-cds="ContextMenu"][data-open]').waitFor();await frames();};
  await openMenu('README.md');assert.deepEqual(await menuItems(),[...FILE_ITEMS,'Keep open','Close file','Close other files','Close all files'],'preview tab menu order');
@@ -197,7 +199,7 @@ try{
  report.metrics.tabMenu=menuGeo;assert.equal(menuGeo.rootPath,'README.md');assert.equal(menuGeo.side,'bottom');assert.equal(menuGeo.align,'start');assert.ok(menuGeo.popup.top>=menuGeo.root.bottom-.5,'menu below the tab root');assert.ok(Math.abs(menuGeo.popup.left-menuGeo.root.left)<=1,'menu start-aligned to the tab root');
  await shot('file-tab-menu');await page.keyboard.press('Escape');await page.locator('[data-cds="ContextMenu"]').waitFor({state:'detached'});
  await openMenu(deepPath);assert.deepEqual(await menuItems(),[...FILE_ITEMS,'Close file','Close other files','Close all files'],'pinned tab menu has no Keep open');
- assert.deepEqual(await itemsOf(page.locator('[data-cds="ContextMenu"][data-open]')),['Attach as context','Copy','|','Show in Finder','|','Reveal in file tree','|','Close file','Close other files','Close all files'],'file items, then a separator before the tab items');
+ assert.deepEqual(await itemsOf(page.locator('[data-cds="ContextMenu"][data-open]')),['Attach as context','Copy','|',...OPEN_IN,'Show in Finder','|','Reveal in file tree','|','Close file','Close other files','Close all files'],'file items, then a separator before the tab items');
  assert.equal(await tabRoot(deepPath).evaluate(n=>getComputedStyle(n.querySelector('.source-file-tab-bg')).backgroundColor),tokens.hoverBg,'data-popup-open tab uses --cds-fill-ghost-hover');
  await page.waitForTimeout(900);assert.equal(await page.locator('.source-tooltip-popup').count(),0,'tooltip suppressed while the tab menu is open');
  await page.keyboard.press('Escape');await page.locator('[data-cds="ContextMenu"]').waitFor({state:'detached'});
@@ -216,24 +218,28 @@ try{
  await openTab('deep.txt',true);await pane().locator('[data-file-viewer] .sfv-line').first().waitFor();
  const viewer=await pane().evaluate(n=>{const b=n.querySelector('.sfv-path'),rows=[...n.querySelectorAll('[data-file-viewer] .sfv-line')],probe=document.createElement('span');n.append(probe);probe.style.color='var(--cds-text-muted)';const muted=getComputedStyle(probe).color;probe.style.color='var(--cds-text-secondary)';const secondary=getComputedStyle(probe).color;probe.remove();
   const sub=n.querySelector('.sfv-subheader').getBoundingClientRect();
-  return {label:b.getAttribute('aria-label'),title:b.getAttribute('title'),crumb:n.querySelector('.sfv-breadcrumb').textContent,dirColor:getComputedStyle(n.querySelector('.sfv-crumb-dir')).color,muted,secondary,buttonColor:getComputedStyle(b).color,subHeight:sub.height,
+  return {label:b.getAttribute('aria-label'),lister:b.hasAttribute('data-breadcrumb-lister'),tag:b.tagName,segments:[...b.querySelectorAll('[data-breadcrumb-segment]')].map(s=>s.textContent),title:b.getAttribute('title'),crumb:n.querySelector('.sfv-breadcrumb').textContent,dirColor:getComputedStyle(n.querySelector('.sfv-crumb-dir')).color,muted,secondary,buttonColor:getComputedStyle(b).color,subHeight:sub.height,
    rows:rows.map(r=>[r.dataset.line,r.querySelector('.sfv-number').dataset.number,r.querySelector('code').textContent]),gutterColor:getComputedStyle(rows[0].querySelector('.sfv-number')).color,whiteSpace:getComputedStyle(rows[0].querySelector('code')).whiteSpace,
    back:!!n.querySelector('[aria-label="Back to files"], .source-file-location')};});
  report.metrics.viewer=viewer;
- assert.equal(viewer.label,'Copy path nested/deep.txt');assert.ok(viewer.title.endsWith('/nested/deep.txt'),viewer.title);assert.equal(viewer.crumb,'nested/deep.txt');
+ // Yo with a lister (local sessions, cd2efac6e :4804-4872): a plain div, no Copy path button; each in-workspace segment opens "Files in {folder}".
+ assert.equal(viewer.label,null);assert.equal(viewer.lister,true);assert.equal(viewer.tag,'DIV');assert.deepEqual(viewer.segments,['nested','deep.txt']);assert.ok(viewer.title.endsWith('/nested/deep.txt'),viewer.title);assert.equal(viewer.crumb,'nested/deep.txt');
  assert.equal(viewer.dirColor,viewer.muted,'folder segment text-muted');assert.equal(viewer.buttonColor,viewer.secondary,'breadcrumb button text-secondary');assert.ok(Math.abs(viewer.subHeight-32)<=.5,'2rem subheader');
  assert.deepEqual(viewer.rows,[['1','1','NESTED_DEEP_FILE\n']]);assert.equal(viewer.gutterColor,viewer.muted,'muted gutter');assert.equal(viewer.whiteSpace,'pre-wrap');assert.equal(viewer.back,false,'no Back to files / location row');
- await pane().locator('.sfv-path').click();await poll(async()=>(await toasts()).includes('Path copied to clipboard.'),'path toast');
- assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'nested/deep.txt','the breadcrumb copies the relative path');
+ const folderSegment=pane().locator('.sfv-path [data-breadcrumb-segment]',{hasText:'nested'}).first();await folderSegment.click();
+ const folderPopover=page.getByRole('tree',{name:'Files in nested',exact:true});await folderPopover.waitFor();
+ assert.equal(await folderSegment.getAttribute('aria-expanded'),'true');
+ assert.deepEqual(await folderPopover.locator('[data-folder-row]').evaluateAll(rows=>rows.map(r=>[r.querySelector('.sfv-folder-name').textContent,r.hasAttribute('data-selected')])),[['inner',false],['deep.txt',true]],'folders first, the open file is the selected row');
+ await shot('breadcrumb-folder-popover');await page.keyboard.press('Escape');await folderPopover.waitFor({state:'detached'});/* Escape closes only the popover (source-session.jsx: a portaled layer's Escape never closes the pane) */assert.equal(await pane().count(),1,'the Files pane stays open');
  if(!(await tree().isVisible()))await pane().getByRole('button',{name:'Show file tree',exact:true}).click();
  await tree().getByRole('button',{name:'notes.txt',exact:true}).click({button:'right'});const rowMenu=page.locator('[data-cds="ContextMenu"][data-open]');await rowMenu.waitFor();await frames();
- assert.deepEqual(await itemsOf(rowMenu),['Attach as context','Copy','|','Show in Finder'],'file_browser items (Mn)');
+ assert.deepEqual(await itemsOf(rowMenu),['Attach as context','Copy','|',...OPEN_IN,'Show in Finder'],'file_browser items (Mn)');
  await rowMenu.getByRole('menuitem',{name:'Copy',exact:true}).hover();const copyMenu=page.getByRole('menu',{name:'Copy',exact:true});await copyMenu.waitFor();await frames();
  assert.deepEqual(await itemsOf(copyMenu),['Absolute path','Relative path','Filename']);await shot('tree-row-copy-menu');
  await copyMenu.getByRole('menuitem',{name:'Relative path',exact:true}).click();await page.locator('[data-cds="ContextMenu"]').waitFor({state:'detached'});
  await poll(async()=>(await toasts()).includes('Copied to clipboard.'),'copy toast');assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'notes.txt');
  await restoreClipboard();
- report.checks.push('Viewer: "Copy path nested/deep.txt" breadcrumb (muted folder, text-secondary button, 32px subheader) copies the relative path with "Path copied to clipboard."; one numbered pre-wrap row with a muted gutter; no Back to files. Tree row ContextMenu: Attach as context, Copy, separator, Show in Finder; Copy ▸ Relative path writes "notes.txt" with "Copied to clipboard."');
+ report.checks.push('Viewer: local-session lister breadcrumb (muted folder segment, text-secondary path, 32px subheader); the nested segment opens "Files in nested" with deep.txt selected, Escape closes it; one numbered pre-wrap row with a muted gutter; no Back to files. Tree row ContextMenu: Attach as context, Copy, separator, Show in Finder; Copy ▸ Relative path writes "notes.txt" with "Copied to clipboard."');
  // ⌘⇧Y toggles the tree beside the open file; the ListBullet tooltip shows the keycap and the button has no native title.
  const treeState=()=>pane().evaluate(n=>n.querySelector('.source-file-body').dataset.treeVisible);
  const toggle=pane().locator('.source-pane-header > button[aria-pressed]');

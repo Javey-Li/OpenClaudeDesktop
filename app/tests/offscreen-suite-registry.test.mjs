@@ -97,7 +97,7 @@ test('0.2.124 registers the eight no-clipboard scripts with exact reports, no me
   const standalone = bootstrap.match(/^const standaloneOf=.*$/m)[0];
   assert.equal(standalone, String.raw`const standaloneOf=binary=>{if(!binary?.startsWith(profile+path.sep)||path.basename(binary)!=='connection-server.cjs')return false;const [shebang,...rest]=fs.readFileSync(binary,'utf8').split('\n'),body=rest.join('\n');return /^#!(\/usr\/bin\/env node|\/\S+\/node)$/.test(shebang)&&!/spawn\(|exec|fork|\bimport\b|\beval\(|Function\(|process\.(binding|dlopen)|\b(child_process|net|http|https|tls|dgram|vm|worker_threads)\b|\brequire\b(?!\()/.test(body)&&[...body.matchAll(/require\(([^)]*)\)/g)].every(match=>/^'node:(fs|path|readline)'$/.test(match[1]));};`);
   // 0.2.125 appends stubbornOf (shutdown-ui-test) to the same disjunction; the three earlier rules stay first and unchanged.
-  assert.match(bootstrap, /assert\(fixtures\.includes\(process\.env\.CODEX_BINARY\)\|\|proxyOf\(process\.env\.CODEX_BINARY\)\|\|standaloneOf\(process\.env\.CODEX_BINARY\)\|\|stubbornOf\(process\.env\.CODEX_BINARY\)\);/);
+  assert.match(bootstrap, /assert\(fixtures\.includes\(process\.env\.CODEX_BINARY\)\|\|proxyOf\(process\.env\.CODEX_BINARY\)\|\|standaloneOf\(process\.env\.CODEX_BINARY\)\|\|stubbornOf\(process\.env\.CODEX_BINARY\)\|\|coresSuite\(\)\);/);
   const connection = fs.readFileSync(path.join(app, 'scripts/connection-lifecycle-test.mjs'), 'utf8');
   assert.match(connection, /binary=path\.join\(profile,'connection-server\.cjs'\)/);
   assert.match(connection, /const fs=require\('node:fs'\),path=require\('node:path'\),readline=require\('node:readline'\);/);
@@ -165,7 +165,7 @@ test('0.2.125 registers the ten clipboard/lifecycle scripts with exact floors, t
   // shutdown: its stubborn fake server is accepted only by the exact stubbornOf shape; turn-footer's repo fixture is allow-listed.
   assert.ok(bootstrap.includes("'approval-server.cjs','turn-footer-server.cjs']"));
   assert.doesNotMatch(fs.readFileSync(path.join(app, 'tests/fixtures/turn-footer-server.cjs'), 'utf8'), /child_process|spawn\(|exec|\bnet\b|http/);
-  assert.match(bootstrap, /assert\(fixtures\.includes\(process\.env\.CODEX_BINARY\)\|\|proxyOf\(process\.env\.CODEX_BINARY\)\|\|standaloneOf\(process\.env\.CODEX_BINARY\)\|\|stubbornOf\(process\.env\.CODEX_BINARY\)\);/);
+  assert.match(bootstrap, /assert\(fixtures\.includes\(process\.env\.CODEX_BINARY\)\|\|proxyOf\(process\.env\.CODEX_BINARY\)\|\|standaloneOf\(process\.env\.CODEX_BINARY\)\|\|stubbornOf\(process\.env\.CODEX_BINARY\)\|\|coresSuite\(\)\);/);
   const stubbornSource = bootstrap.match(/^const stubbornOf=.*$/m)[0];
   const stubbornOf = new Function('fs', 'path', 'profile', `${stubbornSource}\nreturn stubbornOf;`);
   const profile = fs.mkdtempSync(path.join(app, '../analysis/stubborn-rule-')), write = (name, text) => { const file = path.join(profile, name); fs.writeFileSync(file, text); return file; };
@@ -187,4 +187,15 @@ test('0.2.125 registers the ten clipboard/lifecycle scripts with exact floors, t
   // Every Electron clipboard entry point stays forbidden in bootstrap (no name removed).
   const blocked = JSON.parse(bootstrap.match(/for\(const name of (\[[^\]]*\])\)electron\.clipboard\[name\]=forbidden/)[1].replaceAll("'", '"'));
   assert.deepEqual(blocked, ['writeText', 'writeHTML', 'writeRTF', 'writeImage', 'writeBuffer', 'writeBookmark', 'writeFindText', 'write', 'clear', 'readText', 'readHTML', 'readRTF', 'readBookmark', 'readFindText', 'readImage', 'readBuffer', 'read', 'has', 'availableFormats']);
+});
+
+test('cores-ui-test runs without CODEX_BINARY only when no real core can spawn', () => {
+  // cores-suite rule appended last to the bootstrap disjunction (Settings › Cores decides the core there).
+  const bootstrap = fs.readFileSync(path.join(app, '../work/offscreen-app-integration-20260922/bootstrap.cjs'), 'utf8');
+  const rule = bootstrap.match(/^const coresSuite=.*$/m)?.[0];
+  assert.ok(rule, 'coresSuite rule present');
+  for (const condition of ["process.env.CODEX_BINARY===undefined", "process.env.CODE_DESKTOP_CORE===undefined", "process.env.CODE_DESKTOP_DEEPSEEK_CORE===fixtures[0]",
+    "process.env.CODE_DESKTOP_CORE_SYSTEM_PATHS===''", "process.env.CODE_DESKTOP_CORE_RELEASE_MANIFEST?.startsWith(path.dirname(profile)+path.sep)", "process.env.DSH_HOME?.startsWith(profile+path.sep)"])
+    assert.ok(rule.includes(condition), condition);
+  assert.ok(bootstrap.indexOf(rule) < bootstrap.indexOf('const entry=process.env.CODE_DESKTOP_VERIFY_ENTRY;'), 'defined before the if/else');
 });

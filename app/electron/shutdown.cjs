@@ -1,7 +1,9 @@
 /** Defer Electron's before-quit once while owned child processes stop.
  * Does not import Electron so the re-entry/deadline contract is unit-testable.
+ * guard(event): runs before shutdown starts; true means it held this quit (quit-guard.cjs asks first while an agent
+ * works) and nothing is stopped. onStart(): shutdown has begun (the quit is going ahead), called synchronously.
  */
-function installShutdownHandler(app, { stop, timeoutMs = 3000, onError = () => {} } = {}) {
+function installShutdownHandler(app, { stop, timeoutMs = 3000, onError = () => {}, guard = null, onStart = () => {} } = {}) {
   if (typeof stop !== "function") throw new TypeError("shutdown stop must be a function");
   if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new TypeError("shutdown timeout must be non-negative");
   let state = "idle", completion = null;
@@ -10,9 +12,15 @@ function installShutdownHandler(app, { stop, timeoutMs = 3000, onError = () => {
   };
   const beforeQuit = (event) => {
     if (state === "complete") return;
+    if (state === "idle" && typeof guard === "function") {
+      let held = false;
+      try { held = guard(event) === true; } catch (error) { reportError(error); }
+      if (held) return;
+    }
     event.preventDefault();
     if (state === "waiting") return;
     state = "waiting";
+    try { onStart(); } catch (error) { reportError(error); }
     completion = new Promise((resolve) => {
       let settled = false;
       const finish = (result) => {

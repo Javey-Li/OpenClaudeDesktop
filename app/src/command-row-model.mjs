@@ -23,6 +23,7 @@ import {connectionInterrupted} from "./item-observation.mjs";
 import { stripAnsi } from "./ansi-model.mjs";
 import { summarizeCommand } from "./command-summary.mjs";
 import { describeVerb } from "./description-verb-model.mjs";
+import { commandText } from "./shell-command-model.mjs";
 import { t } from "../electron/i18n/index.mjs";
 
 export const RUNNING_VERB = t("Running");
@@ -60,7 +61,13 @@ export function commandRowState(item = {}, awaitingApproval = false) {
  * one a summarisable command puts the summary in the code-coloured meta, and
  * otherwise the plain meta joins the verb.
  */
-export function commandRowLabel(command, state, description) {
+export function commandRowLabel(command, state, description, source) {
+  // The user's own '!' command (Codex thread/shellCommand, source userShell): 'You ran …', with the command as typed.
+  if (source === "userShell") {
+    const typed = commandText(command);
+    const label = state === "busy" || state === "blocked" ? t("Running your command") : state === "failed" ? t("Your command failed") : t("You ran");
+    return { label, meta: typed || null };
+  }
   // Classic PN :17105–17255 uses failedVerb (:4156), unlike gated Step.
   const verb = state === "busy" || state === "blocked" ? RUNNING_VERB : state === "failed" ? t("Failed to run") : DONE_VERB;
   if (typeof description === "string" && description.trim()) {
@@ -72,7 +79,8 @@ export function commandRowLabel(command, state, description) {
     // tenses: the verb, with the description as the meta.
     return { label: verb, meta: description };
   }
-  const summary = summarizeCommand(command);
+  // The summary is of the script, not of Codex's `<shell> -lc '…'` wrapper (shell-command-model.mjs).
+  const summary = summarizeCommand(commandText(command));
   return summary === null
     ? { label: state === "busy" || state === "blocked" ? t("Running a command") : state === "failed" ? t("Failed to run a command") : t("Ran a command"), meta: null }
     : { label: verb, meta: summary };

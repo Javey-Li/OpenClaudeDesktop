@@ -115,7 +115,7 @@ try {
   assert.ok(metrics.toastDark.above&&metrics.toastLight.above&&/^\d+px$/.test(metrics.toastLight.clearance),`toasts clear the composer: ${JSON.stringify([metrics.toastDark,metrics.toastLight])}`);
   assert.equal(await page.locator('.inline-notice').count(),0,'no inline notice row');
   checks.push('Source menu geometry and unavailable gates; alias highlights; persistent Escape; Enter inserts text and accessible argument hint before execution');
-  await command('/compact x');await page.getByRole('alert').filter({hasText:'doesn’t take arguments here'}).waitFor();
+  /* /compact now takes [instructions] (session-command-model); /status still takes none. */await command('/status x');await page.getByRole('alert').filter({hasText:'doesn’t take arguments here'}).waitFor();
   await command('/diff\nfoo');await page.getByRole('alert').filter({hasText:'only works on a single line'}).waitFor();
   await command('/compac');await page.getByRole('alert').filter({hasText:'isn’t a command here'}).waitFor();await page.getByRole('button',{name:'/compact',exact:true}).click();assert.equal(await editor.evaluate(node=>node.value),'/compact ');
   assert.equal((await requests()).filter(r=>r.method==='turn/start').length,0);
@@ -127,7 +127,7 @@ try {
   await page.screenshot({path:path.join(directory,'status-light.png')});
   // :33437-33444 / :33800-33810: a command error is a warning toast, not the composer banner.
   await command('/model nonexistent');await toast('“nonexistent” isn’t an available model.','warning').waitFor();assert.equal(await page.locator('.composer-error').count(),0,'no composer banner for a command error');
-  await command('/effort high');await poll(async()=>JSON.parse(await fs.readFile(path.join(profile,'preferences.json'),'utf8')).effort==='high','effort persisted');
+  await command('/effort high');/* In an open session /effort is that session's own (sessionMetadata[id].effort); the Settings default stays. */await poll(async()=>{const prefs=JSON.parse(await fs.readFile(path.join(profile,'preferences.json'),'utf8'));return prefs.sessionMetadata?.[RC]?.effort==='high'&&prefs.effort!=='high';},'effort persisted for the session');
   // :11310-11322 addWarning(…, {uniqueKey:'epitaxy-fast-command-notice'}): a repeat replaces the keyed toast instead of stacking.
   await command('/fast on');await poll(async()=>await editor.evaluate(node=>node.value)===''&&JSON.parse(await fs.readFile(path.join(profile,'preferences.json'),'utf8')).fastMode===true,'first fast command acknowledged');await command('/fast on');await toast('Fast mode is already on.','warning').waitFor();
   await poll(async()=>await editor.evaluate(node=>node.value)==='','second fast command acknowledged');await command('/fast on');await page.waitForTimeout(300);
@@ -140,7 +140,8 @@ try {
   // :28890-28916 vG: a description while already planning still goes to the draft, with 'Already in plan mode.' (same key).
   await command('/plan Explain again');await poll(async()=>await editor.evaluate(node=>node.value)==='Explain again','plan description while planning');
   await toast(/Already in plan mode\.(?! No plan)/,'warning').waitFor();await fillComposer(page,editor,'');
-  await command('/continue Renamed');assert.equal(await page.getByRole('textbox',{name:'Search sessions',exact:true}).inputValue(),'Renamed');await page.getByRole('button',{name:'Close search',exact:true}).click();
+  // /continue (= /resume) opens 'Resume a session' searching for its argument (thread/list), closed with Cancel.
+  {const resume=page.getByRole('dialog',{name:'Resume a session'});await command('/continue Renamed');await resume.waitFor();assert.equal(await resume.getByRole('searchbox',{name:'Search sessions',exact:true}).inputValue(),'Renamed');await resume.getByRole('button',{name:'Cancel',exact:true}).click();await resume.waitFor({state:'detached'});}
   await command('/tasks');await page.locator('.sag-pane').waitFor();await page.getByRole('button',{name:'Close panel',exact:true}).click();
   await command('/add-dir '+path.join(workspace,'extra'));await poll(async()=>JSON.parse(await fs.readFile(path.join(profile,'preferences.json'),'utf8')).sessionMetadata?.[RC]?.additionalFolders?.includes(path.join(workspace,'extra')),'additional folder persisted');
   checks.push('Inline status uses real rate limits without protocol rows; model validation, effort, fast, direct rename, plan draft (and \'Already in plan mode.\' with a description while planning), resume search, tasks and validated additional directory work');
@@ -164,7 +165,7 @@ try {
   metrics.rewindDialog=await rewind.evaluate(n=>{const probe=document.createElement('span');probe.style.cssText='position:absolute;visibility:hidden;background:var(--cds-surface-3)';n.parentElement.append(probe);const surface=getComputedStyle(probe).backgroundColor;probe.style.background='var(--cds-backdrop)';const backdrop=getComputedStyle(probe).backgroundColor;probe.remove();
     return {surface:getComputedStyle(n).backgroundColor===surface,backdrop:getComputedStyle(n.parentElement).backgroundColor===backdrop,blur:getComputedStyle(n.parentElement).backdropFilter,footer:[...n.querySelectorAll('footer [data-cds=Button]')].map(b=>b.dataset.variant)};});
   metrics.rewindDialog.close=await rewind.getByRole('button',{name:'Close',exact:true}).count();
-  assert.deepEqual(metrics.rewindDialog,{surface:true,backdrop:true,blur:'blur(2px)',footer:['secondary','primary'],close:1});await rewind.getByLabel('fixture:complete branch prompt',{exact:true}).check();await rewind.getByRole('button',{name:'Rewind to here',exact:true}).click();assert.equal((await requests()).filter(r=>r.method==='thread/revert').length,0,'no mutation before confirmation');await rewind.getByRole('button',{name:'Confirm rewind',exact:true}).click();await rewind.waitFor({state:'detached'});
+  assert.deepEqual(metrics.rewindDialog,{surface:true,backdrop:true,blur:'blur(2px)',footer:['secondary','primary'],close:1});await rewind.getByLabel('fixture:complete branch prompt',{exact:true}).check({force:true});/* the radio sits under its slash-rewind-option label, which takes the pointer */await rewind.getByRole('button',{name:'Rewind to here',exact:true}).click();assert.equal((await requests()).filter(r=>r.method==='thread/revert').length,0,'no mutation before confirmation');await rewind.getByRole('button',{name:'Confirm rewind',exact:true}).click();await rewind.waitFor({state:'detached'});
   await poll(async()=>JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[fork.id].turns.length===1,'durable history reverted');assert.equal(await page.getByText('Fixture response',{exact:true}).count(),0);assert.equal(await editor.evaluate(node=>node.value),'fixture:complete branch prompt');
   assert.equal((await requests()).filter(r=>r.method==='thread/revert').length,1);
   checks.push('Usage targets settings; fork prompt goes only to new branch; export reads full history and excludes local status; rewind confirms and reloads paginated retained history');

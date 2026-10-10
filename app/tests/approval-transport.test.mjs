@@ -397,7 +397,9 @@ test("R07 question IPC: the plan card's revise pair and codeDesktop.afterPlan, a
   const revise = await add({ ...command("plan-revise"), method: "item/tool/requestUserInput", params: review });
   assert.equal(respondToApproval(client, { id: revise.id, expected: revise.bridgeApproval, ...planReviewResponse("revise", { feedback: "Split it" }) }).ok, true);
   const accept = await add({ ...command("plan-accept"), method: "item/tool/requestUserInput", params: review });
-  assert.equal(respondToApproval(client, { id: accept.id, expected: accept.bridgeApproval, answers: { "plan-review": { answers: ["Approve"] } }, codeDesktop: { afterPlan: "bypass" } }).error.code, "invalid_response");
+  assert.equal(respondToApproval(client, { id: accept.id, expected: accept.bridgeApproval, answers: { "plan-review": { answers: ["Approve"] } }, codeDesktop: { afterPlan: "plan" } }).error.code, "invalid_response");
+  // Bypass is a valid plan target here; main.cjs's "respond" validates the opt-in and requirements before this runs.
+  assert.match(await fs.readFile(new URL("../electron/main.cjs", import.meta.url), "utf8"), /afterPlan === "bypass"[\s\S]{0,200}validateBypassRequest/);
   assert.equal(respondToApproval(client, { id: accept.id, expected: accept.bridgeApproval, ...planReviewResponse("primary", { target: "acceptEdits" }) }).ok, true);
   const question = { threadId: "thread-a", turnId: "turn-a", questions: [{ id: "choice", question: "Pick", options: [{ label: "First" }], isOther: true },
     { id: "notes", question: "Why?", options: null, isOther: false }] };
@@ -409,4 +411,20 @@ test("R07 question IPC: the plan card's revise pair and codeDesktop.afterPlan, a
     { answers: { "plan-review": { answers: ["Approve"] } }, codeDesktop: { afterPlan: "acceptEdits" } },
     { answers: { choice: { answers: [QUESTION_DISMISSED_ANSWER] }, notes: { answers: [QUESTION_DISMISSED_ANSWER] } } },
   ]);
+});
+
+test("protocol-conflict refusals name the running core (coreName option), not a fixed DeepSeek", async () => {
+  const { ApprovalLedger, ApprovalTransportError } = createRequire(import.meta.url)("../electron/approval-transport.cjs");
+  const connection = { approvalConnectionId: "c1", approvalConnectionEpoch: 1, closed: false };
+  const ledger = new ApprovalLedger(() => {}, { coreName: () => "Kimi" });
+  ledger.activate(connection);
+  ledger.register({ id: 7, method: "item/commandExecution/requestApproval", params: { threadId: "t", turnId: "u", command: "ls" } }, connection);
+  assert.throws(() => ledger.register({ id: 7, method: "item/commandExecution/requestApproval", params: { threadId: "t", turnId: "u", command: "rm" } }, connection),
+    (error) => error instanceof ApprovalTransportError && error.code === "approval_protocol_conflict" && error.message === "Kimi reused an outstanding request ID. Reconnect to continue.");
+  // Without the option the chosen core names it (codex.cjs clientCoreName), still through t().
+  const plain = new ApprovalLedger(() => {});
+  plain.activate(connection);
+  plain.register({ id: 1, method: "item/fileChange/requestApproval", params: { threadId: "t", turnId: "u" } }, connection);
+  plain.register({ id: 1, method: "item/fileChange/requestApproval", params: { threadId: "t", turnId: "u" } }, connection);
+  assert.throws(() => plain.register({ id: 1, method: "item/fileChange/requestApproval", params: { threadId: "t", turnId: "v" } }, connection), /^ApprovalTransportError: \S+ reused an outstanding request ID\. Reconnect to continue\.$/);
 });

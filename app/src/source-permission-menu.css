@@ -24,3 +24,10 @@
   min-width: 0; overflow-x: clip; text-overflow: ellipsis; white-space: nowrap;
   line-height: calc(0.75rem * var(--cds-rem-scale, 1)); padding-block: 0.125em; margin-block: -0.125em;
 }
+
+/* Bypass while its opt-in is off (approval-shared-current.js :8781-8799): the trailing 'Enable' is
+   'pointer-events-none shrink-0 text-footnote text-primary'; the row opens Settings › Code at the opt-in. */
+.sp-permission-enable-text {
+  flex-shrink: 0; pointer-events: none; color: var(--cds-text-primary);
+  font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); font-weight: 500;
+}

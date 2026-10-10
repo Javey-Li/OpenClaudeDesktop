@@ -116,3 +116,30 @@ test("files.cjs media lists match the renderer's fileMediaKind (cd2efac6e je/ye)
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+// A deliverable card's Open (main.cjs open-tool-file): launchers, scripts, installers, executables and links to
+// another file type are refused, as 2.2553.1's openSessionFileInDefaultApp refuses them.
+test("openBlockReason refuses launchers, executables and links to another type, and allows documents", async () => {
+  const { openBlockReason } = require("../electron/files.cjs");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "code-desktop-open-")));
+  try {
+    const file = async (name, mode = 0o644) => { const target = path.join(root, name); await fs.writeFile(target, "x"); await fs.chmod(target, mode); return target; };
+    for (const name of ["report.command", "a.terminal", "b.tool", "c.webloc", "d.app", "e.pkg", "f.scpt", "g.mobileconfig", "h.sh", "I.COMMAND"]) {
+      const target = await file(name);
+      assert.match(await openBlockReason(target, target), /doesn’t open apps, scripts or installers/, name);
+    }
+    const tool = await file("run", 0o755);
+    assert.match(await openBlockReason(tool, tool), /doesn’t open apps/);
+    const pdf = await file("ok.pdf", 0o755);
+    assert.equal(await openBlockReason(pdf, pdf), null);
+    const txt = await file("notes.txt");
+    assert.equal(await openBlockReason(txt, txt), null);
+    const script = await file("real.command");
+    await fs.symlink(script, path.join(root, "report.pdf"));
+    assert.match(await openBlockReason(path.join(root, "report.pdf"), script), /different kind of file/);
+    const odd = await file("x‮gpj.txt");
+    assert.match(await openBlockReason(odd, odd), /unusual characters/);
+    await fs.mkdir(path.join(root, "dir.txt"));
+    assert.match(await openBlockReason(path.join(root, "dir.txt"), path.join(root, "dir.txt")), /Only files/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

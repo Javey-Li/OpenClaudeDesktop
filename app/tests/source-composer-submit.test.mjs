@@ -87,3 +87,44 @@ test("the Home draft's Send tooltip has the second row 'Send and stay here' ⌘�
   assert.deepEqual(sendTooltip({ stayOnDraft: true, running: true, queueEnabled: true }).secondaryHint, { label: 'Queue for later', shortcut: 'cmd+enter' });
   assert.equal(probes({ stayOnDraft: true }).some(entry => /fork/i.test(JSON.stringify(entry))), false, 'no ⌘⌥⏎ fork row: thread/fork is unsupported');
 });
+
+// Round-2 walk a10: the Home pet (80px sprite at the composer's top-right) covered the warning row's Retry.
+test('a warning row under the Home pet reserves the pet’s width and keeps Retry above the sprite', async () => {
+  // SourcePet reads matchMedia / document during render; SSR gets inert stand-ins for this one render.
+  const stubs = { matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }), document: { documentElement: { dataset: {} } } };
+  const added = Object.keys(stubs).filter(key => !(key in globalThis));
+  for (const key of added) globalThis[key] = stubs[key];
+  let withPet;
+  try { withPet = composer({ canSubmit: false, warning: 'Connection to DeepSeek lost.', onReconnect: noop, showPet: true }); }
+  finally { for (const key of added) delete globalThis[key]; }
+  assert.match(withPet, /<div class="sc-warning-row" role="status" data-cds-composer-warning="" data-pet="true">/);
+  assert.doesNotMatch(composer({ canSubmit: false, warning: 'Connection to DeepSeek lost.', onReconnect: noop }), /data-pet/);
+  const fs = await import('node:fs/promises');
+  const css = await fs.readFile(path.resolve(import.meta.dirname, '../src/source-composer.css'), 'utf8');
+  const pet = /\.sc-pet \{[^}]*right: (-?\d+)px;[^}]*width: (\d+)px;/.exec(css);
+  const pad = /\.sc-warning-row\[data-pet\] \{ padding-right: (\d+)px; \}/.exec(css);
+  assert.ok(pet && pad, 'pet geometry and row padding');
+  assert.ok(Number(pad[1]) >= Number(pet[2]) + Number(pet[1]), 'the padding clears the sprite box inside the column');
+  assert.match(css, /\.sc-warning-action \{ position: relative; z-index: 3; \}/, 'Retry stacks above .sc-pet (z-index 2)');
+});
+
+// Round-2 walk b4/b5: before init() settles the saved mode is unknown; the chip must not claim Auto.
+test('permission null (saved mode not loaded) renders a disabled, busy "Mode" chip instead of a mode', () => {
+  const chip = html => /<button[^>]*class="[^"]*sc-permission[^"]*"[^>]*>.*?<\/button>/.exec(html)?.[0] ?? '';
+  const loading = chip(composer({ permission: null, canSubmit: false }));
+  assert.match(loading, / disabled=""/); assert.match(loading, /aria-busy="true"/);
+  assert.match(loading, />Mode</); assert.doesNotMatch(loading, /Auto/);
+  const plan = chip(composer({ permission: 'plan' }));
+  assert.doesNotMatch(plan, / disabled=""/); assert.match(plan, /Plan/);
+});
+test('the connecting hint is not shown until Enter is refused, and main wires it to the startup and session-load gates', async () => {
+  assert.doesNotMatch(composer({ canSubmit: false, connectingHint: 'Still connecting to DeepSeek. Try again in a moment.' }), /Still connecting/);
+  const fs = await import('node:fs/promises');
+  const source = await fs.readFile(path.resolve(import.meta.dirname, '../src/source-composer.jsx'), 'utf8');
+  assert.match(source, /if \(!canSend\) \{\n\s*if \(connectingHint && hasContent && !hostCommand && !running\) setBlockedSubmit\(true\);/);
+  const main = await fs.readFile(path.resolve(import.meta.dirname, '../src/main.jsx'), 'utf8');
+  assert.match(main, /permission=\{boot \|\| initSettled \? effectivePermission : null\}/);
+  assert.match(main, /connectingHint=\{!boot\?\.connected && \(loading \|\| !initSettled\)/);
+  const zh = (await import('../electron/i18n/zh-CN/index.mjs')).default;
+  assert.equal(typeof zh['Still connecting to DeepSeek. Try again in a moment.'], 'string');
+});

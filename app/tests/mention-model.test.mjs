@@ -85,3 +85,13 @@ test("the mention chip and the text insertion produce the same draft and payload
   assert.equal(typed.text, "see @src/a.ts ");
   assert.deepEqual(mentionInputs(composerText(state.doc), [{ path: "src/a.ts" }], { resolvePath: (path) => `/w/${path}` }).items, [{ type: "mention", name: "a.ts", path: "/w/src/a.ts" }]);
 });
+
+test("a core reference becomes an '@name' option whose mention resolves to its folder", async () => {
+  const { mentionOptions, mentionInputs } = await import("../src/mention-model.mjs");
+  const [option, file] = mentionOptions([{ reference: true, path: "docs", target: "/Users/me/team-docs", description: "Team docs" }, { path: "src/a.js", positions: [] }]);
+  assert.deepEqual([option.label, option.path, option.description, option.isDirectory, option.target, option.kind], ["docs", "docs", "Team docs", true, "/Users/me/team-docs", "reference"]);
+  assert.equal(file.path, "src/a.js");
+  const mentions = [{ path: "docs", target: "/Users/me/team-docs" }, { path: "src/a.js" }];
+  const { items } = mentionInputs("see @docs and @src/a.js", mentions, { resolvePath: (relative) => mentions.find((entry) => entry.path === relative && entry.target)?.target ?? `/w/${relative}` });
+  assert.deepEqual(items.map((item) => item.path), ["/Users/me/team-docs", "/w/src/a.js"]);
+});

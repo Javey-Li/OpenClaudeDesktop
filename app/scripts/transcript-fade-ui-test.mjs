@@ -203,7 +203,7 @@ async function closeFiles() {
 }
 async function paneWidth(width) {
 // 0.2.14 tile engine: separators are labelled "Resize {i} and {i+1}" (2.2553.1 Mh aria-label).
-  const divider = page.getByRole("separator", { name: "Resize 1 and 2", exact: true });
+  const divider = page.getByRole("separator", { name: /^Resize Chat and / });
   await divider.focus(); await page.keyboard.press("Home"); await frames();
   const actual = await page.locator(".source-chat-tile").evaluate(node => node.getBoundingClientRect().width);
   if (Math.abs(width - actual) > .5) {
@@ -431,8 +431,8 @@ try {
     await shot("code-light");
 
     const lightPaint = (await capture()).strips.top.backgroundImage;
-    await page.getByRole("button", { name: "Account menu", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Dark appearance", exact: true }).click();
+    // The account menu has no appearance items (Claude parity): switch the theme preference.
+    await page.evaluate((theme) => window.desktop.call("settings", { theme }), "dark");
     await page.waitForFunction(() => document.documentElement.dataset.mode === "dark");
     await frames();
     metrics.dark = await capture();
@@ -512,7 +512,9 @@ try {
       // 0.2.14 tile engine: the chat tile is an anchored shell with min-width 320
       // (2.2553.1 Sh overflowMin), so the frozen "pane-280" content column (chat
       // wrap 280) now measures 320: width algebra +40, x unchanged.
-      const columnDelta = name === "pane-280" ? 40 : 0;
+      // The shell part the neighbour covers is inset (tile-layout-model.mjs coveredWidth): the column shows the wrap
+      // plus the 12px tile gap, so the algebra is +12 (was +40 while the column ran under the neighbour).
+      const columnDelta = name === "pane-280" ? 12 : 0;
       const { failures, record } = compareFadeLayout(name, before, after, { kind, gutterDelta, columnDelta });
       assert.deepEqual(failures, [], `${name} ${kind} (${baselineMode} baseline vs ${observedMode} observed)`);
       metrics.baselineComparison.layouts.push({ ...record, baselineMode, observedMode, baselineClientWidth: before.viewport.clientWidth, observedClientWidth: after.viewport.clientWidth });

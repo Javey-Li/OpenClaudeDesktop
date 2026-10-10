@@ -1,8 +1,10 @@
+import {cleanErrorReason} from './action-error-model.mjs';
 export function toastDuration(variant='neutral',timeout) {
   if(timeout===undefined)return variant==='neutral'?6500:10000;
   if(!Number.isFinite(timeout)||timeout<=0)return 0;
   return Math.max(6000,timeout);
 }
+const TOAST_VARIANTS=new Set(['neutral','warning','danger']);
 export function createToastStore({now=()=>Date.now(),schedule=setTimeout,cancel=clearTimeout,exitDuration=200}={}) {
   let snapshot=[],sequence=0,disposed=false;
   const listeners=new Set(),records=new Map(),paused=new Set();
@@ -22,8 +24,14 @@ export function createToastStore({now=()=>Date.now(),schedule=setTimeout,cancel=
     // key (the source toast API's uniqueKey, cc43287c9-BMbiZYzF.js:33860-33877 'epitaxy-plan-command-notice'):
     // a live toast with the same key takes the new text and variant in place and restarts its timer, so
     // on/off variants of one notice share a slot instead of stacking.
-    add(message,{variant='neutral',timeout,dedupe=true,key}={}){
+    add(message,{variant:requested='neutral',timeout,dedupe=true,key}={}){
       if(disposed||typeof message!=='string'||!message)return null;
+      // shared-21 HA/UA/WA/GA: exactly neutral, warning and danger; the shared-25 bridge folds 'info' (and any other
+      // name) into neutral, so an unknown variant never borrows the warning icon.
+      const variant=TOAST_VARIANTS.has(requested)?requested:'neutral';
+      // A caught desktop:call rejection's message never shows Electron's IPC transport wrapper.
+      message=cleanErrorReason(message);
+      if(!message)return null;
       const duration=toastDuration(variant,timeout);
       const keyed=typeof key==='string'&&key?snapshot.find(entry=>entry.key===key&&entry.phase!=='ending'):null;
       if(keyed){

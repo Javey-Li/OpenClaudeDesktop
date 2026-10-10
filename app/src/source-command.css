@@ -102,11 +102,13 @@
 }
 
 /* RO: the output group. */
+/* Wrapped at spaces first (break-words, code-approval.js:6513), a long token only where it must: `ls -la` columns
+   keep "README.md" whole instead of splitting it mid-word. */
 .src-cmd-output {
   max-height: 400px;
   overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: anywhere;
   color: var(--cds-text-secondary);
 }
 .src-cmd-output[data-error] {
@@ -197,3 +199,29 @@ html[data-reduce-motion="true"] .src-cmd-copy { transition: none; }
 .src-cmd-live{flex-shrink:0;margin:0;font-family:var(--cds-font-sans, anthropic-sans),sans-serif;font-weight:400;font-size:var(--cds-font-size-body);line-height:var(--cds-leading-body);color:var(--cds-text-primary);background:none;border:0;padding:0;border-radius:3px;text-underline-offset:3px;cursor:var(--cds-cursor-interactive, default)}
 .src-cmd-live:hover{text-decoration:underline}
 .src-cmd-live:focus-visible{outline:none;box-shadow:var(--cds-focus-shadow)}
+
+/* What Codex typed into the running process (terminalInteraction stdin): muted 'Sent input' lines under the output. */
+.src-cmd-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.src-cmd-input {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--cds-font-size-footnote, 12px);
+}
+.src-cmd-input-label {
+  flex: none;
+  color: var(--cds-text-muted);
+}
+.src-cmd-input-text {
+  min-width: 0;
+  color: var(--cds-text-secondary, var(--cds-text-muted));
+  font-family: var(--cds-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

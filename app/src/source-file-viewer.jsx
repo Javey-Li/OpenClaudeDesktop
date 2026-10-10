@@ -1,6 +1,9 @@
-import React, { startTransition, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { startTransition, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SourceTooltip } from "./source-tooltip";
+import { SourcePopover } from "./source-popover.jsx";
+import { fileKindIcon } from "./file-kind-icon.mjs";
+import { breadcrumbFolders, fileFindShortcut, findInText, findStatus, folderLabel, stepFindIndex } from "./file-find-model.mjs";
 import { useSettledHighlight } from "./use-settled-highlight.mjs";
 import { SourceHighlightedLine } from "./source-diff-code.jsx";
 import { SourceEmptyState } from "./source-transcript-states.jsx";
@@ -49,10 +52,26 @@ export const copyPathLabel = (path) => t("Copy path {path}", { path });
 // view, reset to the start when the file changes) > span[dir=ltr] with the
 // leading slash, each folder in text-muted followed by a muted "/", then the
 // file name in the default colour.
-export function SourceFileBreadcrumb({ displayPath, fullPath, onCopyPath }) {
+export function SourceFileBreadcrumb({ displayPath, fullPath, onCopyPath, lister = null }) {
   const { lead, dirs, name } = breadcrumbParts(displayPath);
   const ref = useRef(null);
   useEffect(() => { if (ref.current) ref.current.scrollLeft = 0; }, [fullPath]);
+  // Yo with a lister (local sessions): a plain div whose folder segments and file name open "Files in {folder}".
+  if (lister) {
+    const folders = breadcrumbFolders(displayPath);
+    return <div className="sfv-path" data-breadcrumb-lister="" title={fullPath}>
+      <span ref={ref} data-file-breadcrumb="" className="sfv-breadcrumb">
+        <span dir="ltr" className="sfv-breadcrumb-path">
+          {folders.lead && <span className="sfv-crumb-lead">{folders.lead}</span>}
+          {folders.dirs.map((segment, index) => <React.Fragment key={index}>
+            <SourceBreadcrumbSegment segment={segment} className="sfv-crumb-dir" current={displayPath} lister={lister} />
+            <span aria-hidden="true" className="sfv-crumb-separator">/</span>
+          </React.Fragment>)}
+          <SourceBreadcrumbSegment segment={folders.name} className="sfv-crumb-name" title={fullPath} current={displayPath} lister={lister} />
+        </span>
+      </span>
+    </div>;
+  }
   const crumbs = <span ref={ref} data-file-breadcrumb="" className="sfv-breadcrumb">
     <span dir="ltr" className="sfv-breadcrumb-path">
       {lead && <span className="sfv-crumb-lead">{lead}</span>}
@@ -65,6 +84,116 @@ export function SourceFileBreadcrumb({ displayPath, fullPath, onCopyPath }) {
   return onCopyPath
     ? <button type="button" className="sfv-path" aria-label={copyPathLabel(displayPath)} title={fullPath} onClick={onCopyPath}>{crumbs}</button>
     : <div className="sfv-path" title={fullPath}>{crumbs}</div>;
+}
+
+// Pa: ArrowDown opens a segment's folder, ArrowLeft / ArrowRight move between segments.
+function segmentKeys(event, open) {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (event.key === "ArrowDown") { event.preventDefault(); open(); return; }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const segments = [...(event.currentTarget.closest("[data-file-breadcrumb]")?.querySelectorAll("[data-breadcrumb-segment]") ?? [])];
+  const at = segments.indexOf(event.currentTarget), next = segments[event.key === "ArrowRight" ? at + 1 : at - 1];
+  if (at >= 0 && next) { event.preventDefault(); next.focus(); }
+}
+
+// Ia / Y: a segment inside the workspace is a button (Na "rounded-[3px] px-0.75 hover:bg-fill-ghost-hover
+// data-[popup-open]:bg-fill-ghost-hover") opening the w-72 "Files in {folder}" popover; anything else is plain text.
+function SourceBreadcrumbSegment({ segment, className, title, current, lister }) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef(null);
+  if (segment.dir === null) return <span className={`sfv-crumb ${className}`} title={title}>{segment.label}</span>;
+  const folder = folderLabel(segment.dir, lister.rootLabel ?? "");
+  return <>
+    <button ref={trigger} type="button" className={`sfv-crumb sfv-crumb-button ${className}`} title={title} data-breadcrumb-segment=""
+      data-popup-open={open || undefined} aria-haspopup="dialog" aria-expanded={open}
+      onClick={() => setOpen((value) => !value)} onKeyDown={(event) => segmentKeys(event, () => setOpen(true))}>{segment.label}</button>
+    {open && <SourcePopover anchor={trigger.current} side="bottom" align="start" padding="sm" className="sfv-folder-popover"
+      label={t("Files in {folder}", { folder })} onClose={() => setOpen(false)}>
+      <SourceFolderList dir={segment.dir} current={current} lister={lister} onOpen={(path) => { setOpen(false); lister.onOpenFile(path); }} />
+    </SourcePopover>}
+  </>;
+}
+
+const FOLDER_ENTRY_LIMIT = 200; // Ca
+function useFolderEntries(lister, dir) {
+  const [state, setState] = useState({ entries: null, error: false });
+  useEffect(() => {
+    let live = true;
+    setState({ entries: null, error: false });
+    Promise.resolve().then(() => lister.list(dir)).then(
+      (entries) => { if (live) setState({ entries: Array.isArray(entries) ? entries.slice(0, FOLDER_ENTRY_LIMIT) : [], error: false }); },
+      () => { if (live) setState({ entries: null, error: true }); });
+    return () => { live = false; };
+  }, [lister, dir]);
+  return state;
+}
+
+// La: skeleton rows while loading, "Couldn’t list this folder" / "Empty folder" (Ra: h-control px-md
+// text-footnote text-muted), else the compact tree (Xt variant compact): folders expand in place, a file opens.
+function SourceFolderList({ dir, current, lister, onOpen, depth = 0 }) {
+  const { entries, error } = useFolderEntries(lister, dir);
+  const list = useRef(null);
+  useEffect(() => { if (depth === 0 && entries?.length) list.current?.querySelector("[data-folder-row]")?.focus({ preventScroll: true }); }, [entries, depth]);
+  if (!entries) return error
+    ? <p className="sfv-folder-note">{t("Couldn’t list this folder")}</p>
+    : <div className="sfv-folder-skeleton" aria-hidden="true">{Array.from({ length: depth ? 2 : 6 }, (_, index) => <span key={index} />)}</div>;
+  if (!entries.length) return <p className="sfv-folder-note">{t("Empty folder")}</p>;
+  return <ul ref={list} role={depth ? "group" : "tree"} aria-label={depth ? undefined : t("Files in {folder}", { folder: folderLabel(dir, lister.rootLabel ?? "") })} className="sfv-folder-list"
+    onKeyDown={depth ? undefined : (event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const rows = [...event.currentTarget.querySelectorAll("[data-folder-row]")];
+      const at = rows.indexOf(event.target.closest?.("[data-folder-row]"));
+      const next = rows[event.key === "ArrowDown" ? at + 1 : Math.max(0, at - 1)];
+      if (next) { event.preventDefault(); next.focus(); }
+    }}>
+    {entries.map((entry) => <SourceFolderRow key={entry.path} entry={entry} current={current} lister={lister} onOpen={onOpen} depth={depth} />)}
+  </ul>;
+}
+
+function SourceFolderRow({ entry, current, lister, onOpen, depth }) {
+  const [expanded, setExpanded] = useState(false);
+  const directory = !!entry.directory;
+  const selected = !directory && entry.path === current;
+  return <li role="treeitem" aria-expanded={directory ? expanded : undefined} aria-selected={selected || undefined}>
+    <button type="button" className="sfv-folder-row" data-folder-row="" data-selected={selected || undefined} tabIndex={-1}
+      style={{ paddingInlineStart: `calc(var(--cds-pad-sm, 8px) + ${depth * 12}px)` }}
+      onClick={() => (directory ? setExpanded((value) => !value) : onOpen(entry.path))}
+      onKeyDown={(event) => {
+        if (!directory) return;
+        if (event.key === "ArrowRight" && !expanded) { event.preventDefault(); setExpanded(true); }
+        else if (event.key === "ArrowLeft" && expanded) { event.preventDefault(); setExpanded(false); }
+      }}>
+      {directory
+        ? <Icon name="CaretRight" size={12} className={expanded ? "sfv-folder-caret sfv-open" : "sfv-folder-caret"} />
+        : <span className="sfv-folder-caret" aria-hidden="true" />}
+      <Icon name={directory ? (expanded ? "FolderOpen" : "Folder") : fileKindIcon(entry.name)} size={16} className="sfv-folder-icon" />
+      <span className="sfv-folder-name">{entry.name}</span>
+    </button>
+    {directory && expanded && <SourceFolderList dir={entry.path} current={current} lister={lister} onOpen={onOpen} depth={depth + 1} />}
+  </li>;
+}
+
+// Xi: the find bar (qn role=search): the "Find in file…" field, "{current} of {total}" or "No results" (aria-live,
+// text-footnote text-muted tabular-nums), then the ghost Previous match (ArrowUp) / Next match (ArrowDown) /
+// Close find bar (X, esc) buttons.
+function SourceFileFindBar({ query, status, inputRef, onQuery, onNext, onPrev, onClose }) {
+  const has = status.total > 0;
+  const total = status.capped ? `${status.total.toLocaleString()}+` : status.total.toLocaleString();
+  const button = (label, icon, onClick, disabled, shortcut) => <SourceTooltip content={label} shortcut={shortcut} hoverable={false}>
+    <button type="button" className="source-icon-button sfv-find-button" aria-label={label} disabled={disabled} onMouseDown={(event) => event.preventDefault()} onClick={onClick}>
+      <Icon name={icon} size={16} />
+    </button>
+  </SourceTooltip>;
+  return <div role="search" className="sfv-find" data-file-find=""
+    onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); onClose(); } }}>
+    <input ref={inputRef} className="sfv-find-input" value={query} spellCheck={false} autoComplete="off" aria-label={t("Find in file")} placeholder={t("Find in file…")}
+      onChange={(event) => onQuery(event.target.value)}
+      onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); if (event.shiftKey) onPrev(); else onNext(); } }} />
+    <span aria-live="polite" className="sfv-find-status">{query.length === 0 ? "" : has ? t("{current} of {total}", { current: status.current.toLocaleString(), total }) : t("No results")}</span>
+    {button(t("Previous match"), "ArrowUp", onPrev, !has, "cmd+shift+g")}
+    {button(t("Next match"), "ArrowDown", onNext, !has, "cmd+g")}
+    {button(t("Close find bar"), "X", onClose, false, "esc")}
+  </div>;
 }
 
 function SourceFileUnavailable({ reason, path, onViewAsText }) {
@@ -83,7 +212,7 @@ function SourceFileUnavailable({ reason, path, onViewAsText }) {
 // those rows carry data-active (da :1529-1549, at most 200 rows) and the first
 // one is centred once per request (fa :1550-1576: only when it is not already
 // in view).
-function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey }) {
+function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey, find = null }) {
   const scroller = useRef(null);
   const language = fileHighlightLanguage(path);
   const tooSlow = useMemo(() => fileViewerTooSlow(text, language), [text, language]);
@@ -104,8 +233,48 @@ function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey }) {
     const covers = rect.height > box.height && rect.bottom > box.top && rect.top < box.bottom;
     if (!inView && !covers) node.scrollTop += (rect.top + rect.bottom) / 2 - (box.top + box.bottom) / 2;
   }, [path, range?.first, range?.last, scrollNonce, lines.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // oa: every match is ::highlight(match), the current one ::highlight(current), its row tinted; the current match is
+  // centred when it is out of view.
+  const findId = useId().replace(/[^A-Za-z0-9_-]/g, "");
+  const names = { match: `sfv-find-match-${findId}`, current: `sfv-find-current-${findId}` };
+  const activeMatch = find && find.index >= 0 ? find.matches[find.index] : null;
+  useLayoutEffect(() => {
+    const node = scroller.current, view = node?.ownerDocument.defaultView;
+    const registry = view?.CSS?.highlights, Highlight = view?.Highlight;
+    const clear = () => { registry?.delete(names.match); registry?.delete(names.current); };
+    if (!node || !find || !find.matches.length) { clear(); return undefined; }
+    const rangeAt = (match) => {
+      const code = node.querySelector(`[data-line="${match.line}"] code`);
+      if (!code) return null;
+      const walker = node.ownerDocument.createTreeWalker(code, 4);
+      let offset = 0, start = null, range = null;
+      for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+        const length = text.nodeValue.length;
+        if (!start && match.start < offset + length) { range = node.ownerDocument.createRange(); range.setStart(text, match.start - offset); start = text; }
+        if (start && match.end <= offset + length) { range.setEnd(text, match.end - offset); return range; }
+        offset += length;
+      }
+      return null;
+    };
+    if (registry && Highlight) {
+      const all = new Highlight(), current = new Highlight();
+      find.matches.slice(0, 2000).forEach((match, index) => { const range = rangeAt(match); if (range) (index === find.index ? current : all).add(range); });
+      if (activeMatch && find.index >= 2000) { const range = rangeAt(activeMatch); if (range) current.add(range); }
+      registry.set(names.match, all);
+      registry.set(names.current, current);
+    }
+    if (activeMatch) {
+      const row = node.querySelector(`[data-line="${activeMatch.line}"]`);
+      if (row) {
+        const box = node.getBoundingClientRect(), rect = row.getBoundingClientRect();
+        if (rect.top < box.top || rect.bottom > box.bottom) node.scrollTop += (rect.top + rect.bottom) / 2 - (box.top + box.bottom) / 2;
+      }
+    }
+    return clear;
+  }, [find, lines]); // eslint-disable-line react-hooks/exhaustive-deps
   const digits = String(lines.length).length;
   return <div data-file-viewer="" className="epitaxy-diff sfv-viewer">
+    {find && <style>{`::highlight(${names.match}){background:rgba(255,213,0,.25);border-radius:2px}::highlight(${names.current}){background:rgba(255,213,0,.55);color:black;border-radius:2px}`}</style>}
     <div ref={scroller} className="source-file-preview sfv-scroller select-text" data-highlighted={tokens ? "" : undefined}
       data-active-line={range ? range.first : undefined} data-active-end-line={range && range.last !== range.first ? range.last : undefined}
       style={{ "--sfv-number-width": `${Math.max(3, digits)}ch` }}>
@@ -113,7 +282,8 @@ function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey }) {
       {lines.map((row, index) => {
         const number = index + 1;
         return <div key={index} className="sfv-line" data-line={number}
-          data-active={range && number >= range.first && number <= range.last ? "" : undefined}>
+          data-active={range && number >= range.first && number <= range.last ? "" : undefined}
+          data-find-active={activeMatch?.line === number ? "" : undefined}>
           <span className="sfv-number" data-number={number} aria-hidden="true" />
           <code className="scb-code source-diff-code"><SourceHighlightedLine tokens={row} />{index < lines.length - 1 || text.endsWith("\n") ? "\n" : ""}</code>
         </div>;
@@ -303,7 +473,7 @@ function SourceViewToggle({ showingSource, onToggle }) {
  * renderer (chunk: the index of a progressive chunk, 0 for a whole body);
  * without it a Markdown file has no preview.
  */
-export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, scrollNonce, scopeKey, onCopyPath, onViewAsText, renderMarkdown }) {
+export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, scrollNonce, scopeKey, onCopyPath, onViewAsText, renderMarkdown, findRequest = null, lister = null }) {
   const reason = fileTabReason(file);
   const media = FILE_MEDIA_KINDS.includes(reason) ? reason : null;
   // Xt (:2649): a file kind with a preview. en (:2655): the source shows first
@@ -320,6 +490,28 @@ export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, s
   }
   // Ti !== null (:4169): the toggle needs a preview kind and text that is not binary.
   const canToggle = previewable && !media && reason !== "binary";
+  // Find in file (Yi / Xi): ⌘F in the viewer or the pane menu's "Find in file" (findRequest bumps) opens the bar on
+  // the source; Escape closes it and puts the focus back in the viewer.
+  const searchable = !media && !reason && typeof file.text === "string";
+  const [find, setFind] = useState({ open: false, query: "", index: -1, nonce: 0 });
+  const findInput = useRef(null);
+  const root = useRef(null);
+  const matches = useMemo(() => (find.open && searchable ? findInText(file.text, find.query) : []), [find.open, find.query, searchable, file.text]);
+  const index = matches.length ? Math.min(Math.max(find.index, 0), matches.length - 1) : -1;
+  const openFind = useCallback(() => {
+    if (!searchable) return;
+    setShowSource(true);
+    setFind((value) => ({ ...value, open: true, nonce: value.nonce + 1 }));
+  }, [searchable]);
+  const closeFind = useCallback(() => {
+    setFind({ open: false, query: "", index: -1, nonce: 0 });
+    root.current?.querySelector(".sfv-scroller")?.focus?.({ preventScroll: true });
+  }, []);
+  const stepFind = useCallback((delta) => setFind((value) => ({ ...value, index: stepFindIndex(index, delta, matches.length) })), [index, matches.length]);
+  useEffect(() => { if (find.open) { findInput.current?.focus(); findInput.current?.select(); } }, [find.open, find.nonce]);
+  const lastRequest = useRef(findRequest);
+  useEffect(() => { if (findRequest != null && findRequest !== lastRequest.current) openFind(); lastRequest.current = findRequest; }, [findRequest, openFind]);
+  const findProps = useMemo(() => (find.open ? { matches, index } : null), [find.open, matches, index]);
   const preview = canToggle && !showSource ? kind : null;
   const body = media
     ? <SourceFileMedia key={file.path} kind={media} path={file.path} url={filePreviewUrl(fullPath || file.path)} onViewAsText={onViewAsText} />
@@ -333,16 +525,25 @@ export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, s
             ? <SourceFileMarkdown text={file.text} renderMarkdown={renderMarkdown} />
             : preview?.kind === "csv"
               ? <SourceFileCsv text={file.text} delimiter={preview.delimiter} />
-              : <SourceFileCode path={file.path} text={file.text} line={line} endLine={endLine} scrollNonce={scrollNonce} scopeKey={scopeKey} />;
-  return <div className="source-file-view" data-file-path={file.path} data-file-state={reason ?? (typeof file.text === "string" ? "text" : "loading")}
-    data-file-view={preview ? "preview" : canToggle ? "source" : undefined}>
+              : <SourceFileCode path={file.path} text={file.text} line={line} endLine={endLine} scrollNonce={scrollNonce} scopeKey={scopeKey} find={findProps} />;
+  return <div ref={root} className="source-file-view" data-file-path={file.path} data-file-state={reason ?? (typeof file.text === "string" ? "text" : "loading")}
+    data-file-view={preview ? "preview" : canToggle ? "source" : undefined}
+    onKeyDown={(event) => {
+      const action = searchable ? fileFindShortcut(event, { mac: typeof navigator === "undefined" || /Mac|iPhone|iPad/.test(navigator.platform || "") }) : null;
+      if (!action || (action !== "open" && !find.open)) return;
+      event.preventDefault(); event.stopPropagation();
+      if (action === "open") openFind(); else stepFind(action === "next" ? 1 : -1);
+    }}>
     {/* qn flush (cdf69fdd3-DM0fGX-C.js:13-36): "epitaxy-panel-subheader flex
         items-center gap-[4px] shrink-0 px-md" at h-[calc(2rem*rem-scale)];
         Jo puts the actions after the Yo lead. */}
     <div className="epitaxy-panel-subheader sfv-subheader">
-      <SourceFileBreadcrumb displayPath={displayPath} fullPath={fullPath} onCopyPath={onCopyPath} />
+      <SourceFileBreadcrumb displayPath={displayPath} fullPath={fullPath} onCopyPath={onCopyPath} lister={lister} />
       {canToggle && <SourceViewToggle showingSource={showSource} onToggle={() => setShowSource((value) => !value)} />}
     </div>
+    {find.open && searchable && <SourceFileFindBar query={find.query} status={findStatus(matches, index)} inputRef={findInput}
+      onQuery={(query) => setFind((value) => ({ ...value, query, index: 0 }))}
+      onNext={() => stepFind(1)} onPrev={() => stepFind(-1)} onClose={closeFind} />}
     <div className="sfv-body">{body}</div>
   </div>;
 }

@@ -86,7 +86,7 @@ async function measure() {
 }
 async function widthViaDivider(targetOuterWidth) {
 // 0.2.14 tile engine: separators are labelled "Resize {i} and {i+1}" (2.2553.1 Mh aria-label).
-  const divider = page.getByRole("separator", { name: "Resize 1 and 2", exact: true });
+  const divider = page.getByRole("separator", { name: /^Resize Chat and / });
   await divider.focus();
   await page.keyboard.press("Home");
   await frames();
@@ -349,6 +349,8 @@ try {
   await page.getByRole("radio", { name: "Dark", exact: true }).click();
   await page.waitForFunction(()=>document.documentElement.dataset.mode==='dark');
   await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
+  // Let the Settings dialog finish its exit fade so the dark screenshot shows the card, not the overlay.
+  await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor({ state: "detached" });
   assert.equal(await page.locator("html").getAttribute("data-mode"), "dark");
   await card().scrollIntoViewIfNeeded(); metrics.dark = await measure();
   assert.equal(metrics.dark.background, "rgba(0, 0, 0, 0)");
@@ -654,11 +656,14 @@ try {
   // Rse (approval-current.js:9734-9884) under the bridge's 'plan-review' question (fixture:plan-review).
   await send("fixture:plan-review", "plan");
   metrics.planCard = await planCard().evaluate(element => {
-    const buttons = [...element.querySelectorAll(".sac-button")], link = element.querySelector(".spc-open-plan"), title = element.querySelector(".spc-title");
+    const buttons = [...element.querySelectorAll(".sac-button:not(.spc-more)")], more = element.querySelector(".spc-split .spc-more"), link = element.querySelector(".spc-open-plan"), title = element.querySelector(".spc-title");
     return { heading: title?.textContent, labelledBy: element.getAttribute("aria-labelledby") === title?.id, questionCard: element.querySelectorAll(".sq-option").length,
       link: link?.textContent, linkInTrailing: !!link?.closest(".spc-trailing"), linkSize: link && getComputedStyle(link).fontSize, linkDecoration: link && getComputedStyle(link).textDecorationLine,
       titleWeight: getComputedStyle(title).fontWeight, titleSize: getComputedStyle(title).fontSize,
-      groups: [...element.querySelectorAll(".spc-actions > div")].map(group => [...group.querySelectorAll(".sac-button")].map(button => button.dataset.approvalAction)),
+      groups: [...element.querySelectorAll(".spc-actions > div")].map(group => [...group.querySelectorAll(".sac-button:not(.spc-more)")].map(button => button.dataset.approvalAction)),
+      // xee split primary: the caret half opens 'More accept options' (the other trust-forward accept modes).
+      more: more && { label: more.getAttribute("aria-label"), popup: more.getAttribute("aria-haspopup"), variant: more.dataset.variant, height: more.getBoundingClientRect().height,
+        joined: Math.abs(more.getBoundingClientRect().left - more.previousElementSibling.getBoundingClientRect().right) < 1.5 },
       labels: buttons.map(button => button.querySelector(".sac-button-label").textContent), variants: buttons.map(button => button.dataset.variant),
       caps: buttons.map(button => [...button.querySelectorAll('[data-cds="Shortcut"] kbd')].map(kbd => (kbd.querySelector('[aria-hidden="true"]') ?? kbd).textContent).join("")),
       heights: buttons.map(button => button.getBoundingClientRect().height),
@@ -677,6 +682,8 @@ try {
   assert.equal(metrics.planCard.titleWeight, "580"); assert.equal(metrics.planCard.titleSize, "13px");
   assert.deepEqual(metrics.planCard.groups, [["reject", "revise-open"], ["accept", "primary"]]);
   assert.deepEqual(metrics.planCard.labels, ["Reject", "Revise…", "Accept", "Accept and auto mode"]);
+  assert.deepEqual(metrics.planCard.more && [metrics.planCard.more.label, metrics.planCard.more.popup, metrics.planCard.more.variant, metrics.planCard.more.joined], ["More accept options", "menu", "primary", true]);
+  near(metrics.planCard.more.height, 24, .1);
   assert.deepEqual(metrics.planCard.variants, ["secondary", "secondary", "secondary", "primary"]);
   assert.deepEqual(metrics.planCard.caps, ["", "Esc", "⇧⌘⏎", "⌘⏎"]);
   for (const height of metrics.planCard.heights) near(height, 24, .1);
@@ -808,6 +815,52 @@ try {
   await card().waitFor({ state: "detached" }); await settled();
   assert.deepEqual((await records()).slice(-2).map(record => record.result), [{ decision: "decline" }, { decision: "accept" }]);
   checks.push("R07 one card at a time: two pending command approvals render one card; answering A mounts B, whose allow is armed only after 400 ms");
+
+  // mcpServer/elicitation/request (codex-schema-0.155.1; fixture:elicitation-*): an MCP tool-call
+  // approval is a tool card, a server form is a small generated form, url mode offers the link,
+  // and an unshowable request can still be declined, so the turn always continues.
+  await send("fixture:elicitation-tool", "elicitation");
+  assert.equal(await card().getAttribute("data-approval-method"), "mcpServer/elicitation/request");
+  assert.equal(await card().getAttribute("aria-label"), "Permission request: Allow DeepSeek to use write_note (probe)?");
+  assert.equal(await card().locator(".sac-code").innerText(), "text: fixture note");
+  assert.deepEqual(await card().locator("[data-approval-action]").evaluateAll(nodes => nodes.map(node => node.dataset.approvalAction)),
+    ["decline", "acceptAlways", "acceptForSession", "accept"]);
+  assert.equal(await card().locator('[data-approval-action="acceptAlways"]').innerText(), "Always allow");
+  await finish("acceptForSession", { action: "accept", content: {}, _meta: { persist: "session" } });
+  await send("fixture:elicitation-tool", "elicitation");
+  // The fixture offers _meta.persist ['session','always'] (Codex's MCP tool approval 'Always allow').
+  await finish("acceptAlways", { action: "accept", content: {}, _meta: { persist: "always" } });
+  await send("fixture:elicitation-tool", "elicitation");
+  await finish("decline", { action: "decline" });
+  checks.push("MCP tool approval (mcpServer/elicitation/request, mcp_tool_call): 'Allow DeepSeek to use write_note (probe)?' with its parameters; Always allow sends accept + _meta.persist always, Allow for this session sends accept + _meta.persist session, Deny sends decline");
+
+  await send("fixture:elicitation-form", "elicitation");
+  await screenshot("approval-card-elicitation-form.png");
+  const beforeForm = (await records()).length;
+  await page.waitForTimeout(450);
+  await card().locator('[data-approval-action="accept"]').click();
+  await page.waitForFunction(() => document.querySelector(".sac-card .sac-error")?.textContent === "Title is required.");
+  assert.equal(await card().locator('[data-elicitation-field="title"]').evaluate(node => node === document.activeElement), true);
+  assert.equal((await records()).length, beforeForm, "an invalid form sends nothing");
+  await card().locator('[data-elicitation-field="title"]').fill("probe run");
+  await card().locator('[data-elicitation-field="count"]').fill("3");
+  // Enum fields use the app's popover select (SourceSelect), not a native <select>.
+  assert.equal(await card().locator('[data-elicitation-field="tier"]').getAttribute("role"), "combobox");
+  await card().locator('[data-elicitation-field="tier"]').click();
+  await page.locator('.sselect-popup [role="option"][data-value="pro"]').click();
+  assert.equal(await card().locator('[data-elicitation-field="tier"]').getAttribute("data-value"), "pro");
+  await card().locator('[data-elicitation-field="tags"] input').first().check();
+  await finish("accept", { action: "accept", content: { title: "probe run", count: 3, notify: false, tier: "pro", tags: ["unit"] } });
+  checks.push("MCP form elicitation: required/min checks stay local and focus the field; Submit sends the typed content");
+
+  await send("fixture:elicitation-url", "elicitation");
+  assert.equal(await card().locator(".sac-code").innerText(), "https://probe.example.invalid/authorize");
+  assert.equal(await card().getByRole("button", { name: "Open link", exact: true }).count(), 1);
+  await finish("accept", { action: "accept" });
+  await send("fixture:elicitation-unsupported", "elicitation");
+  assert.equal(await card().locator('[data-approval-action="accept"]').count(), 0);
+  await finish("decline", { action: "decline" });
+  checks.push("MCP url elicitation shows the link with Open link and Done; an openai/form request offers Decline only and still ends the turn");
 
   assert.deepEqual(errors, []);
   const report = { passed: true, at: new Date().toISOString(), scope: "isolated ordinary-card visual/local-key UI; no transport-race or production approval claim",

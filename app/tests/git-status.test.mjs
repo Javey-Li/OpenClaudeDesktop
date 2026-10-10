@@ -209,6 +209,30 @@ test('large diff rejects at the output bound instead of returning partial conten
   await assert.rejects(workspaceGitDiff(cwd), { code: 'GIT_OUTPUT_LIMIT' });
 });
 
+test('untracked files are counted like git diff --no-index --numstat, without one Git process per file', async (t) => {
+  const cwd = await directory(t);
+  await write(cwd, 'base.txt', 'base\n'); await commit(cwd);
+  await write(cwd, '.gitattributes', '*.dat -diff\n*.raw binary\n');
+  await write(cwd, 'two', 'a\nb'); await write(cwd, 'one', 'a\n'); await write(cwd, 'empty', '');
+  await write(cwd, 'crlf', 'a\r\nb\r\n'); await write(cwd, 'nul', Buffer.from('a\0b\n'));
+  // A NUL past Git's first 8000 bytes is still text: 5000 lines plus the unterminated "\0".
+  await write(cwd, 'late', Buffer.concat([Buffer.from('a\n'.repeat(5000)), Buffer.from([0])]));
+  await write(cwd, 'marked.dat', 'x\ny\n'); await write(cwd, 'image.raw', 'x\n');
+  for (let at = 0; at < 300; at++) await write(cwd, `many/f${at}.txt`, 'line\n');
+  const { commands, trace } = recorder();
+  const status = await workspaceGitStatus(cwd, { trace });
+  const counts = Object.fromEntries(status.fileDetails.filter((file) => !file.path.startsWith('many/')).map((file) => [file.path, file.binary ? '-' : file.added]));
+  assert.deepEqual(counts, { '.gitattributes': 2, two: 2, one: 1, empty: 0, crlf: 2, nul: '-', late: 5001, 'marked.dat': '-', 'image.raw': '-' });
+  // Each count matches Git's own answer for that file.
+  for (const name of Object.keys(counts)) {
+    const { stdout } = await git(cwd, ['diff', '--no-index', '--numstat', '--', '/dev/null', name]).catch((error) => error);
+    assert.equal(stdout.split('\t')[0], String(counts[name]), name);
+  }
+  assert.equal(status.untrackedCount, 309); assert.equal(status.added, 2 + 2 + 1 + 2 + 5001 + 300);
+  assert.equal(commands.filter((entry) => entry.args.includes('--no-index')).length, 0, 'no per-file git diff');
+  assert.ok(commands.length < 20, `a bounded number of Git processes (${commands.length})`);
+});
+
 // ---- Base branch and ahead/behind (official main process merge-base + rev-list --left-right --count) ----
 const { workspaceGitComparison } = createRequire(import.meta.url)('../electron/git-status.cjs');
 async function remoteRepo(t) {

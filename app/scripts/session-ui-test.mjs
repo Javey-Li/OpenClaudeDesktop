@@ -761,7 +761,7 @@ try {
   );
 
 // 0.2.14 tile engine: separators are labelled "Resize {i} and {i+1}" (2.2553.1 Mh aria-label).
-  await page.getByRole("separator", {name: "Resize 1 and 2", exact: true}).focus();
+  await page.getByRole("separator", {name: /^Resize Chat and /}).focus();
   await page.keyboard.press("End");
   await page.locator(".source-files-tree").waitFor({ state: "hidden" });
   assert.equal(await page.locator(".source-files-tree").isVisible(), false);

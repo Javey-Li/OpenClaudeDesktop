@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ThreadProjector } from '../packages/codex-app-server/src/projection.js'
-import { workflowRunOf, workflowRecord, workflowToolResult, workflowInterrupted } from '../packages/codex-app-server/src/workflows.js'
+import { workflowRunOf, workflowRecord, workflowToolResult, workflowInterrupted, workflowApprovalCommand, WORKFLOW_APPROVAL_REASON } from '../packages/codex-app-server/src/workflows.js'
 import { workflowsAllowedBy } from '../packages/codex-app-server/src/structured.js'
 
 let seq = 0
@@ -16,6 +16,50 @@ function startWorkflow(p, callId = 'w1', args = { meta, script: 'return 1' }) {
 const runOf = (p, callId = 'w1') => p.turns[0].items.find((item) => item.id === callId).workflowRun
 const agents = (run) => run.workflowProgress.filter((entry) => entry.type === 'workflow_agent')
 
+test('CLI display titles and empty phase identities survive durable projection', () => {
+  const p = new ThreadProjector({ threadId: 't' })
+  startWorkflow(p, 'w1', { script: 'export const meta={name:`audit`,description:`Inspect`,title:`Readable title`,phases:[null,{title:""}]};return 1' })
+  assert.equal(runOf(p).name, 'audit')
+  assert.equal(runOf(p).title, 'Readable title')
+  p.apply(ev('tool-workflow/run-start', { runId: 'r-title', name: 'audit', title: 'Durable title', phases: [''] }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'r-title', seq: 1, label: 'child', phase: '', childId: 'child-title' }))
+  assert.equal(runOf(p).title, 'Durable title')
+  assert.equal(runOf(p).name, 'audit')
+  assert.equal(agents(runOf(p))[0].phaseTitle, '')
+})
+
+for (const name of ['Workflow', 'RunWorkflow']) test(`${name} projects the native task acknowledgment and retained resume identity`, () => {
+  const p = new ThreadProjector({ threadId: 'native' })
+  p.apply(ev('turn/start', { turn: 1 }))
+  p.apply(ev('tool/call', { turn: 1, step: 1, callId: 'native-call', name, arguments: JSON.stringify({ script: 'export const meta={name:"native",description:"Native fixture"}; return 1' }) }))
+  p.apply(ev('tool-workflow/run-start', { runId: 'wf_native', attemptId: 'attempt-native', name: 'native' }))
+  const run = runOf(p, 'native-call')
+  const accepted = workflowToolResult(run, { isError: false, text: 'Workflow launched in background. Task ID: workflow-4\nRun ID: wf_native' }, 10)
+  assert.equal(accepted.jobId, 'workflow-4')
+  assert.equal(accepted.background, true)
+  assert.equal(accepted.id, 'attempt-native')
+  assert.equal(accepted.runId, 'wf_native')
+  assert.equal(accepted.status, 'running')
+})
+
+test('durable child activity updates live usage and survives replay without output-only totals', () => {
+  const p = new ThreadProjector({ threadId: 't' })
+  startWorkflow(p)
+  p.apply(ev('tool-workflow/run-start', { runId: 'progress', name: 'audit' }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'progress', seq: 1, label: 'scan', childId: 'c', progressSupported: true }))
+  const notes = p.apply(ev('tool-workflow/agent-progress', { runId: 'progress', seq: 1, lastProgressAt: 2000042, tokens: 120, outputTokens: 20, activeTools: 1, toolCalls: 2, lastToolName: 'read', lastToolSummary: 'src/main.js' }))
+  assert.equal(notes.length, 1)
+  assert.equal(runOf(p).usage.totalTokens, 120)
+  assert.equal(agents(runOf(p))[0].activeTools, 1)
+  assert.equal(agents(runOf(p))[0].progressSupported, true)
+  assert.equal(agents(runOf(p))[0].lastProgressAt, 2000042)
+  p.apply(ev('tool-workflow/agent-progress', { runId: 'progress', seq: 1, lastProgressAt: 2000050, activeTools: 0, lastToolName: 'custom_tool' }))
+  assert.equal(agents(runOf(p))[0].lastToolSummary, undefined)
+  p.apply(ev('tool-workflow/agent-end', { runId: 'progress', seq: 1, outcome: 'failed', tokens: 150, outputTokens: 30, error: 'Provider disconnected' }))
+  assert.equal(agents(runOf(p))[0].error, 'Provider disconnected')
+  assert.equal(runOf(p).usage.totalTokens, 150)
+})
+
 test('a workflow call is a dynamic tool item with its running run and declared phases', () => {
   const p = new ThreadProjector({ threadId: 't' })
   const notes = startWorkflow(p)
@@ -27,7 +71,7 @@ test('a workflow call is a dynamic tool item with its running run and declared p
   assert.equal(item.workflowRun.status, 'running')
   assert.equal(item.workflowRun.name, 'audit')
   assert.equal(item.workflowRun.description, 'Audit files')
-  assert.deepEqual(item.workflowRun.workflowProgress, [{ type: 'workflow_phase', index: 0, title: 'Scan' }, { type: 'workflow_phase', index: 1, title: 'Fix' }])
+  assert.deepEqual(item.workflowRun.workflowProgress, [{ type: 'workflow_phase', index: 1, title: 'Scan' }, { type: 'workflow_phase', index: 2, title: 'Fix' }])
 })
 
 test('records name the run, add agents in their phases and settle it', () => {
@@ -38,7 +82,7 @@ test('records name the run, add agents in their phases and settle it', () => {
   assert.equal(notes[0].params.startedAtMs, undefined, 'an update carries no lifecycle time')
   assert.equal(runOf(p).id, 'r1')
   assert.ok(p.hasWorkflowRun('r1'))
-  // A live phase() call, then an agent without its own phase joins it.
+  // Unphased records stay unassigned; the UI applies Claude's chronological fallback.
   notes = p.workflowPhase('r1', 'Report', 2_000_500)
   assert.equal(notes.length, 1)
   p.apply(ev('tool-workflow/agent-start', { runId: 'r1', seq: 1, label: 'scan a', phase: 'Scan', childId: 'c1' }))
@@ -46,7 +90,7 @@ test('records name the run, add agents in their phases and settle it', () => {
   p.apply(ev('tool-workflow/agent-end', { runId: 'r1', seq: 1, outcome: 'completed' }))
   p.apply(ev('tool-workflow/agent-end', { runId: 'r1', seq: 2, outcome: 'failed' }))
   const run = runOf(p)
-  assert.deepEqual(agents(run).map((agent) => [agent.label, agent.state, agent.phaseTitle, agent.childId]), [['scan a', 'done', 'Scan', 'c1'], ['report', 'error', 'Report', 'c2']])
+  assert.deepEqual(agents(run).map((agent) => [agent.label, agent.state, agent.phaseTitle, agent.childId]), [['scan a', 'done', 'Scan', 'c1'], ['report', 'error', undefined, 'c2']])
   assert.equal(agents(run)[1].error, 'Agent failed')
   assert.ok(Number.isFinite(agents(run)[0].durationMs))
   notes = p.apply(ev('tool-workflow/run-end', { runId: 'r1', stopReason: 'completed' }))
@@ -69,7 +113,21 @@ test('history replays the same run without live phase events', () => {
   const run = runOf(p)
   assert.equal(run.status, 'stopped')
   assert.equal(agents(run)[0].phaseTitle, 'Fix')
-  assert.equal(agents(run)[0].error, 'Agent cancelled')
+  // A member still live when the run settles ends 'cancelled': Skipped, not an error.
+  assert.equal(agents(run)[0].state, 'skipped')
+  assert.equal(agents(run)[0].error, undefined)
+})
+
+test('a member the user skipped is skipped, not failed; model runs declare member controls', () => {
+  const p = new ThreadProjector({ threadId: 't' })
+  startWorkflow(p)
+  assert.equal(runOf(p).memberControls, true)
+  p.apply(ev('tool-workflow/run-start', { runId: 'r5', name: 'audit' }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'r5', seq: 1, label: 'a', childId: 'c1' }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'r5', seq: 2, label: 'b', childId: 'c2' }))
+  p.apply(ev('tool-workflow/agent-end', { runId: 'r5', seq: 1, outcome: 'failed', error: 'skipped by user' }))
+  p.apply(ev('tool-workflow/agent-end', { runId: 'r5', seq: 2, outcome: 'failed', error: 'boom' }))
+  assert.deepEqual(agents(runOf(p)).map(agent => [agent.state, agent.error]), [['skipped', undefined], ['error', 'boom']])
 })
 
 test('a stopped turn stops a foreground run and its running agents', () => {
@@ -149,4 +207,89 @@ test('the Dynamic workflows hint is read only when the request carries it', () =
   assert.equal(workflowsAllowedBy({ codeDesktop: { dynamicWorkflows: false } }), false)
   assert.equal(workflowsAllowedBy({ codeDesktop: { permissionMode: 'default' } }), null)
   assert.equal(workflowsAllowedBy({}), null)
+})
+
+test('durable phases and cached usage replay without inventing live timing', () => {
+  const p = new ThreadProjector({ threadId: 't' })
+  startWorkflow(p, 'w1', { script: 'export const meta = { name: "literal" }; return 1' })
+  p.apply(ev('tool-workflow/run-start', { runId: 'resumed', name: 'literal', description: 'Saved run', scriptPath: '/private/run/literal.js', phases: ['Scan'] }))
+  p.apply(ev('tool-workflow/phase', { runId: 'resumed', title: 'Nested / Report', index: 3, kind: 'child' }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'resumed', seq: 1, childId: 'original', label: 'cached', cached: true, model: 'fixture', phase: 'Nested / Report', phaseIndex: 3 }))
+  p.apply(ev('tool-workflow/agent-end', { runId: 'resumed', seq: 1, outcome: 'completed', tokens: 0, durationMs: 0 }))
+  p.apply(ev('tool-workflow/run-end', { runId: 'resumed', stopReason: 'error', error: 'BUDGET_EXCEEDED' }))
+  const run = runOf(p)
+  assert.equal(run.scriptPath, '/private/run/literal.js')
+  assert.equal(run.summary, 'BUDGET_EXCEEDED')
+  const [agent] = agents(run)
+  assert.equal(agent.cached, true)
+  assert.equal(agent.model, 'fixture')
+  assert.equal(agent.phaseTitle, 'Nested / Report')
+  assert.equal(agent.phaseIndex, 3)
+  assert.equal(run.workflowProgress.find(p => p.index === 3 && p.type === 'workflow_phase').kind, 'child')
+  assert.equal(agent.startedAt, undefined)
+  assert.equal(agent.tokens, 0)
+  assert.equal(agent.durationMs, 0)
+})
+
+test('self-contained CLI scripts show literal metadata and background ownership before engine publication', () => {
+  const script = 'export const meta={name:"cli",description:"CLI description",phases:[{title:"Scan"}]}; return 1'
+  const run = workflowRunOf({ script, description: 'ignored', title: 'ignored' }, 'cli-call', 1)
+  assert.equal(run.name, 'cli')
+  assert.equal(run.description, 'CLI description')
+  assert.equal(run.background, true)
+  assert.equal(run.workflowProgress[0].title, 'Scan')
+  assert.equal(workflowRunOf({ script, name: 'registered' }, 'named', 1).name, 'registered')
+  assert.equal(workflowRunOf({ script, scriptPath: 'saved.js' }, 'path', 1).name, 'workflow')
+  assert.equal(workflowRunOf({ script: 'invalid (' }, 'invalid', 1).name, 'workflow')
+})
+
+
+test('resuming one run creates a separate card and routes late events to their original attempt', () => {
+  const p = new ThreadProjector({ threadId: 't' })
+  startWorkflow(p)
+  p.apply(ev('tool-workflow/run-start', { runId: 'wf_same-run', attemptId: 'first-attempt', name: 'audit' }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'wf_same-run', attemptId: 'first-attempt', seq: 1, label: 'first', childId: 'first-child' }))
+  p.apply(ev('tool-workflow/agent-end', { runId: 'wf_same-run', attemptId: 'first-attempt', seq: 1, outcome: 'completed' }))
+  p.apply(ev('tool/call', { turn: 1, step: 2, callId: 'w2', name: 'workflow', arguments: JSON.stringify({ meta, script: 'return 2', resumeFromRunId: 'wf_same-run' }) }))
+  p.apply(ev('tool-workflow/run-start', { runId: 'wf_same-run', attemptId: 'second-attempt', name: 'audit' }))
+  p.apply(ev('tool-workflow/run-end', { runId: 'wf_same-run', attemptId: 'first-attempt', stopReason: 'completed' }))
+  p.apply(ev('tool-workflow/agent-start', { runId: 'wf_same-run', attemptId: 'second-attempt', seq: 1, label: 'cached', childId: 'first-child', cached: true }))
+  assert.equal(runOf(p).id, 'first-attempt')
+  assert.equal(runOf(p).status, 'completed')
+  assert.equal(runOf(p, 'w2').id, 'second-attempt')
+  assert.equal(runOf(p, 'w2').runId, 'wf_same-run')
+  assert.equal(runOf(p, 'w2').status, 'running')
+  assert.deepEqual(agents(runOf(p)).map(agent => agent.label), ['first'])
+  assert.equal(agents(runOf(p, 'w2'))[0].cached, true)
+  assert.equal(p.workflowItem('wf_same-run').id, 'w2')
+  assert.equal(p.workflowItem('first-attempt').id, 'w1')
+})
+
+test('queued and pre-start failed members keep row order and real child identity through projection replay', () => {
+  const p = new ThreadProjector({ threadId: 'queued' }), history = []
+  startWorkflow({ apply: event => { history.push(event); return p.apply(event) } }, 'w1', { script: 'export const meta={name:"queue",description:"Queue"};return 1' })
+  const records = [
+    ['tool-workflow/run-start', { runId: 'queue', name: 'queue' }],
+    ['tool-workflow/agent-admission', { runId: 'queue', seq: 1, label: '', state: 'queued', queuedAt: 1, lastProgressAt: 1 }],
+    ['tool-workflow/agent-admission', { runId: 'queue', seq: 2, label: 'failure', state: 'queued', queuedAt: 2, lastProgressAt: 2 }],
+    ['tool-workflow/phase', { runId: 'queue', title: 'After', index: 1 }],
+    ['tool-workflow/agent-start', { runId: 'queue', seq: 1, label: '', childId: 'real-child' }],
+    ['tool-workflow/agent-admission', { runId: 'queue', seq: 2, label: 'failure', state: 'failed', queuedAt: 2, lastProgressAt: 4, error: 'startup failed' }],
+    ['tool-workflow/agent-end', { runId: 'queue', seq: 1, outcome: 'completed' }],
+    ['tool-workflow/run-end', { runId: 'queue', stopReason: 'completed' }],
+  ].map(([type,data]) => ev(type,data))
+  for (const row of records) p.apply(row)
+  const run = runOf(p), members = agents(run)
+  assert.deepEqual(run.workflowProgress.map(row => row.type), ['workflow_agent','workflow_agent','workflow_phase'])
+  assert.deepEqual(members.map(row => [row.label,row.state,row.queuedAt,row.childId]), [['','done',1,'real-child'],['failure','error',2,undefined]])
+  const replay = new ThreadProjector({ threadId: 'queued' })
+  for (const row of [...history, ...records]) replay.apply(row)
+  assert.deepEqual(runOf(replay).workflowProgress,run.workflowProgress)
+})
+
+test('the "Run a dynamic workflow?" card names the script: name, description, phases and arguments', () => {
+  assert.match(WORKFLOW_APPROVAL_REASON, /^Run a dynamic workflow\?/)
+  assert.equal(workflowApprovalCommand({ meta, script: 'return 1', args: { files: 2 } }), 'Workflow: audit\nAudit files\nPhases: Scan → Fix\nArguments: {"files":2}')
+  assert.equal(workflowApprovalCommand({ script: 'export const meta={name:`scan`,description:`Look around`};return 1' }), 'Workflow: scan\nLook around')
+  assert.equal(workflowApprovalCommand({ name: 'review-changes' }), 'Workflow: review-changes')
 })

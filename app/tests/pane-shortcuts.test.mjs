@@ -13,7 +13,7 @@ test('paneShortcut accepts Meta+Shift+KeyD and Meta+Shift+KeyF only', () => {
       assert.equal(paneShortcut(key(code, extra)), null, JSON.stringify({ code, extra }));
       assert.equal(paneShortcutKind(key(code, extra)), null);
     }
-  for (const code of ['KeyB', 'KeyP', 'KeyJ', 'BracketLeft', 'Backslash', 'Digit1', undefined]) assert.equal(paneShortcut(key(code)), null);
+  for (const code of ['KeyB', 'KeyJ', 'BracketLeft', 'Backslash', 'Digit1', undefined]) assert.equal(paneShortcut(key(code)), null);
   assert.equal(paneShortcut(null), null);
 });
 
@@ -62,4 +62,12 @@ test('main.jsx routes file-list through fileListRoute to the Files tree, the Cha
   // The Changes tile gets its own handle and the store's file list state.
   assert.match(main, /diffTree=\{tileId === "changes" \? tileState : null\}/);
   assert.match(main, /onDiffTreeChange=\{tileId === "changes" \? tileStore\.setGlobal : null\}/);
+});
+
+// togglePreview cmd+shift+p (shared-21-D098Wd--.js:14146-14207).
+test('Meta+Shift+KeyP toggles the Preview pane; other modifiers do not', () => {
+  assert.equal(paneShortcut(key('KeyP')), 'preview');
+  assert.equal(paneShortcut(key('KeyP', { repeat: true })), null);
+  for (const extra of [{ ctrlKey: true }, { altKey: true }, { shiftKey: false }, { metaKey: false }, { isComposing: true }])
+    assert.equal(paneShortcutKind(key('KeyP', extra)), null, JSON.stringify(extra));
 });

@@ -74,6 +74,12 @@
 }
 .source-chat-tile-content {
   height: 100%;
+  padding-inline-start: var(--tile-covered-content-start, 0px);
+  padding-inline-end: var(--tile-covered-content-end, 0px);
+}
+.source-chat-tile-content > .st-toolbar {
+  margin-inline-start: var(--tile-covered-extra-start, 0px);
+  margin-inline-end: var(--tile-covered-extra-end, 0px);
 }
 .source-chat-body {
   flex: 1;

@@ -286,7 +286,7 @@ test('a manual compaction between turns is its own synthetic turn, live and on r
     ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
     ev('command/run', { commandId: 'cmd-1', name: 'compact', args: '', source: { kind: 'user' } }),
     ev('compaction/start', { compactionId: 'k1', sourceCommandId: 'cmd-1', turn: null }),
-    ev('compaction/summary', { compactionId: 'k1', summary: [{ type: 'text', text: 'sum' }] }),
+    ev('compaction/summary', { compactionId: 'k1', summary: [{ type: 'text', text: 'sum' }], shadowedSeqs: [2, 3], shadowedTokenCount: 1234 }),
     ev('user/message', { id: 'ck', content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'compact-checkpoint' } }),
     ev('compaction/end', { compactionId: 'k1', sourceCommandId: 'cmd-1', turn: null }),
     ev('command/done', { commandId: 'cmd-1', kind: 'success' }),
@@ -297,6 +297,8 @@ test('a manual compaction between turns is its own synthetic turn, live and on r
   assert.deepEqual(notes.map((n) => n.method), ['turn/started', 'item/started', 'item/completed', 'turn/completed'])
   assert.ok(notes.every((n) => (n.params.turn?.id ?? n.params.turnId) === 'turn-ck1'))
   assert.deepEqual(notes[1].params.item, { type: 'contextCompaction', id: 'compaction-k1' })
+  // The completed item carries what was compacted and the summary (the app's 'Compacted 2 items (~1,234 tokens)').
+  assert.deepEqual(notes[2].params.item, { type: 'contextCompaction', id: 'compaction-k1', codeDesktop: { summary: 'sum', shadowedItems: 2, shadowedTokens: 1234 } })
   assert.equal(notes.at(-1).params.turn.status, 'completed')
   assert.equal(p.lastSyntheticCompactionTurnId, 'turn-ck1')
   assert.equal(p.activeTurn, null)
@@ -460,7 +462,8 @@ test('a foreground delegation finds its child in the catalog and ends with the c
   const errored = completeToolItem({ ...toolItem({ callId: 'f3', name: 'subagent', args: {} }), receiverThreadIds: ['c3'] }, { name: 'subagent', args: {}, result: { content: [{ type: 'text', text: 'Error: subagent run failed' }], isError: true } })
   assert.equal(errored.agentsStates.c3.status, 'errored')
   const job = completeToolItem(toolItem({ callId: 'f4', name: 'subagent_fork', args: {} }), { name: 'subagent_fork', args: {}, result: { content: [{ type: 'text', text: 'started background subagent job j1' }], isError: false } })
-  assert.deepEqual([job.status, job.agentsStates], ['completed', {}])
+  // A background job keeps its row running: the child runs on as the job (background-jobs.test.mjs).
+  assert.deepEqual([job.status, job.agentsStates], ['inProgress', {}])
   const stopped = completeToolItem({ ...toolItem({ callId: 'f5', name: 'subagent', args: {} }), receiverThreadIds: ['c5'], agentsStates: { c5: { status: 'running', message: null } } }, { name: 'subagent', args: {}, result: { content: [{ type: 'text', text: 'Error: tool call aborted' }], isError: true } })
   assert.deepEqual([stopped.status, stopped.agentsStates.c5.status], ['interrupted', 'interrupted'])
 })
@@ -683,5 +686,36 @@ test('R06: MCP, dynamic and read_image results keep their images; oversized or u
     assert.deepEqual(item.result.content, [{ type: 'image', data: PNG, mimeType: 'image/png' }])
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('tool input rewrites render accepted commands in live and replayed rows', () => {
+  const records = [
+    ev('turn/start', { turn: 1 }),
+    ev('user/message', { id: 'rewrite-user', content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }),
+    ev('tool/call', { turn: 1, step: 1, callId: 'rewrite-call', name: 'bash', arguments: '{"command":"echo original"}', effectiveArguments: '{"command":"echo accepted"}' }),
+    ev('tool/result', { turn: 1, step: 1, message: { toolCallId: 'rewrite-call', content: [{ type: 'text', text: 'accepted' }], isError: false } }),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
+  ]
+  const live = new ThreadProjector({ threadId: 'rewrite', cwd: '/w' })
+  const notifications = records.flatMap(record => live.apply(record))
+  assert.equal(notifications.find(note => note.method === 'item/started' && note.params.item.id === 'rewrite-call').params.item.command, 'echo accepted')
+  const replay = new ThreadProjector({ threadId: 'rewrite', cwd: '/w' })
+  records.forEach(record => replay.apply(record))
+  assert.equal(replay.turns[0].items.find(item => item.id === 'rewrite-call').command, 'echo accepted')
+  assert.equal(records[2].data.arguments, '{"command":"echo original"}')
+})
+
+
+test('Claude-classified shell results keep exit codes without marking no-match as a failure', () => {
+  for (const withDefinition of [false, true]) {
+    for (const [isError, exitCode, status] of [[false, 1, 'completed'], [true, 3, 'failed']]) {
+      const args = { command: 'grep needle file', description: 'Search file' }
+      const item = toolItem({ callId: 'exit-policy', name: 'bash', args })
+      const result = { content: [{ type: 'text', text: `output\n[exit code: ${exitCode}]` }], isError, meta: { exitCodePolicy: 'claude-code' } }
+      const definition = withDefinition ? { presentResult: () => ({ card: 'terminal', output: 'output', exitCode }) } : undefined
+      const done = completeToolItem(item, { name: 'bash', args, result, definition })
+      assert.deepEqual([done.status, done.exitCode, done.aggregatedOutput], [status, exitCode, 'output'])
+    }
   }
 })

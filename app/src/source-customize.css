@@ -28,7 +28,9 @@
 .cz-search input { flex:1; width:100%; min-width:0; height:100%; border:0; padding:0; outline:none; background:transparent; box-shadow:none; color:var(--cds-text-primary); font:inherit; -webkit-appearance:none; appearance:none; }
 .cz-search input::placeholder { color:var(--cds-text-muted); }
 .cz-search input::-webkit-search-cancel-button { -webkit-appearance:none; }
-.ss-dialog .cz-page .cz-search input:focus-visible { outline:none;box-shadow:none; }
+/* One focus ring, on the field wrapper (:has(:focus-visible) above): the input draws none of its own. [role=search]
+   lifts this over the dialog's generic input outline (source-settings.css), which has the same specificity otherwise. */
+.ss-dialog .cz-page .cz-search[role=search] input:focus-visible { outline:none;box-shadow:none; }
 .ss-dialog .cz-page :is(.cz-search-toggle,.cz-search-clear):focus-visible { outline:none;box-shadow:var(--cds-focus-shadow); }
 @media(prefers-reduced-motion:reduce) { .cz-search { transition:none; } }
 html[data-reduce-motion="true"] .cz-search { transition: none; }
@@ -89,6 +91,9 @@ html[data-reduce-motion="true"] .cz-search { transition: none; }
    pictogram is source-pictogram.jsx. Local actions: the core's skill folders and the profile-entry hint. */
 .cz-roots { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:4px; color:var(--cds-text-muted); }
 .cz-roots code, .cz-empty code { font-family:var(--cds-font-mono,monospace); font-size:12px; }
+.cz-skill-roots { display:flex; flex-direction:column; gap:6px; margin:16px 0 12px; font-size:13px; line-height:18px; }
+.cz-skill-roots p { margin:0; }
+.cz-skill-roots code { overflow-wrap:anywhere; }
 /* AS InfoTip (shared-frame :13895-13960 DS): "cds-reset inline-flex shrink-0 items-center justify-center rounded
    p-1 -m-1 text-muted outline-none transition-colors duration-fast hover:text-secondary focus-visible:text-secondary
    focus-visible:shadow-focus". */
@@ -97,6 +102,12 @@ html[data-reduce-motion="true"] .cz-search { transition: none; }
 /* Connector drill: the Checking connection… spinner is md. */
 .cz-checking .sc-spinner { width:20px; height:20px; border-width:2px; }
 .cz-tool-list { margin:0; padding:0; list-style:none; }
+/* A native core's connector settings: the default approval row, then each tool's approval select and switch. */
+.cz-connector-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; padding:10px 0; border-bottom:1px solid var(--cds-border); }
+.cz-connector-setting-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.cz-tool-row .cz-tool-approval { flex:none; max-width:220px; }
+/* The connector-wide approval select keeps a control width at the row end instead of filling the row. */
+.cz-connector-setting > .sselect { flex:none; width:220px; max-width:50%; }
 /* Add custom connector form */
 .cz-form { display:grid; gap:10px; padding:16px; border:1px solid var(--cds-alpha-2); border-radius:8px; background:var(--cds-surface-3); }
 .cz-form h3 { margin:0; font:600 14px/20px var(--cds-font-sans,anthropic-sans); }
@@ -183,7 +194,11 @@ button.cz-plugin-item:hover { background:var(--cds-surface-0); }
 .cz-plugin-log { max-height:220px; overflow:auto; margin:4px 0 0; padding:8px; border-radius:6px; background:var(--cds-surface-1); color:var(--cds-text-secondary); font:12px/16px var(--cds-font-mono,ui-monospace,monospace); white-space:pre-wrap; overflow-wrap:anywhere; }
 .cz-plugin-builds { display:grid; gap:8px; justify-items:start; }
 .cz-plugin-builds p { margin:0; color:var(--cds-text-secondary); }
-.cz-plugin-manage { display:flex; align-items:center; gap:8px; margin-left:auto; }
+.cz-plugin-manage { display:flex; flex-shrink:0; align-items:center; gap:var(--cds-gap-md,12px); margin-left:auto; }
+/* c36b3644c :563-590 notices row below the header: "flex flex-col gap-sm px-xl pt-lg pb-md empty:hidden". */
+.cz-plugin-notices { display:flex; flex-direction:column; gap:var(--cds-gap-sm,12px); padding:var(--cds-pad-lg,16px) var(--cds-pad-xl,24px) var(--cds-pad-md,12px); }
+.cz-plugin-notices:empty { display:none; }
+.cz-plugin-notices .cz-plugin-message { padding:0; }
 .cz-form + .cz-list, .cz-plugin-restart + .cz-form { margin-top:12px; }
 .cz-badge[data-variant="danger"] { color:var(--cds-text-danger, var(--cds-text-warning)); }
 
@@ -197,6 +212,135 @@ button.cz-plugin-item:hover { background:var(--cds-surface-0); }
 .cz-builtin-text { display:flex; min-width:0; flex-direction:column; gap:2px; }
 .cz-builtin-name { display:flex; min-width:0; align-items:center; gap:6px; color:var(--cds-text-primary); font-size:14px; line-height:20px; }
 .cz-builtin-description { color:var(--cds-text-secondary); font-size:13px; line-height:17px; overflow-wrap:anywhere; }
+/* A native core's Available list (marketplace plugins) reuses these rows, with the manifest version beside the name. */
+.cz-builtin-version { flex-shrink:0; color:var(--cds-text-muted); font-size:12px; line-height:16px; font-variant-numeric:tabular-nums; }
 .cz-builtin-source { color:var(--cds-text-muted); font:12px/16px var(--cds-font-mono,ui-monospace,monospace); overflow-wrap:anywhere; }
 .cz-builtin-action { display:flex; flex-shrink:0; align-items:center; }
 .cz-builtin .cz-error { margin:0; }
+
+/* Plugins › Official (Harness OPTIONAL_BUNDLES) as Claude Directory cards (ca0e5677a):
+   grid gap-4 grid-cols-1 md:grid-cols-2; card rounded-2xl border-0.5 bg-surface-3 p-4 shadow-sm gap-3;
+   hover border-strong + the soft lift shadow; icon tile size-10 rounded-lg border-0.5 bg-surface-1. */
+.cz-section-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:0 0 8px; }
+.cz-section-head h3 { margin:0; color:var(--cds-text-primary); font:600 13px/18px var(--cds-font-sans,anthropic-sans); }
+.cz-section-head span { color:var(--cds-text-muted); font-size:12px; line-height:16px; }
+.cz-section-head-table { margin-top:4px; }
+.cz-official { margin-bottom:20px; }
+.cz-official-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:0; padding:0; list-style:none; }
+@media (max-width: 767px) { .cz-official-grid { grid-template-columns:minmax(0,1fr); } }
+.cz-official-card { position:relative; display:flex; min-width:0; flex-direction:column; gap:12px; padding:16px; border-radius:16px; background:var(--cds-surface-3); box-shadow:inset 0 0 0 .5px var(--cds-border),0 1px 2px color-mix(in srgb,var(--cds-black,#000) 5%,transparent); transition:box-shadow var(--cds-dur-fast,.06s); }
+.cz-official-card:hover, .cz-official-card:focus-within { box-shadow:inset 0 0 0 .5px var(--cds-border-strong),0 4px 20px color-mix(in srgb,var(--cds-black,#000) 4%,transparent); }
+.cz-official-open { position:absolute; inset:0; z-index:0; border:0; border-radius:inherit; background:transparent; outline:none; }
+.cz-official-open:focus-visible { box-shadow:var(--cds-focus-shadow); }
+.cz-official-top { display:flex; align-items:flex-start; gap:12px; pointer-events:none; }
+.cz-official-title { display:flex; min-width:0; flex:1; flex-direction:column; gap:2px; }
+.cz-official-name { overflow:hidden; color:var(--cds-text-primary); font:500 14px/20px var(--cds-font-sans,anthropic-sans); text-overflow:ellipsis; white-space:nowrap; }
+.cz-official-meta { overflow:hidden; color:var(--cds-text-muted); font-size:12px; line-height:16px; text-overflow:ellipsis; white-space:nowrap; }
+.cz-official-action { position:relative; z-index:1; display:flex; flex-shrink:0; align-items:center; pointer-events:auto; }
+.cz-official-description { display:-webkit-box; margin:0; overflow:hidden; color:var(--cds-text-muted); font-size:12px; line-height:17px; pointer-events:none; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.cz-official-badges { display:flex; flex-wrap:wrap; gap:6px; pointer-events:none; }
+.cz-official .cz-error { margin:8px 0 0; }
+
+.cz-plugin-icon { display:inline-flex; flex-shrink:0; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; background:var(--cds-surface-1,var(--cds-surface-2)); box-shadow:inset 0 0 0 .5px var(--cds-border); color:var(--cds-text-secondary); }
+.cz-plugin-icon img { display:block; width:60%; height:60%; object-fit:contain; }
+.cz-plugin-icon-sm { width:20px; height:20px; border-radius:5px; }
+.cz-plugin-icon-sm img { width:70%; height:70%; }
+.cz-plugin-icon-md { width:40px; height:40px; }
+.cz-plugin-icon-lg { width:44px; height:44px; border-radius:10px; }
+.cz-plugin-head .cz-plugin-icon { align-self:flex-start; }
+.cz-plugin-title { display:flex; min-width:0; flex:1; flex-direction:column; gap:2px; }
+.cz-plugin-title-row { display:flex; min-width:0; flex-wrap:wrap; align-items:center; gap:8px; }
+.cz-plugin-title-row h2 { margin:0; }
+.cz-plugin-byline { margin:0; color:var(--cds-text-muted); font-size:12px; line-height:16px; overflow-wrap:anywhere; }
+.cz-registry-control { display:flex; max-width:100%; min-width:0; }
+/* Add custom connector › Advanced: env / header lines, styled like the inputs above. */
+.cz-advanced { display:flex; flex-direction:column; gap:8px; }
+.cz-advanced > summary { cursor:var(--cds-cursor-interactive, default); color:var(--cds-text-secondary); width:max-content; border-radius:4px; outline:none; }
+.cz-advanced > summary:focus-visible { box-shadow:var(--cds-focus-shadow); }
+.cz-advanced[open] > summary { margin-bottom:4px; }
+.cz-field textarea { min-height:44px; padding:5px 10px; border:1px solid var(--cds-alpha-2); border-radius:6px; background:var(--cds-surface-3); color:inherit; font:inherit; font-family:var(--cds-font-mono); font-size:var(--cds-font-size-code, 12px); min-width:0; resize:vertical; }
+.cz-field small { grid-column:2; }
+@media(max-width:780px) { .cz-field small { grid-column:1; } }
+
+/* A Codex plugin's apps still to connect, and marketplaces that failed to load. */
+.cz-plugin-apps { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; padding:12px; border-radius:var(--cds-radius--lg, 10px); background:var(--cds-fill-ghost-hover); }
+.cz-plugin-apps-title { margin:0; color:var(--cds-text-primary); font-size:var(--cds-font-size-body, 13px); }
+.cz-plugin-apps-list { display:flex; flex-direction:column; gap:6px; margin:0; padding:0; list-style:none; }
+.cz-plugin-apps-list > li { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.cz-marketplace-errors { display:flex; align-items:flex-start; gap:8px; margin-bottom:12px; padding:10px 12px; border-radius:var(--cds-radius--lg, 10px); color:var(--cds-text-warning); background:color-mix(in srgb, var(--cds-text-warning) 8%, transparent); }
+.cz-trust-launch { display:block; margin-top:4px; padding:6px 8px; border-radius:var(--cds-radius--sm, 6px); background:var(--cds-fill-ghost-hover); color:var(--cds-text-secondary); font-family:var(--cds-font-mono); }
+.cz-plugin-share{display:flex;flex-wrap:wrap;align-items:center;gap:var(--cds-gap-sm,8px)}
+.cz-plugin-share > .sselect{flex:none;width:220px;max-width:100%}
+/* ChatGPT Apps on Codex (AppsSection): one row per app with its icon, status and Connect / Manage and the on/off switch. */
+.cz-apps { margin-top:24px; }
+.cz-apps-head { justify-content:space-between; align-items:center; }
+.cz-apps-list { list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; }
+.cz-apps-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--cds-alpha-1); }
+.cz-apps-icon { flex-shrink:0; display:inline-flex; width:24px; height:24px; border-radius:6px; overflow:hidden; }
+.cz-apps-icon img { width:24px; height:24px; object-fit:contain; }
+.cz-apps-text { display:flex; flex-direction:column; min-width:0; flex:1; }
+.cz-apps-name { color:var(--cds-text-primary); font-size:13px; line-height:18px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cz-apps-meta { color:var(--cds-text-secondary); font-size:12px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cz-apps-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+/* MiMo's per-connector model requests (ConnectorSampling): a labelled select under the connector's description. */
+.cz-sampling { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; padding:10px 12px; border-radius:10px; background:var(--cds-surface-2); }
+.cz-sampling-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.cz-sampling-title { color:var(--cds-text-primary); font-size:13px; line-height:18px; }
+/* A plugin's MCP server with its own switch (Kimi plugin servers): the connector row, then the switch. */
+.cz-plugin-server { display:flex; align-items:center; gap:8px; }
+.cz-plugin-server > :first-child { flex:1; min-width:0; }
+/* Skill folders with Open (SkillFoldersNote): a muted footnote below the table and under the empty state's Add. */
+.cz-root-row { display:flex; align-items:center; gap:8px; }
+.cz-skill-roots { color:var(--cds-text-muted); }
+.cz-empty .cz-skill-roots { align-items:center; margin:0; }
+/* Customize dialogs (Create a skill, Add custom connector, Add marketplace): the official custom connector dialog
+   (ion-dist ce99eb202) — a md Dialog capped at 33.5rem, stacked full-width fields whose placeholder is the label,
+   a muted hint under each, Advanced settings, then the muted footnote and the Cancel / Add footer. */
+.sdlg-popup.cz-connector-dialog { max-width:33.5rem; }
+.cz-dialog-form { display:flex; min-width:0; flex-direction:column; gap:var(--cds-gap-md,12px); }
+.cz-dialog-field { display:flex; min-width:0; flex-direction:column; gap:4px; }
+.cz-dialog-field > .cds-input, .cz-dialog-field > .cz-dialog-textarea { width:100%; min-width:0; }
+.cz-dialog-hint { color:var(--cds-text-muted); font-size:var(--cds-font-size-footnote,13px); line-height:var(--cds-leading-footnote,17px); }
+.cz-dialog-note { margin:0; color:var(--cds-text-muted); font-size:var(--cds-font-size-footnote,13px); line-height:var(--cds-leading-footnote,17px); overflow-wrap:anywhere; }
+.cz-dialog-segments { align-self:flex-start; }
+.cz-dialog-advanced-body { display:flex; flex-direction:column; gap:var(--cds-gap-md,12px); padding-top:var(--cds-pad-sm,8px); }
+.cz-dialog-textarea { display:block; box-sizing:border-box; margin:0; padding:var(--cds-pad-sm,6px) var(--cds-pad-md,8px); border:0; border-radius:var(--cds-radius,6px);
+  background:var(--cds-fill-field); box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring); color:var(--cds-text-primary);
+  font-family:var(--cds-font-mono,ui-monospace,monospace); font-size:var(--cds-font-size-code,12px); line-height:var(--cds-leading-body,19px); resize:vertical; outline:none; }
+.cz-dialog-textarea::placeholder { color:var(--cds-text-muted); }
+.cz-dialog-textarea:focus-visible { box-shadow:var(--cds-focus-shadow); }
+/* The dialogs' text fields (data-cds=TextInput cds-input): the CDS field the other forms draw (.msx-page, .ccmd-form) —
+   a control-height box on --cds-fill-field with its inset ring, a stronger ring on hover, the danger ring when invalid
+   and the focus shadow. The shipped .cds-input rule zeroes padding, background and radius, so they are set here; the
+   tokens follow the loaded light or dark theme. The textarea gets the same hover and disabled states. */
+.cz-dialog-field > input[data-cds=TextInput] { box-sizing:border-box; width:100%; min-width:0; height:var(--cds-h-control,32px); min-height:0; margin:0; padding:0 var(--cds-pad-md,8px);
+  border:0; border-radius:var(--cds-radius,6px); background:var(--cds-fill-field); box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring); color:var(--cds-text-primary);
+  font:400 var(--cds-font-size-body,14px)/var(--cds-leading-body,20px) var(--cds-font-sans); outline:none; transition:box-shadow var(--cds-dur-fast,100ms); }
+.cz-dialog-field > input[data-cds=TextInput]:focus { box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring); }
+.cz-dialog-field > input[data-cds=TextInput]::placeholder { color:var(--cds-text-muted); }
+.cz-dialog-field > :is(input[data-cds=TextInput], .cz-dialog-textarea):hover:not(:focus):not([aria-invalid=true]):not(:disabled) { box-shadow:inset 0 0 0 1px var(--cds-border-strong); }
+.cz-dialog-field > :is(input[data-cds=TextInput], .cz-dialog-textarea)[aria-invalid=true] { box-shadow:inset 0 0 0 1px var(--cds-fill-danger); }
+.cz-dialog-field > input[data-cds=TextInput]:focus-visible { outline:none; box-shadow:var(--cds-focus-shadow); }
+.cz-dialog-field > :is(input[data-cds=TextInput], .cz-dialog-textarea):disabled { opacity:var(--cds-opacity-disabled,.5); }
+.cz-dialog-textarea { transition:box-shadow var(--cds-dur-fast,100ms); }
+@media (prefers-reduced-motion: reduce) { .cz-dialog-field > :is(input[data-cds=TextInput], .cz-dialog-textarea) { transition:none; } }
+html[data-reduce-motion="true"] .cz-dialog-field > :is(input[data-cds=TextInput], .cz-dialog-textarea) { transition:none; }
+/* A failing connector's drill: below the centred Reconnect, the startup error and the saved config, left-aligned. */
+.cz-connector-failure { display:flex; flex-direction:column; gap:var(--cds-gap-md,12px); }
+.cz-connector-error { display:flex; flex-direction:column; gap:4px; }
+.cz-connector-error-text { display:block; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; border-radius:var(--cds-radius,6px); background:var(--cds-surface-1); padding:4px 8px;
+  box-shadow:inset 0 0 0 1px var(--cds-border); color:var(--cds-text-danger); font-family:var(--cds-font-mono,ui-monospace,monospace); font-size:var(--cds-font-size-footnote,13px); line-height:var(--cds-leading-footnote,18px); }
+.cz-connector-error-more { margin:0; color:var(--cds-text-muted); font-size:var(--cds-font-size-footnote,13px); line-height:var(--cds-leading-footnote,18px); }
+.cz-connector-error-more .cz-text-button { color:var(--cds-text-secondary); }
+
+/* Customize › Agents › Create agent (OpenCode / MiMo agent files). */
+.cz-agent-form { display:flex; flex-direction:column; gap:var(--cds-gap-md,12px); }
+.cz-agent-form label, .cz-agent-field { display:flex; flex-direction:column; gap:4px; color:var(--cds-text-secondary); font-size:13px; }
+.cz-agent-field { align-items:flex-start; }
+.cz-agent-form input:not([type=checkbox]), .cz-agent-form textarea { padding:6px 8px; border:1px solid var(--cds-border); border-radius:var(--radius-md,6px); background:var(--cds-surface-1, transparent); color:var(--cds-text-primary); font:inherit; }
+.cz-agent-form textarea { resize:vertical; min-height:96px; }
+.cz-agent-form input:focus-visible, .cz-agent-form textarea:focus-visible { outline:none; box-shadow:var(--cds-focus-shadow); }
+.cz-agent-permissions { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:4px 12px; margin:0; padding:0; border:0; }
+.cz-agent-permissions legend { padding:0; margin-bottom:4px; color:var(--cds-text-secondary); font-size:13px; }
+.cz-agent-permissions label { flex-direction:row; align-items:center; gap:6px; color:var(--cds-text-primary); }
+.cz-agents .cz-builtin-action { gap:4px; }

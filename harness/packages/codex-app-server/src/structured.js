@@ -20,10 +20,9 @@
 
 import { assertObjectJsonSchema, validateJsonSchemaValue, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { invalidParams } from './transport.js'
+import { isWorkflowTool } from './workflows.js'
 
 export const STRUCTURED_OUTPUT_TOOL = 'structured_output'
-/** The Harness dynamic-workflow tool (dsh-tool-workflow's default name). */
-const WORKFLOW_TOOL = 'workflow'
 const INSTRUCTIONS_SECTION = 'code-desktop:developer-instructions'
 
 const STRUCTURED_OUTPUT_INSTRUCTION = `When you have your final answer, you MUST report it by calling the \`${STRUCTURED_OUTPUT_TOOL}\` tool with arguments matching its parameter schema exactly. Do not finish with a plain text answer: only the tool call counts as your result.`
@@ -131,14 +130,10 @@ export function workflowsAllowedBy(params) {
  */
 export function hideWorkflowTool(agentCtx) {
   const disposers = []
-  try {
-    disposers.push(agentCtx.tools.restrict({ deny: [WORKFLOW_TOOL] }))
-  } catch {
-    return null
-  }
-  try {
-    disposers.push(agentCtx.systemPrompt.section({ name: `tool:${WORKFLOW_TOOL}`, order: agentCtx.systemPrompt.getSectionOrder('TOOL_WORKFLOW'), text: '' }))
-  } catch {}
+  const names = agentCtx.tools.schemas().map(tool => tool.name).filter(isWorkflowTool)
+  if (!names.length) return null
+  disposers.push(agentCtx.tools.restrict({ deny: names }))
+  for (const name of names) disposers.push(agentCtx.systemPrompt.section({ name: `tool:${name}`, order: agentCtx.systemPrompt.getSectionOrder('TOOL_WORKFLOW'), text: '' }))
   return () => {
     for (const dispose of disposers.reverse()) {
       try { dispose() } catch {}

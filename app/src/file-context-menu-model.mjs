@@ -9,8 +9,11 @@
 // tree", only for a path inside the working directory that is not missing —
 // Gg (:6030-6048) renders after the items behind a separator.
 // Pure: entries are {kind:"item"|"submenu"|"separator", ...}; the pane maps
-// actions to handlers. "Open in" (no detected editors locally) and the
-// directory "Open in terminal" section (no terminal pane) have no local target.
+// actions to handlers. "Open in" (kn) lists the installed editors (main.cjs
+// installed-editors) when there are any; a directory row ends with "Open in
+// terminal" (a tab in the built-in terminal pane in that folder; the 2.2553.1
+// release notes' "Right-click any folder in the file tree → Open in terminal")
+// when the caller can open one (canOpenTerminal).
 import { absoluteDiffPath, splitPosixPath, stripClipboardControls } from "./diff-file-header-model.mjs";
 import { tabRelativePath } from "./file-tab-menu-model.mjs";
 import { t } from "../electron/i18n/index.mjs";
@@ -23,6 +26,8 @@ export const FILE_MENU_LABELS = Object.freeze({
   filename: t("Filename"),
   showInFinder: t("Show in Finder"),
   revealInTree: t("Reveal in file tree"),
+  openIn: t("Open in"),
+  openInTerminal: t("Open in terminal"),
 });
 export const FILE_MENU_SURFACES = Object.freeze(["file_browser", "file_tab"]);
 
@@ -53,7 +58,7 @@ export function fileCopyChoices(root, path) {
   };
 }
 
-export function fileContextMenu({ surface = "file_browser", root, path, canAttach = false, canShowInFinder = false, canRevealInTree = false } = {}) {
+export function fileContextMenu({ surface = "file_browser", root, path, canAttach = false, canShowInFinder = false, canRevealInTree = false, editors = [], canOpenTerminal = false } = {}) {
   const choices = fileCopyChoices(root, path);
   const copy = (label, value) => value ? { kind: "item", action: "copy", label, value: stripClipboardControls(value) } : null;
   const entries = [];
@@ -63,8 +68,15 @@ export function fileContextMenu({ surface = "file_browser", root, path, canAttac
     copy(FILE_MENU_LABELS.relativePath, choices.relative),
     copy(FILE_MENU_LABELS.filename, choices.filename),
   ].filter(Boolean) });
-  if (canShowInFinder && choices.absolute) entries.push({ kind: "separator" }, { kind: "item", action: "show-in-finder", label: FILE_MENU_LABELS.showInFinder, value: choices.absolute });
+  // kn: an "Open in" submenu of the installed editors (separatorBefore), then the reveal item, which has its own
+  // separator only when there is no "Open in".
+  const openIn = Array.isArray(editors) && editors.length > 0 && choices.absolute;
+  if (openIn) entries.push({ kind: "separator" }, { kind: "submenu", label: FILE_MENU_LABELS.openIn,
+    items: editors.map((editor) => ({ kind: "item", action: "open-in-editor", label: editor.name, value: choices.absolute, editor: editor.type })) });
+  if (canShowInFinder && choices.absolute) entries.push(...(openIn ? [] : [{ kind: "separator" }]), { kind: "item", action: "show-in-finder", label: FILE_MENU_LABELS.showInFinder, value: choices.absolute });
   if (surface === "file_tab" && canRevealInTree && choices.relative)
     entries.push({ kind: "separator" }, { kind: "item", action: "reveal-in-tree", label: FILE_MENU_LABELS.revealInTree, value: choices.relative });
+  if (surface === "file_browser" && canOpenTerminal && choices.absolute)
+    entries.push({ kind: "separator" }, { kind: "item", action: "open-in-terminal", label: FILE_MENU_LABELS.openInTerminal, value: choices.absolute });
   return entries;
 }

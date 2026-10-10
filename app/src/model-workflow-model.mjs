@@ -17,5 +17,14 @@ export function withModelWorkflowRows(items) {
     ? { id: item.id, turnId: item.turnId, workflowRun: item.workflowRun } : item);
 }
 
-export const workflowTask = run => ({ id: 'workflow:' + run.id, kind: 'workflow', status: run.status, description: run.description,
+// A model run is addressed by its call id until the core names it (call-… → run or
+// attempt id); its tool item's id stays the same, so the task keeps one identity
+// (React key, Tasks pane focus, dismissal) across the rename.
+export const workflowKey = run => isModelWorkflow(run) && typeof run.itemId === 'string' ? 'item:' + run.itemId : run.id;
+
+export const workflowTask = run => ({ id: 'workflow:' + workflowKey(run), kind: 'workflow', status: run.status, description: run.description,
   startedAt: run.startedAt, completedAt: run.completedAt, run });
+
+// Retry/Skip of one agent: the local runner always supports it; a core's run only
+// when it says so (run.memberControls: the bridge handles codeDesktop/workflow/member).
+export const workflowMemberControls = run => !isModelWorkflow(run) || run.memberControls === true;

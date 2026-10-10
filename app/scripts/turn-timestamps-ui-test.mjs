@@ -39,7 +39,7 @@ async function reveal(hoverTarget,toolbar){await park();await hoverTarget.hover(
 const revealFooter=async(turnId,answer)=>{await reveal(page.locator(`[data-transcript-item-id="${answer}"]`),footer(turnId).locator('.stf-toolbar'));return footer(turnId);};
 const revealUser=async itemId=>{await reveal(page.locator(`.source-user-message[data-transcript-item-id="${itemId}"] .source-user-bubble`),userRow(itemId).locator('.sua-toolbar'));return userRow(itemId);};
 // Visible toolbar children in DOM order (the sr-only status span is not a control).
-const order=toolbar=>toolbar.evaluate(node=>[...node.children].filter(c=>!c.classList.contains('stf-sr-only')&&!c.classList.contains('sua-sr-only')).map(c=>c.tagName==='TIME'?'time':c.getAttribute('aria-label')));
+const order=toolbar=>toolbar.evaluate(node=>[...node.children].filter(c=>!c.classList.contains('stf-sr-only')&&!c.classList.contains('sua-sr-only')).map(c=>c.tagName==='TIME'?'time':c.getAttribute('aria-label')??c.querySelector('[aria-label]')?.getAttribute('aria-label')??null));
 const timeView=row=>row.locator('time').evaluate(node=>{const s=getComputedStyle(node),probe=(prop,value)=>{const p=document.createElement('span');p.style.cssText=`position:absolute;visibility:hidden;${prop}:${value}`;node.parentElement.append(p);const v=getComputedStyle(p)[prop.replace(/-(.)/g,(_,c)=>c.toUpperCase())];p.remove();return v;};
  return {text:node.textContent,dateTime:node.getAttribute('datetime'),cds:node.dataset.cds,tabindex:node.getAttribute('tabindex'),title:node.getAttribute('title'),display:s.display,alignItems:s.alignItems,height:node.getBoundingClientRect().height,
   paddingStart:s.paddingInlineStart,paddingEnd:s.paddingInlineEnd,fontSize:s.fontSize,lineHeight:s.lineHeight,fontWeight:s.fontWeight,color:s.color,numeric:s.fontVariantNumeric,userSelect:s.userSelect,
@@ -60,18 +60,18 @@ try{
  await integrity();await launch();
  step('history');
  const oldFooter=await revealFooter('seed-old','seed-old-answer');
- assert.deepEqual(await order(oldFooter.locator('.stf-toolbar')),['Copy','time'],'Z0: Copy, then the timestamp last');
+ assert.deepEqual(await order(oldFooter.locator('.stf-toolbar')),['Copy','Fork from here','time'],'Z0: Copy, Fork from here (approval-current.js:43120-43128), then the timestamp last');
  const oldView=await timeView(oldFooter);report.metrics.historyFooter=oldView;assertGeometry(oldView,{first:false});
  assert.equal(oldView.dateTime,new Date(OLD.completed*1000).toISOString());assert.equal(oldView.text,'3 days ago');
  const oldTip=await tooltipText(oldFooter.locator('time'));report.metrics.historyTooltip=oldTip;assert.equal(oldTip.text,await absolute(OLD.completed*1000));assert.equal(oldTip.side,'top');
  assert.match(oldTip.text,/^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M$/,'fO: no time zone name');
  await park();await page.locator('.source-tooltip-popup').waitFor({state:'detached',timeout:3000});// hoverable false: leaving the <time> closes it
  const oldUser=await revealUser('seed-old-user');
- assert.deepEqual(await order(oldUser.locator('.sua-toolbar')),['time','Copy'],'BY: timestamp before Copy');
+ assert.deepEqual(await order(oldUser.locator('.sua-toolbar')),['time','Copy','Rewind to here','Fork from here'],'BY: timestamp before Copy, then the idle session’s Rewind / Fork');
  const oldUserView=await timeView(oldUser);report.metrics.historyUser=oldUserView;assertGeometry(oldUserView,{first:true});
  assert.equal(oldUserView.dateTime,new Date(OLD.started*1000).toISOString());assert.equal(oldUserView.text,'3 days ago');
  await shot('history-user-row-light');
- const nullFooter=await revealFooter('seed-null','seed-null-answer');assert.equal(await nullFooter.locator('time').count(),0,'completedAt null: no time');assert.deepEqual(await order(nullFooter.locator('.stf-toolbar')),['Copy']);
+ const nullFooter=await revealFooter('seed-null','seed-null-answer');assert.equal(await nullFooter.locator('time').count(),0,'completedAt null: no time');assert.deepEqual(await order(nullFooter.locator('.stf-toolbar')),['Copy','Fork from here']);
  report.metrics.nullFooterHeight=await nullFooter.evaluate(n=>n.getBoundingClientRect().height);assert.equal(report.metrics.nullFooterHeight,24);
  const nullUser=await revealUser('seed-null-user');assert.equal(await nullUser.locator('time').count(),0,'startedAt null: no time');
  await revealFooter('seed-old','seed-old-answer');await shot('history-light');
@@ -80,7 +80,7 @@ try{
  const live=(await read('fixture-threads.json')).threads[RC].turns.at(-1);report.metrics.liveTurn={id:live.id,startedAt:live.startedAt,completedAt:live.completedAt};
  assert.equal(live.completedAt??null,null);assert.equal(typeof live.startedAt,'number');
  const liveUserId=live.items[0].id;const liveUser=await revealUser(liveUserId);
- const liveUserView=await timeView(liveUser);assert.equal(liveUserView.dateTime,new Date(live.startedAt*1000).toISOString());assert.equal(liveUserView.text,'2 minutes ago');assert.deepEqual(await order(liveUser.locator('.sua-toolbar')),['time','Copy']);
+ const liveUserView=await timeView(liveUser);assert.equal(liveUserView.dateTime,new Date(live.startedAt*1000).toISOString());assert.equal(liveUserView.text,'2 minutes ago');assert.deepEqual(await order(liveUser.locator('.sua-toolbar')),['time','Copy','Rewind to here'],'while the agent works Rewind is offered disabled (its reason in a tooltip) and Fork is not');
  await page.locator(`[data-transcript-item-id="progress-${live.id}"]`).hover();await page.waitForTimeout(300);
  assert.equal(await footer(live.id).count(),0,'running turn: no footer');assert.equal(await page.locator(`.stf-footer[data-turn-copy-id="${live.id}"] time`).count(),0,'running turn: no <time>');
  await shot('running-light');report.checks.push('While the turn runs (Turn.startedAt 125s ago, completedAt null) the user row shows "2 minutes ago" before Copy and the turn has no footer and no <time>');
@@ -88,12 +88,12 @@ try{
  await poll(async()=>typeof (await read('fixture-threads.json')).threads[RC].turns.at(-1).completedAt==='number','completedAt persisted');
  const done=(await read('fixture-threads.json')).threads[RC].turns.at(-1);report.metrics.completedTurn={id:done.id,startedAt:done.startedAt,completedAt:done.completedAt};
  const answer=done.items.at(-1).id;const doneFooter=await revealFooter(done.id,answer);
- assert.deepEqual(await order(doneFooter.locator('.stf-toolbar')),['Copy','time']);
+ assert.deepEqual(await order(doneFooter.locator('.stf-toolbar')),['Copy','Fork from here','time']);
  const doneView=await timeView(doneFooter);report.metrics.completedFooter=doneView;assertGeometry(doneView,{first:false});
  assert.equal(doneView.dateTime,new Date(done.completedAt*1000).toISOString(),'dateTime = Turn.completedAt');assert.equal(doneView.text,'2 minutes ago');
  const doneTip=await tooltipText(doneFooter.locator('time'));report.metrics.completedTooltip=doneTip;assert.equal(doneTip.text,await absolute(done.completedAt*1000));
- await doneFooter.locator('.stf-copy').focus();for(const key of ['ArrowLeft','ArrowRight','Home','End']){await page.keyboard.press(key);assert.equal(await doneFooter.evaluate(n=>n.querySelector('.stf-copy')===document.activeElement),true,`${key} stays on Copy`);}
- await doneFooter.locator('.stf-copy').blur();await revealFooter(done.id,answer);await doneFooter.locator('time').hover();await page.locator(tipSelector).waitFor();await poll(()=>page.locator(tipSelector).evaluate(n=>Number(getComputedStyle(n).opacity)>.999),'tooltip entered');await shot('completed-tooltip-light');
+ await doneFooter.getByRole('button',{name:'Copy',exact:true}).focus();{const rovers=await doneFooter.evaluate(n=>[...n.querySelectorAll('.stf-toolbar button:not(:disabled)')].map(b=>b.getAttribute('aria-label')));let at=0;for(const key of ['ArrowLeft','ArrowRight','Home','End']){await page.keyboard.press(key);at=key==='Home'?0:key==='End'?rovers.length-1:(at+(key==='ArrowRight'?1:-1)+rovers.length)%rovers.length;assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),rovers[at],`${key} roves over the toolbar; the <time> is never a stop`);}await page.keyboard.press('Home');}
+ await page.evaluate(()=>document.activeElement?.blur());await revealFooter(done.id,answer);await doneFooter.locator('time').hover();await page.locator(tipSelector).waitFor();await poll(()=>page.locator(tipSelector).evaluate(n=>Number(getComputedStyle(n).opacity)>.999),'tooltip entered');await shot('completed-tooltip-light');
  report.checks.push('turn/completed: footer shows Copy then "2 minutes ago" (dateTime = Turn.completedAt ISO), absolute tooltip equals toLocaleString(en-US fO options); arrow/Home/End keep focus on Copy (time is not a roving item)');
  step('relaunch-dark');await app.close();app=null;const prefs=await read('preferences.json');await fs.writeFile(path.join(profile,'preferences.json'),JSON.stringify({...prefs,theme:'dark'}));
  await launch();await poll(()=>page.evaluate(()=>document.documentElement.dataset.mode==='dark'),'dark mode');await page.getByText('TIMESTAMP_FIXTURE_REPLY',{exact:true}).waitFor();

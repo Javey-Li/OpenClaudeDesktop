@@ -87,18 +87,6 @@
 }
 .source-sidebar-nav-row:hover kbd,
 .source-sidebar-nav-row:focus-visible kbd { opacity: 1; }
-.source-routines-label {
-  flex-shrink: 0;
-  padding: 22px 12px 10px;
-}
-.source-routines-label > button {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--cds-text-muted);
-  font-size: 12px;
-  line-height: 20px;
-}
 .source-session-list {
   position: relative;
   flex: 1;
@@ -140,12 +128,6 @@
    Each block keeps its own existing right inset and adds the lane excess. */
 .source-sidebar-primary {
   padding-right: max(0px, calc(var(--df-nav-scrollbar-lane, 0px) - 8px));
-}
-.source-routines-label {
-  padding-right: calc(12px + max(0px, calc(var(--df-nav-scrollbar-lane, 0px) - 8px)));
-}
-.source-sidebar .session-search-wrap {
-  margin-right: calc(4px + max(0px, calc(var(--df-nav-scrollbar-lane, 0px) - 8px)));
 }
 .source-session-group { min-width: 0; }
 .source-group-heading {
@@ -304,6 +286,11 @@
 }
 /* Local: remembered sessions kept out of the list (session-engine-model). */
 .source-sidebar-hidden-notice { line-height: 16px; overflow-wrap: anywhere; }
+.source-sidebar-hidden-notice p { margin: 0; }
+.source-sidebar-hidden-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.source-sidebar-hidden-action { border: 0; background: transparent; padding: 0; font: inherit; color: var(--cds-text-secondary, inherit); text-decoration: underline; text-underline-offset: 2px; border-radius: 2px; }
+.source-sidebar-hidden-action:hover { color: var(--cds-text-primary, inherit); }
+.source-sidebar-hidden-action:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
 /* sidebar-groups.js:7721-7760 OO. filtered: flex flex-col items-center gap-2
    px-4 py-6 text-center; no-sessions: flex h-full min-h-[200px] select-none
    flex-col items-center justify-center gap-4 px-4 pb-10 text-center. The

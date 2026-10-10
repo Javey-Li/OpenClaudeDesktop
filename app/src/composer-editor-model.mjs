@@ -83,6 +83,20 @@ export function reconcileComposerText(state,value){const old=composerText(state.
  const actualStart=composerTextOffset(state.doc,from),actualEnd=composerTextOffset(state.doc,to),suffix=old.length-actualEnd;
  return state.tr.insertText(value.slice(actualStart,value.length-suffix),from,to).setMeta('addToHistory',false);
 }
+// The texts the editor reported through onChange that the parent's value prop hasn't caught up with. React can render
+// the composer with an older draft while the user types (a keydown's discrete update renders before the default-lane
+// draft updates of the DOM flush); a value equal to one of these is a stale copy of the editor's own text, not an
+// outside change, so the document must keep what was typed instead of being reset to it (which re-fired onChange in
+// the layout effect, lost keystrokes and looped into React's "Maximum update depth exceeded").
+// classify(value,current): 'current' (caught up), 'stale' (an older echo) or 'external' (a session switch, a history
+// recall, a programmatic insert: apply it). An empty value always counts as outside (the draft cleared after a send
+// must clear the composer even when the user had emptied it moments before).
+export function composerEchoTracker(limit=512){let sent=[];return {
+ sent(text){if(sent.at(-1)!==text){sent.push(text);if(sent.length>limit)sent.shift();}},
+ classify(value,current){if(value===current){sent=[];return 'current';}const index=value===''?-1:sent.indexOf(value);if(index>=0){sent=sent.slice(index+1);return 'stale';}sent=[];return 'external';},
+ clear(){sent=[];},
+ get size(){return sent.length;},
+};}
 export function composerArgumentHint(doc){if(doc.content.size>128)return null;let hint=null;doc.descendants((node,start)=>{
  if(node.type.name!=='command_chip'||!node.attrs.argumentHint)return;
  const after=start+node.nodeSize;

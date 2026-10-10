@@ -384,3 +384,8 @@
 }
 html[data-reduce-motion="true"] .sq-card, html[data-reduce-motion="true"] .sq-spinner-arc { animation: none; }
 html[data-reduce-motion="true"] .sq-card button, html[data-reduce-motion="true"] .sq-card .sq-custom-control { transition: none; }
+/* Option previews (approval-current.js:7708): the options beside a monospace preview, stacked when narrow. */
+.sq-preview-layout { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--cds-gap-md, 12px); }
+.sq-preview-layout > .sq-options { flex: 1 1 220px; min-width: 0; }
+.sq-preview { flex: 1.4 1 260px; min-width: 0; max-height: 320px; margin: 0; overflow: auto; padding: var(--cds-pad-md, 8px) var(--cds-pad-lg, 12px); border-radius: 8px; background: var(--cds-alpha-1); color: var(--cds-text-primary); font-family: var(--cds-font-mono); font-size: var(--cds-font-size-code, 12px); line-height: var(--cds-leading-code, 17px); white-space: pre; tab-size: 2; }
+.sq-preview:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }

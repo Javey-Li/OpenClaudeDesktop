@@ -8,6 +8,7 @@ import {SourceTimestamp} from './source-timestamp.jsx';
 import {SourceTooltip} from './source-tooltip.jsx';
 import {storageKinds} from './storage-meter-model.mjs';
 import mcpEmpty from './generated/mcp-empty.json';
+import { joinArguments } from './customize-model.mjs';
 import { mcpStatus } from './settings-model.mjs';
 import { canRemoveDeveloperServer } from './developer-server-actions.mjs';
 import { t, tn } from '../electron/i18n/index.mjs';
@@ -36,7 +37,8 @@ export function DeveloperServers({ desktop, connected, pending, onEditConfig, on
   const server = statuses.find(server => server.name === selectedName);
   const status = mcpStatus(server || {});
   const failed = status === 'Failed';
-  const loading = !desktop;
+  // The fast first read (serversPending) has no statuses yet: keep the skeleton until there is something to list.
+  const loading = !desktop || (desktop.serversPending === true && names.length === 0);
   const busy = pending || !!removal.name;
   const edit = <SourceSettingsButton className="ssp-button" variant={names.length ? "secondary" : "primary"} disabled={!connected || busy} onClick={onEditConfig}>{t('Edit config')}</SourceSettingsButton>;
   const remove = async event => {
@@ -71,9 +73,10 @@ export function DeveloperServers({ desktop, connected, pending, onEditConfig, on
             {server?.pluginId && <p>{t('This server is managed by a plugin')}</p>}
             {definition?.command && <Detail label={t('Command')}>{definition.command}</Detail>}
             {definition?.url && <Detail label="URL">{definition.url}</Detail>}
-            {definition?.args?.length > 0 && <Detail label={t('Arguments')}>{definition.args.join(' ')}</Detail>}
+            {definition?.args?.length > 0 && <Detail label={t('Arguments')}>{joinArguments(definition.args)}</Detail>}
             {!definition?.command && !definition?.url && <Detail label={t('Configuration')}>{t('Configuration details are unavailable.')}</Detail>}
-            {server?.toolsError && <Detail label={t('Error')} danger>{server.toolsError}</Detail>}
+            {/* A bridge's known hints (zcode-bridge officialAuthHint) are dictionary keys; other errors show as sent. */}
+            {server?.toolsError && <Detail label={t('Error')} danger>{t(server.toolsError)}</Detail>}
             {definition?.environmentNames?.length > 0 && <SourceDisclosure key={selectedName} className="ss-mcp-advanced" label={t('Advanced options')}><section><h3>{t('Environment variables')}</h3><div className="ss-mcp-environment">{definition.environmentNames.map(name=><p key={name}>{name}</p>)}</div></section></SourceDisclosure>}
           </div>
         </div> : <div className="ss-mcp-empty">
@@ -84,6 +87,14 @@ export function DeveloperServers({ desktop, connected, pending, onEditConfig, on
       {desktop?.serversTruncated && <p className="ss-mcp-note">{t('Some server statuses could not be loaded.')}</p>}
     </div>
   </section>;
+}
+// An empty settings list (c71860c77 :342-358, as Developer › Local MCP servers' "No servers added"): the illustration,
+// a max-w-[60%] text-secondary message (lines: one block each), then the primary and secondary actions in gap-3.
+export function SettingsEmptyState({ lines = [], actions = null, error = '', ...rest }) {
+ return <div className="ss-mcp-empty ss-list-empty" {...rest}><McpEmptyIllustration/>
+  <p>{lines.filter(Boolean).map((line,index)=><span key={index}>{line}</span>)}</p>
+  {actions&&<div>{actions}</div>}
+  {error&&<p role="alert" className="ss-error">{error}</p>}</div>;
 }
 export function McpEmptyIllustration(){
  return <svg className="ss-mcp-empty-illustration" width={mcpEmpty.width} height={mcpEmpty.height} viewBox={mcpEmpty.viewBox} fill="none" aria-hidden="true" focusable="false">{mcpEmpty.paths.map((path,index)=><path key={index} d={path.d} style={{'--mcp-path-light':path.light,'--mcp-path-dark':path.dark}}/>)}</svg>;
@@ -128,7 +139,7 @@ export function StorageKinds({ label, color, items }) {
     <ul role="list" className="ss-storage-kind-legend">{kinds.items.map(item => <li key={item.id}>
       <span aria-hidden="true" className="ss-storage-kind-dot" style={item.paint}/>
       <span className="ss-storage-kind-label">{item.label}</span>
-      <span className="ss-storage-kind-size">{formatStorage(item.bytes)}</span>
+      <span className="ss-storage-kind-size">{item.unmeasured === true && !(item.bytes > 0) ? t('Not measured') : formatStorage(item.bytes)}</span>
       {item.tip && <StorageTip content={item.tip}/>}
     </li>)}</ul>
   </div>;
@@ -145,6 +156,8 @@ const AREA_COLORS = { code: 'var(--cds-chart-categorical-2)', runtime: 'var(--cd
 export function StorageDialog({ call, settingsRoot, onClose }) {
   const [state, setState] = useState({ value: null, loading: true, error: '' });
   const [revision, setRevision] = useState(0);
+  // Remove worktrees (official Storage '{count} Remove # worktrees'): the ones no session works in and without changes.
+  const [cleaning, setCleaning] = useState(false), [cleaned, setCleaned] = useState('');
   const root = useRef(null), title = useId(), description = useId(), callRef = useRef(call);
   callRef.current = call;
   useEffect(() => {
@@ -164,6 +177,8 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
     return () => { if (parent) { parent.inert = wasInert; parent.removeAttribute('data-nested-dialog-open'); } if (previous?.isConnected) previous.focus({ preventScroll: true }); };
   }, [settingsRoot]);
   const value = state.value;
+  // The running core's name from main's report (settings-pages.cjs storageReport coreName); none until it loads.
+  const runtimeName = value?.areas?.find(item => item?.id === 'runtime')?.name || '';
   const keyboard = event => {
     if (event.nativeEvent.isComposing) return;
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
@@ -175,12 +190,20 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
   };
   return createPortal(<div className="ss-backdrop ss-storage-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="ss-storage-dialog" ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title} aria-describedby={description} onKeyDown={keyboard}>
-      <header className="ss-storage-header"><h2 id={title}>{t('Storage')}</h2><p id={description}>{t('Space Code Desktop and local DeepSeek Harness data use on this computer.')}</p><button className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button></header>
+      <header className="ss-storage-header"><h2 id={title}>{t('Storage')}</h2><p id={description}>{runtimeName ? t('Space Code Desktop and local {name} data use on this computer.', { name: runtimeName }) : t('Space Code Desktop and its agent core use on this computer.')}</p><button className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button></header>
       <div className="ss-storage-content" aria-busy={state.loading || undefined}>
         {state.error && <p role="alert" className="ss-error">{t('Couldn’t calculate storage. Try again.')} {state.error}</p>}
         {!value && state.loading ? <div className="ss-storage-skeleton" aria-label={t('Calculating storage')}><i/><i/><i/><i/></div> : value && <StorageRows value={value}/>}
+        {cleaned && <p role="status" className="ss-storage-cleaned">{cleaned}</p>}
       </div>
-      <footer><SourceSettingsButton className="ssp-button" variant="ghost" icon="Folder" onClick={() => { Promise.resolve().then(() => callRef.current('reveal-settings')).catch(error => setState(current => ({ ...current, error: error.message }))); }}>{t('Open folder')}</SourceSettingsButton><SourceSettingsButton className="ssp-button" icon="ArrowClockwise" disabled={state.loading} onClick={() => { root.current?.focus({ preventScroll: true }); setRevision(value => value + 1); }}>{t('Refresh')}</SourceSettingsButton></footer>
+      <footer><SourceSettingsButton className="ssp-button" variant="ghost" icon="Folder" onClick={() => { Promise.resolve().then(() => callRef.current('reveal-settings')).catch(error => setState(current => ({ ...current, error: error.message }))); }}>{t('Open folder')}</SourceSettingsButton>{value?.areas?.find(item => item?.id === 'code')?.worktreeCount > 0 && <SourceSettingsButton className="ssp-button" busy={cleaning} disabled={state.loading || cleaning} onClick={() => {
+        setCleaning(true); setCleaned('');
+        Promise.resolve().then(() => callRef.current('worktrees-clean')).then(result => {
+          setCleaned(result?.removed > 0 ? tn(result.removed, 'Removed {count} unused worktree.', 'Removed {count} unused worktrees.') + (result.kept > 0 ? ` ${tn(result.kept, '{count} worktree with uncommitted changes was kept.', '{count} worktrees with uncommitted changes were kept.')}` : '')
+            : result?.kept > 0 ? tn(result.kept, '{count} worktree with uncommitted changes was kept.', '{count} worktrees with uncommitted changes were kept.') : t('No unused worktrees to remove.'));
+          setRevision(current => current + 1);
+        }, error => setState(current => ({ ...current, error: error.message }))).finally(() => setCleaning(false));
+      }}>{t('Remove unused worktrees')}</SourceSettingsButton>}<SourceSettingsButton className="ssp-button" icon="ArrowClockwise" disabled={state.loading} onClick={() => { root.current?.focus({ preventScroll: true }); setRevision(value => value + 1); }}>{t('Refresh')}</SourceSettingsButton></footer>
     </section>
   </div>, document.body);
 }
@@ -188,10 +211,12 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
 // The report body: Disk space used with the area meter, then one row per area with its Details kind bar.
 export function StorageRows({ value }) {
   // Area and kind labels are main's English copy; shown translated.
-  const areas = (value.areas || []).map(item => ({ ...item, label: t(item.label), kinds: (item.kinds || []).map(kind => ({ ...kind, label: t(kind.label) })) })), area = id => areas.find(item => item.id === id);
+  const areas = (value.areas || []).map(item => ({ ...item, label: t(item.label), kinds: (item.kinds || []).map(kind => ({ ...kind, label: kind.template ? t(kind.template, kind.values) : t(kind.label) })) })), area = id => areas.find(item => item.id === id);
   const code = area('code'), runtime = area('runtime'), app = area('app');
   const size = bytes => <span className="ss-storage-size">{formatStorage(bytes)}</span>;
-  const kindsOf = (item, extra = {}) => item.kinds.map(kind => kind.outside ? { ...kind, ...extra } : kind);
+  // The shared kind (all of a core's history in its own database, these sessions included) gets a tip of its own; any
+  // other kind kept outside Code Desktop the generic one.
+  const kindsOf = (item, extra = {}) => item.kinds.map(kind => kind.shared && runtime?.name ? { ...kind, tip: t('Kept in {name}’s own database together with its other sessions; not counted above.', { name: runtime.name }) } : kind.outside ? { ...kind, ...extra } : kind);
   const outside = code ? code.kinds.filter(kind => kind.outside).reduce((sum, kind) => sum + kind.bytes, 0) : 0;
   return <div className="settings-group-dividers ss-storage-rows">
     <StorageRow label={t('Disk space used')}
@@ -203,9 +228,10 @@ export function StorageRows({ value }) {
       </div>}/>
     {code && <StorageRow label={code.label}
       description={code.worktreeCount > 0 ? t('{sessions} and {worktrees}.', { sessions: tn(code.sessionCount, '{count} session', '{count} sessions'), worktrees: tn(code.worktreeCount, '{count} worktree', '{count} worktrees') }) : t('{sessions}.', { sessions: tn(code.sessionCount, '{count} session', '{count} sessions') })}
-      control={size(code.bytes)}
-      below={(code.bytes > 0 || outside > 0) && <StorageDetails label={t('Code session details')}><StorageKinds label={t('Code storage by kind')} color={AREA_COLORS.code}
-        items={kindsOf(code, { tip: t('History from {name} outside Code Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime?.name || 'DeepSeek Harness' }) })}/></StorageDetails>}/>}
+      // A core whose sessions share one database (historyUnmeasured: ZCode, MiniMax, OpenCode, MiMo) can't size them.
+      control={code.historyUnmeasured && !(code.bytes > 0) ? <span className="ss-storage-size">{t('Not measured')}</span> : size(code.bytes)}
+      below={(code.bytes > 0 || outside > 0 || code.historyUnmeasured) && <StorageDetails label={t('Code session details')}><StorageKinds label={t('Code storage by kind')} color={AREA_COLORS.code}
+        items={kindsOf(code, { tip: runtime?.name ? t('History from {name} outside Code Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime.name }) : t('History kept outside Code Desktop. Shown for completeness; not counted above and never removed from here.') })}/></StorageDetails>}/>}
     {runtime && <StorageRow label={runtime.label}
       description={runtime.versionCount === 0 ? t('{name} downloads.', { name: runtime.name }) : tn(runtime.versionCount, '{count} installed {name} version.', '{count} installed {name} versions.', { name: runtime.name })}
       control={size(runtime.bytes)}

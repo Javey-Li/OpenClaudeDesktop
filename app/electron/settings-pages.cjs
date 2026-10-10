@@ -3,9 +3,12 @@ const path = require('node:path');
 
 // Only fields rendered in Developer. In particular, HTTP headers, tokens and
 // environment values must not be included in this renderer-facing snapshot.
+// Code Desktop's own tools server (agent-tools-host.cjs "code_desktop", a launch override on Codex) is never one of the
+// user's servers: Settings › Code › Preview and Dynamic workflows control it.
+const APP_TOOLS_SERVER = 'code_desktop';
 function mcpDefinitions(config) {
   return Object.entries(config?.mcp_servers || {}).flatMap(([name, value]) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    if (!value || typeof value !== 'object' || Array.isArray(value) || name === APP_TOOLS_SERVER) return [];
     return [{ name, ...(typeof value.command === 'string' ? { command: value.command } : {}),
       ...(typeof value.url === 'string' ? { url: value.url } : {}),
       args: Array.isArray(value.args) ? value.args.filter(arg => typeof arg === 'string') : [],
@@ -15,10 +18,12 @@ function mcpDefinitions(config) {
   });
 }
 
-// Developer › Edit config opens the core's own configuration file: the
-// DeepSeek core reports its profile patch (initialize configPath); a Codex
-// app-server keeps config.toml in its home.
+// Developer › Edit config and Customize › Connectors › Edit config (both MCP) open the file the core reads MCP servers
+// from: a separate one when the core reports it (initialize mcpConfigPath: Kimi's ~/.kimi-code/mcp.json beside its
+// config.toml), else its own configuration file (the DeepSeek core's profile patch, configPath); a Codex app-server
+// keeps config.toml in its home.
 function editConfigTarget(serverInfo) {
+  if (typeof serverInfo?.mcpConfigPath === 'string' && serverInfo.mcpConfigPath) return serverInfo.mcpConfigPath;
   if (typeof serverInfo?.configPath === 'string' && serverInfo.configPath) return serverInfo.configPath;
   const home = serverInfo?.codexHome;
   if (typeof home !== 'string' || !home) throw new Error('DeepSeek Harness configuration location is unavailable.');
@@ -46,6 +51,37 @@ function sessionSegment(id) {
   }
   return out;
 }
+// A core's session layout (descriptor sessionStore, core-registry.mjs) as a matcher of path segments below its home.
+// files: patterns whose `<id>` is a thread id (or its dsh encoding), `<id8>` its first 8 characters, `*` any text within
+// one folder or file name and `**` any folders (a trailing `/**` takes everything in a session's folder). Each ids
+// placeholder becomes one alternation of the known ids, so a name with several dashes still finds its id.
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
+function sessionFilesMatcher(patterns, ids) {
+  const full = ids.length ? `(?:${[...new Set([...ids, ...ids.map(sessionSegment)])].map(escapeRegExp).join('|')})` : '(?!)';
+  const short = ids.length ? `(?:${[...new Set(ids.filter((id) => id.length >= 8).map((id) => id.slice(0, 8)))].map(escapeRegExp).join('|') || '(?!)'})` : '(?!)';
+  const compiled = patterns.map((pattern) => pattern.split('/').filter(Boolean).map((segment) => segment === '**' ? null
+    : new RegExp(`^${segment.split(/(<id8>|<id>|\*)/).map((part) => part === '<id>' ? full : part === '<id8>' ? short : part === '*' ? '[^/]*' : escapeRegExp(part)).join('')}$`)));
+  const match = (pattern, i, parts, j) => {
+    if (i === pattern.length) return j === parts.length;
+    if (pattern[i] === null) { for (let k = j; k <= parts.length; k++) if (match(pattern, i + 1, parts, k)) return true; return false; }
+    return j < parts.length && pattern[i].test(parts[j]) && match(pattern, i + 1, parts, j + 1);
+  };
+  return (parts) => compiled.some((pattern) => match(pattern, 0, parts, 0));
+}
+/** The descriptor's sessionStore, checked: {files: [pattern…]} or {database: "<folder below the home>" | "~/…"}, else null. */
+function cleanSessionStore(value) {
+  if (!value || typeof value !== 'object') return null;
+  const pattern = (text) => typeof text === 'string' && text.length <= 200 && /^[A-Za-z0-9._*<>~ -]+(\/[A-Za-z0-9._*<>~ -]+)*$/.test(text)
+    && !text.split('/').some((segment) => segment === '..' || segment === '.') && !text.startsWith('~');
+  if (Array.isArray(value.files)) {
+    const files = value.files.filter(pattern).slice(0, 16);
+    return files.length ? { files } : null;
+  }
+  const database = value.database;
+  if (typeof database === 'string' && (pattern(database) || (/^~\/[^\0]{1,200}$/.test(database) && !database.split('/').includes('..')))) return { database };
+  return null;
+}
+
 // index.chunk-ChZ67Jhw.js cfi (Cache, Code Cache, GPUCache, Dawn*Cache) plus Chromium's other HTTP-side caches.
 const WEB_CACHE = new Set(['Cache', 'Code Cache', 'GPUCache', 'Shared Dictionary', 'Service Worker']);
 const webCache = name => WEB_CACHE.has(name) || /^Dawn.*Cache$/.test(name);
@@ -53,7 +89,7 @@ const webCache = name => WEB_CACHE.has(name) || /^Dawn.*Cache$/.test(name);
 // The core the app runs (codex.cjs resolveCore): the DeepSeek Harness package around its bridge script,
 // otherwise the core executable itself.
 function storageCoreRoot(core) {
-  if (core?.kind === 'deepseek' && typeof core.prefix?.[0] === 'string') return path.resolve(path.dirname(core.prefix[0]), '..');
+  if (typeof core?.prefix?.[0] === 'string') return path.resolve(path.dirname(core.prefix[0]), '..');
   return typeof core?.command === 'string' && path.isAbsolute(core.command) ? core.command : null;
 }
 
@@ -95,8 +131,11 @@ async function measure(root, { io, limit, skip, bucket }) {
 // that home (other apps' sessions, dsh-runtimes, profiles, ...) is an outside kind, shown but not counted
 // (the original's 'Other Claude Code history'). 'runtime': the core package or executable. 'app': web
 // caches, logs and everything else in userData. Each file is read at most once and no path is reported.
+// sessionStore (the running core's descriptor): where that core keeps a session instead of sessions/**; a core that
+// keeps every session in one database (database) can't be split per session, so its history is reported unmeasured
+// and the database is an outside kind that includes these sessions.
 async function storageReport({ userData, dshHome, codexHome, coreRoot, coreName = 'DeepSeek Harness', threadIds = [], worktreeDirs = [],
-  logs = [], limit = 100000, io = fs, now = Date.now }) {
+  logs = [], limit = 100000, io = fs, now = Date.now, sessionStore = null, userHome = null }) {
   const home = dshHome ?? codexHome, ids = [...new Set(threadIds.filter(id => typeof id === 'string' && id))];
   const segments = new Set(ids.map(sessionSegment));
   // A dsh session directory is the encoded id; a Codex rollout file ends with -<id>.jsonl.
@@ -104,6 +143,10 @@ async function storageReport({ userData, dshHome, codexHome, coreRoot, coreName 
     const stem = name.replace(/\.jsonl(?:\.zstd)?$/, '');
     return segments.has(stem) || ids.some(id => stem.endsWith('-' + id));
   };
+  const store = cleanSessionStore(sessionStore);
+  const ownFiles = store?.files ? sessionFilesMatcher(store.files, ids) : null;
+  const ownHistory = parts => parts[0] === 'code-desktop' || (ownFiles ? ownFiles(parts) : parts[0] === 'sessions' && parts.slice(1).some(ownSession));
+  const database = store?.database && home ? (store.database.startsWith('~/') ? (userHome ? path.join(userHome, store.database.slice(2)) : null) : path.join(home, store.database)) : null;
   const roots = [];
   const addRoot = async (directory, area, bucket) => {
     if (typeof directory !== 'string' || !directory) return null;
@@ -114,7 +157,8 @@ async function storageReport({ userData, dshHome, codexHome, coreRoot, coreName 
     roots.push(root);
     return root;
   };
-  if (home) await addRoot(home, 'code', parts => parts[0] === 'code-desktop' || (parts[0] === 'sessions' && parts.slice(1).some(ownSession)) ? 'history' : 'otherHistory');
+  if (home) await addRoot(home, 'code', parts => ownHistory(parts) ? 'history' : 'otherHistory');
+  if (database) await addRoot(database, 'code', () => 'sharedHistory');
   await addRoot(coreRoot, 'runtime', () => 'core');
   const worktrees = [];
   for (const directory of worktreeDirs) { const root = await addRoot(directory, 'code', () => 'worktrees'); if (root) worktrees.push(root); }
@@ -134,8 +178,10 @@ async function storageReport({ userData, dshHome, codexHome, coreRoot, coreName 
   const counted = list => list.reduce((sum, kind) => sum + (kind.outside ? 0 : kind.bytes), 0);
   const areas = [];
   if (home) {
-    const list = kinds('code', [['history', 'Conversation history'], ['worktrees', 'Worktrees in use or with changes'], ['otherHistory', `Other ${coreName} history`, { outside: true }]]);
-    areas.push({ id: 'code', label: 'Code sessions and worktrees', bytes: counted(list), sessionCount: ids.length, worktreeCount, kinds: list });
+    const list = kinds('code', [['history', 'Conversation history', database ? { unmeasured: true } : {}], ['worktrees', 'Worktrees in use or with changes'],
+      ...(database ? [['sharedHistory', `All ${coreName} history, including these sessions`, { outside: true, shared: true, template: 'All {core} history, including these sessions', values: { core: coreName } }]] : []),
+      ['otherHistory', `Other ${coreName} history`, { outside: true, template: 'Other {core} history', values: { core: coreName } }]]);
+    areas.push({ id: 'code', label: 'Code sessions and worktrees', bytes: counted(list), sessionCount: ids.length, worktreeCount, ...(database ? { historyUnmeasured: true } : {}), kinds: list });
   }
   const runtime = kinds('runtime', [['core', coreName]]);
   areas.push({ id: 'runtime', label: 'Runtime', bytes: counted(runtime), name: coreName, versionCount: runtimeFound ? 1 : 0, kinds: runtime });
@@ -144,4 +190,4 @@ async function storageReport({ userData, dshHome, codexHome, coreRoot, coreName 
   return { computedAt: now(), bytes: areas.reduce((sum, area) => sum + area.bytes, 0), incomplete, areas };
 }
 
-module.exports = { mcpDefinitions, storageReport, storageCoreRoot, sessionSegment, editConfigTarget, recordSettingsFailure };
+module.exports = { mcpDefinitions, storageReport, storageCoreRoot, sessionSegment, cleanSessionStore, editConfigTarget, recordSettingsFailure };

@@ -128,3 +128,10 @@ html[data-local-motion="reduce"] .source-transcript-status .sts-activity.source-
   background: none;
   -webkit-text-fill-color: currentColor;
 }
+/* A long retry's cause and remedy (OpenCode usage limits): the detail truncates first, the link stays a text link. */
+.source-transcript-status .sts-retry-detail { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-transcript-status .sts-retry-link {
+  flex-shrink: 0; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--cds-text-accent);
+  text-decoration: underline; text-underline-offset: 3px; cursor: var(--cds-cursor-interactive, default); border-radius: 2px; outline: none;
+}
+.source-transcript-status .sts-retry-link:focus-visible { box-shadow: var(--cds-focus-shadow, 0 0 0 2px Highlight); }

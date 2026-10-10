@@ -54,3 +54,10 @@
 .spc-actions > div { flex-grow: 1; }
 .spc-left { display: flex; gap: 8px; }
 .spc-right { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* xee (approval-current.js:9853-9875): the primary as a split button, label half and a caret
+   half that opens 'More accept options'; the halves share one rounded silhouette. */
+.spc-split { display: inline-flex; align-items: stretch; gap: 1px; min-width: 0; max-width: 100%; }
+.spc-split > .sac-button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.spc-split > .spc-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 6px; }
+.spc-more svg { display: block; }
+.spc-comments{margin:4px 0 0;font-size:var(--cds-font-size-footnote,12px);line-height:var(--cds-leading-footnote,16px);color:var(--cds-text-secondary)}

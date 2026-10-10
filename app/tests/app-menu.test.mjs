@@ -31,18 +31,18 @@ test('App submenu follows Gtr: About, Settings…, Services, Hide / Hide Others 
  assert.deepEqual(events,[{kind:'open-settings'},{kind:'open-settings'}],'Settings… always navigates (KK, not RZ)');
 });
 
-test('File follows lwr/nwr: New Session, Open Folder…, then ⌘W Close Pane or Close Window (Home: no session view)',()=>{
+test('File follows lwr/nwr: New Session, New Window, Open File…, Open Folder…, then ⌘W Close Pane or Close Window (Home: no session view)',()=>{
  const events=[];const emit=e=>events.push(e);
  const plain=menu(appMenuTemplate({sidebarOpen:true,emit}),'File');
- assert.deepEqual(shape(plain),['New Session','---','Open Folder…','---','Close Window','Close Window']);
+ assert.deepEqual(shape(plain),['New Session','New Session with Current Settings','New Window','---','Open File…','Open Folder…','---','Close Window','Close Window']);
  assert.deepEqual(plain.filter(item=>item.label).map(item=>[item.label,item.accelerator,item.role,item.visible,item.acceleratorWorksWhenHidden]),[
-  ['New Session','CmdOrCtrl+N',undefined,undefined,undefined],['Open Folder…','CmdOrCtrl+Shift+O',undefined,undefined,undefined],
+  ['New Session','CmdOrCtrl+N',undefined,undefined,undefined],['New Session with Current Settings','CmdOrCtrl+Shift+N',undefined,undefined,undefined],['New Window',undefined,undefined,undefined,undefined],['Open File…','CmdOrCtrl+O',undefined,undefined,undefined],['Open Folder…','CmdOrCtrl+Shift+O',undefined,undefined,undefined],
   ['Close Window','CmdOrCtrl+W','close',undefined,undefined],['Close Window','CmdOrCtrl+Shift+W','close',false,true]]);
  const pane=menu(appMenuTemplate({sidebarOpen:true,menuState:menuState(PANES),emit}),'File');
- assert.deepEqual(pane.slice(4).map(item=>[item.label,item.accelerator,item.role,item.visible]),[['Close Pane','CmdOrCtrl+W',undefined,undefined],['Close Window','CmdOrCtrl+Shift+W','close',undefined]]);
- for(const item of [plain[0],plain[2],pane[4]])item.click();
- assert.deepEqual(events,[{kind:'new-session'},{kind:'open-folder'},{kind:'close-pane'}]);
- for(const label of ['Open File…','Reopen Closed Session'])assert.equal(pane.some(item=>item.label===label),false,label);
+ assert.deepEqual(pane.slice(7).map(item=>[item.label,item.accelerator,item.role,item.visible]),[['Close Pane','CmdOrCtrl+W',undefined,undefined],['Close Window','CmdOrCtrl+Shift+W','close',undefined]]);
+ for(const item of [plain[0],plain[1],plain[2],plain[4],plain[5],pane[7]])item.click();
+ assert.deepEqual(events,[{kind:'new-session'},{kind:'new-session-current'},{kind:'new-window'},{kind:'open-file'},{kind:'open-folder'},{kind:'close-pane'}]);
+ for(const label of ['Reopen Closed Session'])assert.equal(pane.some(item=>item.label===label),false,label);
 });
 
 // iwr: 'Close Session' (xdFFXdcjAb) while a session view shows, with Close Window on ⌘⇧W; rwr: Reopen Closed
@@ -51,22 +51,22 @@ test('File with a session view: Close Session ⌘W, Close Window ⇧⌘W, then R
  const events=[],targets=[];const emit=(e,window)=>{events.push(e);targets.push(window);};
  const file=state=>menu(appMenuTemplate({sidebarOpen:true,menuState:menuState(state),emit}),'File');
  const open=file({...PANES,session:{open:true},reopenClosed:{available:true,enabled:true}});
- assert.deepEqual(shape(open),['New Session','---','Open Folder…','---','Close Session','Close Window','Reopen Closed Session']);
- assert.deepEqual(open.slice(4).map(item=>[item.label,item.accelerator,item.role,item.visible,item.registerAccelerator,item.enabled]),[
+assert.deepEqual(shape(open),['New Session','New Session with Current Settings','New Window','---','Open File…','Open Folder…','---','Close Session','Close Window','Reopen Closed Session']);
+ assert.deepEqual(open.slice(7).map(item=>[item.label,item.accelerator,item.role,item.visible,item.registerAccelerator,item.enabled]),[
   ['Close Session','CmdOrCtrl+W',undefined,undefined,undefined,undefined],['Close Window','CmdOrCtrl+Shift+W','close',undefined,undefined,undefined],
   ['Reopen Closed Session','CmdOrCtrl+Shift+T',undefined,undefined,true,true]]);
  const target={id:'main'};
- open[4].click({},target);open[4].click({},target,viaAccelerator);open[6].click({},target);open[6].click({},target,viaAccelerator);
+ open[7].click({},target);open[7].click({},target,viaAccelerator);open[9].click({},target);open[9].click({},target,viaAccelerator);
  assert.deepEqual(events,[{kind:'close-session'},{kind:'close-session',accelerator:true},{kind:'reopen-closed'}],'a ⌘W/⇧⌘T that reached the menu is marked or dropped (RZ)');
  assert.deepEqual(targets,[target,target,target]);
  // A session view without a closable pane still reads Close Session; the reopen item follows enabled.
  const disabled=file({session:{open:true},reopenClosed:{available:true,enabled:false}});
- assert.deepEqual(shape(disabled.slice(4)),['Close Session','Close Window','Reopen Closed Session']);assert.equal(disabled[6].enabled,false);
+ assert.deepEqual(shape(disabled.slice(7)),['Close Session','Close Window','Reopen Closed Session']);assert.equal(disabled[9].enabled,false);
  // Home: the original Close Window pair, Reopen still listed while available.
  const home=file({reopenClosed:{available:true,enabled:true}});
- assert.deepEqual(home.slice(4).map(item=>[item.label,item.accelerator,item.role,item.visible]),[['Close Window','CmdOrCtrl+W','close',undefined],['Close Window','CmdOrCtrl+Shift+W','close',false],['Reopen Closed Session','CmdOrCtrl+Shift+T',undefined,undefined]]);
+ assert.deepEqual(home.slice(7).map(item=>[item.label,item.accelerator,item.role,item.visible]),[['Close Window','CmdOrCtrl+W','close',undefined],['Close Window','CmdOrCtrl+Shift+W','close',false],['Reopen Closed Session','CmdOrCtrl+Shift+T',undefined,undefined]]);
  // Home with a pane: Close Pane; unavailable reopen is omitted entirely (rwr returns []).
- assert.deepEqual(shape(file({...PANES,reopenClosed:{available:false,enabled:true}}).slice(4)),['Close Pane','Close Window']);
+ assert.deepEqual(shape(file({...PANES,reopenClosed:{available:false,enabled:true}}).slice(7)),['Close Pane','Close Window']);
 });
 
 test('Edit follows FSr("mac") in place of the editMenu role, then ISr\'s Find submenu',()=>{
@@ -96,28 +96,41 @@ test('Edit ends with ISr Find: Find… / Find Next / Find Previous emit find-ope
 test('View follows pNr: sidebar item first, bNr pane items and Close Pane, dNr zoom, Reload, devtools only unpackaged, full screen',()=>{
  const events=[];const emit=e=>events.push(e);
  const open=view(appMenuTemplate({sidebarOpen:true,allowDevTools:true,emit})),closed=view(appMenuTemplate({sidebarOpen:false,emit}));
- assert.equal(open[0].label,'Hide Sidebar');assert.equal(closed[0].label,'Show Sidebar');
+ // _Nr opens with Command Palette… (⌘K toggles the palette), then the sidebar item.
+ assert.equal(open[0].label,'Command Palette…');assert.equal(open[0].accelerator,'CmdOrCtrl+K');
+ assert.equal(open[1].label,'Hide Sidebar');assert.equal(closed[1].label,'Show Sidebar');
  for(const items of [open,closed]){
-  assert.equal(items[0].accelerator,'CmdOrCtrl+B');assert.equal(items[0].type,undefined);assert.equal('checked' in items[0],false);
-  assert.deepEqual(items[1],{type:'separator'});
+  assert.equal(items[1].accelerator,'CmdOrCtrl+B');assert.equal(items[1].type,undefined);assert.equal('checked' in items[1],false);
+  assert.deepEqual(items[2],{type:'separator'});
   for(const role of ['resetZoom','zoomIn','zoomOut','togglefullscreen'])assert.equal(items.some(item=>item.role===role),false,role);
  }
- assert.deepEqual(shape(open.slice(2)),['Show Changes','Show Files','Close Pane','---','Actual Size','Zoom In','Zoom In (indie cooler version)','Zoom Out','Zoom In (numpad)','Zoom Out (numpad)','Actual Size (numpad)','---','reload','toggleDevTools','---','Enter Full Screen']);
+ assert.deepEqual(shape(open.slice(3)),['Show Changes','Show Files','Close Pane','---','Split View','---','Actual Size','Zoom In','Zoom In (indie cooler version)','Zoom Out','Zoom In (numpad)','Zoom Out (numpad)','Actual Size (numpad)','---','reload','toggleDevTools','---','Enter Full Screen']);
  assert.equal(closed.some(item=>item.role==='toggleDevTools'),false,'no Toggle Developer Tools in a packaged build');
  assert.deepEqual(open.at(-1).accelerator,'Control+Command+F');
  assert.equal(view(appMenuTemplate({sidebarOpen:true,fullScreen:true,emit})).at(-1).label,'Exit Full Screen');
- open[0].click();closed[0].click();open.at(-1).click();
- assert.deepEqual(events,[{kind:'toggle-sidebar'},{kind:'toggle-sidebar'},{kind:'toggle-full-screen'}]);
+ open[1].click();closed[1].click();open.at(-1).click();open[0].click();open[0].click({},null,viaAccelerator);
+ assert.deepEqual(events,[{kind:'toggle-sidebar'},{kind:'toggle-sidebar'},{kind:'toggle-full-screen'},{kind:'open-search',toggle:true}],'⌘K through the accelerator is the renderer’s');
+});
+
+test('View pane items in bNr order: Terminal, Changes, Preview, Files, Side Chat (⌘;), Close Pane',()=>{
+ const all={panes:{changes:{enabled:true,open:false},files:{enabled:true,open:false},terminal:{enabled:true,open:true},preview:{enabled:true,open:false},sideChat:{enabled:true,open:true}},closePane:{enabled:true}};
+ const events=[];const items=view(appMenuTemplate({sidebarOpen:true,menuState:menuState(all),emit:e=>events.push(e)})).slice(3,9);
+ assert.deepEqual(items.map(item=>[item.label,item.accelerator]),[['Hide Terminal','Command+J'],['Show Changes','CmdOrCtrl+Shift+D'],['Show Preview','CmdOrCtrl+Shift+P'],['Show Files','CmdOrCtrl+Shift+F'],['Hide Side Chat','CmdOrCtrl+;'],['Close Pane','CmdOrCtrl+\\']]);
+ items[4].click();
+ assert.deepEqual(events,[{kind:'toggle-pane',pane:'sideChat'}]);
+ // A core without side questions reports no sideChat: no row.
+ const { sideChat, ...panes } = all.panes;
+ assert.equal(view(appMenuTemplate({sidebarOpen:true,menuState:menuState({...all,panes}),emit:()=>{}})).some(item=>/Side Chat/.test(item.label||'')),false);
 });
 
 test('View pane items follow bNr/gNr: Hide only while enabled and open, enabled from menu-state, RZ clicks',()=>{
- const items=state=>view(appMenuTemplate({sidebarOpen:true,menuState:menuState(state),emit:()=>{}})).slice(2,5);
+ const items=state=>view(appMenuTemplate({sidebarOpen:true,menuState:menuState(state),emit:()=>{}})).slice(3,6);
  assert.deepEqual(items(undefined).map(item=>[item.label,item.accelerator,item.enabled,item.registerAccelerator]),[
   ['Show Changes','CmdOrCtrl+Shift+D',false,undefined],['Show Files','CmdOrCtrl+Shift+F',false,undefined],['Close Pane','CmdOrCtrl+\\',false,undefined]]);
  assert.deepEqual(items(PANES).map(item=>[item.label,item.enabled]),[['Show Changes',true],['Hide Files',true],['Close Pane',true]]);
  // gNr labels by `enabled && open`: an unavailable pane never reads Hide.
  assert.deepEqual(items({panes:{changes:{enabled:false,open:true},files:{enabled:true,open:true}}}).map(item=>item.label),['Show Changes','Hide Files','Close Pane']);
- const events=[];const live=view(appMenuTemplate({sidebarOpen:true,menuState:menuState(PANES),emit:e=>events.push(e)})).slice(2,5);
+ const events=[];const live=view(appMenuTemplate({sidebarOpen:true,menuState:menuState(PANES),emit:e=>events.push(e)})).slice(3,6);
  for(const item of live){item.click();item.click({},null,viaAccelerator);}
  assert.deepEqual(events,[{kind:'toggle-pane',pane:'changes'},{kind:'toggle-pane',pane:'files'},{kind:'close-pane'}],'the renderer owns the chord when the accelerator fired');
 });
@@ -222,12 +235,23 @@ test('activateAction: recreate, restore only when nothing is visible, show a hid
 
 test('main.cjs wires the lifecycle: before-quit before the shutdown handler, a no-op window-all-closed, activate, 600x400 minimum',()=>{
  const main=readFileSync(path.resolve(import.meta.dirname,'../electron/main.cjs'),'utf8');
- const beforeQuit=main.indexOf('app.on("before-quit", () => { quitting = true; });'),shutdown=main.indexOf('installShutdownHandler(app, {');
- assert.ok(beforeQuit>0&&beforeQuit<shutdown,'the quitting flag is set by a before-quit listener registered first');
+ // The quit guard (quit-guard.cjs) runs first inside the shutdown handler; quitting is set only once shutdown starts,
+ // so a quit the guard holds or the user cancels keeps the window's close-hides behavior.
+ const shutdown=main.indexOf('installShutdownHandler(app, {');
+ assert.ok(shutdown>0);
+ assert.match(main.slice(shutdown),/^installShutdownHandler\(app, \{\s*guard: \(event\) => quitGuard\.handle\(event\),\s*onStart: \(\) => \{ quitting = true; try \{ savePopoutsForRelaunch\(\); \}/);
+ assert.doesNotMatch(main,/app\.on\("before-quit"/,'no listener marks a held quit as quitting');
  assert.match(main,/app\.on\("window-all-closed", \(\) => \{\}\);/);
  assert.doesNotMatch(main,/app\.quit\(\);\s*\}\);\s*menuBar = createMenuBar/,'closing the main window no longer quits');
  assert.match(main,/app\.on\("activate", \(_event, hasVisibleWindows\) => \{/);
  assert.match(main,/const action = closeAction\(\{ quitting, fullScreen: window\.isFullScreen\(\) \}\);/);
  assert.match(main,/minWidth: 600,\s*minHeight: 400,/);
  assert.match(main,/attachContextMenu\(window\);[\s\S]*attachContextMenu\(window\);/,'main window and pane windows get the native context menu');
+});
+
+test('File › New Window is disabled at the window limit, with the reason as its tooltip (never a silent no-op)',()=>{
+ const item=(newWindow)=>menu(appMenuTemplate({sidebarOpen:true,newWindow,emit:()=>{}}),'File').find(entry=>entry.label==='New Window');
+ assert.equal(item(undefined).enabled,true);assert.equal(item(undefined).toolTip,undefined);
+ assert.equal(item(true).enabled,true);
+ assert.equal(item(false).enabled,false);assert.equal(item(false).toolTip,'Close a window before opening another.');
 });

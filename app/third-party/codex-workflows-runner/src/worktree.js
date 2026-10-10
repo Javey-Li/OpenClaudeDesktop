@@ -31,23 +31,30 @@ export async function isGitRepo(cwd) {
  * Returns { dir, cleanup }, where cleanup() removes the worktree if clean and
  * returns { removed, dir, dirty }.
  */
-export async function createWorktree(repoCwd) {
+// Local: `name` (Claude Code 2.1.280's <runId>-<idx>) names the worktree folder; without one it is "wt".
+export async function createWorktree(repoCwd, name) {
   const root = await git(repoCwd, ["rev-parse", "--show-toplevel"]);
+  const originalHead = await git(root, ["rev-parse", "HEAD"]);
   const base = await mkdtemp(join(tmpdir(), "wf-worktree-"));
-  const dir = join(base, "wt");
-  await git(root, ["worktree", "add", "--detach", dir, "HEAD"]);
+  const dir = join(base, typeof name === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(name) ? name : "wt");
+  try {
+    await git(root, ["worktree", "add", "--detach", dir, "HEAD"]);
+  } catch (error) {
+    await rm(base, { recursive: true, force: true }).catch(() => {}); // Local: don't leak the temp folder
+    throw error;
+  }
 
   return {
     dir,
     async cleanup() {
       let dirty = false;
       try {
-        dirty = (await git(dir, ["status", "--porcelain"])).length > 0;
-      } catch {}
+        dirty = (await git(dir, ["status", "--porcelain", "--untracked-files=all"])).length > 0 || (await git(dir, ["rev-parse", "HEAD"])) !== originalHead;
+      } catch { return { removed:false, dirty:true, dir }; }
       if (dirty) return { removed: false, dirty: true, dir };
       try {
-        await git(root, ["worktree", "remove", "--force", dir]);
-      } catch {}
+        await git(root, ["worktree", "remove", dir]);
+      } catch { return { removed:false, dirty:true, dir }; }
       try {
         await rm(base, { recursive: true, force: true });
       } catch {}

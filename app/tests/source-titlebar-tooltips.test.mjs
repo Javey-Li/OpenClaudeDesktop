@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import { RELEASE_NOTES } from '../src/release-notes.mjs';
 
 // c360a9e1c-GPs-MV9u.js yp (6347-6360), mm (7387-7420) and Fp (6760-6810): the
 // origin glyph, title button and folder pill use CDS tooltips (Zt), so the SSR
@@ -92,7 +93,30 @@ test('LocalReleaseNotes is the bleed md SourceDialog with versioned entries', ()
   assert.match(html, /<div class="st-release-date"><h4>October 1, 2026<\/h4><span class="st-release-version" data-cds="Badge" data-variant="neutral">0\.2\.130<\/span><\/div>/);
   assert.deepEqual([...html.matchAll(/<h5>([^<]+)<\/h5>/g)].map((match) => match[1]), ['New', 'Improved']);
   assert.match(html, /<code class="st-release-code">~\/\.dsh<\/code>/);
-  assert.match(html, /<p class="st-release-limits">Known limits: \/fork, \/review and \/rewind aren’t available yet\./);
-  assert.match(html, /This local Code Desktop client is now powered by DeepSeek Harness\./);
+  // /fork, /review and /rewind ship (session-command-model.mjs): the limits only say they depend on the running core.
+  assert.match(html, /<p class="st-release-limits">Known limits: Some commands, such as \/fork, \/review and \/rewind, depend on the running core; the slash menu says when one isn’t available\./);
+  assert.doesNotMatch(html, /aren’t available yet|Background jobs don’t appear/);
+  // The notes are core-neutral: they describe the frame and name DeepSeek Harness only as the built-in core.
+  assert.match(html, /Code Desktop is now a frame for agent cores: choose one in Settings › Cores\./);
+  assert.match(html, /DeepSeek Harness is built in; the others install on demand/);
+  assert.doesNotMatch(html, /powered by DeepSeek|run on DeepSeek models/);
+  assert.equal([...html.matchAll(/<li[ >]/g)].length, RELEASE_NOTES[0].items.length, 'one list item per bundled note');
   assert.doesNotMatch(html, /Codex|modal-backdrop|st-release-header|Close release notes|title="/);
+});
+
+// Split view (c360a9e1c-GPs-MV9u.js Im): each side's titlebar ends with its own ghost X ('Close split view',
+// epitaxy-pane-close-control) with a CDS tooltip; there is none while the window isn't split.
+test('a split side closes itself from the end of its own titlebar', () => {
+  const plain = render({});
+  assert.doesNotMatch(plain, /data-split-close|Close split view/);
+  const html = render({ onCloseSplit() {}, closeSplitShortcut: 'ctrl+cmd+w' });
+  const trailing = html.slice(html.indexOf('st-trailing'));
+  const close = trailing.match(/<button[^>]*data-split-close=""[^>]*>/)?.[0];
+  assert.ok(close, 'close control renders in the trailing actions');
+  assert.match(close, /class="code-icon-button epitaxy-pane-close-control"/);
+  assert.match(close, /aria-label="Close split view"/);
+  assert.doesNotMatch(close, /title=/);
+  assert.ok(trailing.lastIndexOf('data-split-close') > trailing.lastIndexOf('Session options'), 'after Session options');
+  // No session (a new-session side) still has its close.
+  assert.match(render({ session: null, onCloseSplit() {} }), /data-split-close=""/);
 });

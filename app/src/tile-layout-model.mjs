@@ -26,8 +26,9 @@ export const CHAT_TILE_ID = "chat";
 export const CHAT_OVERFLOW_MIN = Object.freeze({ width: 320, anchor: "left" });
 // Local pane kinds with real data. Official ids differ (file/diff/plan); the
 // side ratio rule keys them by kind name (panes-state-current.js:1552 ii).
-export const PANE_KINDS = Object.freeze(["files", "changes", "plan", "tasks"]);
-const WIDE_SIDE_KINDS = new Set(["files", "changes"]);
+export const PANE_KINDS = Object.freeze(["files", "changes", "plan", "tasks", "terminal", "preview"]);
+// "preview" is one of the official wide panes (panes-state-current.js:1554 ii): side 3 against chat 2.
+const WIDE_SIDE_KINDS = new Set(["files", "changes", "preview"]);
 
 let stackCounter = 0;
 const stackPrefix = Math.floor(Math.random() * 0x7fffffff).toString(36);
@@ -325,6 +326,22 @@ export function moveTileToEdge(layout, tileId, edge) {
 // ---------------------------------------------------------------------------
 // Sizing.
 
+/** How much of an overflowMin shell its neighbour covers: the shell is at least `minimum` wide, the wrap gives it
+ * `wrapWidth` plus the gap before the next tile (source-tile-layout.jsx insets the shell's content by it). */
+export function coveredWidth(minimum, wrapWidth, gap = 0) {
+  if (!(minimum > 0) || !Number.isFinite(wrapWidth)) return 0;
+  return Math.max(0, Math.round(minimum - wrapWidth - (gap || 0)));
+}
+
+/** How the covered part is split: the chat's transcript and composer are inset only while they keep `contentMin`
+ * (the narrowest a pane may be), so a chat dragged to its 100 px floor keeps a usable composer under the pane, as
+ * 2.2553.1's 320 px shell does; the titlebar takes the rest (`extra`) so its title and actions stay in view. */
+export function chatContentInset(covered, minimum, contentMin = TILE_CONFIG.minTileWidthPx) {
+  const total = Math.max(0, Number.isFinite(covered) ? covered : 0);
+  const content = Math.min(total, Math.max(0, (minimum || 0) - contentMin));
+  return { content, extra: total - content };
+}
+
 // Minimum main-axis size of a node along `direction`.
 export function minSize(node, direction, tileById, config = TILE_CONFIG, options = {}) {
   const axisBase = direction === "row" ? (config.minTileWidthPx ?? config.minTileBasePx) : config.minTileBasePx;
@@ -404,6 +421,31 @@ export function resolveLayout(root, size, tileById, config = TILE_CONFIG, visit)
     });
   };
   descend(root, size);
+}
+
+/** A restored layout (a session reopened, the app relaunched) with the chat tile dragged below its overflowMin
+ * width: its row is redistributed so the chat gets that width back where the row has room, the neighbours keeping
+ * their own minimum. A live drag may still take the chat down to its floor; only reopening restores it. */
+export function withChatMinimum(layout, size, tileById, config = TILE_CONFIG) {
+  if (!layout?.root || !size || !(size.width > 0)) return layout;
+  const overflowMin = tileById?.(CHAT_TILE_ID)?.overflowMin;
+  const hit = locateTile(layout.root, CHAT_TILE_ID);
+  const owner = hit ? parentEntry(hit.trail)?.stack : null;
+  if (!overflowMin || !owner || owner.direction !== "row" || owner.children.length < 2) return layout;
+  const boxes = new Map([[nodeKey(layout.root), size]]);
+  resolveLayout(layout.root, size, tileById, config, (stack, child, index, flex, box) => boxes.set(nodeKey(child), box));
+  const chatBox = boxes.get(CHAT_TILE_ID), ownerBox = boxes.get(nodeKey(owner));
+  if (!chatBox || !ownerBox || chatBox.width >= overflowMin.width - 0.5) return layout;
+  const usable = ownerBox.width - config.gap * (owner.children.length - 1);
+  const chatIndex = hit.trail[hit.trail.length - 1].index;
+  const mins = owner.children.map((child) => minSize(child, "row", tileById, config));
+  // A row too narrow for both: the chat gets what the neighbours' minimums leave.
+  mins[chatIndex] = Math.min(mins[chatIndex], usable - (sum(mins) - mins[chatIndex]));
+  if (mins[chatIndex] <= chatBox.width + 0.5) return layout;
+  const weights = distributeFlex(owner.children.map((child) => child.flex), mins, usable);
+  const scale = sum(owner.children.map((child) => child.flex)) / weights.length;
+  const children = owner.children.map((child, index) => withFlex(child, weights[index] * scale));
+  return { root: rebuild(layout.root, hit.trail.slice(0, -1), withChildren(owner, children)) };
 }
 
 // Shift `deltaPx` between neighbours `index` and `index + 1`, respecting minima.

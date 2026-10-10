@@ -1,10 +1,13 @@
 import { t, tn } from "../electron/i18n/index.mjs";
+import { coreCapabilities, coreForEngine } from "../electron/core-registry.mjs";
+import { withoutSystemReminders, workflowNotificationSummary } from "../electron/prefs/workflow-keyword.mjs";
 
 // Composer attachment staging (2.2553.1 c099c328d :1520-1625 image lane and
 // :2947-2975 image/file pills), reduced to what the local Codex backend can
 // carry: an image becomes {type:"localImage",path}, any other file becomes a
-// real Codex file reference {type:"mention",name,path}. Nothing here touches
-// the DOM or the file system; the caller supplies name/size/type/path facts.
+// {type:"mention",name,path} reference, plus an attachment note the model can
+// read on a core that drops file mentions (attachmentInputs). Nothing here
+// touches the DOM or the file system; the caller supplies name/size/type/path facts.
 export const IMAGE_TYPES = Object.freeze(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 export const IMAGE_MAX_BYTES = 31457280;
 export const IMAGE_CAP = 5;
@@ -14,7 +17,22 @@ export const IMAGE_PROCESS_ERROR = t("Failed to process image. You can try again
 // Local addition for a catalog model without image input (the DeepSeek core
 // rejects such a turn); Codex catalogs either list "image" or say nothing.
 export const IMAGE_MODEL_ERROR = t("The selected model doesn’t support image input.");
+// A core that hands images to a vision model itself when the chosen model has none (capabilities.imageFallback 'path':
+// MiMo's read tool and its vision sub-agent): the image goes as a file reference instead of being refused.
+export const IMAGE_FALLBACK_NOTE = t("This model can’t see images. DeepSeek will ask a vision model to look at them.");
 const EXTENSION_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+
+// c099c328d-CbkcmYSW.js:1565-1577 notifyMaxImages: an add or paste past the image budget says so (addError with the
+// nl = 8e3 timeout, MAX_IMAGES_TIMEOUT); trimMessage is only for staged images trimmed when the session's cap shrinks.
+export const MAX_IMAGES_TIMEOUT = 8000;
+export function maxImagesMessage(max) {
+  return t("Maximum of {max} images allowed.", { max });
+}
+
+/** Whether a staging notice is the max-images one (it auto-dismisses after MAX_IMAGES_TIMEOUT). */
+export function isMaxImagesNotice(notice, max = IMAGE_CAP) {
+  return notice === maxImagesMessage(max);
+}
 
 export function trimMessage(removed, max) {
   return tn(removed, "Removed {count} image — this session allows up to {max}.", "Removed {count} images — this session allows up to {max}.", { max });
@@ -60,8 +78,12 @@ function nextId(make, index) {
 //   makeId     — injectable id factory for deterministic tests.
 // Returns the next entries, the added entries and the toast notices in the
 // official order: type, size, then the cap trim (the model notice first).
-export function stageFiles(entries, files, { imagesOnly = false, imagesAllowed = true, maxImages = IMAGE_CAP, makeId } = {}) {
-  const notices = [];
+// imageFallback — the model takes no images but the core reads them as files (IMAGE_FALLBACK_NOTE in infos): images
+//                are staged as before and marked asFile, so attachmentInputs sends them as file mentions.
+export function stageFiles(entries, files, { imagesOnly = false, imagesAllowed = true, imageFallback = false, maxImages = IMAGE_CAP, makeId } = {}) {
+  const notices = [], infos = [];
+  const asFile = !imagesAllowed && imageFallback;
+  if (asFile) imagesAllowed = true;
   const added = [];
   const list = Array.isArray(files) ? files : [];
   const images = [], others = [];
@@ -79,7 +101,7 @@ export function stageFiles(entries, files, { imagesOnly = false, imagesAllowed =
   const imageCount = entries.filter((entry) => entry.kind === "image").length;
   const room = cap - imageCount;
   const kept = accepted.slice(0, Math.max(0, room));
-  if (accepted.length > Math.max(0, room)) notices.push(trimMessage(accepted.length - Math.max(0, room), cap));
+  if (accepted.length > Math.max(0, room)) notices.push(maxImagesMessage(cap));
   let next = entries.slice();
   const known = new Set(next.map((entry) => entry.path).filter(Boolean));
   let index = 0;
@@ -96,6 +118,7 @@ export function stageFiles(entries, files, { imagesOnly = false, imagesAllowed =
       // reference with a real path is ready immediately.
       status: kind === "image" ? "loading" : "ready",
       previewUrl: file.previewUrl || "",
+      ...(kind === "image" && asFile ? { asFile: true } : {}),
     };
     if (file.path) known.add(file.path);
     next.push(entry);
@@ -103,7 +126,8 @@ export function stageFiles(entries, files, { imagesOnly = false, imagesAllowed =
   };
   for (const file of kept) push(file, "image");
   if (!imagesOnly) for (const file of others) push(file, "file");
-  return { entries: next, added, notices };
+  if (asFile && kept.length) infos.push(IMAGE_FALLBACK_NOTE);
+  return { entries: next, added, notices, infos };
 }
 
 export function markReady(entries, id, patch = {}) {
@@ -115,6 +139,42 @@ export function markReady(entries, id, patch = {}) {
 export function markFailed(entries, id) {
   const exists = entries.some((entry) => entry.id === id);
   return { entries: exists ? entries.filter((entry) => entry.id !== id) : entries, notice: exists ? IMAGE_PROCESS_ERROR : null };
+}
+
+// Context snippets (c099c328d-CbkcmYSW.js:2252 addSnippet, :3364-3385 the Quote pill; cc43287c9 attachAsContext(text,
+// label, terminalTabId, key)): a pane's 'Add to prompt' or the terminal's selection rides along as a removable pill, not
+// as draft text. Il (:2855): the label is the first non-blank line, 40 characters at most (39 and an ellipsis).
+export const SNIPPET_LABEL_MAX = 40;
+export function snippetLabel(text) {
+  const value = String(text ?? "");
+  const line = (value.split("\n").find((entry) => entry.trim()) ?? value).trim();
+  return line.length > SNIPPET_LABEL_MAX ? `${line.slice(0, SNIPPET_LABEL_MAX - 1)}\u2026` : line;
+}
+let snippetSeq = 0;
+/** A snippet entry; null for empty text. `key` names its source so a second add from it replaces the first. */
+export function makeSnippet(text, { label, key, terminalTabId, id } = {}) {
+  const body = String(text ?? "").replace(/\s+$/, "").replace(/^\n+/, "");
+  if (!body.trim()) return null;
+  return { id: id ?? `snippet-${Date.now().toString(36)}-${snippetSeq++}`, kind: "snippet", status: "ready", text: body,
+    label: typeof label === "string" && label.trim() ? label.trim() : snippetLabel(body),
+    ...(key ? { key } : {}), ...(terminalTabId ? { terminalTabId } : {}) };
+}
+export function addSnippet(entries, snippet) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (!snippet) return list;
+  const at = snippet.key ? list.findIndex((entry) => entry.kind === "snippet" && entry.key === snippet.key) : -1;
+  return at >= 0 ? list.map((entry, index) => (index === at ? { ...snippet, id: entry.id } : entry)) : [...list, snippet];
+}
+/** removeSnippetByKey: the source context went away (detachContext). */
+export function removeSnippetByKey(entries, key) {
+  return (Array.isArray(entries) ? entries : []).filter((entry) => !(entry.kind === "snippet" && entry.key === key));
+}
+// be (c4d199b75): the snippets go first, each a Markdown quote, blank-line separated, then the message. The local
+// transcript shows user text as typed, so the quote goes without Claude's '<!-- attach: label -->' marker line.
+export function snippetText(entries) {
+  const quotes = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.kind === "snippet" && typeof entry.text === "string" && entry.text.trim())
+    .map((entry) => entry.text.split("\n").map((line) => (line.length ? `> ${line}` : ">")).join("\n"));
+  return quotes.length ? `${quotes.join("\n\n")}\n\n` : "";
 }
 
 export function removeAttachment(entries, id) {
@@ -139,15 +199,164 @@ export function attachmentsReady(entries) {
   return entries.every((entry) => entry.status === "ready" && !!entry.path);
 }
 
+// A file mention reaches the model only where the core translates it: the
+// builtin and bridge adapters map {type:"mention",path} to their agent's file
+// input (DeepSeek "[Referenced: P]", ZCode file attachment, OpenCode file part,
+// ACP resource / resource_link). A core speaking the protocol natively follows
+// Codex, where Mention.path names an app:// or plugin:// target and adds no
+// model content (protocol/src/models.rs UserInput::Mention => Vec::new()), so a
+// file path there must travel as text. A reported or implied `fileMentions`
+// capability wins over the descriptor's kind; an unknown engine gets the note.
+export function coreTakesFileMentions(core) {
+  const reported = coreCapabilities(core).fileMentions;
+  if (typeof reported === "boolean") return reported;
+  const engine = typeof core === "string" ? core : core?.engine;
+  const kind = coreForEngine(engine)?.kind;
+  return kind === "builtin" || kind === "bridge";
+}
+
+// The attachment note: one "[Attached file: /abs/path]" line per file, opened by
+// a blank line so it stays its own paragraph when Codex joins a message's text
+// items into one history string (UserMessageItem::message joins with ""). It is
+// model-facing protocol text, never translated, and splitAttachmentNote reads it back.
+const NOTE_OPEN = "[Attached file: ";
+const NOTE_LINE = /^\[Attached file: ([^\n]+)\]$/u;
+const NOTE_BLOCK = /(?:^|\n\n)(\[Attached file: [^\n]+\](?:\n\[Attached file: [^\n]+\])*)$/u;
+
+export function attachmentNote(paths = []) {
+  const lines = paths.filter((path) => typeof path === "string" && path && !/[\r\n]/.test(path)).map((path) => `${NOTE_OPEN}${path}]`);
+  return lines.length ? `\n\n${lines.join("\n")}` : "";
+}
+
+// The text without a trailing attachment note, and the note's paths in order.
+export function splitAttachmentNote(text) {
+  const value = typeof text === "string" ? text : "";
+  const match = NOTE_BLOCK.exec(value);
+  if (!match) return { text: value, paths: [] };
+  const paths = match[1].split("\n").map((line) => NOTE_LINE.exec(line)?.[1]).filter(Boolean);
+  return { text: value.slice(0, match.index), paths };
+}
+
+// A userMessage's content as the transcript shows it: the attachment note
+// leaves the text (a part left empty is dropped) and each noted file not
+// already sent as a mention becomes a {type:"mention"} part, so the file card
+// renders from the live echo (note item + mention) and from Codex history,
+// which keeps only the joined text.
+export function userMessageContent(content = []) {
+  const parts = Array.isArray(content) ? content : [];
+  const mentioned = new Set(parts.filter((part) => part?.type === "mention" && part.path).map((part) => part.path));
+  const shown = [], noted = [];
+  for (const part of parts) {
+    if (part?.type !== "text" || typeof part.text !== "string") { shown.push(part); continue; }
+    const split = splitAttachmentNote(part.text);
+    if (!split.paths.length) { shown.push(part); continue; }
+    noted.push(...split.paths);
+    // The note's byte ranges are past the kept text, so the span list stays valid.
+    if (split.text) shown.push({ ...part, text: split.text });
+  }
+  for (const path of noted) {
+    if (mentioned.has(path)) continue;
+    mentioned.add(path);
+    shown.push({ type: "mention", name: basename(path), path });
+  }
+  return shown;
+}
+
+const hasNote = (content) => Array.isArray(content) && content.some((part) => part?.type === "text" && typeof part.text === "string" && splitAttachmentNote(part.text).paths.length > 0);
+
+// A turn's hidden workflow reminders (<system-reminder> text the app adds for the model: the "ultracode" keyword,
+// ultracode mode) and a finished workflow's notification turn (electron/prefs/workflow-keyword.mjs) are not the
+// user's words: the reminders are dropped from what the app shows, and a notification turn becomes a system notice
+// (item.workflowNotification {status, summary}) with no user text.
+const hasReminder = (content) => Array.isArray(content) && content.some((part) => part?.type === "text" && typeof part.text === "string" && part.text.includes("<system-reminder>"));
+// A prompt Code Desktop's scheduler fired (electron/schedule-service.cjs firedText) carries this note: the bubble gets
+// Claude's 'Scheduled prompt · {time}' row (codeDesktop.origin, as the MiMo bridge marks its own cron fires).
+const SCHEDULED_NOTE = /<system-reminder>\nThis prompt was scheduled with CronCreate \(job ([0-9a-f]{1,32})[^)\n]*\) and fired at (\S+)\. It is not a new message from the user\.\n<\/system-reminder>/;
+export function scheduledOrigin(content) {
+  for (const part of Array.isArray(content) ? content : []) {
+    const match = part?.type === "text" && typeof part.text === "string" ? SCHEDULED_NOTE.exec(part.text) : null;
+    if (!match) continue;
+    const firedAt = Date.parse(match[2]);
+    return { kind: "cron", jobId: match[1], ...(Number.isFinite(firedAt) ? { firedAt } : {}) };
+  }
+  return null;
+}
+function withoutReminders(item) {
+  const notice = item.content.map((part) => part?.type === "text" ? workflowNotificationSummary(part.text) : null).find(Boolean);
+  if (notice) return { ...item, content: [], workflowNotification: notice };
+  const origin = item.codeDesktop?.origin ? null : scheduledOrigin(item.content);
+  const content = item.content.map((part) => part?.type === "text" && typeof part.text === "string" && part.text.includes("<system-reminder>") ? { ...part, text: withoutSystemReminders(part.text) } : part)
+    .filter((part) => !(part?.type === "text" && part.text === ""));
+  return { ...item, content, ...(origin ? { codeDesktop: { ...(item.codeDesktop ?? {}), origin } } : {}) };
+}
+// A userMessage item as the app shows and reuses it (transcript, ArrowUp recall, Copy message, rewind and export):
+// its content through userMessageContent, without hidden reminders. Other items are returned as they are.
+export function shownUserItem(item) {
+  if (item?.type !== "userMessage") return item;
+  const visible = hasReminder(item.content) ? withoutReminders(item) : item;
+  return hasNote(visible.content) ? { ...visible, content: userMessageContent(visible.content) } : visible;
+}
+export function shownUserItems(items = []) {
+  const list = Array.isArray(items) ? items : [];
+  return list.some((item) => item?.type === "userMessage" && (hasNote(item.content) || hasReminder(item.content))) ? list.map(shownUserItem) : list;
+}
+// Turns (thread/read, history pages) with their user messages shown the same way.
+export function shownTurns(turns = []) {
+  return (Array.isArray(turns) ? turns : []).map((turn) => {
+    const items = shownUserItems(turn?.items);
+    return items === turn?.items ? turn : { ...turn, items };
+  });
+}
+// A thread/queue/list answer whose entries' input reads as the user wrote it: 'Edit in composer' then restores the
+// text without the note (the next send adds a fresh one for the files it stages again) and the preview shows the files.
+export function shownQueueList(response) {
+  const shown = (entries) => entries.map((entry) => (entry && hasNote(entry.input) ? { ...entry, input: userMessageContent(entry.input) } : entry));
+  if (Array.isArray(response?.data)) return { ...response, data: shown(response.data) };
+  if (Array.isArray(response?.entries)) return { ...response, entries: shown(response.entries) };
+  return response;
+}
+
+// Thread.preview without the attachment note. Codex builds it from the first user message's text items joined into
+// one string (app-server preview_from_rollout_items), so on a core that gets the note the sidebar, title bar and
+// rename field would read "[Attached file: /abs/path]". A preview cut inside the note loses the partial line too; a
+// message that was only files reads as their names.
+const PARTIAL_NOTE = /\n\n\[Attached file: [^\n]*$/u;
+export function shownPreview(preview) {
+  if (typeof preview !== "string" || !preview.includes(NOTE_OPEN)) return preview;
+  const split = splitAttachmentNote(preview);
+  const text = (split.paths.length ? split.text : preview.replace(PARTIAL_NOTE, "")).trim();
+  return text || split.paths.map(basename).join(", ");
+}
+export function shownThread(thread) {
+  if (!thread || typeof thread.preview !== "string") return thread;
+  const preview = shownPreview(thread.preview);
+  return preview === thread.preview ? thread : { ...thread, preview };
+}
+
+// The name a session started from the composer gets (thread/name/set): the draft's first characters, else, for a
+// message that is only attachments, the files' names (a core refuses an empty name: Codex "thread name must not be
+// empty"). "" only when there is nothing to name it by.
+export function firstMessageName(text, entries = [], { max = 64, firstLine = false } = {}) {
+  const typed = String(text ?? "");
+  const name = (firstLine ? typed.split("\n")[0] : typed).slice(0, max);
+  if (name.trim()) return name;
+  return (Array.isArray(entries) ? entries : []).map((entry) => entry?.name || basename(entry?.path || "")).filter(Boolean).join(", ").slice(0, max);
+}
+
 // turn/start | turn/steer | thread/queue/add input items for the staged files.
-// Images are localImage parts; other files are real mention references (v2
-// UserInput). No descriptive text item is ever synthesized.
-export function attachmentInputs(entries) {
-  return entries
-    .filter((entry) => entry.status === "ready" && entry.path)
-    .map((entry) => (entry.kind === "image"
-      ? { type: "localImage", path: entry.path }
-      : { type: "mention", name: entry.name || basename(entry.path), path: entry.path }));
+// Images are localImage parts; other files are mention references, which keep
+// the file card in the live transcript. fileMentions (coreTakesFileMentions) is
+// false for a core that drops a file mention: the files' paths then also go as
+// an attachment-note text item, ahead of the parts, so the model sees them.
+export function attachmentInputs(entries, { fileMentions = true } = {}) {
+  const ready = entries.filter((entry) => entry.status === "ready" && entry.path);
+  // An image for a model without vision on a core that reads it itself (asFile): a file mention, which the core
+  // routes to its vision model.
+  const parts = ready.map((entry) => (entry.kind === "image" && !entry.asFile
+    ? { type: "localImage", path: entry.path }
+    : { type: "mention", name: entry.name || basename(entry.path), path: entry.path }));
+  const note = fileMentions ? "" : attachmentNote(ready.filter((entry) => entry.kind !== "image").map((entry) => entry.path));
+  return note ? [{ type: "text", text: note, text_elements: [] }, ...parts] : parts;
 }
 
 export function attachmentLabel(entry) {

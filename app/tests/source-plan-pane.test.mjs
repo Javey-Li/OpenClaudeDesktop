@@ -30,7 +30,7 @@ const TODOS = [{ step: 'Inspect the parser', status: 'completed' }, { step: 'Fix
 test('document and todos: the Markdown heading renders in the Prose column before the "Tasks" h2', () => {
   const markup = panel({ plan: TODOS, planDocument: DOCUMENT });
   const body = markup.slice(markup.indexOf('</header>'));
-  assert.match(body, /<div class="h-full select-text overflow-y-auto \[contain:strict\] \[scrollbar-gutter:stable_both-edges\] p-lg source-plan" data-plan-document=""><div class="mx-auto max-w-\[68ch\]"><div data-cds="Prose" data-prose-font="sans" data-size="sm" class="prose source-plan-document"><div class="source-markdown">/);
+  assert.match(body, /<div class="h-full select-text overflow-y-auto \[contain:strict\] \[scrollbar-gutter:stable_both-edges\] p-lg source-plan" data-plan-document=""><div class="mx-auto max-w-\[68ch\]">(?:<p class="spp-comment-hint">Select any text to leave a comment for DeepSeek<\/p>)?<div data-cds="Prose" data-prose-font="sans" data-size="sm" class="prose source-plan-document"><div class="source-markdown">/);
   const heading = body.indexOf('<h1>Plan heading</h1>'), tasks = body.indexOf('>Tasks</h2>');
   assert.ok(heading > 0, 'the document heading renders');
   assert.ok(tasks > heading, 'Tasks follows the document');
