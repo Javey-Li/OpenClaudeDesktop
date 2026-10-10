@@ -1,7 +1,7 @@
 {
   "version": "0.2.130",
-  "builtAt": "2026-10-10T12:29:29.739Z",
-  "sourceSha256": "51efa1f8727a90210c6c5e56658d55743246ac47af0dbc995f3986b086c9b3c1",
+  "builtAt": "2026-10-10T12:48:47.235Z",
+  "sourceSha256": "75a4f1507573d2e4532d36f4b4d8848e6b9b9d528b75f96cb3efb2c65b4d48e5",
   "sources": [
     {
       "path": "build/editor-notices/manifest.json",
@@ -621,7 +621,7 @@
     },
     {
       "path": "electron/i18n/zh-CN/app.mjs",
-      "sha256": "ae17d9daa4778f5df6d4926e6133783b1b32adb66ee00cb63f8f666bfd6be42c"
+      "sha256": "77dd2f40d1a30dde3d7b541de0cd123613931c1926b7e3d2c022fbcd9bb9c173"
     },
     {
       "path": "electron/i18n/zh-CN/common.mjs",
@@ -657,11 +657,11 @@
     },
     {
       "path": "electron/i18n/zh-CN/settings.mjs",
-      "sha256": "1d8b3912e05e38a6211d38480cccdeb8c36cb84fc484f0cba8a87334f9fdcfef"
+      "sha256": "f031f3f06a13b60c7579083eb7128e7b3af30e894a4181819d43dad8a07e9e0b"
     },
     {
       "path": "electron/i18n/zh-CN/sidebar.mjs",
-      "sha256": "160e2cffc56b9f113468ea00a27be413420d969aeb31b0ebcd7bdf0df5d21a7e"
+      "sha256": "e3fb228d60a1d0d29a9bd4293d55e61ed5e77a7b09c7e9294f24c6acfaf9cb9a"
     },
     {
       "path": "electron/i18n/zh-CN/terminal.mjs",
@@ -689,7 +689,7 @@
     },
     {
       "path": "electron/main.cjs",
-      "sha256": "794dc9054d2637fa90c766b4a7a94235c1e767c202ae93a31e1bdf7cf30af9e1"
+      "sha256": "69acc50076c4c397e4df00256aa1cdbe9870c56e0d3e07d5b0eaa59efd9a9a72"
     },
     {
       "path": "electron/menu-bar.cjs",
@@ -729,7 +729,7 @@
     },
     {
       "path": "electron/preferences.mjs",
-      "sha256": "aa10c3f192b541d72689ad789f1ad248d2a82651123a1a6ca3903d754b11b176"
+      "sha256": "679dac000493a1fb34c7132ecfaad15700c8db73a16d3ff5aa88048a69c8c184"
     },
     {
       "path": "electron/prefs/codex-provider.mjs",
@@ -737,7 +737,7 @@
     },
     {
       "path": "electron/prefs/core-model.mjs",
-      "sha256": "82c3194ffe9f26bd00f2dbc7d832f89e77520bf1d4e202f145f12fe6f81983fd"
+      "sha256": "07f359a29a8acfe5f7262674a6ded7faefc9ef3330ad51c32d1aa747839ec99b"
     },
     {
       "path": "electron/prefs/custom-commands.mjs",
@@ -1337,7 +1337,7 @@
     },
     {
       "path": "src/main.jsx",
-      "sha256": "2f70cac0c16a2c2a1ebf9b2dd949bfd494241ff16f59d94511be0b7e43f1c1e6"
+      "sha256": "f78b26f10d44de6c5cd8c28de51366899bbd9fc8a30d0d877f76e78806b854d4"
     },
     {
       "path": "src/manual-text-save.mjs",
@@ -1777,7 +1777,7 @@
     },
     {
       "path": "src/source-composer.jsx",
-      "sha256": "d7fc166e89a2a04544713b8ee92183abfceedec0c4810a03fd0b2f6903e018ca"
+      "sha256": "497f0bd2fac1b1594ababa48dfdd38c6f982a53c0df14fa5171c299ead6c3324"
     },
     {
       "path": "src/source-computer-use.css",
@@ -2001,7 +2001,7 @@
     },
     {
       "path": "src/source-model-menu.jsx",
-      "sha256": "144e2286ef58392b9fec2b298e61ca6dce7ef760838fc387ffac056d0ca12524"
+      "sha256": "b9599e30ebfa374ad739766d3410c916f83692aecabd04f2423d80792504e8e7"
     },
     {
       "path": "src/source-morph-text.css",
@@ -2285,7 +2285,7 @@
     },
     {
       "path": "src/source-settings-models.jsx",
-      "sha256": "124e3bc40c5d1ca93a5a79e2972fb52b6d662ead38e0c1f784cd8a197613db73"
+      "sha256": "d04d16a4e81d9a3cc56df978a37f05cad2c5c72a888fbf8810d5eae3b88e36e1"
     },
     {
       "path": "src/source-settings-pages.css",
@@ -2321,7 +2321,7 @@
     },
     {
       "path": "src/source-settings.jsx",
-      "sha256": "42fd611e7932cbdbb75c1d44f24d5f62d43a97b9c27e68edc04f312a41802c43"
+      "sha256": "2fe4a0909187617d6ebeca0826bb9f4898919945a725ba9604474fe332adb018"
     },
     {
       "path": "src/source-shortcut.css",

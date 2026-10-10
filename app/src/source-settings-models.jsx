@@ -33,7 +33,7 @@ import {
   relayBaseURLError, OFFICIAL_BASE_URL, coreTakesModelParams,
 } from '../electron/prefs/model-settings.mjs';
 import { CODEX_LOCAL_SERVERS, codexBaseURLError, codexLocalEndpoint, parseCodexModels } from '../electron/prefs/codex-provider.mjs';
-import { fastTierForModel } from '../electron/preferences.mjs';
+import { fastTierForModel, speedTiersForModel } from '../electron/preferences.mjs';
 import { coreCapabilities, coreName } from '../electron/core-registry.mjs';
 import './models-settings.css';
 
@@ -608,11 +608,11 @@ export function SourceModelsSettings({ config = {}, boot, engine, desktopCall, o
       paramField(model, 'temperature', { label: t('{name} temperature', { name }), min: 0, max: 2, step: 0.1 }), { indent: true, ...below(`model-${model.model}-temperature`) }),
   ] : [];
   const modelRows = models.filter(model => model.hidden !== true).flatMap(model => {
-    const name = model.displayName || model.model, efforts = effortsOf(model), fast = !!fastTierForModel(model);
+    const name = model.displayName || model.model, efforts = effortsOf(model), speeds = speedTiersForModel(model), fast = !!fastTierForModel(model) || speeds.length > 0;
     const meta = (efforts.length > 0 || fast) && <span className="msx-model-meta">
       {efforts.length > 0 && <span><span className="msx-model-meta-label">{t('Reasoning efforts')}</span>{' '}
         {efforts.map((value, index) => <React.Fragment key={value}>{index ? ' · ' : ''}<span data-top-tier={isTopTierEffort(value) || undefined}>{effortName(value)}</span></React.Fragment>)}</span>}
-      {fast && <span className="msx-badge">{t('Fast available')}</span>}
+      {fast && <span className="msx-badge">{speeds.length > 1 ? t('{speeds} available', { speeds: speeds.map(tier => tier.name).join(' · ') }) : t('Fast available')}</span>}
     </span>;
     return [settingRow(`model-${model.model}`, <span className="msx-model-name">{name}{model.isDefault && <span className="msx-badge">{t('Default')}</span>}</span>,
       (model.description || meta) && <span className="msx-model-desc">{model.description && <span>{model.description}</span>}{meta}</span>,

@@ -144,3 +144,16 @@ test('configuredCatalogModels: the model of the user’s own Codex config.toml i
   // model/list failed: the configured model is still listed.
   assert.deepEqual(configuredCatalogModels([], { model: 'relay-a', model_provider: 'dummy' }, { label }).map(catalogId), ['relay-a']);
 });
+
+test('a remembered Ultrafast comes back on a model that lists it, and is Standard on one that doesn\'t', () => {
+  const record = recordCoreModel({ model: 'gpt-5.6-sol', effort: 'low', fastMode: true, speed: 'ultrafast' }, 'codex');
+  assert.deepEqual(record.codex, { model: 'gpt-5.6-sol', effort: 'low', fastMode: true, speed: 'ultrafast' });
+  assert.equal(validateCoreModels({ codex: { model: 'm', effort: '', speed: 'Bad!' } }), null, 'a malformed speed drops the record');
+  // Back on Codex from DeepSeek (Standard there): Ultrafast returns with the model.
+  assert.deepEqual(reconcileCoreModel({ model: 'deepseek-v4.1-flash', effort: 'high', fastMode: false, speed: 'standard', coreModels: record }, 'codex', codex),
+    { model: 'gpt-5.6-sol', effort: 'low', fastMode: true, speed: 'ultrafast' });
+  // The remembered model no longer lists Ultrafast: Standard.
+  const terra = { codex: { model: 'gpt-5.6-terra', effort: 'medium', fastMode: true, speed: 'ultrafast' } };
+  assert.deepEqual(reconcileCoreModel({ model: 'deepseek-v4.1-flash', effort: 'high', fastMode: false, speed: 'standard', coreModels: terra }, 'codex', codex),
+    { model: 'gpt-5.6-terra', effort: 'medium' });
+});

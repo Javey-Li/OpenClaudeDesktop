@@ -2207,7 +2207,7 @@ app.whenReady().then(async () => {
         const previous = config;
         config = {...settingsPatch(config, p, initial?.models || []),...desktopPatch(p)};
         // An explicit model choice is remembered for the running core (never while disconnected).
-        if (["model", "effort", "fastMode"].some((key) => key in p) && initial?.core?.id) {
+        if (["model", "effort", "fastMode", "speed"].some((key) => key in p) && initial?.core?.id) {
           const recorded = recordCoreModel(config, initial.core.id);
           if (recorded) config.coreModels = recorded;
         }

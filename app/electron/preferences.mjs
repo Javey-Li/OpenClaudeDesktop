@@ -42,7 +42,32 @@ export function savedPermission(config = {}) {
 export function fastTierForModel(model) {
   // Match the Codex TUI's current_model_fast_service_tier: catalog name, not a
   // hardcoded model allowlist or the deprecated additionalSpeedTiers field.
-  return model?.serviceTiers?.find(tier => typeof tier.id === 'string' && tier.name?.toLowerCase() === 'fast') || null;
+  return tierForSpeed(model, 'fast');
+}
+// Speed: Standard, or one of the faster service tiers a model's catalog entry lists (Codex: "Fast", "Ultrafast").
+// A speed is the tier's name in lower case ('fast', 'ultrafast'), so a choice carries across models whose tier ids
+// differ; the turn sends that model's tier id. 'standard' is the catalog's default tier.
+export const STANDARD_SPEED = 'standard';
+const speedKey = tier => (typeof tier?.id === 'string' && tier.id && typeof tier.name === 'string' && tier.name.trim() ? tier.name.trim().toLowerCase() : null);
+/** The faster tiers a model offers, in catalog order: [{key, id, name, description}]. */
+export function speedTiersForModel(model) {
+  const seen = new Set(), out = [];
+  for (const tier of Array.isArray(model?.serviceTiers) ? model.serviceTiers : []) {
+    const key = speedKey(tier);
+    if (!key || key === STANDARD_SPEED || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, id: tier.id, name: tier.name.trim(), description: typeof tier.description === 'string' ? tier.description : '' });
+  }
+  return out;
+}
+/** The model's tier for a speed, or null (Standard, or a tier this model doesn't list). */
+export function tierForSpeed(model, speed) {
+  return speedTiersForModel(model).find(tier => tier.key === speed) || null;
+}
+/** The saved speed: config.speed, else a Fast mode saved before speeds existed. */
+export function savedSpeed(config = {}) {
+  if (typeof config?.speed === 'string' && config.speed) return config.speed;
+  return config?.fastMode === true ? 'fast' : STANDARD_SPEED;
 }
 export function selectedCatalogModel(models, id) {
   return models.find(model => (model.model || model.id) === id) || (!id ? models.find(model => model.isDefault) || models[0] : undefined);
@@ -87,11 +112,23 @@ export function settingsPatch(config, patch, models = []) {
   // saving it, and validates every Bypass turn); turning the opt-in off drops a remembered Bypass back to Auto.
   if (patch.permission === 'bypass' && next.allowBypassPermissions !== true) throw new Error('Turn on Allow bypass permissions mode in Settings first.');
   if (next.permission === 'bypass' && next.allowBypassPermissions !== true) next.permission = 'auto';
+  // Speed (config.speed, with config.fastMode kept as "a faster tier is on"). fastMode is the on/off alias: on keeps a
+  // faster speed already chosen, else Fast.
   if ('fastMode' in patch && typeof patch.fastMode !== 'boolean') throw new Error('Invalid Fast mode setting.');
-  if ('fastMode' in patch) next.fastMode = patch.fastMode;
-  const fast = fastTierForModel(selectedCatalogModel(models, next.model));
-  if (patch.fastMode === true && !fast) throw new Error('Fast mode is not available for this model.');
-  if ('model' in patch && !fast) next.fastMode = false;
+  if ('speed' in patch && (typeof patch.speed !== 'string' || !/^[a-z0-9][a-z0-9 _-]{0,39}$/.test(patch.speed))) throw new Error('Invalid speed setting.');
+  const catalogModel = selectedCatalogModel(models, next.model);
+  let speed = savedSpeed(next);
+  if ('fastMode' in patch) speed = patch.fastMode ? (speed !== STANDARD_SPEED && tierForSpeed(catalogModel, speed) ? speed : 'fast') : STANDARD_SPEED;
+  if ('speed' in patch) speed = patch.speed;
+  if (speed !== STANDARD_SPEED && !tierForSpeed(catalogModel, speed)) {
+    if ('speed' in patch || patch.fastMode === true) throw new Error(speed === 'fast' ? 'Fast mode is not available for this model.' : 'This speed is not available for this model.');
+    // A model change, or a speed saved for another catalog: back to Standard.
+    if ('model' in patch) speed = STANDARD_SPEED;
+  }
+  if ('speed' in patch || 'fastMode' in patch || 'model' in patch) {
+    next.speed = speed;
+    next.fastMode = speed !== STANDARD_SPEED;
+  }
   if ('persona' in patch) { const v = validatePersona(patch.persona); if (v === null) delete next.persona; else next.persona = v; }
   if ('customCommands' in patch) { const v = validateCustomCommands(patch.customCommands); if (v === null) delete next.customCommands; else next.customCommands = v; }
   if ('modelSettings' in patch) { const v = validateModelSettings(patch.modelSettings); if (v === null) delete next.modelSettings; else next.modelSettings = v; }

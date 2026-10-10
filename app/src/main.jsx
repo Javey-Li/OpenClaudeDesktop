@@ -73,7 +73,7 @@ import { SourceForkLineage, SourceForkMarker } from "./source-fork-lineage.jsx";
 import { forkMarkersFor } from "./fork-marker-model.mjs";
 import { requestCodexCustomEndpoint } from "./source-settings-models.jsx";
 import { SourceSettings } from "./source-settings";
-import { appearancePreferences, fastTierForModel, savedPermission } from "../electron/preferences.mjs";
+import { appearancePreferences, fastTierForModel, savedPermission, savedSpeed, speedTiersForModel, tierForSpeed, STANDARD_SPEED } from "../electron/preferences.mjs";
 import { SourceTitlebar, SourceCollapsedChrome, LocalReleaseNotes, LOCAL_RELEASE_NOTE_VERSIONS } from "./source-titlebar";
 import { version as clientVersion } from "../package.json";
 import { markSeenValue, readSeenVersion, whatsNewVisible, writeSeenVersion } from "./whats-new-model.mjs";
@@ -376,7 +376,7 @@ function App({ side = 0, initialSession = null }) {
     // Per-session transcript view overrides (official transcriptModeBySession,
     // newest-last, capped at 100); undefined means "follow the default".
     [sessionViews, setSessionViews] = useState(() => readSessionViews(localStorage)),
-    [fastMode, setFastMode] = useState(false),
+    [speed, setSpeed] = useState(STANDARD_SPEED),
     [fastSaving, setFastSaving] = useState(false),
     [whatsNew, setWhatsNew] = useState(false),
     [languagePicker, setLanguagePicker] = useState(false),
@@ -1208,8 +1208,12 @@ function App({ side = 0, initialSession = null }) {
     call("plan-effort", { op: "read" }).then((value) => { if (live) setPlanEffort({ ...value, saving: false }); }, () => { if (live) setPlanEffort(null); });
     return () => { live = false; };
   }, [menu?.kind, planEffortCore]);
-  const fastTier = fastTierForModel(chosen);
-  const fastEnabled = fastMode && !!fastTier;
+  // Speed: Standard or a faster tier the model lists (Fast, Ultrafast…; preferences.mjs speedTiersForModel).
+  // fastTier is the tier the on/off controls turn on: the chosen speed's, else Fast, else the first one listed.
+  const speedTiers = speedTiersForModel(chosen);
+  const activeTier = tierForSpeed(chosen, speed);
+  const fastTier = activeTier || fastTierForModel(chosen) || speedTiers[0] || null;
+  const fastEnabled = !!activeTier;
   // Catalog inputModalities without "image" (DeepSeek's text-only models): no image staging.
   const imagesAllowed = modelAcceptsImages(chosen);
   // A core that reads images for a model without vision (capabilities.imageFallback 'path': MiMo) takes them as files.
@@ -1256,7 +1260,7 @@ function App({ side = 0, initialSession = null }) {
   }, [coreCommandsListed, boot?.core, current, workdir, cwd]);
   commandContext.fastAvailable = !!fastTier;
   commandContext.effortAvailable = efforts.length > 0;
-  const serviceTier = fastEnabled ? fastTier.id : "default";
+  const serviceTier = activeTier ? activeTier.id : "default";
   // An approval belongs to the session that owns its thread. A sub-agent runs
   // on its own threadId (thread_processor.rs:3609-3640) and is deliberately
   // never a session, so matching threadId against `current` alone would leave
@@ -1739,7 +1743,7 @@ function App({ side = 0, initialSession = null }) {
       registerCores(b.extensionCores); // imported Extension Pack cores (extension-packs.cjs)
       setBoot(b);
       setLocalPreferences(appearancePreferences(b.config));
-      setFastMode(b.config.fastMode === true);
+      setSpeed(savedSpeed(b.config));
       setSidebarPreferences(b.config.sidebarPreferences || {});
       setSessionMetadata(b.config.sessionMetadata || {});
       setCustomGroups(b.config.customGroups || []);
@@ -2220,7 +2224,7 @@ function App({ side = 0, initialSession = null }) {
       if (command === "fast") {
         if (!fastTier || fastSaving || running || sending || !boot?.connected) return;
         e.preventDefault(); e.stopPropagation();
-        if (!e.repeat) changeFastMode(!fastEnabled).catch(error => setError(error.message));
+        if (!e.repeat) changeSpeed(nextSpeed()).catch(error => setError(error.message));
         return;
       }
       e.preventDefault(); e.stopPropagation();
@@ -3313,7 +3317,7 @@ function App({ side = 0, initialSession = null }) {
         switch (id) {
           case "review": setActionDialog({kind:"review", instructions:args}); break;
           case "status": {
-            const record={id:crypto.randomUUID(),after:items.at(-1)?.id,session,model:chosen?.displayName||model,effort,efforts:chosen?.supportedReasoningEfforts||null,serviceTier:fastEnabled?fastTier.name:t("Standard"),permission:effectivePermission,cwd:workdir,usage:state.usage[current],connected:!!boot?.connected,running,operation,account:boot?.account,
+            const record={id:crypto.randomUUID(),after:items.at(-1)?.id,session,model:chosen?.displayName||model,effort,efforts:chosen?.supportedReasoningEfforts||null,serviceTier:activeTier?activeTier.name:t("Standard"),permission:effectivePermission,cwd:workdir,usage:state.usage[current],connected:!!boot?.connected,running,operation,account:boot?.account,
               core:{name:coreName(boot?.core),engine:boot?.core?.engine??null,capabilities:boot?.core?.capabilities??null,version:typeof boot?.core?.engineVersion==="string"?boot.core.engineVersion:null,perTokenBilling:coreSupports(boot?.core,"perTokenBilling")},appVersion:clientVersion};
             setLocalCommandRows(value=>({...value,[current]:[...(value[current]||[]),record]}));break;
           }
@@ -3341,8 +3345,11 @@ function App({ side = 0, initialSession = null }) {
           case "mcp": setSettings("customize-connectors"); break;
           case "plugin": setSettings("customize-plugins"); break;
           case "fast": {
-            if(args&&!["on","off"].includes(args.toLowerCase()))throw new Error(t("Use /fast, /fast on, or /fast off."));
-            const next=args?args.toLowerCase()==="on":!fastEnabled;
+            // /fast <speed>: a tier by name (/fast ultrafast) or standard, when the model lists more than one.
+            const word=String(args||"").trim().toLowerCase(), named=word&&word!=="on"&&word!=="off"?(word===STANDARD_SPEED?STANDARD_SPEED:speedTiers.find(tier=>tier.key===word)?.key):null;
+            if(word&&!["on","off"].includes(word)&&!named)throw new Error(speedTiers.length>1?t("Use /fast, /fast on, /fast off, or /fast {speeds}.",{speeds:[STANDARD_SPEED,...speedTiers.map(tier=>tier.key)].join(" | ")}):t("Use /fast, /fast on, or /fast off."));
+            if(named){if(named===(activeTier?.key??STANDARD_SPEED))notice(t('Speed is already {speed}.',{speed:activeTier?.name??t('Standard')}),{variant:'warning',key:'epitaxy-fast-command-notice'});else await changeSpeed(named);break;}
+            const next=word?word==="on":!fastEnabled;
             // :11310-11322 addWarning(…, {uniqueKey:'epitaxy-fast-command-notice'}).
             if(next===fastEnabled)notice(next?t('Fast mode is already on.'):t('Fast mode is already off.'),{variant:'warning',key:'epitaxy-fast-command-notice'});else await changeFastMode(next);break;
           }
@@ -3828,7 +3835,7 @@ function App({ side = 0, initialSession = null }) {
   function applyConfirmedPreferences(saved) {
     setBoot(value => ({...value, config:saved}));
     setLocalPreferences(appearancePreferences(saved));
-    setFastMode(saved.fastMode === true);
+    setSpeed(savedSpeed(saved));
     const ownModel = !!currentRef.current && sessionModel.current?.id === currentRef.current;
     for (const key of ["theme","model","effort","mode","displayName","permission"]) {
       const setters = {theme:setTheme,model:setModel,effort:setEffort,mode:setMode,displayName:setDisplayName,permission:setPermission};
@@ -3951,6 +3958,19 @@ function App({ side = 0, initialSession = null }) {
     try { await updatePreferences({model, fastMode:value}); }
     finally { setFastSaving(false); }
   }
+  // A speed by key ('standard', 'fast', 'ultrafast'…): the model menu's Speed rows and /fast <speed>.
+  async function changeSpeed(value) {
+    if (fastSaving) return;
+    setFastSaving(true);
+    try { await updatePreferences({model, speed:value}); }
+    finally { setFastSaving(false); }
+  }
+  // Cmd+Alt+F: on/off with one faster tier; with several, Standard → each tier in catalog order → Standard.
+  const nextSpeed = () => {
+    if (speedTiers.length <= 1) return fastEnabled ? STANDARD_SPEED : (fastTier?.key ?? STANDARD_SPEED);
+    const order = [STANDARD_SPEED, ...speedTiers.map(tier => tier.key)];
+    return order[(order.indexOf(activeTier?.key ?? STANDARD_SPEED) + 1) % order.length];
+  };
   // First-run setup opens by itself once: on the DeepSeek core with no key at all (no DeepSeek key and no custom
   // provider key), unless it was finished or put off before (config.onboarded).
   const onboardingOffered = useRef(false);
@@ -4062,7 +4082,7 @@ function App({ side = 0, initialSession = null }) {
       const supports = value => selected?.supportedReasoningEfforts?.some(item => item.reasoningEffort === value);
       setModel(selected?.model || "");
       setEffort(value => saved && supports(b.config?.effort) ? b.config.effort : supports(value) ? value : selected?.defaultReasoningEffort || "medium");
-      if (b.config) setFastMode(b.config.fastMode === true);
+      if (b.config) setSpeed(savedSpeed(b.config));
       setError(b.warnings?.join("\n") || "");
       // A launch without Codex never read the session list; the first
       // successful reconnect does, so the home can leave its placeholder.
@@ -5137,6 +5157,7 @@ function App({ side = 0, initialSession = null }) {
                   coreName={coreName(boot?.core)} onStop={() => void stop()} stopping={stopping} />}
                 <SourceComposer
                   fastMode={fastEnabled}
+                  speedLabel={activeTier?.name ?? null}
                   fastAvailable={!!fastTier}
                   // Dynamic workflows (Claude Code's prompt input): the keyword's notice (alt+w ignores it for this prompt) and
                   // ultracode's status line; the keyword is highlighted while it counts.
@@ -5293,7 +5314,7 @@ function App({ side = 0, initialSession = null }) {
       </main>
       </SourceSplitHost>
       {shownBypass.value && <SourceBypassDialog key={`bypass-${shownBypass.key}`} open={shownBypass.open} onExited={shownBypass.onExited} cwd={workdir || cwd} guide={bypassGuide(coreForEngine(boot?.core?.engine))} onConfirm={bypassMode.confirm} onClose={bypassMode.cancel}/> }
-      {menu?.kind === "model" ? <SourceModelMenu key={menu.token ?? "model"} anchor={menu.anchor} models={models} selected={model} onSelect={m => { Promise.resolve(chooseModel({model:m.model, effort:m.defaultReasoningEffort})).catch(e=>setError(e.message)); }} scopeNote={current ? t("Changed for this session only. New sessions use the model from Settings.") : null} fastTier={fastTier} fastMode={fastEnabled} fastDisabled={fastSaving || running || sending || !boot?.connected} fastSaving={fastSaving} onFastModeChange={value=>changeFastMode(value).catch(e=>setError(e.message))} onClose={closeMenu} initialHighlight={menu.entry} /> : menu?.kind === "permission" ? <SourcePermissionMenu key={menu.token ?? "permission"} anchor={menu.anchor} value={effectivePermission} defaultValue={permission} bypassEnabled={bypassMode.available}
+      {menu?.kind === "model" ? <SourceModelMenu key={menu.token ?? "model"} anchor={menu.anchor} models={models} selected={model} onSelect={m => { Promise.resolve(chooseModel({model:m.model, effort:m.defaultReasoningEffort})).catch(e=>setError(e.message)); }} scopeNote={current ? t("Changed for this session only. New sessions use the model from Settings.") : null} fastTier={fastTier} fastMode={fastEnabled} speedTiers={speedTiers} speed={activeTier?.key ?? STANDARD_SPEED} onSpeedChange={value=>changeSpeed(value).catch(e=>setError(e.message))} fastDisabled={fastSaving || running || sending || !boot?.connected} fastSaving={fastSaving} onFastModeChange={value=>changeFastMode(value).catch(e=>setError(e.message))} onClose={closeMenu} initialHighlight={menu.entry} /> : menu?.kind === "permission" ? <SourcePermissionMenu key={menu.token ?? "permission"} anchor={menu.anchor} value={effectivePermission} defaultValue={permission} bypassEnabled={bypassMode.available}
         bypassOffer={bypassOffer({ enabled: bypassOptIn && !bypassRefusal, availability: bypassOptIn ? bypassRefusal : bypassRequirements })}
         onEnableBypass={() => { closeMenu(); setSettings("code#bypass"); }} onChange={value => bypassMode.select(value)} onClose={closeMenu} onSelectComplete={() => textarea.current?.focus()} initialHighlight={menu.entry}
         agents={primaryAgents?.rows ?? null} agentValue={agentChoice ?? primaryAgents?.defaultAgent ?? null} defaultAgent={primaryAgents?.defaultAgent ?? null}
@@ -5319,7 +5340,7 @@ function App({ side = 0, initialSession = null }) {
           recordBranch(targetBranch, currentBranch); setBranchSwitch(null); refreshChanges(); }}
         onCancel={() => setBranchSwitch(null)}
         onError={() => { if (toasts) toasts.add(t(WORKING_TREE_ERROR), { variant: "danger" }); else setError(t(WORKING_TREE_ERROR)); }} />}
-      {shownActionDialog.value?.kind === "shortcuts" && <KeyboardShortcutsDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("shortcuts")} fastMode={models.some(m => fastTierForModel(m))} sideChat={commandContext.sideQuestions !== false} onClose={()=>setActionDialog(null)}/>}
+      {shownActionDialog.value?.kind === "shortcuts" && <KeyboardShortcutsDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("shortcuts")} fastMode={models.some(m => speedTiersForModel(m).length > 0)} sideChat={commandContext.sideQuestions !== false} onClose={()=>setActionDialog(null)}/>}
       {shownActionDialog.value?.kind === "sign-out" && <SourceConfirmDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("sign-out")}
         title={t("Sign out")} body={signOutConfirmText(boot?.core)} confirmLabel={t("Confirm sign out")} onClose={() => setActionDialog(null)}
         onConfirm={() => call("account-auth", { operation: "logout", confirmed: true })} />}
@@ -5370,7 +5391,7 @@ function App({ side = 0, initialSession = null }) {
           // Custom endpoint chosen and the Base URL field focused (requestCodexCustomEndpoint).
           ...(coreSupports(boot?.core, "codexProvider") ? { onCustomEndpoint: () => { requestCodexCustomEndpoint(); skipOnboarding(); setSettings("models#codex-provider"); } } : {}) } : null}
         onOpenExternal={url => call("external", { url }).catch(() => {})} />}
-      {<SourceSettings open={!!settings} config={{...boot?.config,...localPreferences,theme,displayName,fastMode}} model={model} effort={effort} permission={permission}
+      {<SourceSettings open={!!settings} config={{...boot?.config,...localPreferences,theme,displayName,fastMode:fastEnabled,speed}} model={model} effort={effort} permission={permission}
         boot={boot} busy={running || sending || actionPending}
         coreBusy={hasLiveWork(state) || sending || actionPending} onSave={updatePreferences} onClose={()=>setSettings(false)}
         initialSection={typeof settings === "string" ? settings : undefined} readUsage={readAccountUsageDetails} usageActions={usageActions} desktopCall={call}

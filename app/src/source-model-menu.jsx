@@ -26,7 +26,10 @@ const modelName = (model) => model.displayName || model.name || modelKey(model);
 export function SourceModelMenu({
   anchor, models = [], selected, onSelect, onClose, fastTier, fastMode = false, fastDisabled = false,
   fastSaving = false, onFastModeChange, initialHighlight, scopeNote = null,
+  // Several faster tiers (Fast, Ultrafast): a Speed group of Standard and each tier in place of the Fast switch.
+  speedTiers = [], speed = "standard", onSpeedChange,
 }) {
+  const severalSpeeds = Array.isArray(speedTiers) && speedTiers.length > 1 && !!onSpeedChange;
   const { primary, overflow, showFast, searchable } = useMemo(() => modelMenuSections({ models, fastTier, selected }), [models, fastTier, selected]);
   // A long catalog (more than MODEL_SEARCH_THRESHOLD models) is searched by name, provider or id: typing filters a flat
   // list of matches in place of the sections; Enter picks the first, Escape clears the query first.
@@ -93,7 +96,21 @@ export function SourceModelMenu({
       </SourceMenu.Submenu>
     </>}
     </>}
-    {showFast && onFastModeChange && <>
+    {showFast && severalSpeeds && <>
+      <SourceMenu.Separator />
+      <SourceMenu.Header className="sm-model-header">{t("Speed")}</SourceMenu.Header>
+      {[{ key: "standard", name: t("Standard"), description: t("The model’s usual speed and usage.") }, ...speedTiers].map((tier) =>
+        <SourceMenu.Item key={tier.key} className="sm-model-item sm-model-fast" checked={speed === tier.key} checkedRole="radio" label={tier.name}
+          keepOpen disabled={fastDisabled} aria-busy={fastSaving || undefined} data-speed={tier.key}
+          onClick={() => { if (speed !== tier.key) onSpeedChange(tier.key); }}>
+          <span className="sm-fast-copy">
+            <span className="sm-fast-name"><span className="sm-fast-label">{tier.name}</span></span>
+            {typeof tier.description === "string" && tier.description.trim() !== ""
+              && <span className="sm-fast-description" data-fast-description="">{tier.description}</span>}
+          </span>
+        </SourceMenu.Item>)}
+    </>}
+    {showFast && !severalSpeeds && onFastModeChange && <>
       <SourceMenu.Separator />
       <SourceMenu.Header className="sm-model-header">{t("Fast mode")}</SourceMenu.Header>
       <SourceMenu.Item className="sm-model-item sm-model-fast" role="menuitemcheckbox" aria-checked={fastMode} label={t("Enable fast mode")}

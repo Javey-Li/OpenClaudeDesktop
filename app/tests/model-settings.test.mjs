@@ -474,7 +474,7 @@ test('main.cjs gives model-settings the Codex launch hook and reconciles the def
   assert.match(connect, /if \(\(models\.status === "fulfilled" \|\| custom\?\.ids\.length \|\| configured\) && initial\.models\.length\) \{\n\s+const patch = coreModel\.reconcileCoreModel\(config, initial\.core\.id, initial\.models\);/);
   assert.match(connect, /Object\.assign\(config, patch \?\? \{\}, seeded \? \{ coreModels: seeded \} : \{\}\);/);
   const settingsCase = main.slice(main.indexOf('case "settings": {'), main.indexOf('case "navigation-state"'));
-  assert.match(settingsCase, /\["model", "effort", "fastMode"\]\.some\(\(key\) => key in p\) && initial\?\.core\?\.id/);
+  assert.match(settingsCase, /\["model", "effort", "fastMode", "speed"\]\.some\(\(key\) => key in p\) && initial\?\.core\?\.id/);
   assert.match(main, /throw Error\(i18n\.t\('Choose an available model\.'\)\)/);
   assert.match(main, /createWorkflowService\(\{[^}]*core:workflowCore,/);
 });

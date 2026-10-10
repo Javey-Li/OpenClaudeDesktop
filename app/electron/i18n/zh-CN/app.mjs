@@ -317,6 +317,8 @@ export default {
   'Use /fast, /fast on, or /fast off.': '请使用 /fast、/fast on 或 /fast off。',
   'Fast mode is already on.': '快速模式已开启。',
   'Fast mode is already off.': '快速模式已关闭。',
+  'Use /fast, /fast on, /fast off, or /fast {speeds}.': '请使用 /fast、/fast on、/fast off 或 /fast {speeds}。',
+  'Speed is already {speed}.': '速度已是{speed}。',
   '“{name}” isn’t an available model.': '“{name}”不是可用的模型。',
   '“{name}” isn’t an available effort level.': '“{name}”不是可用的推理强度。',
   'Already in plan mode. No plan written yet.': '已处于计划模式，尚未写出计划。',

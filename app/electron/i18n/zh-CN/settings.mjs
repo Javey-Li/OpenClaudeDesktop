@@ -966,6 +966,8 @@ export default {
   '{core} models': '{core} 模型',
   'Reasoning efforts': '推理强度',
   'Fast available': '支持快速模式',
+  '{speeds} available': '支持 {speeds}',
+  'Faster tiers answer sooner and use more of your plan. Applies to your next message.': '更快的档位响应更快，但会消耗更多套餐用量。从你的下一条消息开始生效。',
   'Pick the model new sessions use in Settings › Code › Model and permissions, or in the composer. A default effort set here applies whenever you switch to that model.': '新会话使用的模型可在“设置 › 代码 › 模型与权限”或输入框中选择。此处设置的默认强度会在你切换到该模型时生效。',
   'Using a custom endpoint (Settings › Models)': '正在使用自定义端点（设置 › 模型）',
   'Choose OpenAI or a custom endpoint.': '请选择 OpenAI 或自定义端点。',

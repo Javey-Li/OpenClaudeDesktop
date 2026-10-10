@@ -138,7 +138,7 @@ export function caretViewportRect(textarea, position) {
 //    (data-disabled on the card) only for archived sessions and real locks (`editable`); loading and a
 //    lost connection keep it typeable and only gate sending (`canSubmit`); data-busy while a turn runs.
 export function SourceComposer({
-  fastMode = false, fastAvailable = false,
+  fastMode = false, fastAvailable = false, speedLabel = null,
   draft, setDraft, textarea, attachments = [], onRemoveAttachment, onOpenAttachmentFile, onStageFiles, onSubmit,
   running, sending, stopping = false, editable = true, canSubmit = true, escapeClaimed = false, onEmptyArrowUp,
   // Esc Esc (code-workspace.js Gl): opens Rewind from an empty, idle composer; null where the session can't rewind.
@@ -760,7 +760,7 @@ export function SourceComposer({
             disabled={sending || !model || modelsLoading} aria-busy={modelsLoading || undefined}>
             {modelsLoading
               ? <><span className="sc-spinner" aria-hidden="true" /><span>{t("Loading models…")}</span></>
-              : <span>{model?.displayName || model?.model || t("Default model")}{fastMode && <span className="sc-fast-label"> {t("Fast")}</span>}</span>}
+              : <span>{model?.displayName || model?.model || t("Default model")}{fastMode && <span className="sc-fast-label"> {speedLabel || t("Fast")}</span>}</span>}
           </ComposerButton>
           {/* c8e04f916 (prettier :236-262): the effort trigger sits in f{content: effortLabel, detail: warning text
               (only for a warning badge — none locally), open: !popoverOpen && undefined}; its accessible name is
@@ -778,7 +778,7 @@ export function SourceComposer({
           {/* c360a9e1c :4840-4848 + :4972-4980: sr-only role=status live region (ze, last in the trailing Ve after the usage trigger) 'Fast mode on'/'Fast mode off'.
               The source renders it unconditionally; here it is rendered only when the model has a Fast tier
               (no fast state exists otherwise). */}
-          {fastAvailable && <span role="status" aria-live="polite" className="sr-only">{fastMode ? t("Fast mode on") : t("Fast mode off")}</span>}
+          {fastAvailable && <span role="status" aria-live="polite" className="sr-only">{fastMode ? (speedLabel && speedLabel.toLowerCase() !== "fast" ? t("{speed} speed on", { speed: speedLabel }) : t("Fast mode on")) : t("Fast mode off")}</span>}
         </div>
       </div>
     </div>

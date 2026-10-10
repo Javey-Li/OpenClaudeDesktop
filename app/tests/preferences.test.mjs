@@ -73,3 +73,34 @@ test('Bypass can be the remembered mode only while its opt-in is on, and opting 
   assert.equal(savedPermission({permission:'nope'}),'auto');
   assert.equal(savedPermission({permission:'plan'}),'plan');
 });
+
+test('speeds: every faster tier a model lists, chosen by name, with fastMode kept as the on/off alias', async () => {
+  const { speedTiersForModel, tierForSpeed, savedSpeed } = await import('../electron/preferences.mjs');
+  const catalog = [
+    { model: 'sol', isDefault: true, serviceTiers: [{ id: 'priority', name: 'Fast', description: '2x' }, { id: 'ultrafast', name: 'Ultrafast', description: '4x' }, { id: 'x', name: '' }, { id: 'priority', name: 'fast' }] },
+    { model: 'terra', serviceTiers: [{ id: 'priority', name: 'Fast' }] },
+    { model: 'flash', serviceTiers: [] },
+  ];
+  assert.deepEqual(speedTiersForModel(catalog[0]).map(tier => [tier.key, tier.id, tier.name]), [['fast', 'priority', 'Fast'], ['ultrafast', 'ultrafast', 'Ultrafast']], 'unnamed and repeated tiers are dropped');
+  assert.equal(tierForSpeed(catalog[0], 'ultrafast').id, 'ultrafast');
+  assert.equal(tierForSpeed(catalog[1], 'ultrafast'), null);
+  // A Fast mode saved before speeds existed reads as Fast.
+  assert.deepEqual([savedSpeed({}), savedSpeed({ fastMode: true }), savedSpeed({ fastMode: true, speed: 'ultrafast' })], ['standard', 'fast', 'ultrafast']);
+  let config = settingsPatch({ model: 'sol' }, { speed: 'ultrafast' }, catalog);
+  assert.deepEqual([config.speed, config.fastMode], ['ultrafast', true]);
+  // fastMode on keeps a faster speed already chosen; off is Standard; on again from Standard is Fast.
+  assert.equal(settingsPatch(config, { fastMode: true }, catalog).speed, 'ultrafast');
+  config = settingsPatch(config, { fastMode: false }, catalog);
+  assert.deepEqual([config.speed, config.fastMode], ['standard', false]);
+  assert.equal(settingsPatch(config, { fastMode: true }, catalog).speed, 'fast');
+  // A model without the chosen tier drops to Standard; one with it keeps it.
+  config = settingsPatch({ model: 'sol', speed: 'ultrafast', fastMode: true }, { model: 'terra' }, catalog);
+  assert.deepEqual([config.speed, config.fastMode], ['standard', false]);
+  assert.equal(settingsPatch({ model: 'sol', speed: 'fast', fastMode: true }, { model: 'terra' }, catalog).speed, 'fast');
+  assert.throws(() => settingsPatch({ model: 'terra' }, { speed: 'ultrafast' }, catalog), /This speed is not available/);
+  assert.throws(() => settingsPatch({ model: 'flash' }, { fastMode: true }, catalog), /Fast mode is not available/);
+  assert.throws(() => settingsPatch({ model: 'sol' }, { speed: 'Bad Speed!' }, catalog), /Invalid speed/);
+  // The turn sends the chosen tier's id, which validateServiceTier accepts for that model only.
+  assert.equal(validateServiceTier(catalog, 'sol', 'ultrafast'), 'ultrafast');
+  assert.throws(() => validateServiceTier(catalog, 'terra', 'ultrafast'), /not available/);
+});

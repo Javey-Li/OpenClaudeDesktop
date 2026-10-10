@@ -8,7 +8,7 @@
 // never a reconciled fallback, so a catalog that shrinks for a while (a relay outage, a key
 // that failed) brings the remembered choice back on the next full connect.
 import { withEffortDefaults } from './model-settings.mjs';
-import { fastTierForModel } from '../preferences.mjs';
+import { STANDARD_SPEED, savedSpeed, tierForSpeed } from '../preferences.mjs';
 
 const MAX_CORES = 32;
 // eslint-disable-next-line no-control-regex
@@ -78,7 +78,7 @@ export function configuredCatalogModels(listed = [], codexConfig, { appProvider,
 }
 
 /**
- * The patch {model?, effort?, fastMode?} that makes config valid for this core's catalog,
+ * The patch {model?, effort?, fastMode?, speed?} that makes config valid for this core's catalog,
  * restoring the core's remembered choice; null when the catalog is empty or nothing changes.
  * Never touches coreModels.
  */
@@ -91,9 +91,14 @@ export function reconcileCoreModel(config, coreId, models) {
   const patch = {};
   if (picked.model !== config?.model) patch.model = picked.model;
   if (picked.effort !== config?.effort) patch.effort = picked.effort;
-  const fast = typeof remembered?.fastMode === 'boolean' ? remembered.fastMode : config?.fastMode === true;
-  const fastMode = fast && !!fastTierForModel(picked.entry);
+  // The remembered speed (an older record has only fastMode), Standard when this model lacks that tier.
+  const wantedSpeed = remembered ? (typeof remembered.speed === 'string' ? remembered.speed : remembered.fastMode === true ? 'fast' : STANDARD_SPEED) : savedSpeed(config);
+  const speed = wantedSpeed !== STANDARD_SPEED && tierForSpeed(picked.entry, wantedSpeed) ? wantedSpeed : STANDARD_SPEED;
+  const fastMode = speed !== STANDARD_SPEED;
   if (fastMode !== (config?.fastMode === true)) patch.fastMode = fastMode;
+  // config.speed is written only when fastMode alone can't say it (a saved speed, or a tier other than Fast).
+  const derived = fastMode ? 'fast' : STANDARD_SPEED;
+  if (typeof config?.speed === 'string' && config.speed ? speed !== config.speed : speed !== derived) patch.speed = speed;
   return Object.keys(patch).length ? patch : null;
 }
 
@@ -101,7 +106,8 @@ export function reconcileCoreModel(config, coreId, models) {
 export function recordCoreModel(config, coreId) {
   const current = validateCoreModels(config?.coreModels) ?? {};
   if (typeof coreId !== 'string' || !coreId || typeof config?.model !== 'string' || !config.model) return Object.keys(current).length ? current : undefined;
-  const entry = { model: config.model, effort: typeof config.effort === 'string' ? config.effort : '', ...(typeof config.fastMode === 'boolean' ? { fastMode: config.fastMode } : {}) };
+  const entry = { model: config.model, effort: typeof config.effort === 'string' ? config.effort : '', ...(typeof config.fastMode === 'boolean' ? { fastMode: config.fastMode } : {}),
+    ...(typeof config.speed === 'string' && config.speed ? { speed: config.speed } : {}) };
   return validateCoreModels({ ...current, [coreId]: entry }) ?? undefined;
 }
 
@@ -122,11 +128,12 @@ export function validateCoreModels(value) {
   for (const [key, entry] of Object.entries(value)) {
     if (Object.keys(out).length >= MAX_CORES) break;
     if (!key || key.length > 64 || key === '__proto__' || CONTROL.test(key) || !isRecord(entry)) continue;
-    const { model, effort, fastMode } = entry;
+    const { model, effort, fastMode, speed } = entry;
     if (typeof model !== 'string' || !model || model.length > 200 || CONTROL.test(model)) continue;
     if (typeof effort !== 'string' || effort.length > 32 || CONTROL.test(effort)) continue;
     if (fastMode !== undefined && typeof fastMode !== 'boolean') continue;
-    out[key] = { model, effort, ...(fastMode === undefined ? {} : { fastMode }) };
+    if (speed !== undefined && (typeof speed !== 'string' || !/^[a-z0-9][a-z0-9 _-]{0,39}$/.test(speed))) continue;
+    out[key] = { model, effort, ...(fastMode === undefined ? {} : { fastMode }), ...(speed === undefined ? {} : { speed }) };
   }
   return Object.keys(out).length ? out : null;
 }

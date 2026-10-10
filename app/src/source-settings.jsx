@@ -13,7 +13,7 @@ import { SourceCodeFontSetting } from './source-code-font-setting.jsx';
 import { SourceSelect } from './source-select.jsx';
 import { LOCALES, getLocale, t, tn } from '../electron/i18n/index.mjs';
 import { bypassAvailability } from '../electron/permission-policy.mjs';
-import { appearancePreferences, fastTierForModel } from '../electron/preferences.mjs';
+import { appearancePreferences, fastTierForModel, speedTiersForModel, tierForSpeed, savedSpeed, STANDARD_SPEED } from '../electron/preferences.mjs';
 import { lightThemes, darkThemes } from './code-theme-catalog.mjs';
 import { TRANSCRIPT_VIEW_LABELS } from './transcript-view-model.mjs';
 import { SourceCodeThemePreview } from './source-code-theme-preview.jsx';
@@ -245,7 +245,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
   useEffect(()=>{if(!highlight || !presence.visible)return;return bindSettingsAnchor(presence.popup.current,highlight.id,()=>setHighlight(current=>current===highlight?null:current));},[highlight,tab,presence.visible,presence.popup]);
   useEffect(()=>{if(tab==='usage')presence.popup.current?.focus({preventScroll:true});},[tab]);
   const root=presence.popup, search=useRef(null), titleId=useId(), close=useRef(onClose);close.current=onClose;
-  const prefs=appearancePreferences(config), account=boot?.account?.account, models=withEffortDefaults(boot?.models || [], config.modelSettings), chosen=models.find(m=>m.model===model), fast=fastTierForModel(chosen);
+  const prefs=appearancePreferences(config), account=boot?.account?.account, models=withEffortDefaults(boot?.models || [], config.modelSettings), chosen=models.find(m=>m.model===model), fast=fastTierForModel(chosen)||speedTiersForModel(chosen)[0]||null, speeds=speedTiersForModel(chosen);
   useEffect(()=>{let live=true;fetch('./build-info.json').then(r=>r.json()).then(value=>live&&setBuild(value)).catch(()=>{});return()=>{live=false;};},[]);
   // The opener is read in a layout effect, before any passive effect moves focus: the tab==='usage' effect above
   // is declared first and already focused the popup, so /usage (main.jsx:1352) captured the popup itself and, it
@@ -380,7 +380,12 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
         return [shownModel&&!efforts.length
           ? row('effort',t('Reasoning effort'),t('Not available for this model.'),<SourceSelect label={t('Default reasoning effort')} value="default" disabled items={[{value:'default',label:t('Model default')}]} onChange={()=>{}}/>)
           : row('effort',t('Reasoning effort'),t('Available levels come from the selected model.'),<SourceSelect label={t('Default reasoning effort')} value={shownValue('effort',effort)} disabled={busy||!chosen} items={efforts.map(e=>({value:e.reasoningEffort,label:effortName(e.reasoningEffort)}))} onChange={value=>save('effort',value)}/>)];})(),
-      row('fast',t('Fast mode'),fast ? t('{description}. Applies to your next message.',{description:fast.description || t('Uses the model’s Fast service tier')}) : t('Not available for this model.'),<SettingSwitch label={t('Enable fast mode')} checked={!!fast&&!!shownValue('fastMode',config.fastMode)} disabled={!fast||!boot?.connected||busy} onChange={value=>save('fastMode',value,'fast')}/>),
+      // Several faster tiers (Fast, Ultrafast): a Speed select of Standard and each tier in place of the Fast switch.
+      speeds.length>1
+        ? row('fast',t('Speed'),t('Faster tiers answer sooner and use more of your plan. Applies to your next message.'),<SourceSelect label={t('Speed')} align="end" className="sselect-width-160" disabled={!boot?.connected||busy}
+            value={tierForSpeed(chosen,shownValue('speed',savedSpeed(config)))?.key??STANDARD_SPEED} onChange={value=>save('speed',value,'fast')}
+            items={[{value:STANDARD_SPEED,label:t('Standard')},...speeds.map(tier=>({value:tier.key,label:tier.name,...(tier.description?{description:tier.description}:{})}))]}/>)
+        : row('fast',t('Fast mode'),fast ? t('{description}. Applies to your next message.',{description:fast.description || t('Uses the model’s Fast service tier')}) : t('Not available for this model.'),<SettingSwitch label={t('Enable fast mode')} checked={!!fast&&!!shownValue('fastMode',config.fastMode)} disabled={!fast||!boot?.connected||busy} onChange={value=>save('fastMode',value,'fast')}/>),
       // The Codex core's own web search mode and personality (main.cjs adds them to its thread and turn requests).
       ...(codexNative?[
         row('codexWebSearch',t('Web search'),t('Whether Codex can search the web: cached results, live results, or not at all. Applies to sessions you start or reopen.'),<SourceSelect label={t('Web search')} value={shownValue('codexWebSearch',config.codexWebSearch)||'default'} disabled={busy} onChange={value=>save('codexWebSearch',value)}
