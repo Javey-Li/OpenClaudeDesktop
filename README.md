@@ -13,7 +13,7 @@
 ![简体中文](https://img.shields.io/badge/界面-简体中文%20%2F%20English-D97757)
 [![MIT License](https://img.shields.io/badge/许可证-MIT-2EA44F)](LICENSE)
 
-[快速开始](#使用前准备) · [界面一览](#界面一览) · [常见问题](#常见问题) · [English](#english)
+[快速开始](#使用前准备) · [界面一览](#界面一览) · [常见问题](#常见问题) · [English](README.en.md)
 
 <br>
 
@@ -250,6 +250,7 @@ OpenClaudeDesktop/
 
 - 开发模式运行：`cd app && npm run build && npm start`
 - 运行测试：`cd app && npm test`，`cd harness && npm test`
+- 重新生成 README 截图：`cd app && npx vite build && node scripts/readme-screenshots.mjs && README_LOCALE=en node scripts/readme-screenshots.mjs`
 - 详细的设计和改动记录：[docs/DEVELOPMENT-LOG.md](docs/DEVELOPMENT-LOG.md)、[HANDOFF.md](HANDOFF.md)、[harness/README.md](harness/README.md)
 
 ---
@@ -264,28 +265,4 @@ OpenClaudeDesktop/
 
 ---
 
-## English
-
-**OpenClaude Desktop is the open-source "Claude Desktop": your Claude Desktop, not Anthropic's.** You get the same Claude interface, but you control everything else: which model runs underneath (DeepSeek by default, Codex, or any OpenAI-compatible relay or self-hosted endpoint), what you pay and to whom, the whole system prompt, the look, and the source code itself. No Claude account or subscription is needed; bring your own API key.
-
-Released under the [MIT License](LICENSE).
-
-*OpenClaude Desktop is an unofficial community project. It is not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic.*
-
-**Requirements:** an Apple Silicon Mac, Node.js 22.19+ (`brew install node`), and an API key (e.g. [DeepSeek](https://platform.deepseek.com/api_keys)).
-
-**Install from source:**
-
-```bash
-git clone https://github.com/oleyyu/OpenClaudeDesktop.git
-```
-
-```bash
-cd OpenClaudeDesktop/harness && npm install && cd ../app && npm install && npm run package
-```
-
-The app is written to `releases/OpenClaude Desktop-darwin-arm64/`. Drag it into Applications. Packaging needs the `reference/` UI assets, which aren't in this repository.
-
-**First run:** the setup wizard asks you to pick an agent (DeepSeek recommended) and connect a model: paste an official API key, or enter a relay's base URL and key. The interface language can be changed under Settings › Language.
-
-**Daily use:** start a new session, pick a project folder, describe what you want. Choose a permission mode below the composer (Manual is the safest). Type `/` for commands: `/clear`, `/compact`, `/model`, `/btw`, `/resume`, `/review`, `/help`.
+**English:** the full English guide is in [README.en.md](README.en.md).
