@@ -11,6 +11,7 @@
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple&logoColor=white)
 ![DeepSeek](https://img.shields.io/badge/默认模型-DeepSeek-4D6BFE)
 ![简体中文](https://img.shields.io/badge/界面-简体中文%20%2F%20English-D97757)
+[![MIT License](https://img.shields.io/badge/许可证-MIT-2EA44F)](LICENSE)
 
 [快速开始](#使用前准备) · [界面一览](#界面一览) · [常见问题](#常见问题) · [English](#english)
 
@@ -253,6 +254,12 @@ OpenClaudeDesktop/
 
 ---
 
+## 许可证
+
+[MIT](LICENSE)：可以免费使用、修改和分发，包括商用，只需保留版权和许可声明。
+
+---
+
 > **声明**：OpenClaude Desktop 是社区项目，不是 Anthropic 的官方产品，与 Anthropic 没有关联，也未获得其认可。“Claude” 是 Anthropic 的商标，这里仅用于说明本项目的界面风格。
 
 ---
@@ -260,6 +267,8 @@ OpenClaudeDesktop/
 ## English
 
 **OpenClaude Desktop is the open-source "Claude Desktop": your Claude Desktop, not Anthropic's.** You get the same Claude interface, but you control everything else: which model runs underneath (DeepSeek by default, Codex, or any OpenAI-compatible relay or self-hosted endpoint), what you pay and to whom, the whole system prompt, the look, and the source code itself. No Claude account or subscription is needed; bring your own API key.
+
+Released under the [MIT License](LICENSE).
 
 *OpenClaude Desktop is an unofficial community project. It is not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic.*
 
