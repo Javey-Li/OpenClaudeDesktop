@@ -1,10 +1,33 @@
+<div align="center">
+
 # OpenClaude Desktop
 
-**一个装在 Mac 上的 AI 编程助手。** 界面和 Claude Code 桌面版一样好用，背后用的是你自己的 AI：默认是 DeepSeek，也可以换成 Codex，或任何 OpenAI 兼容的中转站。
+### 装在 Mac 上的 AI 编程助手 · 模型由你来选
+
+用大白话说需求，它帮你读代码、改代码、跑命令，每一步都看得见。
+
+![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple&logoColor=white)
+![DeepSeek](https://img.shields.io/badge/默认模型-DeepSeek-4D6BFE)
+![简体中文](https://img.shields.io/badge/界面-简体中文%20%2F%20English-D97757)
+
+[快速开始](#使用前准备) · [界面一览](#界面一览) · [常见问题](#常见问题) · [English](#english)
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/session-dark.png">
+  <img src="docs/images/session.png" alt="OpenClaude Desktop：AI 读取文件、修改代码、运行测试，并用中文总结改动" width="100%">
+</picture>
+
+<sub>↑ 让它“给网页加上暗色模式”：读了 2 个文件、改了 1 个文件、跑了测试，最后用中文告诉你改了什么、怎么验证。</sub>
+
+</div>
+
+<br>
+
+**OpenClaude Desktop** 的界面和 Claude Code 桌面版一样好用，背后用的是你自己的 AI：默认是 DeepSeek，也可以换成 Codex，或任何 OpenAI 兼容的中转站。
 
 你用中文（或英文）告诉它想做什么，比如“帮我给这个网页加个暗色模式”“这个报错是什么意思”，它会读你的项目文件、改代码、跑命令，每一步都显示给你看，需要时先征求你同意。
-
-[English summary](#english) · [开发者文档](docs/DEVELOPMENT-LOG.md)
 
 ---
 
@@ -17,6 +40,33 @@
 - 🌏 **简体中文界面**：设置里一键切换语言。
 - 🔌 **换 AI 很简单**：DeepSeek 官方 API、第三方中转站、自建服务器、Codex 都能用。
 - 🎨 **可以自定义**：主题颜色、助手名字和头像、自定义指令、自定义斜杠命令。
+
+---
+
+## 界面一览
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/home.png" alt="主页：左侧是会话列表，中间是使用统计">
+      <p align="center"><b>主页</b><br><sub>左侧管理所有会话，中间一眼看到你的使用情况</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/session-dark.png" alt="深色模式下的对话界面">
+      <p align="center"><b>深色模式</b><br><sub>跟随系统自动切换，晚上写代码不刺眼</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/slash-commands.png" alt="输入 / 弹出的命令菜单">
+      <p align="center"><b>斜杠命令</b><br><sub>输入 <code>/</code> 就能找到所有功能，不用记</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/settings-models.png" alt="设置里的模型页面">
+      <p align="center"><b>换模型、填 Key</b><br><sub>DeepSeek 官方、第三方中转、更多服务商都在这里</sub></p>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -93,7 +143,11 @@ npm run build && npm start
 
 ## 第一次打开
 
-打开应用会出现「Set up OpenClaude Desktop」（设置向导）：
+打开应用会出现设置向导，点 **开始**：
+
+<p align="center"><img src="docs/images/setup.png" alt="第一次打开时的设置向导" width="70%"></p>
+
+接下来按提示操作：
 
 1. **选择 AI 助手**：选 **DeepSeek**（推荐）。想用 Codex 的话选 Codex，按提示下载并登录 ChatGPT 账号。
 2. **连接模型**：
