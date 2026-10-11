@@ -403,7 +403,7 @@ export function SourceOnboarding({ desktopCall, onDone, onSkip, onCoreChosen, on
       {step === "welcome" ? <>
         <SourceSpark size={64} className="sob-spark" />
         <h1 className="sob-title">OpenClaude <em>Desktop</em></h1>
-        <p className="sob-tagline">{t("Your coding agent, on the model you choose.")}</p>
+        <p className="sob-tagline">{t("The open-source Claude Desktop.")}</p>
         <div className="sob-bottom">
           <SourceSettingsButton ref={start} variant="primary" size="lg" className="sob-wide" onClick={() => setStep("agent")}>{t("Get started")}</SourceSettingsButton>
           <button type="button" className="sob-text-button" onClick={onSkip}>{t("Set up later")}</button>

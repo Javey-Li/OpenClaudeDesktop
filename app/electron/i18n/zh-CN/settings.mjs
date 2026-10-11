@@ -800,7 +800,7 @@ export default {
   'Test and continue': '测试并继续',
   'Your key is stored encrypted on this Mac and only sent to the endpoint above. Testing sends one tiny request to it.': '你的密钥加密保存在这台 Mac 上，只会发送到上面的接口地址。测试时会向它发一个很小的请求。',
   'Set up OpenClaude Desktop': '设置 OpenClaude Desktop',
-  'Your coding agent, on the model you choose.': '你的编程助手，模型由你来选。',
+  'The open-source Claude Desktop.': '开源的 Claude Desktop。',
   'Get started': '开始',
   'Set up later': '稍后设置',
   'Connect a model': '连接模型',

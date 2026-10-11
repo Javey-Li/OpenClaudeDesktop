@@ -4,7 +4,9 @@
 
 ### 开源的 “Claude Desktop”
 
-用大白话说需求，它帮你读代码、改代码、跑命令，每一步都看得见。
+**还是你熟悉的 Claude 界面。但这一次，由你说了算。**
+
+用哪个 AI、花多少钱、它怎么说话、长什么样，全都你来定。
 
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple&logoColor=white)
 ![DeepSeek](https://img.shields.io/badge/默认模型-DeepSeek-4D6BFE)
@@ -25,21 +27,36 @@
 
 <br>
 
-**OpenClaude Desktop** 的界面和 Claude Code 桌面版一样好用，背后用的是你自己的 AI：默认是 DeepSeek，也可以换成 Codex，或任何 OpenAI 兼容的中转站。
+## 你的 Claude Desktop，不是 Anthropic 的
 
-你用中文（或英文）告诉它想做什么，比如“帮我给这个网页加个暗色模式”“这个报错是什么意思”，它会读你的项目文件、改代码、跑命令，每一步都显示给你看，需要时先征求你同意。
+Claude Desktop 的界面很好用：对话清楚、每一步都看得见、改了什么一目了然。但它只能用 Claude、要订阅、规则由 Anthropic 定。
+
+**OpenClaude Desktop 把同样的界面交到你手里**：底下的 AI 换成你自己选的（默认 DeepSeek），钱按用量付给你选的服务商，系统提示、权限、外观、甚至源代码，想怎么改就怎么改。
+
+| | 官方 Claude Desktop | **OpenClaude Desktop** |
+|---|---|---|
+| 界面 | Claude 界面 | **同样的 Claude 界面** |
+| 用哪个 AI | 只能用 Claude | **DeepSeek、Codex、任何 OpenAI 兼容的中转站或自建模型** |
+| 账号 | 需要 Claude 账号和订阅 | **不用注册，填自己的 API Key 就行** |
+| 怎么收费 | 按月订阅 | **按用量付给你选的服务商，可以很便宜** |
+| AI 怎么说话 | 内置的系统提示 | **整个系统提示都能改，还能按项目单独设置** |
+| 外观 | 固定 | **主题、颜色、字体、助手名字和头像都能换** |
+| 源代码 | 闭源 | **开源，想改哪里改哪里** |
+| 数据 | 发给 Anthropic | **只发给你选的服务商，设置和记录都在你电脑上** |
 
 ---
 
 ## 它能做什么
 
+你用中文（或英文）告诉它想做什么，比如“帮我给这个网页加个暗色模式”“这个报错是什么意思”，它会读你的项目文件、改代码、跑命令，每一步都显示给你看，需要时先征求你同意。
+
 - 💬 **对话写代码**：打开一个项目文件夹，直接说需求，它会读文件、改代码、运行测试。
-- 🔒 **你说了算**：改文件、跑命令前可以先问你（权限模式随时切换）。
+- 🔒 **权限你来管**：改文件、跑命令前可以先问你（权限模式随时切换）。
 - 🗂️ **多个会话**：左侧栏管理所有对话，可以置顶、分组、归档、分屏并排看。
 - 🖥️ **内置终端和预览**：不用切窗口就能看终端输出、改动对比（diff）和网页预览。
 - 🌏 **简体中文界面**：设置里一键切换语言。
 - 🔌 **换 AI 很简单**：DeepSeek 官方 API、第三方中转站、自建服务器、Codex 都能用。
-- 🎨 **可以自定义**：主题颜色、助手名字和头像、自定义指令、自定义斜杠命令。
+- 🎨 **全部可自定义**：系统提示、主题颜色、助手名字和头像、自定义斜杠命令。
 
 ---
 
@@ -236,9 +253,15 @@ OpenClaudeDesktop/
 
 ---
 
+> **声明**：OpenClaude Desktop 是社区项目，不是 Anthropic 的官方产品，与 Anthropic 没有关联，也未获得其认可。“Claude” 是 Anthropic 的商标，这里仅用于说明本项目的界面风格。
+
+---
+
 ## English
 
-**OpenClaude Desktop** is a Mac desktop app for coding with AI. It has a Claude Code–style interface and runs on the model you choose: DeepSeek by default, Codex, or any OpenAI-compatible endpoint (relays and self-hosted servers included).
+**OpenClaude Desktop is the open-source "Claude Desktop": your Claude Desktop, not Anthropic's.** You get the same Claude interface, but you control everything else: which model runs underneath (DeepSeek by default, Codex, or any OpenAI-compatible relay or self-hosted endpoint), what you pay and to whom, the whole system prompt, the look, and the source code itself. No Claude account or subscription is needed; bring your own API key.
+
+*OpenClaude Desktop is an unofficial community project. It is not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic.*
 
 **Requirements:** an Apple Silicon Mac, Node.js 22.19+ (`brew install node`), and an API key (e.g. [DeepSeek](https://platform.deepseek.com/api_keys)).
 
