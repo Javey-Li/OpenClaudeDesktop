@@ -71,8 +71,8 @@ export function engineCopy(core) {
   };
 }
 
-// What Code Desktop writes into the core's own files. An overlay core (capability configOverlay: OpenCode, MiMo, or a
-// reported configPath that isn't the user's file) keeps its changes in Code Desktop's overlay; a core that saves
+// What OpenClaude Desktop writes into the core's own files. An overlay core (capability configOverlay: OpenCode, MiMo, or a
+// reported configPath that isn't the user's file) keeps its changes in OpenClaude Desktop's overlay; a core that saves
 // connectors (mcpConfigWrite; a native core unless it says false) or its own settings (coreSettings: Qwen, Gemini) into
 // the user's file says so, since the CLI shares that file.
 function writesCopy(core, descriptor, name, config, mcpConfig) {
@@ -81,19 +81,19 @@ function writesCopy(core, descriptor, name, config, mcpConfig) {
   const overlay = capabilities.configOverlay === true || (!!config && !!userFile && config !== userFile);
   if (overlay) return userFile ? t("Settings here do not rewrite its own configuration in {config}.", { config: userFile }) : t("Settings here do not rewrite its own configuration.");
   const connectors = descriptor.kind === "native" ? capabilities.mcpConfigWrite !== false : capabilities.mcpConfigWrite === true;
-  // A core whose settings Code Desktop keeps itself (coreSettingsInConfig false: ZCode's host preferences) changes
+  // A core whose settings OpenClaude Desktop keeps itself (coreSettingsInConfig false: ZCode's host preferences) changes
   // nothing in the agent's config file through them.
   const settings = capabilities.coreSettings === true && capabilities.coreSettingsInConfig !== false;
   if (settings && config) return connectors && mcpConfig === config
-    ? t("Connectors and {core} settings you change in Code Desktop are saved to {config}.", { core: name, config })
-    : t("{core} settings you change in Code Desktop are saved to {config}.", { core: name, config });
-  if (connectors && mcpConfig) return t("Connectors you add or remove in Code Desktop are saved to {config}.", { config: mcpConfig });
+    ? t("Connectors and {core} settings you change in OpenClaude Desktop are saved to {config}.", { core: name, config })
+    : t("{core} settings you change in OpenClaude Desktop are saved to {config}.", { core: name, config });
+  if (connectors && mcpConfig) return t("Connectors you add or remove in OpenClaude Desktop are saved to {config}.", { config: mcpConfig });
   return config ? t("Settings here do not rewrite its own configuration in {config}.", { config }) : t("Settings here do not rewrite its own configuration.");
 }
 
 /**
  * The sign-out confirmation for a core with its own sign-in: signing out reaches every tool on this Mac that shares
- * the core's credentials (the Codex CLI's ~/.codex, the ZCode app, OpenCode's auth store), not only Code Desktop.
+ * the core's credentials (the Codex CLI's ~/.codex, the ZCode app, OpenCode's auth store), not only OpenClaude Desktop.
  */
 export function signOutConfirmText(core) {
   const descriptor = descriptorOf(core), name = descriptor.name;

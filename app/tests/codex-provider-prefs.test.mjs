@@ -15,13 +15,13 @@ test('launch args: the provider table once saved, custom-only model settings, an
   assert.deepEqual(codexLaunchArgs(null), [], 'nothing saved: Codex launches as before');
   assert.deepEqual(codexLaunchArgs({ mode: 'openai' }), []);
   const custom = { mode: 'custom', baseURL: 'https://relay.example.com/v1/', models: ['relay-a', 'relay-b'] };
-  const args = pairs(codexLaunchArgs(custom, { catalogPath: '/Users/me/Library/Application Support/Code Desktop/codex/model-catalog.json' }));
+  const args = pairs(codexLaunchArgs(custom, { catalogPath: '/Users/me/Library/Application Support/OpenClaude Desktop/codex/model-catalog.json' }));
   assert.deepEqual(args, [
-    'model_providers.codedesktop={name="Code Desktop",base_url="https://relay.example.com/v1",env_key="CODE_DESKTOP_CODEX_API_KEY",wire_api="responses"}',
+    'model_providers.codedesktop={name="OpenClaude Desktop",base_url="https://relay.example.com/v1",env_key="CODE_DESKTOP_CODEX_API_KEY",wire_api="responses"}',
     'shell_environment_policy.set.CODE_DESKTOP_CODEX_API_KEY=""',
     'model_provider="codedesktop"',
     'model="relay-a"',
-    'model_catalog_json="/Users/me/Library/Application Support/Code Desktop/codex/model-catalog.json"',
+    'model_catalog_json="/Users/me/Library/Application Support/OpenClaude Desktop/codex/model-catalog.json"',
     'web_search="disabled"',
   ]);
   assert.equal(pairs(codexLaunchArgs({ ...custom, webSearch: true })).some(arg => arg.startsWith('web_search')), false, 'the toggle keeps hosted web search');

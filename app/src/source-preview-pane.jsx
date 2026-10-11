@@ -404,7 +404,7 @@ export function SourcePreviewPane({ sessionId, desktop = globalThis.desktop, hea
   const sent = useRef({ bounds: null, visible: null });
   // Refused shows (another pane has the page): the bounds refused, how many retries ran, the pending retry.
   const refused = useRef({ bounds: null, count: 0, timer: 0 });
-  const call = useCallback((action, params = {}) => (desktop?.call ? desktop.call(action, { sessionId, ...params }) : Promise.reject(new Error(t("Open Code Desktop to use the preview.")))), [desktop, sessionId]);
+  const call = useCallback((action, params = {}) => (desktop?.call ? desktop.call(action, { sessionId, ...params }) : Promise.reject(new Error(t("Open OpenClaude Desktop to use the preview.")))), [desktop, sessionId]);
   // The main process words its refusals in English (preview-service.cjs): shown in the UI language, as terminalError does.
   const report = useCallback((error) => { if (error?.message) onError?.(t(error.message)); }, [onError]);
 

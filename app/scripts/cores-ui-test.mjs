@@ -86,7 +86,7 @@ try{
  await poll(async()=>(await settings.getByRole('progressbar',{name:'Download progress'}).evaluate(n=>n.firstElementChild.getBoundingClientRect().width))>0,'the bar fills');
  report.metrics.fill=await settings.getByRole('progressbar',{name:'Download progress'}).evaluate(n=>({track:n.getBoundingClientRect().width,fill:n.firstElementChild.getBoundingClientRect().width,color:getComputedStyle(n.firstElementChild).backgroundColor,value:n.getAttribute('aria-valuenow')}));
  await page.screenshot({path:path.join(directory,'cores-downloading.png')});
- await poll(async()=>/Downloaded by Code Desktop · codex-cli 0\.155\.1|Downloaded by Code Desktop · 0\.155\.1/.test(await row('codex').textContent()),'installed',30000);
+ await poll(async()=>/Downloaded by OpenClaude Desktop · codex-cli 0\.155\.1|Downloaded by OpenClaude Desktop · 0\.155\.1/.test(await row('codex').textContent()),'installed',30000);
  const record=await readJson('cores/codex/manifest.json');assert.deepEqual([record.version,record.reported,record.sha256],['0.155.1','codex-cli 0.155.1',sha256]);
  assert.ok(fsSync.statSync(path.join(profile,'cores/codex/0.155.1/codex')).mode&0o111);assert.equal(served,1);
  report.checks.push('Install asks first (size and source), streams with a progress bar, checks the checksum and records the extracted binary under the app data folder');
@@ -281,7 +281,7 @@ try{
  assert.match(await again.evaluate(n=>n.innerText),/Codex[\s\S]*Running/);
  await again.locator('[data-core-remove=codex]').click();
  const removeDialog=page.getByRole('dialog',{name:'Remove the Codex download?',exact:true});await removeDialog.waitFor();
- report.metrics.removeDialog=await removeDialog.innerText();assert.match(report.metrics.removeDialog,/Codex is running\. It stops, and Code Desktop switches to DeepSeek Harness\./);
+ report.metrics.removeDialog=await removeDialog.innerText();assert.match(report.metrics.removeDialog,/Codex is running\. It stops, and OpenClaude Desktop switches to DeepSeek Harness\./);
  await page.screenshot({path:path.join(directory,'cores-remove-running-light.png')});await dark('cores-remove-running-dark.png');
  await mark();await removeDialog.getByRole('button',{name:'Remove download',exact:true}).click();
  await poll(async()=>!fsSync.existsSync(path.join(profile,'cores/codex')),'removed');

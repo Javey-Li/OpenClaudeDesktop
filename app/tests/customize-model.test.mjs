@@ -421,13 +421,13 @@ test("Connector copy names the file the running core writes and the core itself"
   assert.equal(zcode.addConnectorNote, "Saved to ~/.zcode/cli/config.json.");
   assert.equal(zcode.connectorRemoved("gh"), "Removed gh from ~/.zcode/cli/config.json.");
   assert.equal(zcode.duplicateConnector("gh"), "A connector named gh is already in ~/.zcode/cli/config.json. Remove it first or choose another name.");
-  // OpenCode / MiMo write Code Desktop's overlay (configPath) and leave the user's own file alone.
+  // OpenCode / MiMo write OpenClaude Desktop's overlay (configPath) and leave the user's own file alone.
   for (const [engine, overlay, own, name] of [["opencode", "/s/config/opencode.json", "~/.config/opencode/opencode.json", "OpenCode"], ["mimo", "/s/config/mimocode.json", "~/.config/mimocode/mimocode.jsonc", "MiMo Code"]]) {
     const copy = customizeCore({ engine, capabilities: { mcpConfigWrite: true }, configPath: overlay });
     assert.equal(copy.configOverlay, true, engine);
     assert.equal(copy.configFile, overlay);
     assert.equal(copy.addConnectorNote, `Saved to ${overlay}. Your own ${own} isn’t changed.`);
-    assert.equal(copy.connectorRemoved("gh"), `Removed gh from Code Desktop’s ${name} config. Your own ${own} isn’t changed.`);
+    assert.equal(copy.connectorRemoved("gh"), `Removed gh from OpenClaude Desktop’s ${name} config. Your own ${own} isn’t changed.`);
     assert.equal(copy.duplicateConnector("gh"), `A connector named gh already exists in ${name}. Remove it first or choose another name.`);
   }
   for (const engine of ["zcode", "opencode", "mimo", "kimi", "qwen", "gemini", "minimax"])

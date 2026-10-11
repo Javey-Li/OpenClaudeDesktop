@@ -7,13 +7,13 @@ const fail=source=>new Error(i18n.t(source));
 // A stop first lets the runner cancel (core stop + release, interrupted turns, worktree cleanup):
 // SIGKILL after STOP_KILL_MS, or STOP_GRACE_MS once the runner says a cancel is under way.
 const STOP_KILL_MS=1500,STOP_GRACE_MS=8000;
-// A model-started run that Code Desktop's quit (or a crash) ended: <run>/orphaned.json {delivered} until its
+// A model-started run that OpenClaude Desktop's quit (or a crash) ended: <run>/orphaned.json {delivered} until its
 // orphaned-workflow <task-notification> reached the model (workflow-tool-service.cjs turnStart; Claude Code 2.1.280
 // reports background workflows orphaned by the previous process exit on resume). Written once per run.
 const ORPHAN_FILE='orphaned.json';
 // Run ids: Claude Code's wf_<12 characters of a UUID> (workflow-tool-model.mjs newRunId); older runs kept a UUID.
 const idPattern=/^(?:[a-f0-9-]{36}|wf_[a-z0-9-]{6,})$/;
-// Never handed to the runner's own core: one nesting level, so workflow agents never get Code Desktop's Workflow tool.
+// Never handed to the runner's own core: one nesting level, so workflow agents never get OpenClaude Desktop's Workflow tool.
 const AGENT_TOOLS_ENV=['CODE_DESKTOP_AGENT_TOOLS_SOCKET','CODE_DESKTOP_AGENT_TOOLS_TOKEN','CODE_DESKTOP_AGENT_TOOLS_SERVER','CODE_DESKTOP_AGENT_SESSION'];
 // Loaded only for a saved-workflow lookup or a save (it parses scripts), never on the way to starting a run.
 let toolModelLoad=null;const toolModel=()=>toolModelLoad??=import(pathToFileURL(path.join(__dirname,'workflow-tool-model.mjs')).href);
@@ -128,7 +128,7 @@ function createWorkflowService({root,getConfig,emit,command:fixedCommand,args:fi
   // quit: the app is closing (dispose) — unlike the user's Stop, the model hears about it on the next launch.
   const quit=()=>{if(!stopRequested)quitStop=true;return stop();};
   running.set(id,{stop,quit,completion,pid:child.pid,member:(memberId,action)=>{child.send({control:action,memberId});return {accepted:true};},pause:paused=>{if(run.pausable===false)throw fail('This workflow can’t be paused.');child.send({control:'pause',paused});return {accepted:true,paused};}});
-  // engine 'codeDesktop': Settings chose Code Desktop's engine for a core that has its own, so the launcher script is
+  // engine 'codeDesktop': Settings chose OpenClaude Desktop's engine for a core that has its own, so the launcher script is
   // never handed to the core's engine (workflow-harness.mjs); structuredOutput false: schema agents ask for JSON.
   const scripts=engine==='codeDesktop'?{workflowScripts:false}:typeof launch.workflowScripts==='boolean'?{workflowScripts:launch.workflowScripts}:{};
   child.send({directory,source,cwd,...(args!==undefined?{args}:{}),plan:!!plan,access,resume:!!resumeId,model:chosenModel,effort,command,commandArgs,version,runId:id,...scripts,...(structuredOutput===false||structuredOutput==='outputSchema'?{structuredOutput}:{}),...(typeof userRequest==='string'&&userRequest.trim()?{userRequest}:{}),...(Number.isSafeInteger(budgetTotal)&&budgetTotal>0?{budgetTotal,...(Number.isSafeInteger(budgetSpent)&&budgetSpent>0?{budgetSpent}:{})}:{}),...(folders().length?{workflowFolders:folders()}:{})});return run;

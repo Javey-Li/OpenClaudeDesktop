@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Code Desktop core bridge for OpenCode and MiMo Code: `app-server --stdio`.
+// OpenClaude Desktop core bridge for OpenCode and MiMo Code: `app-server --stdio`.
 //
 // Environment (app/electron/codex.cjs resolveCore):
 //   CODE_DESKTOP_AGENT_BINARY   the agent program (empty → `opencode` / `mimo` on PATH)
@@ -34,7 +34,7 @@ const env = process.env
 let binary = env.CODE_DESKTOP_AGENT_BINARY || ''
 const flavor = await detectFlavor({ env, binary: binary || undefined })
 if (!binary) binary = onPath(flavor.binary) ?? (flavor === FLAVORS.mimo ? onPath('mimocode') : null) ?? ''
-const stateDir = env.CODE_DESKTOP_BRIDGE_STATE || path.join(os.homedir(), 'Library', 'Application Support', 'Code Desktop', 'cores', flavor.id, 'state')
+const stateDir = env.CODE_DESKTOP_BRIDGE_STATE || path.join(os.homedir(), 'Library', 'Application Support', 'OpenClaude Desktop', 'cores', flavor.id, 'state')
 const logFile = path.join(stateDir, 'bridge.log')
 fs.mkdirSync(stateDir, { recursive: true })
 const logStream = fs.createWriteStream(logFile, { flags: 'a' })

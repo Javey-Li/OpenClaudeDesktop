@@ -2,7 +2,7 @@
  * The ACP client capabilities the bridge offers an agent: fs/read_text_file,
  * fs/write_text_file and terminal/*. Agents that use them (Gemini CLI and Qwen
  * Code write files through fs; Kimi Code reads/writes through fs and runs Bash
- * through terminal) get Code Desktop's rules applied here, at the boundary:
+ * through terminal) get OpenClaude Desktop's rules applied here, at the boundary:
  *
  *   fs/write_text_file   only inside the thread's writable roots unless the mode
  *                        is Bypass (a read-only mode refuses every write); the
@@ -66,7 +66,7 @@ export class ClientServices {
     const own = insideRoots([file], [...(this.options.agentPaths ?? []), ...(this.options.ownPaths?.() ?? [])])
     if (isReadOnlyMode(mode) && !own) throw new RpcError(-32603, `Writing ${file} is not allowed in ${mode === 'plan' ? 'Plan' : 'read-only'} mode.`)
     if (mode !== 'bypass' && !own && !insideRoots([file], this.roots()) && !thread?.approvedPaths?.has(realPath(file))) {
-      throw new RpcError(-32603, `Code Desktop only allows writes inside the session's folders (${this.roots().join(', ')}).`)
+      throw new RpcError(-32603, `OpenClaude Desktop only allows writes inside the session's folders (${this.roots().join(', ')}).`)
     }
     await fs.promises.mkdir(path.dirname(file), { recursive: true })
     await fs.promises.writeFile(file, String(content ?? ''))
@@ -126,7 +126,7 @@ export class ClientServices {
       file = SANDBOX_EXEC
     }
     const id = `term-${process.pid}-${++this.seq}`
-    // Code Desktop's launch variables (its tools channel secret among them) never reach the agent's commands.
+    // OpenClaude Desktop's launch variables (its tools channel secret among them) never reach the agent's commands.
     const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('CODE_DESKTOP_') && key !== 'ELECTRON_RUN_AS_NODE'))
     const child = spawn(file, argv, { cwd: workdir, env: { ...baseEnv, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     const limit = Number.isInteger(outputByteLimit) && outputByteLimit > 0 ? outputByteLimit : OUTPUT_LIMIT

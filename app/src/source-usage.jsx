@@ -163,13 +163,13 @@ export function ResetCreditsSection({summary,eligible,open,onOpen,onClose,onCons
   {message&&<p className="su-reset-result" role="status">{message}</p>}
  </section>;
 }
-// Tokens Code Desktop counted on this Mac (usage-model localUsagePresentation), for a core that reports no usage of its
+// Tokens OpenClaude Desktop counted on this Mac (usage-model localUsagePresentation), for a core that reports no usage of its
 // own: by model, then per day, with the total. Its provider's bill may differ, and the note says so.
 // modelNames: the core's model/list ids → displayName, so a row reads as the model menu does (the id stays in the tooltip).
 export function LocalUsage({local,modelNames}) {
  return <section className="su-section" aria-label={t('Tokens counted on this Mac')} data-local-usage="">
   <h3 className="text-heading-semibold">{t('Tokens counted on this Mac')}</h3>
-  <p className="su-note">{t('Counted by Code Desktop from your sessions on this Mac. Your provider’s bill may differ.')}</p>
+  <p className="su-note">{t('Counted by OpenClaude Desktop from your sessions on this Mac. Your provider’s bill may differ.')}</p>
   <ul className="su-models su-local-models">{local.models.map(entry=><li key={entry.model}>
    <span className="su-legend-name" title={entry.model}>{modelNames?.get(entry.model)||entry.model}</span>
    <span className="su-meter" aria-hidden="true"><span className="su-indicator" style={{'--usage-percent':`${(entry.share*100).toFixed(1)}%`}}/></span>
@@ -225,7 +225,7 @@ export function SourceUsage({readUsage,engine:runningCore,onOpenLink,consumeRese
  const engine=usageCore(runningCore,data);
  const {rows,credits,spending,resetCredits,notice,plan,daily,dailyLabel,lifetimeTokens}=usagePresentation(data,{todayKey,core:coreName(engine),locale:getLocale()});
  const cost=usageCostPresentation(data,{todayKey,locale:getLocale()}),spend=cost?null:usageSpendPresentation(data);
- // No buckets from the core: what Code Desktop counted on this Mac (Home's stats), labelled as such.
+ // No buckets from the core: what OpenClaude Desktop counted on this Mac (Home's stats), labelled as such.
  const local=!cost&&!daily.length?localUsagePresentation(data?.localStats,{todayKey}):null;
  // One credits group per bucket: its balance and its monthly credit limit together.
  const creditGroups=[];for(const credit of credits)creditGroups.push({key:credit.key,credit,spend:spending.find(entry=>entry.key===credit.key)??null});

@@ -75,7 +75,7 @@ test("an Extension Pack keeps its key types' placeholders and prefixes (sanitize
   try {
     fs.mkdirSync(path.join(root, "bridge/bin"), { recursive: true });
     fs.writeFileSync(path.join(root, "bridge/bin/app-server.mjs"), "#!/usr/bin/env node\n");
-    fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({ format: 1, version: "1.0.0", description: "MiMo Code for Code Desktop",
+    fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({ format: 1, version: "1.0.0", description: "MiMo Code for OpenClaude Desktop",
       core: { id: "mimo", name: "MiMo Code", vendor: "Xiaomi", engine: "mimo", kind: "bridge", models: "Xiaomi MiMo models", bridge: { script: "bridge/bin/app-server.mjs" },
         agent: { binary: "mimo", release: { type: "zip" } }, login: { apiKey: [
           { template: "xiaomi", label: "Xiaomi MiMo API key", keyPrefix: "sk-", keyPlaceholder: "sk-…" },

@@ -1,11 +1,11 @@
-// Code Desktop workflow agents on the OpenCode / MiMo bridge (packages/opencode-bridge): the runner
+// OpenClaude Desktop workflow agents on the OpenCode / MiMo bridge (packages/opencode-bridge): the runner
 // (app/third-party/codex-workflows-runner, clientInfo.name code-desktop-workflows) starts every agent with
 // approvalPolicy "never" and turns every server request down, so
 //  - what would put a card in front of a person is refused with a reason (OpenCode's CorrectedError, which the agent
 //    reads and continues from) instead of a bare reject (a RejectedError, which ends its turn with no answer);
 //  - the `question` tool is not offered, and a question that still arrives is answered "decide yourself";
 //  - the agents' sessions leave the user's OpenCode history with the runner's bridge (and the app's next sweep).
-// Also: Code Desktop's own tools (code_desktop_*) are allowed by the session ruleset, so MiMo's background actors,
+// Also: OpenClaude Desktop's own tools (code_desktop_*) are allowed by the session ruleset, so MiMo's background actors,
 // which never ask a person, can use them in every mode (the root's ask is answered `once` anyway).
 import test from 'node:test'
 import assert from 'node:assert/strict'

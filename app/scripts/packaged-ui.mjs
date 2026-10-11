@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 const root=path.resolve(import.meta.dirname,'..');
 const evidence=path.join(root,'../analysis/batch-20260920');
 const expectedBuild=JSON.parse(await fs.readFile(path.join(root,'dist/build-info.json'),'utf8'));
-const appPath=process.env.TEST_APP_PATH || path.join(root,'../releases/Code Desktop-darwin-arm64/Code Desktop.app');
+const appPath=process.env.TEST_APP_PATH || path.join(root,'../releases/OpenClaude Desktop-darwin-arm64/OpenClaude Desktop.app');
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const scriptSha256=digest(await fs.readFile(import.meta.filename));
 const asarPath=path.join(appPath,'Contents/Resources/app.asar');
@@ -18,7 +18,7 @@ const env={...process.env,CODE_DESKTOP_DATA:profile};delete env.ELECTRON_RUN_AS_
 let app;
 let report={passed:false,startedAt:new Date().toISOString(),packagedApp:appPath,realCodex:true,profile,profileRemoved:false,scriptSha256,asarHashBefore};
 try{
- app=await electron.launch({executablePath:path.join(appPath,'Contents/MacOS/Code Desktop'),args:[],env});
+ app=await electron.launch({executablePath:path.join(appPath,'Contents/MacOS/OpenClaude Desktop'),args:[],env});
  const page=await app.firstWindow();const errors=[],requests=[];
  // Isolate Chromium hover input from the shared desktop; installed native
  // interactions are separately exercised through Computer Use.

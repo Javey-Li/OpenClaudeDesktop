@@ -423,7 +423,7 @@ try {
   assert.equal(metrics.release.date, releaseNoteDate(releaseEntry.date));
   assert.deepEqual(metrics.release.groups, ["New", "Improved", "Fixed"].filter((label, index) => releaseEntry.items.some((item) => item.kind === ["feat", "improvement", "fix"][index])));
   assert.equal(await dialog.getByRole("button", { name: "Close release notes" }).count(), 0);
-  assert.match(await dialog.innerText(), /Code Desktop is now a frame for agent cores/);
+  assert.match(await dialog.innerText(), /OpenClaude Desktop is now a frame for agent cores/);
   assert.doesNotMatch(await dialog.innerText(), /Codex/);
   assert.doesNotMatch(await dialog.innerText(), /Native model menu/);
   await dialog.press("Tab");

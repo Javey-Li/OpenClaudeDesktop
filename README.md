@@ -1,4 +1,4 @@
-# Code Desktop
+# OpenClaude Desktop
 
 ## 2026-10-03 插件管理：安装、启用/停用、移除 DeepSeek Harness 插件（未构建、未安装）
 
@@ -730,7 +730,7 @@ Changes设置菜单（新纯模块app/src/changes-menu-model.mjs changesMenuSect
 
 Go菜单（electron/app-menu.cjs，reference/asar/.vite/build/index.chunk-D6ATlqeD.js gyr/_yr/Cyr/Syr，jOr中位于View之后）：appMenuTemplate({sidebarOpen,canGoBack,canGoForward,emit})在View与Window之间加{label:'Go'}，submenu为Cyr的四项：隐藏孪生{Back, Command+[, visible:false}（携带注册的加速键）、{id:'go-back', registerAccelerator:false, enabled:canGoBack}，Forward同理（Command+]、go-forward）；四项click均emit({kind:'navigate',delta:±1})。渲染端对⌘[ / ⌘]已preventDefault，故加速键不会重复触发（同⌘B说明）。新navigationState(payload)只接受真正的true。main.cjs：desktop:call新增'navigation-state'动作（沿用现有call通道，preload无需改动），保存状态并按Syr以getMenuItemById('go-back'/'go-forward').enabled更新，installAppMenu重建时带入该状态；初始为{false,false}（本地历史起始为[null]；源xyr初值为true/true，由首次did-navigate立即覆盖）。main.jsx在canGoBack/canGoForward变化时调用call("navigation-state")，并处理桌面事件{kind:'navigate',delta}（delta仅±1）→travelShortcutRef。
 
-测试：tests/app-menu.test.mjs新增2项（Go四项的label/accelerator/id/visible/registerAccelerator/enabled随输入四种组合、click各emit {kind:'navigate',delta:±1}、无状态时两项disabled；navigationState过滤非true）；原“Code Desktop/Edit/Window”顶层顺序断言按jOr更新为['Code Desktop','editMenu','View','Go','windowMenu']（新增菜单导致的真实变化，非放宽），View/Sidebar断言未改。新增tests/source-nav-buttons.test.mjs（3项，vite SSR）：navAvailability边界；qM两按钮aria-disabled="true"、无disabled属性、无title、aria-keyshortcuts Meta+[ / Meta+]、中间位置两者都无aria-disabled、NAV_TOOLTIPS值；折叠SourceTitlebar按钮顺序Show sidebar→Back→Forward且后两者在df-collapsed-nav内、展开时无该簇。离屏sidebar-chrome扩展4个阶段（原18项→24项检查，新增6项）：nav-initial（实际应用菜单为Code Desktop/Edit/View/Go/Window；Go四项含隐藏孪生visible false/registerAccelerator true，go-back/go-forward disabled；Back/Forward aria-disabled "true"、无disabled、无title、aria-keyshortcuts、pointer-events none、子元素opacity 0.5、element.focus()可聚焦）；nav-travel（打开A再B后Back可用、Go go-back启用；悬停Back出现“Back”+“⌘[”提示且位于按钮下方、无title；Meta+[回到A（行aria-current与标题栏标题），Meta+]回到B，Go状态逐步跟随；Go可见项与隐藏孪生的click均导航）；nav-settings-guard（Settings打开时Meta+[与Go>Back都不导航）；nav-collapsed（Meta+B折叠后.df-collapsed-chrome按钮顺序Show sidebar/Back/Forward，后两者在.df-collapsed-nav内、x依次递增同一行、-webkit-app-region no-drag；折叠态提示同样带⌘[；点Back到A、点Forward到B并随之aria-disabled）；nav-expanded（展开后侧栏Back/Forward同样导航；聚焦aria-disabled的Forward按Enter无动作），随后点New回到原流程起点。menu-bar离屏套件只捕获托盘菜单（Tray adapter），不读取应用菜单；应用菜单Go项由上面的sidebar-chrome与单元测试覆盖。按角色点“Back”的原生脚本只有subagents-ui-test（pane内的Back，与此无关）；titlebar-ui-test折叠断言（首个按钮仍为Show sidebar、st-inner在其右侧≥24px）与本改动兼容。截图nav-back-tooltip.png、nav-collapsed-titlebar.png已目视（副本在work/claude-ui-sweep/0.2.104/）。
+测试：tests/app-menu.test.mjs新增2项（Go四项的label/accelerator/id/visible/registerAccelerator/enabled随输入四种组合、click各emit {kind:'navigate',delta:±1}、无状态时两项disabled；navigationState过滤非true）；原“OpenClaude Desktop/Edit/Window”顶层顺序断言按jOr更新为['OpenClaude Desktop','editMenu','View','Go','windowMenu']（新增菜单导致的真实变化，非放宽），View/Sidebar断言未改。新增tests/source-nav-buttons.test.mjs（3项，vite SSR）：navAvailability边界；qM两按钮aria-disabled="true"、无disabled属性、无title、aria-keyshortcuts Meta+[ / Meta+]、中间位置两者都无aria-disabled、NAV_TOOLTIPS值；折叠SourceTitlebar按钮顺序Show sidebar→Back→Forward且后两者在df-collapsed-nav内、展开时无该簇。离屏sidebar-chrome扩展4个阶段（原18项→24项检查，新增6项）：nav-initial（实际应用菜单为OpenClaude Desktop/Edit/View/Go/Window；Go四项含隐藏孪生visible false/registerAccelerator true，go-back/go-forward disabled；Back/Forward aria-disabled "true"、无disabled、无title、aria-keyshortcuts、pointer-events none、子元素opacity 0.5、element.focus()可聚焦）；nav-travel（打开A再B后Back可用、Go go-back启用；悬停Back出现“Back”+“⌘[”提示且位于按钮下方、无title；Meta+[回到A（行aria-current与标题栏标题），Meta+]回到B，Go状态逐步跟随；Go可见项与隐藏孪生的click均导航）；nav-settings-guard（Settings打开时Meta+[与Go>Back都不导航）；nav-collapsed（Meta+B折叠后.df-collapsed-chrome按钮顺序Show sidebar/Back/Forward，后两者在.df-collapsed-nav内、x依次递增同一行、-webkit-app-region no-drag；折叠态提示同样带⌘[；点Back到A、点Forward到B并随之aria-disabled）；nav-expanded（展开后侧栏Back/Forward同样导航；聚焦aria-disabled的Forward按Enter无动作），随后点New回到原流程起点。menu-bar离屏套件只捕获托盘菜单（Tray adapter），不读取应用菜单；应用菜单Go项由上面的sidebar-chrome与单元测试覆盖。按角色点“Back”的原生脚本只有subagents-ui-test（pane内的Back，与此无关）；titlebar-ui-test折叠断言（首个按钮仍为Show sidebar、st-inner在其右侧≥24px）与本改动兼容。截图nav-back-tooltip.png、nav-collapsed-titlebar.png已目视（副本在work/claude-ui-sweep/0.2.104/）。
 
 验证（日志work/claude-ui-sweep/0.2.104/）：npm run build通过；npm test 1032项，1031通过、0失败、1跳过（原有跳过）；离屏sidebar-chrome 24项检查全部通过；离屏menu-bar 9项、code 9项回归通过；verify-build通过（0.2.104，SHA 20ca393ceff6ac45820577d2e4dc7eabc008adc6e6fd7a837f9c75fe0d0c4cb5，435源文件）。无保留失败。
 
@@ -918,7 +918,7 @@ source-sidebar.jsx：extraRevealed按分组key存于Map状态，折叠/重开分
 
 接手GPT未完成的0.2.92账户busy：源码已按shared-frame Button（busy时内容opacity-0保留宽度、aria-busy/aria-disabled、原生disabled只来自disabled）实现，接手时未跑验证。补跑account-lifecycle离屏11阶段首跑通过：Refresh busy保持标签宽度/焦点、无多余Sign in行推移Appearance、退出确认/设备码取消焦点与单次RPC、迟到完成/旧读取/重连均按原断言；settings与settings-complete回归通过。
 
-新增General“Menu bar”：按c71860c77顺序置于Run on startup与Keep computer awake之间，文案适配为Show Code Desktop in the menu bar.；menuBarEnabled按源默认true（旧profile无该键也开启），desktopPatch布尔校验。主进程按index.chunk-D6ATlqeD dji/NOr/M5n/tOr/pK实现：开关即建/销Tray；左键为pji无Quick Entry回退（最小化restore，否则show，再focus）；右键为原生Swift用量弹窗不可用时的源fallback菜单：Show App / 灰色“{Plan} plan”“Usage: N%”（全部窗口usedPercent峰值，Intl百分比）/ Quit Code Desktop。每次右键实时account/rateLimits/read，最多等800ms后用同连接同身份上次成功快照；无快照且失败显示Usage unavailable；API key/Bedrock无计划用量不显示行；换账户/连接不复用。usage-model移到electron/供主进程共享，src保留re-export。图标为本应用</>字形按原模板几何生成（24pt/@2x/@3x，纯黑alpha，Template命名；scripts/make-tray-icon.mjs无头渲染）。
+新增General“Menu bar”：按c71860c77顺序置于Run on startup与Keep computer awake之间，文案适配为Show OpenClaude Desktop in the menu bar.；menuBarEnabled按源默认true（旧profile无该键也开启），desktopPatch布尔校验。主进程按index.chunk-D6ATlqeD dji/NOr/M5n/tOr/pK实现：开关即建/销Tray；左键为pji无Quick Entry回退（最小化restore，否则show，再focus）；右键为原生Swift用量弹窗不可用时的源fallback菜单：Show App / 灰色“{Plan} plan”“Usage: N%”（全部窗口usedPercent峰值，Intl百分比）/ Quit OpenClaude Desktop。每次右键实时account/rateLimits/read，最多等800ms后用同连接同身份上次成功快照；无快照且失败显示Usage unavailable；API key/Bedrock无计划用量不显示行；换账户/连接不复用。usage-model移到electron/供主进程共享，src保留re-export。图标为本应用</>字形按原模板几何生成（24pt/@2x/@3x，纯黑alpha，Template命名；scripts/make-tray-icon.mjs无头渲染）。
 
 离屏适配器新增OffscreenTray：记录创建/销毁/菜单模板，禁止setContextMenu/displayBalloon，保证默认开启的托盘不会出现在真实菜单栏；run-suite仅为menu-bar首次启动声明精确blocked序列window.show、window.show、window.focus（Show App与左键故意触达），其余套件仍要求空。新增menu-bar-ui-test并登记离屏与标准链（53套）：默认开启、真实fixture计划/用量菜单、held读取800ms内出菜单且迟到更新、失败保留快照、Show App/左键路径、源顺序、开关写盘/销毁/键盘重建、搜索定位、深色760px无横向溢出、关闭后重启不建托盘。
 
@@ -1182,7 +1182,7 @@ Preferences → Codex account补齐浏览器登录、真实设备码、等待/�
 
 ## 0.2.70 Bypass Permission mode（后台验证，未安装）
 
-按用户新增要求与拆包链实现设置Code → Local sessions → Allow bypass permissions mode。开关默认关闭，只保存Code Desktop本地opt-in，不修改共享Codex配置。启用后当前会话Mode菜单增加第四项Bypass permissions（Warning图标、Accepts all permissions、数字4），composer显示Bypass，/status准确显示完整访问无批准。默认权限设置保留Auto/Manual/Plan；Bypass只在会话菜单显式选择。
+按用户新增要求与拆包链实现设置Code → Local sessions → Allow bypass permissions mode。开关默认关闭，只保存OpenClaude Desktop本地opt-in，不修改共享Codex配置。启用后当前会话Mode菜单增加第四项Bypass permissions（Warning图标、Accepts all permissions、数字4），composer显示Bypass，/status准确显示完整访问无批准。默认权限设置保留Auto/Manual/Plan；Bypass只在会话菜单显式选择。
 
 确认对齐c936fcd42的Bypass all permissions?、Cancel初始焦点、workspace及实际Codex风险说明，shared-frame rp的400px/p-xl/title/description/footer；窄屏按钮反向竖排。菜单完全退出后才展示确认，避免焦点与退出动画交叠。取消不改模式，关闭开关或断线清除临时选择，draft选择在真实thread/start成功后迁移到该会话；其它会话不继承。与官方workspace持久ack不同，本地每次显式进入Bypass均确认且仅保留本次连接的会话选择，文案没有永久免确认承诺。
 
@@ -1628,7 +1628,7 @@ Skills/Connectors/Plugins共用固定56px页头和独立滚动正文，移除旧
 
 ## 0.2.30 Changes阅读控制（后台验证，未安装）
 
-继续按2.2553.1拆包源码补Side by side与Word wrap设置：菜单勾选后保持打开，选择分栏但正文不足560px时显示Needs a wider pane并临时单栏，扩大后恢复。偏好用Code Desktop独立全局键保存，跨窗口storage事件同步。分栏按真实change块配对，缺侧空白、不编造行号，保留两侧语法/词级装饰与无末尾换行注释。关闭换行后共享hunk列宽。
+继续按2.2553.1拆包源码补Side by side与Word wrap设置：菜单勾选后保持打开，选择分栏但正文不足560px时显示Needs a wider pane并临时单栏，扩大后恢复。偏好用OpenClaude Desktop独立全局键保存，跨窗口storage事件同步。分栏按真实change块配对，缺侧空白、不编造行号，保留两侧语法/词级装饰与无末尾换行注释。关闭换行后共享hunk列宽。
 
 后台671项：670通过、1既有跳过、0失败；实际React SSR、配对/注释/独立索引、存储异常/跨窗口事件、560/零宽/清理边界均有验证。build/integrity通过；构建2026-09-21T15:14:12.017Z，`dcaf0c95d36e9de3f35acdac35b14d702fd9ed175882444b7fdd266798a18c73`，250源码文件。diff-ui仅补断言并做语法检查，没有运行。
 
@@ -1754,7 +1754,7 @@ subagents已接真实子线程生命周期、Agent行、工具活动计数、嵌
 
 ## 0.2.14 交付验证（2026-09-21 01:30 台北）：**未打包、未安装**
 
-本轮任务是"跑完整 `validate-local` 标准链 → 通过才打包安装"。**标准链没有整体通过**，因此按门槛**没有执行 `npm run package`、没有安装、没有写 installation receipt、没有冻结 `verified-0.2.14/`**；`/Users/oleyyu/Applications/Code Desktop.app` 仍是 0.2.13，用户正在用的应用未被替换。版本号保持 0.2.14（未发布）。
+本轮任务是"跑完整 `validate-local` 标准链 → 通过才打包安装"。**标准链没有整体通过**，因此按门槛**没有执行 `npm run package`、没有安装、没有写 installation receipt、没有冻结 `verified-0.2.14/`**；`/Users/oleyyu/Applications/OpenClaude Desktop.app` 仍是 0.2.13，用户正在用的应用未被替换。版本号保持 0.2.14（未发布）。
 
 - **环境阻断（无法用仓库改动解决）**：本机桌面可用区只有 **1470×851**（屏幕 1470×956 − 33pt 菜单栏 − 72pt Dock）。macOS 会把每个可见的带标题窗口夹到可用区，实测 5 种设定方式（show 后 setContentSize、隐藏时设定再 show、setBounds、放开 maximumSize、movable:false）全部得到 `1468×851`，比套件要求的 `innerHeight===852` 差 1px。证据：`analysis/batch-20260920/environment-workarea-20260921.json`。因此 `pane-layout-ui-test`、`highlight-coalescing-ui-test`、`transcript-fade-ui-test`、`ui029-ui-test`、`scrollbar-mode-ui-test` 5 个套件在启动阶段超时。**没有改 macOS 设置，也没有放宽任何套件的几何期望**；要恢复只需让桌面可用高度 ≥884pt（例如把 Dock 设为自动隐藏），再重跑这 5 个套件与完整链。
 - **通过情况**（同一构建 `ac0dd0a5…a00b79`，UI029/FADE 冻结基线 env 照给）：`build`、`unit`、`integrity` 与 38 个 GUI 套件中的 **33 个**通过；失败的 5 个全部且仅是上面那条 852px 夹断。完整链日志 `analysis/batch-20260920/validation-2026-09-20T16-58-54.156Z/`（首轮）、`…T17-04-37.537Z/`、`…T17-05-25.241Z/`（两次 `--resume`）、`…T17-07-23.766Z/`（修复后的新链，跑到 pane-layout 停）；pane-layout 之后的 22 个套件与 `verify-build` 逐个串行重跑于 `analysis/batch-20260920/sweep-20260921/`（`summary.txt` 为逐项结果）；机器可读汇总 `analysis/batch-20260920/validation-summary-20260921.json`。
@@ -1879,7 +1879,7 @@ OpenDyslexic 界面字体、Light/Dark 代码主题选择与默认 transcript vi
 
 ## 运行与验证
 
-应用使用已安装的 `codex` 和已有 Codex 登录状态，不需要 Claude 登录。默认工作目录为 `~/Documents/Code Desktop`，可在新会话选择项目。Enter发送，Shift+Enter换行。Code的Auto/Manual使用工作区写入沙箱，审批策略分别为`on-request`/`untrusted`；Plan使用`on-request`加只读沙箱，Chat也使用只读沙箱。模式名称对应本应用的Codex适配，不代表Claude全部权限策略。
+应用使用已安装的 `codex` 和已有 Codex 登录状态，不需要 Claude 登录。默认工作目录为 `~/Documents/OpenClaude Desktop`，可在新会话选择项目。Enter发送，Shift+Enter换行。Code的Auto/Manual使用工作区写入沙箱，审批策略分别为`on-request`/`untrusted`；Plan使用`on-request`加只读沙箱，Chat也使用只读沙箱。模式名称对应本应用的Codex适配，不代表Claude全部权限策略。
 
 ```sh
 cd /Users/oleyyu/claude-ui-lab/app
@@ -1906,7 +1906,7 @@ npm run package
 # 默认验证release产物，不执行安装：
 node scripts/packaged-ui.mjs
 # 完成安装后，明确验证安装位置：
-TEST_APP_PATH='/Users/oleyyu/Applications/Code Desktop.app' node scripts/packaged-ui.mjs
+TEST_APP_PATH='/Users/oleyyu/Applications/OpenClaude Desktop.app' node scripts/packaged-ui.mjs
 ```
 
 统一入口涵盖unit、GUI/lifecycle与构建完整性检查，不包含live、打包、安装及packaged专项。0.2.13共28步通过：build、unit（319通过/1跳过）、25组GUI/lifecycle、integrity；实际验收范围以该次`validation-run.json`的steps为准。旧`approval-ui.mjs`、`smoke-ui.mjs`保留旧UI或profile假设，不作为推荐主入口；`packaged-ui.mjs`已更新，是有效的产物专项。fixture只通过测试进程和隔离profile注入，生产模型/账户/会话数据始终来自真实Codex。
@@ -1946,7 +1946,7 @@ TEST_APP_PATH='/Users/oleyyu/Applications/Code Desktop.app' node scripts/package
 
 以上报告只证明各自执行时的源码和场景，源码继续变化后应核对构建标识，不能自动沿用通过结论。根目录`analysis/*test.json`中较早报告仅作历史记录。0.2.10统一验收、实际安装版专项及同1324×768官方/安装版尾部与用户围栏Computer Use已完成，冷启动所有11个显示另有实际token守卫；正常首页另作启动检查，图片宽度相差1px，未列为同尺寸对照；局部观察不等于所有状态1:1。 本轮测试不证明整体1:1；官方参考截图在`analysis/batch-20260920/official-*.jpg`。
 
-打包命令为`npm run package`，产物位于`releases/Code Desktop-darwin-arm64/Code Desktop.app`，执行本机ad-hoc签名。0.2.13已完成该步骤，没有发行公证。安装目标`/Users/oleyyu/Applications/Code Desktop.app`，台北09:47安装0.2.13，release/installed ASAR一致，见[安装记录](analysis/batch-20260920/installation-0.2.13.json)。旧版备份均保留。
+打包命令为`npm run package`，产物位于`releases/OpenClaude Desktop-darwin-arm64/OpenClaude Desktop.app`，执行本机ad-hoc签名。0.2.13已完成该步骤，没有发行公证。安装目标`/Users/oleyyu/Applications/OpenClaude Desktop.app`，台北09:47安装0.2.13，release/installed ASAR一致，见[安装记录](analysis/batch-20260920/installation-0.2.13.json)。旧版备份均保留。
 
 本次0.2.13源码标识为`9fd9b20429ee5e623ab73d922a45d649fd8133a92d15255761f43196839ce1f4`；安装ASAR SHA256为`4a1c8a0c29ad1329330bcb93e71b24ed3d58928c4da7084e9073eff7574e33a9`。后续重新构建/安装时必须更新对应证据。
 
@@ -1958,4 +1958,4 @@ TEST_APP_PATH='/Users/oleyyu/Applications/Code Desktop.app' node scripts/package
 
 `app/electron/main.cjs`管理窗口和白名单IPC，`codex.cjs`管理JSON-RPC与连接生命周期，`shutdown.cjs`让Electron等待有界清理后退出；`src/main.jsx`集成各个`source-*`组件。Electron开启context isolation和sandbox；文件预览经过真实路径范围检查及大小限制。
 
-应用配置在 `~/Library/Application Support/Code Desktop`；本地 Git worktree 位于该配置目录的 `worktrees/` 下。Codex 自行保存会话，侧栏仅列出本应用管理的会话。测试通过 `CODE_DESKTOP_DATA` 隔离配置，`CODEX_BINARY` 指定测试服务或真实 CLI；不要将 fixture 写入生产配置。
+应用配置在 `~/Library/Application Support/OpenClaude Desktop`；本地 Git worktree 位于该配置目录的 `worktrees/` 下。Codex 自行保存会话，侧栏仅列出本应用管理的会话。测试通过 `CODE_DESKTOP_DATA` 隔离配置，`CODEX_BINARY` 指定测试服务或真实 CLI；不要将 fixture 写入生产配置。

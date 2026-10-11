@@ -1,4 +1,4 @@
-// ctx.requestApproval for Code Desktop's agent tools (agent-tools-host.cjs): asks the user in a sheet on the
+// ctx.requestApproval for OpenClaude Desktop's agent tools (agent-tools-host.cjs): asks the user in a sheet on the
 // window that shows the session (else the main window) and resolves true only for an explicit Allow. One question
 // at a time per window; a window that closes, or a quit, answers no. Copy goes through the app's i18n.
 //   request.kind "preview-site"     { host, url }                    an outside site in the preview

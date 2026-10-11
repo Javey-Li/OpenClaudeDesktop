@@ -7,7 +7,7 @@
  * pass-through in front of every provider endpoint: the provider configs ZCode reads
  * (ZCODE_BUILTIN_PROVIDER_CONFIG_FILE / ZCODE_PERSONAL_PROVIDER_CONFIG_FILE) are copies whose `api.baseUrl`s
  * point at `http://127.0.0.1:<port>/u/<original base URL>`, and each request is forwarded to the original URL
- * byte for byte, except for main-agent requests of a thread with Code Desktop customization (identified by
+ * byte for byte, except for main-agent requests of a thread with OpenClaude Desktop customization (identified by
  * ZCode's own `x-session-id` header), whose system prompt, max tokens and temperature are rewritten.
  *
  * Faithfulness:

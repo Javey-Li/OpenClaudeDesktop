@@ -37,7 +37,7 @@ export const tools = [
   {
     name: "ReportFindings",
     title: "Report findings",
-    description: "Report code-review findings as a typed list so Code Desktop can show them as review results the user can open at the right line and ask you to fix. Use it at the end of a review: call it once with the verified findings ranked most severe first (an empty list if nothing survived verification), and don't also write the findings out as prose. When re-reporting after applying fixes, set each finding's outcome to what actually happened.",
+    description: "Report code-review findings as a typed list so OpenClaude Desktop can show them as review results the user can open at the right line and ask you to fix. Use it at the end of a review: call it once with the verified findings ranked most severe first (an empty list if nothing survived verification), and don't also write the findings out as prose. When re-reporting after applying fixes, set each finding's outcome to what actually happened.",
     inputSchema: {
       type: "object",
       properties: {

@@ -24,7 +24,7 @@ export const tools = [
   {
     name: "list_sessions",
     title: "List sessions",
-    description: "List the user's Code Desktop sessions, most recently active first: session_id, title, working folder, and whether each is running, idle or archived (yours is marked current). Read-only. Use it to find a related session the user mentions; never act on another session without the user asking.",
+    description: "List the user's OpenClaude Desktop sessions, most recently active first: session_id, title, working folder, and whether each is running, idle or archived (yours is marked current). Read-only. Use it to find a related session the user mentions; never act on another session without the user asking.",
     inputSchema: {
       type: "object",
       properties: {
@@ -50,7 +50,7 @@ export const tools = [
   {
     name: "get_session",
     title: "Get session",
-    description: "Read one Code Desktop session's details by its session_id (from list_sessions): title, working folder, status and when it was last active. Read-only; without session_id, this session.",
+    description: "Read one OpenClaude Desktop session's details by its session_id (from list_sessions): title, working folder, status and when it was last active. Read-only; without session_id, this session.",
     inputSchema: {
       type: "object",
       properties: { session_id: { type: "string", description: "The session to read. Default: this session." } },

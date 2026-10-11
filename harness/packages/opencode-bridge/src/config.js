@@ -2,15 +2,15 @@
  * The bridge's generated config folder, passed as OPENCODE_CONFIG_DIR
  * (MIMOCODE_CONFIG_DIR). The agent layers it over the user's own global and
  * project config, so the user's providers, keys, agents and MCP servers keep
- * working; the folder adds only what Code Desktop owns:
+ * working; the folder adds only what OpenClaude Desktop owns:
  *
  *   <config>/<opencode.json|mimocode.json>
  *     provider   Settings › Models custom providers (CODE_DESKTOP_PROVIDERS_FILE, keys from
  *                CODE_DESKTOP_PROVIDER_KEY_<ROUTE> by {env:…} reference, never written here)
  *     mcp        MCP servers added in Customize › Connectors (<state>/mcp.json), and
- *                {enabled:false} for the user's own servers turned off there; Code Desktop's own
+ *                {enabled:false} for the user's own servers turned off there; OpenClaude Desktop's own
  *                code_desktop server (app-tools.js) when the app provides one
- *     autoupdate false (Code Desktop pins the release)
+ *     autoupdate false (OpenClaude Desktop pins the release)
  *     + CODE_DESKTOP_OPENCODE_CONFIG_EXTRA (JSON) merged last
  *   <config>/plugin/code-desktop.js   the per-session plugin (plugin.js)
  *   <runtime>/shell/<name>            the sandbox shell wrapper (sandbox.js), named after and exec'ing the
@@ -263,7 +263,7 @@ export class BridgeConfig {
     return out
   }
 
-  /** The real shell the wrapper execs: what the agent would use without Code Desktop (agentShell). */
+  /** The real shell the wrapper execs: what the agent would use without OpenClaude Desktop (agentShell). */
   userShell() {
     return agentShell({ configShell: this.configuredShell(), envShell: this.env.SHELL, pathList: this.env.PATH ?? process.env.PATH, exclude: path.join(this.runtimeDir, 'shell') })
   }
@@ -302,7 +302,7 @@ export class BridgeConfig {
     const mcp = this.readMcp()
     const servers = { ...mcp.servers }
     for (const name of mcp.disabled) if (!servers[name]) servers[name] = { enabled: false }
-    // Code Desktop's own tools (app-tools.js): one server for every session, each call naming its app thread.
+    // OpenClaude Desktop's own tools (app-tools.js): one server for every session, each call naming its app thread.
     const appTools = appToolsServer(this.env)
     if (appTools && !mcp.disabled.includes(appTools.name)) servers[appTools.name] = opencodeAppToolsEntry(appTools)
     // MiMo's mcp.<name>.sampling, merged over the connector's own entry (the overlay is the highest config layer).
@@ -320,7 +320,7 @@ export class BridgeConfig {
     if (Object.keys(servers).length) config.mcp = servers
     const references = this.userReferences()
     if (Object.keys(references).length) config.references = references
-    // Customize › Skills switches and Plugins added in Code Desktop (<state>/settings.json).
+    // Customize › Skills switches and Plugins added in OpenClaude Desktop (<state>/settings.json).
     const settings = readJson(path.join(this.stateDir, 'settings.json'), {})
     const disabledSkills = Array.isArray(settings.disabledSkills) ? settings.disabledSkills.filter((name) => typeof name === 'string') : []
     if (disabledSkills.length) config.permission = { skill: Object.fromEntries(disabledSkills.map((name) => [name, 'deny'])) }
@@ -344,7 +344,7 @@ export class BridgeConfig {
     // object it passed (session/tools.ts).
     writeAtomic(path.join(this.configDir, 'plugin', PLUGIN_FILE), pluginSource({ replaceArgs: this.flavor.id === 'mimo' }))
     const shell = this.writeShell()
-    // The {env:…} references of Code Desktop's tools server (app-tools.js) resolve in the agent server's environment.
+    // The {env:…} references of OpenClaude Desktop's tools server (app-tools.js) resolve in the agent server's environment.
     const appTools = appToolsServer(this.env) ? { CODE_DESKTOP_AGENT_TOOLS_SOCKET: this.env.CODE_DESKTOP_AGENT_TOOLS_SOCKET, CODE_DESKTOP_AGENT_TOOLS_TOKEN: this.env.CODE_DESKTOP_AGENT_TOOLS_TOKEN } : {}
     return {
       [`${this.flavor.envPrefix}_CONFIG_DIR`]: this.configDir,

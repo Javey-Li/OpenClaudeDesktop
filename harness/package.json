@@ -2,7 +2,7 @@
   "name": "code-desktop-deepseek-core",
   "private": true,
   "type": "module",
-  "description": "DeepSeek Harness runtime + Codex app-server compatible bridge for Code Desktop",
+  "description": "DeepSeek Harness runtime + Codex app-server compatible bridge for OpenClaude Desktop",
   "dependencies": {
     "@code-desktop/dsh-code-desktop-app": "file:./packages/code-desktop-app",
     "@code-desktop/dsh-codex-app-server": "file:./packages/codex-app-server",

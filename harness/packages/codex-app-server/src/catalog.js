@@ -222,10 +222,10 @@ function bundleDescription(bundle) {
 }
 
 /**
- * Official bundles that can't work in Code Desktop, whatever their switch says (codeDesktop.unavailable):
+ * Official bundles that can't work in OpenClaude Desktop, whatever their switch says (codeDesktop.unavailable):
  * - Schedule delivers reminders through the DeepSeek app's own Web Session controller (dsh-schedule README), which the
- *   Code Desktop profile doesn't mount, so its entry stays pending and its tools never register;
- * - Agent Team replaces DeepSeek's sub-agents with team tools Code Desktop has no member or task view for;
+ *   OpenClaude Desktop profile doesn't mount, so its entry stays pending and its tools never register;
+ * - Agent Team replaces DeepSeek's sub-agents with team tools OpenClaude Desktop has no member or task view for;
  * - Auto review's review step isn't connected here, so turning it on would only look like a safety net.
  */
 export const UNAVAILABLE_BUNDLES = Object.freeze({
@@ -235,7 +235,7 @@ export const UNAVAILABLE_BUNDLES = Object.freeze({
 })
 
 /**
- * Why a bundle can't run in Code Desktop, or null: a known one (UNAVAILABLE_BUNDLES), or an enabled bundle one of whose
+ * Why a bundle can't run in OpenClaude Desktop, or null: a known one (UNAVAILABLE_BUNDLES), or an enabled bundle one of whose
  * rows the loader still holds pending (waiting for a service this host never provides). phases: rowId → fiber phase.
  */
 export function bundleUnavailable(bundle, phases = null) {

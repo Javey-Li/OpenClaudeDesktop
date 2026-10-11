@@ -1,7 +1,7 @@
 /**
- * Code Desktop permission modes on ZCode's own permission system (core/src/permission/service.ts).
+ * OpenClaude Desktop permission modes on ZCode's own permission system (core/src/permission/service.ts).
  *
- *   Code Desktop      ZCode mode   what ZCode does
+ *   OpenClaude Desktop      ZCode mode   what ZCode does
  *   ask               build        read-only tools run; every side-effect tool asks (Allow once / project rule / Deny)
  *   acceptEdits       edit         as build, but workspace file edits run without asking
  *   auto              edit         Codex "auto" confines commands to a workspace sandbox. ZCode has no sandbox, so
@@ -27,7 +27,7 @@ import { isRecord } from './items.js'
 export const MODES = Object.freeze(['auto', 'ask', 'acceptEdits', 'plan', 'bypass', 'chat', 'review'])
 
 /**
- * The Code Desktop mode a thread/turn request asks for (the hint wins; else the Codex policy fields), plus whether
+ * The OpenClaude Desktop mode a thread/turn request asks for (the hint wins; else the Codex policy fields), plus whether
  * the client takes approval requests at all: approvalPolicy "never" means it never answers one (the workflow runner,
  * any Codex client), so outside Bypass an ask is refused on the spot instead of becoming a request nobody answers.
  */
@@ -54,7 +54,7 @@ export function permissionOf(params = {}, previous = null) {
 /** Modes where nothing may change files or run side effects: a standing session grant never applies there. */
 export const isReadOnlyMode = (mode) => mode === 'plan' || mode === 'chat' || mode === 'review'
 
-/** ZCode's session mode for a Code Desktop mode. */
+/** ZCode's session mode for an OpenClaude Desktop mode. */
 export function zcodeMode(mode) {
   switch (mode) {
     case 'bypass': return 'yolo'

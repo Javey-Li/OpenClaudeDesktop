@@ -152,7 +152,7 @@ test("Codex implies what its upstream protocol serves: Plan modes, outputSchema 
   }
 });
 
-test("every Code Desktop core that serves codeDesktop/sideQuestion implies sideQuestion", () => {
+test("every OpenClaude Desktop core that serves codeDesktop/sideQuestion implies sideQuestion", () => {
   const serves = { deepseek: "codex-app-server/src/index.js", zcode: "zcode-bridge/src/server.js", opencode: "opencode-bridge/src/index.js", mimo: "opencode-bridge/src/index.js" };
   for (const adapter of ADAPTERS) serves[adapter.id] = "acp-bridge/src/server.js";
   for (const [id, file] of Object.entries(serves)) {

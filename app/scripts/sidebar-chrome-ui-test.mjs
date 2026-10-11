@@ -96,7 +96,7 @@ try{
  report.checks.push('A profile without sidebarCollapsed starts expanded; View menu opens with Command Palette… (CmdOrCtrl+K) and Hide Sidebar (CmdOrCtrl+B), a separator, the bNr Show Terminal / Changes / Preview / Files / Side Chat / Close Pane items, the index.chunk-ChZ67Jhw.js dNr zoom items (in place of the zoom roles), reload/devtools and Enter Full Screen');
  step('nav-initial');const go=await goMenu();report.metrics.goMenu=go;
  // Fidelity F04 (on purpose): ANr's full menu bar, and Swr's Previous/Next Session and Search… after Back/Forward (9 items).
- assert.deepEqual(go.labels,['Code Desktop','File','Edit','View','Go','Window','Help']);assert.equal(go.items.length,9);
+ assert.deepEqual(go.labels,['OpenClaude Desktop','File','Edit','View','Go','Window','Help']);assert.equal(go.items.length,9);
  assert.deepEqual(go.items,[{label:'Back',accelerator:'Command+[',id:null,visible:false,registerAccelerator:true,enabled:true},{label:'Back',accelerator:'Command+[',id:'go-back',visible:true,registerAccelerator:false,enabled:false},
   {label:'Forward',accelerator:'Command+]',id:null,visible:false,registerAccelerator:true,enabled:true},{label:'Forward',accelerator:'Command+]',id:'go-forward',visible:true,registerAccelerator:false,enabled:false},'---',
   {label:'Previous Session',accelerator:'Command+Shift+[',id:null,visible:true,registerAccelerator:true,enabled:true},{label:'Next Session',accelerator:'Command+Shift+]',id:null,visible:true,registerAccelerator:true,enabled:true},'---',

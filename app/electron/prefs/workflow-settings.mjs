@@ -269,7 +269,7 @@ function workflowEntries(list) {
   return Array.isArray(list) ? list.filter((entry) => typeof entry === "string" && /^(?:Workflow|RunWorkflow)(?:\(.*\))?$/.test(entry.trim())) : [];
 }
 
-/** The variables Code Desktop's runner child reads (the resolved values, so a Settings value reaches it like Claude's env). */
+/** The variables OpenClaude Desktop's runner child reads (the resolved values, so a Settings value reaches it like Claude's env). */
 export function workflowRunnerEnv(resolved) {
   const out = {
     CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS: String(resolved.maxConcurrentAgents.value),
@@ -285,8 +285,8 @@ export function workflowRunnerEnv(resolved) {
 }
 
 /**
- * Which engine runs a core's dynamic workflows: its own ("native", capabilities.modelWorkflows) or Code Desktop's.
- * A core with its own engine runs it unless Settings chose Code Desktop for that core; any other core runs Code Desktop's.
+ * Which engine runs a core's dynamic workflows: its own ("native", capabilities.modelWorkflows) or OpenClaude Desktop's.
+ * A core with its own engine runs it unless Settings chose OpenClaude Desktop for that core; any other core runs OpenClaude Desktop's.
  */
 export function workflowEngineFor(engines, coreId, hasNative) {
   if (!hasNative) return "codeDesktop";

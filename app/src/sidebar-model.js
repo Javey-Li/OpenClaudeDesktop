@@ -520,7 +520,7 @@ export function truncateRuns(runs = [], { truncateAt, extraRevealed = 0, keepVis
 
 /**
  * Pins and groups a core keeps on its own threads (Codex sections: Thread.section; the built-in "Pinned" section and
- * custom groups linked by codexSectionId, electron/codex-sections.cjs), for the sessions Code Desktop has no choice
+ * custom groups linked by codexSectionId, electron/codex-sections.cjs), for the sessions OpenClaude Desktop has no choice
  * recorded for. A local pin or group always wins.
  */
 export function withCoreSections(metadata = {}, sessions = [], { customGroups = [], pinnedSectionId = null } = {}) {

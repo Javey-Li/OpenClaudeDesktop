@@ -1,5 +1,5 @@
 // DeepSeek's own settings pages (the official client's Plugins › Official Shell, Agent loop, Subagent and Web search
-// pages) for Code Desktop's Settings › Code: codeDesktop/settings/read|write over dsh-settings (ctx.settings), which edits
+// pages) for OpenClaude Desktop's Settings › Code: codeDesktop/settings/read|write over dsh-settings (ctx.settings), which edits
 // the live volatile fields of those profile entries and persists them in the active profile's patch.
 //
 // Only these fields are offered, each read from the redacted descriptor (its effective value, the schema default, and
@@ -42,7 +42,7 @@ export function coreSettingsRead(settings) {
     if (!form) continue
     const value = form.value && typeof form.value === 'object' ? form.value[field.key] : undefined
     const user = form.user && typeof form.user === 'object' ? form.user[field.key] : undefined
-    // The default a reset returns to: the value beneath the profile override (Code Desktop's own profile may set one),
+    // The default a reset returns to: the value beneath the profile override (OpenClaude Desktop's own profile may set one),
     // else the schema's.
     const base = form.base && typeof form.base === 'object' && form.base[field.key] !== undefined ? form.base[field.key] : schemaDefault(form.schema, field.key)
     out.push({ ns: field.ns, key: field.key, type: field.type, ...(field.unit ? { unit: field.unit } : {}), ...(field.min !== undefined ? { min: field.min, max: field.max } : {}),

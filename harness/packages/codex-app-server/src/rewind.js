@@ -29,12 +29,12 @@
 import { RpcError, invalidParams } from './transport.js'
 import { forkBoundary, startsNext } from './fork.js'
 
-/** The notice's message source kind (a Harness MessageSourceMap kind of Code Desktop's own). */
+/** The notice's message source kind (a Harness MessageSourceMap kind of OpenClaude Desktop's own). */
 export const REWIND_SOURCE = 'code-desktop-rewind'
 /** What the model reads where the dropped turns were. */
-export const REWIND_NOTICE = '[Code Desktop] The user rewound the conversation to this point. The messages that followed were removed; files they changed were not restored.'
+export const REWIND_NOTICE = '[OpenClaude Desktop] The user rewound the conversation to this point. The messages that followed were removed; files they changed were not restored.'
 /** A later run of dropped messages, after a kept system or tool-registry node. */
-export const REWIND_GAP_NOTICE = '[Code Desktop] Removed by the rewind above.'
+export const REWIND_GAP_NOTICE = '[OpenClaude Desktop] Removed by the rewind above.'
 
 const SURFACE_TYPES = new Set(['system/message', 'developer/message', 'user/message', 'assistant/message', 'tool/result'])
 // Surface nodes a rewind leaves in place even after the cut.

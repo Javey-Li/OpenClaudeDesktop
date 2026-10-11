@@ -1,4 +1,4 @@
-// Parity tests for the ACP bridge (harness/packages/acp-bridge): what each agent supports reaches Code Desktop.
+// Parity tests for the ACP bridge (harness/packages/acp-bridge): what each agent supports reaches OpenClaude Desktop.
 // Server flows run against a scripted ACP agent (packages/acp-bridge/testing/fake-acp-agent.mjs); adapter
 // details against files laid out as each agent writes them.
 import { test } from 'node:test'
@@ -21,7 +21,7 @@ const FAKE_AGENT = path.resolve(import.meta.dirname, '../packages/acp-bridge/tes
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'acp-parity-')))
 const kimi = adapterById('kimi')
 
-/** A bridge on the scripted agent, driven like Code Desktop's client. */
+/** A bridge on the scripted agent, driven like OpenClaude Desktop's client. */
 function bridge({ adapter = kimi, env = {}, answer } = {}) {
   const home = tmp()
   const kimiHome = path.join(home, '.kimi-code')

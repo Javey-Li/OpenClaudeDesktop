@@ -1,6 +1,6 @@
 /**
  * Bridge-owned thread metadata the Harness session log does not model:
- * Code Desktop names, archive flags and soft deletion. One small JSON file,
+ * OpenClaude Desktop names, archive flags and soft deletion. One small JSON file,
  * written atomically.
  *
  * Several cores can share the file (the workflow runner spawns its own core

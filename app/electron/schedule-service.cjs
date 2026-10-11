@@ -3,7 +3,7 @@
 // (fires on every match, then auto-expires after 7 days with one final fire) or one-shot (fires once, then deleted),
 // at most 50 jobs, and a job fires only while its session is idle — never beside a running turn. A fired prompt goes
 // to the session as a new turn with the session's last turn options (deliver, main.cjs: workflow-tool-service.cjs),
-// so it never runs with wider access than the session itself. Session-only: jobs live in memory until Code Desktop
+// so it never runs with wider access than the session itself. Session-only: jobs live in memory until OpenClaude Desktop
 // quits. The Background tasks pane lists a session's jobs ("Loop" / "Once", Next {countdown}, Ends {days}d) and
 // stops one (list/remove).
 
@@ -176,7 +176,7 @@ function createScheduleService({ deliver, isIdle = () => true, emit = () => {}, 
     return { expression, parsed, prompt: text, humanSchedule: humanSchedule(expression) };
   }
   function create(sessionId, { cron, prompt, recurring = true } = {}) {
-    if (typeof sessionId !== "string" || !sessionId) throw new Error("This tool works only in a Code Desktop session.");
+    if (typeof sessionId !== "string" || !sessionId) throw new Error("This tool works only in an OpenClaude Desktop session.");
     const { expression, parsed, prompt: text } = check({ cron, prompt });
     const id = crypto.randomBytes(4).toString("hex");
     const job = { id, sessionId, cron: expression, parsed, humanSchedule: humanSchedule(expression), prompt: text, recurring: recurring !== false, createdAt: now(), fired: 0, due: false, timer: null, nextFireAt: null };

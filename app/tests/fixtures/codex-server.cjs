@@ -840,7 +840,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         return;
       }
       if(text==='fixture:computer-use') {
-        // Computer use in the three shapes the app reads (src/computer-use-model.mjs): Code Desktop's computerUse item,
+        // Computer use in the three shapes the app reads (src/computer-use-model.mjs): OpenClaude Desktop's computerUse item,
         // a computer-use MCP server's tool, the Anthropic computer tool. fixture-computer.png (profile) is the screenshot.
         let png=null;try{png=fs.readFileSync(path.join(process.env.CODE_DESKTOP_DATA,'fixture-computer.png')).toString('base64');}catch{}
         const shot=png?`data:image/png;base64,${png}`:undefined;
@@ -860,7 +860,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         });
         return;
       }
-      // 'fixture:workflow-tool <json>': the model calls Code Desktop's Workflow tool. Like a real core, the fixture starts the
+      // 'fixture:workflow-tool <json>': the model calls OpenClaude Desktop's Workflow tool. Like a real core, the fixture starts the
       // app's agent-tools MCP server (CODE_DESKTOP_AGENT_TOOLS_SERVER), lists its tools, calls Workflow with the JSON
       // arguments (_meta.threadId names the session) and reports the tool's text as an mcpToolCall item and its reply.
       if(text.startsWith('fixture:workflow-tool')) {

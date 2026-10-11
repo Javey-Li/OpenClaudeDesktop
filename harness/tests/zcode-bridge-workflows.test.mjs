@@ -515,7 +515,7 @@ const appNotice = async (text) => {
   return workflowNotificationSummary(text)
 }
 
-test('a finished run\'s notification turn: one notice per run in Code Desktop\'s form, which the app reads as its own', async () => {
+test('a finished run\'s notification turn: one notice per run in OpenClaude Desktop\'s form, which the app reads as its own', async () => {
   const [notice] = workflowNotices(ZCODE_NOTIFICATION, ORIGIN)
   assert.deepEqual(await appNotice(notice), { status: 'completed', summary: 'Dynamic workflow "smoke-wf" completed', taskId: 'dwfrun-5886', durationMs: 117 })
   // Failed (errored) and stopped runs; a batch (no originMeta) still names each run from its own block.

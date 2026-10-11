@@ -1,5 +1,5 @@
 import { t } from "../electron/i18n/index.mjs";
-// Labels for the agents' own settings Code Desktop can change (acp-bridge codeDesktop/coreSettings/*): keyed by the
+// Labels for the agents' own settings OpenClaude Desktop can change (acp-bridge codeDesktop/coreSettings/*): keyed by the
 // setting's dotted key so the bridge never sends display text. An unknown key keeps its key as the label.
 // A label may depend on the core (the same key in Gemini's and Qwen's settings.json): it gets the core id.
 const LABELS = {
@@ -8,7 +8,7 @@ const LABELS = {
     : core === "mimo"
       ? [t("Send usage statistics"), t("MiMo Code sends model and tool usage data, tagged with the session, to Xiaomi. Turn this off to stop it. MiMo Code restarts when nothing is running.")]
       : [t("Send usage statistics"), t("Gemini CLI sends anonymous usage statistics to Google. Turn this off to stop it.")],
-  // MiMo Code's own config (opencode-bridge core-settings.js), kept in Code Desktop's overlay.
+  // MiMo Code's own config (opencode-bridge core-settings.js), kept in OpenClaude Desktop's overlay.
   "compaction.auto": () => [t("Compact automatically"), t("Summarize earlier messages when the context window fills up.")],
   "compaction.max_context": () => [t("Context limit"), t("Compact once a conversation reaches this many tokens, to save cost on large-context models. Empty: the model’s full window.")],
   "memory.disable_write": () => [t("Stop saving memory"), t("MiMo Code stops writing new memories (checkpoints, MEMORY.md, notes) and skips automatic dream and distill runs. What it saved stays readable.")],
@@ -33,8 +33,8 @@ const LABELS = {
   "compactionModel": () => [t("Compaction model"), t("The model that summarizes earlier messages when the context fills up.")],
   "visionModel": () => [t("Vision model"), t("Reads images for a main model that can’t, so screenshots still work.")],
   "imageModel": () => [t("Image model"), t("The model the image generation tool uses.")],
-  // Qwen's voice input is its terminal's /voice; Code Desktop has no dictation, so the row says where it applies.
-  "voiceModel": () => [t("Voice model"), t("The model that transcribes voice input in Qwen Code’s terminal (/voice). Code Desktop has no voice input.")],
+  // Qwen's voice input is its terminal's /voice; OpenClaude Desktop has no dictation, so the row says where it applies.
+  "voiceModel": () => [t("Voice model"), t("The model that transcribes voice input in Qwen Code’s terminal (/voice). OpenClaude Desktop has no voice input.")],
   "advisorModel": () => [t("Advisor model"), t("A second model Qwen can ask for advice on hard steps.")],
   "memory.enableManagedAutoMemory": () => [t("Auto memory"), t("After turns, Qwen saves facts from your conversations in the background and recalls them in later sessions. Each save is an extra model call on your account.")],
   "memory.enableManagedAutoDream": () => [t("Memory consolidation"), t("Qwen periodically tidies its saved memories in the background, which also uses model calls.")],

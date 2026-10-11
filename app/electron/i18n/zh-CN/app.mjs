@@ -10,9 +10,9 @@ export default {
   'Routines': '例行任务',
   'Browse project': '浏览项目',
   'Files created in your workspace are available in the project browser.': '在工作区中创建的文件可在项目浏览器中查看。',
-  'Scheduled tasks aren’t available in Code Desktop yet.': 'Code Desktop 暂不支持计划任务。',
+  'Scheduled tasks aren’t available in OpenClaude Desktop yet.': 'OpenClaude Desktop 暂不支持计划任务。',
   'Configure your local DeepSeek environment and workspace.': '配置本地 DeepSeek 环境和工作区。',
-  'Open Code Desktop to connect to DeepSeek.': '请打开 Code Desktop 以连接 DeepSeek。',
+  'Open OpenClaude Desktop to connect to DeepSeek.': '请打开 OpenClaude Desktop 以连接 DeepSeek。',
 
   // Titlebar
   'Untitled': '未命名',
@@ -266,9 +266,9 @@ export default {
   'Set per session with the Mode menu.': '在每个会话中通过“模式”菜单设置。',
   'The Mode menu sets this for each message, overriding your {core} configuration. Choose Bypass permissions for full access.': '“模式”菜单会为每条消息设置此项，并覆盖你的 {core} 配置。如需完全访问权限，请选择“绕过权限”。',
   'Per session': '按会话',
-  'Space Code Desktop and local {name} data use on this computer.': 'Code Desktop 和本地 {name} 数据在此电脑上占用的空间。',
-  'Space Code Desktop and its agent core use on this computer.': 'Code Desktop 及其智能体内核在此电脑上占用的空间。',
-  'History kept outside Code Desktop. Shown for completeness; not counted above and never removed from here.': '保存在 Code Desktop 之外的历史记录。仅为完整起见显示，不计入上方总量，也不会从这里删除。',
+  'Space OpenClaude Desktop and local {name} data use on this computer.': 'OpenClaude Desktop 和本地 {name} 数据在此电脑上占用的空间。',
+  'Space OpenClaude Desktop and its agent core use on this computer.': 'OpenClaude Desktop 及其智能体内核在此电脑上占用的空间。',
+  'History kept outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.': '保存在 OpenClaude Desktop 之外的历史记录。仅为完整起见显示，不计入上方总量，也不会从这里删除。',
 
   // Account settings
   'Saved in DeepSeek Harness (~/.dsh)': '已保存在 DeepSeek Harness（~/.dsh）中',

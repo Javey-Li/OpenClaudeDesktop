@@ -1,4 +1,4 @@
-// A stopped turn cancels Code Desktop's pending agent tool calls: the host's cancelSession (main.cjs calls it on Stop
+// A stopped turn cancels OpenClaude Desktop's pending agent tool calls: the host's cancelSession (main.cjs calls it on Stop
 // and on an interrupted turn/completed, which Codex never forwards to its MCP servers), the core's own
 // notifications/cancelled relayed by agent-tools-server.mjs, and the approval sheet closing as a No (signal) — plus
 // the sheet's copy: the session and folder that ask, and a launch.json dev server's exact command line.

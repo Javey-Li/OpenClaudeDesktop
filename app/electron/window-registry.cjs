@@ -1,7 +1,7 @@
 // Window registry: every main (session) window of this process, the layout each one shows (its primary
 // session and, in split view, the session on its second side), where desktop events go, and which windows to
 // restore on the next launch. Claude Desktop 2.2553.1 keeps one main window whose "dframe-pane-host"
-// (desktop-sidebar.js WR/GR) shows a primary pane and extra session panes side by side; Code Desktop allows
+// (desktop-sidebar.js WR/GR) shows a primary pane and extra session panes side by side; OpenClaude Desktop allows
 // several main windows (File › New Window, a session's "Open in new window"), each with at most two sides.
 // Pure apart from the injected fs / timers / BrowserWindow, so it is unit-testable (tests/window-registry.test.mjs).
 //

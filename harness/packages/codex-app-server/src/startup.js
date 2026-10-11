@@ -1,5 +1,5 @@
 /**
- * Code Desktop core command line and stdin lifetime. A successful parse
+ * OpenClaude Desktop core command line and stdin lifetime. A successful parse
  * publishes `codeDesktopStartup`; the app-server row waits for that service,
  * so `--help` never claims stdio.
  */
@@ -13,7 +13,7 @@ export const STARTUP_SERVICE = 'codeDesktopStartup'
 export function apply(ctx) {
   const program = new Command()
     .name('codex-app-server')
-    .description('Serve Code Desktop over the Codex app-server protocol (stdio), backed by DeepSeek Harness.')
+    .description('Serve OpenClaude Desktop over the Codex app-server protocol (stdio), backed by DeepSeek Harness.')
     .helpOption('-h, --help', 'show this help')
     .allowUnknownOption()
     .allowExcessArguments()

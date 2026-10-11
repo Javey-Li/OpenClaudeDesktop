@@ -102,7 +102,7 @@ export function sessionInfoText({ session, model, effort, permission, cwd, core,
     session?.id ? `${t('Session ID')}: ${session.id}` : null,
     session ? `${t('Session')}: ${session.name || session.preview || t('Untitled session')}` : null,
     core?.name ? `${t('Core')}: ${core.name}${core.version ? ` ${core.version}` : ''}` : null,
-    appVersion ? `Code Desktop: ${appVersion}` : null,
+    appVersion ? `OpenClaude Desktop: ${appVersion}` : null,
     model ? `${t('Model')}: ${model}${effort ? ` (${effort})` : ''}` : null,
     permission ? `${t('Permission mode')}: ${permission}` : null,
     cwd ? `${t('Workspace')}: ${cwd}` : null,
@@ -131,7 +131,7 @@ export function SessionStatusDialog({ session, model, effort, efforts=null, serv
         : !currentAccount ? signedOutAccountLabel(remote?.account||account, core) : t('Unavailable')}</dd>
       <dt>{t('Session')}</dt><dd>{session?.name || session?.preview || (session?t('Untitled session'):t('New session'))}{session && <small>{session.id}{' '}
         <button type="button" className="session-status-copy" data-copy-session-id="" onClick={()=>void copy('id',session.id)}>{copied==='id'?t('Copied'):t('Copy session ID')}</button></small>}</dd>
-      {core?.name && <><dt>{t('Core')}</dt><dd>{core.name}{core.version?` · ${core.version}`:''}{appVersion?<small>{t('Code Desktop {version}',{version:appVersion})}</small>:null}</dd></>}
+      {core?.name && <><dt>{t('Core')}</dt><dd>{core.name}{core.version?` · ${core.version}`:''}{appVersion?<small>{t('OpenClaude Desktop {version}',{version:appVersion})}</small>:null}</dd></>}
       <dt>{t('Task state')}</dt><dd>{session?.archived?t('Archived'):!connected?t('Unknown while disconnected'):operation?.phase==='unknown'?t('Awaiting DeepSeek confirmation'):running?t('Running'):operation?.phase==='starting'?t('Starting'):t('Idle')}</dd>
       <dt>{t('Next message model')}</dt><dd>{model || t('Unavailable')}{/* The effort menu's own translated level name (effortName: High, Extra high, Thinking on…), never the raw id. */}
         {effort ? ` · ${t('Effort: {name}', { name: effortName(effort, efforts) })}` : ''}</dd>
@@ -175,7 +175,7 @@ export function FeedbackShareDialog({ text, onConfirm, onClose, ...dialog }) {
 export function SlashHelp({onClose,commands=[],coreLabel='',docsUrl=null,onShortcuts,onSettings,onWhatsNew,onOpenLink,...dialog}) {
   const go=action=>()=>{onClose();action();};
   return <ActionDialog {...dialog} title={t("Help and support")} onClose={onClose}>
-    <p>{t("Code Desktop runs local {name} sessions. Slash commands open tools, settings and conversation actions.", { name: getAssistantName() })}</p>
+    <p>{t("OpenClaude Desktop runs local {name} sessions. Slash commands open tools, settings and conversation actions.", { name: getAssistantName() })}</p>
     {commands.length>0&&<section className="slash-help-commands" aria-label={t("Slash commands")}>
       <h3>{t("Commands in this session")}</h3>
       <dl>{commands.map(command=><div key={`${command.kind??'app'}:${command.id}`}><dt>/{command.id}{command.argumentHint?<span className="slash-help-hint"> {command.argumentHint}</span>:null}</dt><dd>{command.description||command.label||''}</dd></div>)}</dl>

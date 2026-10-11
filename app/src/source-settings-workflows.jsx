@@ -1,5 +1,5 @@
 // Settings › Code › Dynamic workflows, modeled on Claude Code 2.1.280's settings (enableWorkflows / disableWorkflows,
-// workflowKeywordTriggerEnabled, workflowSizeGuideline and the CLAUDE_CODE_WORKFLOW_* variables) plus Code Desktop's
+// workflowKeywordTriggerEnabled, workflowSizeGuideline and the CLAUDE_CODE_WORKFLOW_* variables) plus OpenClaude Desktop's
 // per-core Workflow engine. One master switch; the rest shows only while it is on, and the tuning rows stay behind a
 // collapsed Advanced disclosure. The environment and managed settings win over every row (prefs/workflow-settings.mjs);
 // a row they decide says so and is read-only.
@@ -45,25 +45,25 @@ export function workflowSettingsGroup({ config, boot, engine, shownValue, save, 
   if (!resolved.enabled) return { tab: 'code', title: 'Dynamic workflows', rows };
   // Workflow engine: a core with its own engine (capabilities.modelWorkflows) lets the user pick; saved per core.
   const id = coreForEngine(typeof engine === 'string' ? engine : engine?.engine).id, name = coreName(engine);
-  // On the core's own engine the runner-only rows below change nothing (only Code Desktop's runner reads them): they
+  // On the core's own engine the runner-only rows below change nothing (only OpenClaude Desktop's runner reads them): they
   // are read-only there and say so.
   const nativeEngine = hasNativeWorkflowEngine(engine) && workflowEngineChoice(engine, shown('workflowEngines')) === 'native';
-  const runnerNote = nativeEngine ? t('{core}’s own engine doesn’t use this setting. Choose Code Desktop as the Workflow engine to apply it.', { core: name }) : '';
-  // A core without a command sandbox (ZCode, an ACP agent without sandbox-exec): Code Desktop's engine runs its agents
+  const runnerNote = nativeEngine ? t('{core}’s own engine doesn’t use this setting. Choose OpenClaude Desktop as the Workflow engine to apply it.', { core: name }) : '';
+  // A core without a command sandbox (ZCode, an ACP agent without sandbox-exec): OpenClaude Desktop's engine runs its agents
   // with approvals off, so outside Bypass the agent refuses every command that could change something.
   const unconfinedNote = coreSandboxed(engine) === false ? t('Outside Bypass permissions, these workflow agents can run only read-only commands: {core} has no sandbox to run the others in.', { core: name }) : '';
   const withNote = (text) => unconfinedNote ? <>{text}<span className="ss-workflow-note"> {unconfinedNote}</span></> : text;
   if (hasNativeWorkflowEngine(engine)) {
     const choice = workflowEngineChoice(engine, shown('workflowEngines'));
     const engineText = choice === 'native' ? t('{core} runs workflows with its own engine and tools. The Tasks pane shows them either way.', { core: name })
-      : t('Code Desktop runs {core}’s workflows: its own workflow tool is hidden from the model.', { core: name });
+      : t('OpenClaude Desktop runs {core}’s workflows: its own workflow tool is hidden from the model.', { core: name });
     rows.push(row('workflowEngine', t('Workflow engine'), choice === 'native' ? engineText : withNote(engineText),
     <SourceSelect label={t('Workflow engine')} align="end" className="sselect-width-220" value={choice}
       onChange={(value) => save('workflowEngines', { ...(shown('workflowEngines') || {}), [id]: value === 'codeDesktop' ? 'codeDesktop' : null }, 'workflowEngine')}
-      items={[{ value: 'native', label: t('{core}’s own workflows (default)', { core: name }) }, { value: 'codeDesktop', label: t('Code Desktop') }]} />, { indent: true, searchText: engineText }));
+      items={[{ value: 'native', label: t('{core}’s own workflows (default)', { core: name }) }, { value: 'codeDesktop', label: t('OpenClaude Desktop') }]} />, { indent: true, searchText: engineText }));
   } else {
-    rows.push(row('workflowEngine', t('Workflow engine'), withNote(t('{core} has no workflow engine of its own, so Code Desktop runs its workflows.', { core: name })), <span>{t('Code Desktop')}</span>,
-      { indent: true, searchText: t('{core} has no workflow engine of its own, so Code Desktop runs its workflows.', { core: name }) }));
+    rows.push(row('workflowEngine', t('Workflow engine'), withNote(t('{core} has no workflow engine of its own, so OpenClaude Desktop runs its workflows.', { core: name })), <span>{t('OpenClaude Desktop')}</span>,
+      { indent: true, searchText: t('{core} has no workflow engine of its own, so OpenClaude Desktop runs its workflows.', { core: name }) }));
   }
   // A row an administrator's managed settings decide (workflowKeywordTriggerEnabled, workflowSizeGuideline): locked.
   const managedNote = t('Set by your organization’s managed settings.');
@@ -78,7 +78,7 @@ export function workflowSettingsGroup({ config, boot, engine, shownValue, save, 
           { value: 'small', label: t('Small'), description: t('Fewer than 5 agents') },
           { value: 'medium', label: t('Medium'), description: t('Fewer than 10 agents (default)') },
           { value: 'large', label: t('Large'), description: t('Fewer than 50 agents') }]} />, { indent: true, searchText: t('How many agents a workflow should aim for. A guideline for DeepSeek, not a hard limit.') }),
-    // The saved workflows the chosen engine runs (Code Desktop's .claude/workflows, or the core's own library: ZCode's
+    // The saved workflows the chosen engine runs (OpenClaude Desktop's .claude/workflows, or the core's own library: ZCode's
     // .zcode/workflows), with their arguments, file and, for a core library, delete and run history.
     ...(desktopCall ? [row('workflowSaved', t('Saved workflows'), t('Workflows saved for this project and for all your projects. Run one with /<name> in a session.'), null,
       { indent: true, searchText: t('Workflows saved for this project and for all your projects. Run one with /<name> in a session.'),

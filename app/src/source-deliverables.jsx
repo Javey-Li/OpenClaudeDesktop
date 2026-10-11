@@ -12,7 +12,7 @@ import { appToolCall } from "./agent-tool-titles.mjs";
 const baseName = (file) => String(file ?? "").split("/").filter(Boolean).pop() || String(file ?? "");
 
 /**
- * The files a finished SendUserFile call (Code Desktop's agent tools, agent-tools/files.mjs) sent: its result's
+ * The files a finished SendUserFile call (OpenClaude Desktop's agent tools, agent-tools/files.mjs) sent: its result's
  * structuredContent.deliverables, or — for a core that drops structured content from its tool items (the bridges) —
  * the call's own `files`, each with the caption (the cards open them relative to the session folder). null otherwise.
  */

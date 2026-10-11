@@ -1,4 +1,4 @@
-// How the transcript shows Claude Code's tools that Code Desktop serves (agent-tools/ask.mjs, notify.mjs, files.mjs,
+// How the transcript shows Claude Code's tools that OpenClaude Desktop serves (agent-tools/ask.mjs, notify.mjs, files.mjs,
 // findings.mjs, session.mjs): official row verbs, stands-alone rows kept out of tool groups, the AskUserQuestion
 // receipt, SendUserFile file cards, ReportFindings as a Review result (and the Changes pane's findings), chapter
 // headings and the Suggested task card.
@@ -32,7 +32,7 @@ const call = (tool, args, { status = 'completed', text = 'ok', server: name = 'c
 
 test('rows read with the official verbs; OpenCode’s code_desktop_ prefix is the same tool', () => {
   assert.deepEqual(appToolLabel(call('PushNotification', { message: 'Build finished' }, { text: 'Notification sent.' }), 'done'), { label: 'Sent notification', meta: 'Build finished' });
-  assert.deepEqual(appToolLabel(call('PushNotification', { message: 'x', title: 'Deploy' }, { text: 'Notification not sent: the user is looking at Code Desktop right now.' }), 'done'), { label: 'Notification not sent', meta: 'Deploy' });
+  assert.deepEqual(appToolLabel(call('PushNotification', { message: 'x', title: 'Deploy' }, { text: 'Notification not sent: the user is looking at OpenClaude Desktop right now.' }), 'done'), { label: 'Notification not sent', meta: 'Deploy' });
   assert.equal(appToolLabel(call('PushNotification', { message: 'x' }, { status: 'inProgress' }), 'busy').label, 'Sending notification');
   assert.equal(appToolLabel(call('PushNotification', { message: 'x' }), 'failed').label, 'Failed to send notification');
   assert.deepEqual(appToolLabel(call('code_desktop_SendUserFile', { files: ['out/report.md'] }, { server: null }), 'done'), { label: 'Sent', meta: 'report.md' });

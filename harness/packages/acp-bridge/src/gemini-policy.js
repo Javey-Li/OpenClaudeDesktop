@@ -3,7 +3,7 @@
 // Gemini decides every tool call with its policy engine (core policy/policy-engine.ts): rules from TOML files in tiers,
 // admin (5: the system policies folder) > user (4: ~/.gemini/policies) > workspace (3: <project>/.gemini/policies, trusted
 // folders only) > extension (2) > default (1: the bundled policies), each rule's priority added as priority/1000; the
-// highest matching rule wins. The bridge keeps Gemini in its default mode and answers its requests by Code Desktop's
+// highest matching rule wins. The bridge keeps Gemini in its default mode and answers its requests by OpenClaude Desktop's
 // mode, so in Auto, Accept edits and Bypass it could allow a call an `ask_user` rule of the user's or the admin's would
 // have Gemini ask about, even in Gemini's own YOLO (its yolo allow-all is a default-tier rule). This module reads those
 // rules and says when the winner for a call is ask_user, so the bridge shows the card instead (adapter.mustAsk).

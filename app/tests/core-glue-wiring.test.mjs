@@ -66,8 +66,8 @@ test('the harness bridge reports coreCommands and refuses an execute without per
 test('Dynamic workflows: one group on every core; the engine choice only where the core has its own engine', () => {
   const codex = page('code', { boot: { core: { engine: 'codex', capabilities: {} } } });
   assert.match(codex, /Let DeepSeek write scripts that run many agents|Let Codex write scripts that run many agents/);
-  assert.match(codex, /no workflow engine of its own, so Code Desktop runs its workflows/);
-  // Gemini CLI: no outputSchema, no engine of its own — Code Desktop's engine runs it (JSON fallback).
+  assert.match(codex, /no workflow engine of its own, so OpenClaude Desktop runs its workflows/);
+  // Gemini CLI: no outputSchema, no engine of its own — OpenClaude Desktop's engine runs it (JSON fallback).
   const gemini = page('code', { boot: { core: { engine: 'gemini', capabilities: { structuredOutput: false } } } });
   assert.match(gemini, /write scripts that run many agents in parallel/);
   assert.doesNotMatch(gemini, /Not available with Gemini CLI yet/);

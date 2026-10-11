@@ -1,5 +1,5 @@
 /**
- * Code Desktop custom instructions (Settings → Instructions).
+ * OpenClaude Desktop custom instructions (Settings → Instructions).
  *
  * The app composes the project's .code-desktop/instructions.md and the project
  * override into one block and sends it on thread/start, thread/resume and

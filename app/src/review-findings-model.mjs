@@ -76,7 +76,7 @@ export function parseCodeComments(text, cwd = null) {
 }
 
 /**
- * The findings a finished ReportFindings call (Code Desktop's agent tools, electron/agent-tools/findings.mjs) reported,
+ * The findings a finished ReportFindings call (OpenClaude Desktop's agent tools, electron/agent-tools/findings.mjs) reported,
  * read from its arguments (bridges drop a tool's structured content), or null for any other item. The outcome a
  * re-report sets is kept ('fixed', 'skipped', 'no change needed').
  */

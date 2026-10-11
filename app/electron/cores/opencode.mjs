@@ -45,7 +45,7 @@ export default Object.freeze({
   sessionStore: Object.freeze({ database: "~/.local/share/opencode" }),
   // Settings › Customize › Plugins › Add plugin (customize-model pluginFormCopy): what OpenCode's plugin list takes.
   plugins: Object.freeze({ format: "An npm package name or a file path to a plugin module.", placeholder: "package-name or /path/to/plugin.js" }),
-  // The user's own config; Code Desktop's overlay lives in the bridge state folder (OPENCODE_CONFIG_DIR).
+  // The user's own config; OpenClaude Desktop's overlay lives in the bridge state folder (OPENCODE_CONFIG_DIR).
   configFile: "~/.config/opencode/opencode.json",
   skillRoots: Object.freeze(["<project>/.opencode/skills", "~/.config/opencode/skills", "<project>/.claude/skills", "~/.claude/skills", "<project>/.agents/skills", "~/.agents/skills"]),
   // Settings › Account: the agent's own sign-ins (account/login/start codeDesktop.provider / .template).

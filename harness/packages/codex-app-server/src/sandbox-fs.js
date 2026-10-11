@@ -1,4 +1,4 @@
-// Code Desktop's file boundary. The shared DSH Purge runtime stays untouched;
+// OpenClaude Desktop's file boundary. The shared DSH Purge runtime stays untouched;
 // this profile owns the enforcement promised by thread/start's sandbox value.
 import SandboxedFileSystem from '@deepseek-ai/dsh-fs-sandbox'
 import { FsError } from '@deepseek-ai/dsh-fs'

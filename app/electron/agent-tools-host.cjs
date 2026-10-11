@@ -1,4 +1,4 @@
-// The main-process side of Code Desktop's agent tools (the local MCP server every core runs for the app's
+// The main-process side of OpenClaude Desktop's agent tools (the local MCP server every core runs for the app's
 // sessions; agent-tools-server.mjs is the stdio relay a core starts).
 //
 //   core ──stdio MCP──▶ agent-tools-server.mjs ──unix socket (0700 dir, random token)──▶ this host ──▶ tool modules
@@ -211,10 +211,10 @@ function createAgentToolsHost({
   function loadToolDefinition(groups) {
     return {
       name: LOAD_TOOL,
-      title: "Load more Code Desktop tools",
-      description: `Load more of Code Desktop's tools into this session. To keep each request small, these aren't loaded yet:\n${groups.map((group) => `- ${group}: ${GROUP_SUMMARIES[group] ?? "more Code Desktop tools"}`).join("\n")}\nCall this with the groups you need before using their tools; they are available from your next step.`,
+      title: "Load more OpenClaude Desktop tools",
+      description: `Load more of OpenClaude Desktop's tools into this session. To keep each request small, these aren't loaded yet:\n${groups.map((group) => `- ${group}: ${GROUP_SUMMARIES[group] ?? "more OpenClaude Desktop tools"}`).join("\n")}\nCall this with the groups you need before using their tools; they are available from your next step.`,
       inputSchema: { type: "object", properties: { groups: { type: "array", items: { type: "string", enum: groups }, minItems: 1, description: "The groups to load." } }, required: ["groups"], additionalProperties: false },
-      annotations: { title: "Load more Code Desktop tools", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { title: "Load more OpenClaude Desktop tools", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     };
   }
   /** tools/list. connection: the server connection asking (deferred groups apply to it); none = every tool. */
@@ -301,10 +301,10 @@ function createAgentToolsHost({
   async function call(identity, { name, arguments: args = {}, meta = {} } = {}, signal, { scoped = false } = {}) {
     await ready();
     const entry = tools.get(name);
-    if (!entry || !isGroupEnabled(entry.group)) throw new Error(entry ? `${name} is turned off in Code Desktop’s settings.` : `Unknown tool: ${name}`);
+    if (!entry || !isGroupEnabled(entry.group)) throw new Error(entry ? `${name} is turned off in OpenClaude Desktop’s settings.` : `Unknown tool: ${name}`);
     if (!servedToCore(entry, identity)) throw new Error(`${name} isn’t offered to this agent: use its own ${entry.native ?? name} tool.`);
     const session = sessionFor(identity, meta, { scoped });
-    if (!session?.id) throw new Error("This tool works only in a Code Desktop session.");
+    if (!session?.id) throw new Error("This tool works only in an OpenClaude Desktop session.");
     const caller = callerOf(meta);
     if (entry.tool.mainOnly === true && caller && caller !== session.id)
       throw new Error(`${name} is for the main conversation only: a sub-agent can’t use it. Finish your task and report back; the main agent can use ${name} if it is needed.`);

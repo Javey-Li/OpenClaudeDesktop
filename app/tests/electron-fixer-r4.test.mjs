@@ -1,4 +1,4 @@
-// app/electron fixes, round 4: Codex sub-agents' Code Desktop tool calls (the calling thread, main-only tools, which
+// app/electron fixes, round 4: Codex sub-agents' OpenClaude Desktop tool calls (the calling thread, main-only tools, which
 // turn's end cancels them, cards that outlive a turn), DeepSeek's background agents and deferred tool groups, Gemini's
 // workflow tiers, window and pane-window restore, ultracode reminders after a relaunch, the provenance relay of a
 // steered or queued message, the Export file name and the zh-CN wording for "key" and "agent".

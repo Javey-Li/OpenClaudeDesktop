@@ -1,6 +1,6 @@
 import { registerCodexPack } from './codex-pack.mjs';
 registerCodexPack();
-// Claude Code's own tools that Code Desktop's agent-tools server serves to a core without them (agent-tools/ask.mjs,
+// Claude Code's own tools that OpenClaude Desktop's agent-tools server serves to a core without them (agent-tools/ask.mjs,
 // notify.mjs, files.mjs, findings.mjs, session.mjs, terminal.mjs open_terminal_tab), the per-core rule that leaves out
 // a tool the core has natively (nativeTools, agent-tools-host.cjs isToolListed), and Codex's Default-mode questions.
 import test from 'node:test';

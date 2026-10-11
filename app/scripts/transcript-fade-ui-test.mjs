@@ -17,7 +17,7 @@ const baseline = process.env.FADE_BASELINE === "1";
 const expectedFile = process.env.TEST_EXPECT_BUILD || path.join(root, "dist/build-info.json");
 const sourceRoot = process.env.TEST_SOURCE_ROOT || root;
 const appPath = process.env.TEST_APP_PATH ? path.resolve(process.env.TEST_APP_PATH) : null;
-const executablePath = appPath ? path.join(appPath, "Contents/MacOS/Code Desktop")
+const executablePath = appPath ? path.join(appPath, "Contents/MacOS/OpenClaude Desktop")
   : process.env.TEST_ELECTRON_BINARY || path.join(root, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const fixture = path.join(root, "tests/fixtures/codex-server.cjs");
 const evidenceRoot = process.env.FADE_EVIDENCE_DIR || path.join(project, "analysis/batch-20260920");

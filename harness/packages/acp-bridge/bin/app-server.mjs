@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Code Desktop core entry for the ACP agents: `node bin/app-server.mjs app-server --stdio`.
+// OpenClaude Desktop core entry for the ACP agents: `node bin/app-server.mjs app-server --stdio`.
 // Which agent runs comes from CODE_DESKTOP_AGENT_BINARY (or CODE_DESKTOP_ACP_AGENT); see src/agents/index.js.
 import fs from 'node:fs'
 import { detectAdapter } from '../src/agents/index.js'

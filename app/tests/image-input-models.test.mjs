@@ -31,7 +31,7 @@ test("the user's choice wins, unknown ids are dropped, and an empty list means n
 test("custom provider models carry pi-ai `input` only when marked", () => {
   const provider = validateProvider({ route: "openrouter", baseURL: "https://openrouter.ai/api/v1", models: "gpt-4.1-mini qwen3-coder", imageModels: ["gpt-4.1-mini", "x"] });
   assert.deepEqual(provider.imageModels, ["gpt-4.1-mini"]);
-  assert.deepEqual(providerOverlayRow([provider]).config.providers.openrouter.models, [{ id: "gpt-4.1-mini", input: ["text", "image"] }, { id: "qwen3-coder" }]);
+  assert.deepEqual(providerOverlayRow([provider]).config.providers.openrouter.models, [{ id: "gpt-4.1-mini", name: "GPT-4.1 Mini", input: ["text", "image"] }, { id: "qwen3-coder", name: "Qwen 3 Coder", reasoningEfforts: { off: null, low: "low", medium: "medium", high: "high" } }]);
   const plain = validateProvider({ route: "plain", baseURL: "https://x.example/v1", models: ["a"] });
   assert.equal("imageModels" in plain, false);
   assert.deepEqual(normalizeProviders([provider])[0].imageModels, ["gpt-4.1-mini"], "kept through the stored list");
@@ -71,7 +71,7 @@ test("saving the relay writes the marked image models; a legacy connection.json 
   const settings = createModelSettings({ getConfig: () => ({}), getClient: () => client, getHarnessProfile: () => profile, safeStorage, dir, relayProxy });
   const view = await settings.run({ op: "connection-save", connection: { mode: "relay", relayBaseURL: "https://relay.test", relayModels: "glm-5v-turbo\nglm-5.2", relayImageModels: ["glm-5v-turbo"] }, relayKey: "sk-relay" });
   assert.deepEqual(view.relayImageModels, ["glm-5v-turbo"]);
-  assert.deepEqual(rows.get("llm-deepseek").config.models, [{ id: "glm-5v-turbo", name: "glm-5v-turbo", inputModalities: ["text", "image"] }, { id: "glm-5.2", name: "glm-5.2" }]);
+  assert.deepEqual(rows.get("llm-deepseek").config.models, [{ id: "glm-5v-turbo", name: "GLM 5V Turbo", inputModalities: ["text", "image"] }, { id: "glm-5.2", name: "GLM 5.2" }]);
 
   // A connection saved before image input existed (no relayImageModels): the app's startup rewrite marks deepseek flash.
   fs.writeFileSync(path.join(dir, "connection.json"), JSON.stringify({ version: 1, mode: "relay", relayBaseURL: "https://relay.test", relayModels: ["deepseek-v4.1-flash", "deepseek-v4-pro"] }));

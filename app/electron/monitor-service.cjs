@@ -105,7 +105,7 @@ function createMonitorService({ deliver, emit = () => {}, env = () => process.en
   }
 
   function start({ sessionId, cwd, command, description, timeoutMs, toolUseId } = {}) {
-    if (typeof sessionId !== "string" || !sessionId) throw new Error("This tool works only in a Code Desktop session.");
+    if (typeof sessionId !== "string" || !sessionId) throw new Error("This tool works only in an OpenClaude Desktop session.");
     if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("This session has no working folder.");
     if (sessionList(sessionId).filter((record) => record.status === "running").length >= MAX_PER_SESSION)
       throw new Error(`This session already has ${MAX_PER_SESSION} monitors running. Stop one with MonitorStop first.`);

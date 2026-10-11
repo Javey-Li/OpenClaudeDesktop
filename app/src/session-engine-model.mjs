@@ -1,6 +1,6 @@
 // Which agent core owns a remembered session, and how loadSessions splits the
 // config's session ids between the running core and the other one. The ids
-// themselves are never dropped from config: starting Code Desktop with the
+// themselves are never dropped from config: starting OpenClaude Desktop with the
 // other core (CODE_DESKTOP_CORE=codex) brings those sessions back.
 
 import { coreById, coreForEngine, sessionCore } from "../electron/core-registry.mjs";

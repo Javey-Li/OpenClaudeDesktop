@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Code Desktop core entry for ZCode: `node app-server.mjs app-server --stdio` serves the Codex app-server
+ * OpenClaude Desktop core entry for ZCode: `node app-server.mjs app-server --stdio` serves the Codex app-server
  * protocol on stdio and drives the official ZCode agent (`zcode app-server --stdio`) behind it.
  * `--version` prints the bridge version.
  */

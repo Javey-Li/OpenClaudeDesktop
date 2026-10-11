@@ -35,7 +35,7 @@ function commandDetail(value) {
   return text === null ? null : { kind: "command", text, value };
 }
 
-// Code Desktop's own agent tools (run_in_terminal, a launch.json dev server, Monitor) type or spawn the agent's free
+// OpenClaude Desktop's own agent tools (run_in_terminal, a launch.json dev server, Monitor) type or spawn the agent's free
 // text as it is: the box shows exactly that, never a `<shell> -c` unwrap, so a workspace program named sh/bash/zsh
 // can't hide behind the script it is handed.
 function exactCommandDetail(value) {
@@ -387,7 +387,7 @@ export function approvalCardModel(request, item) {
   // A connector's model request (the OpenCode bridge's codeDesktop.sampling: MiMo MCP sampling): who asks, the model that
   // will run, what it sends and short prompt previews, never a shell command box.
   if (kind === "command" && plainObject(params.codeDesktop?.sampling)) return samplingCard(params);
-  // Code Desktop's own agent tools (main.cjs agentToolCard): a command typed into the terminal, an outside site or a
+  // OpenClaude Desktop's own agent tools (main.cjs agentToolCard): a command typed into the terminal, an outside site or a
   // launch.json dev server in the preview, a dynamic workflow; the app answers it, not the core.
   if (kind === "command" && plainObject(params.codeDesktop?.agentTool)) return agentToolCard(params);
   const context = [];

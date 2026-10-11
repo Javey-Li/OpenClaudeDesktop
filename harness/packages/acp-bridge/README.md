@@ -1,7 +1,7 @@
-# ACP bridge for Code Desktop
+# ACP bridge for OpenClaude Desktop
 
 One bridge that makes an [Agent Client Protocol](https://agentclientprotocol.com) agent look like a Codex
-app-server (protocol v0.155.1, JSON-RPC lines on stdio), so Code Desktop can run it as a core. It drives four
+app-server (protocol v0.155.1, JSON-RPC lines on stdio), so OpenClaude Desktop can run it as a core. It drives four
 official agents, each through a small adapter:
 
 | Core | Agent | Release pinned | Launch |
@@ -24,7 +24,7 @@ Zero runtime dependencies; Node 22+. Entry: `node bin/app-server.mjs app-server 
   `CODE_DESKTOP_BRIDGE_STATE` (`store.js`), so history, titles and usage survive restarts without replaying the
   agent; sessions the agent made elsewhere (its own CLI) are listed and replayed on first open.
 - **Permissions:** the agent stays in its asking mode (or its plan mode for Plan / chat / review); the bridge answers
-  every `session/request_permission` by Code Desktop's mode (`permissions.js`) and shows a Codex approval card only
+  every `session/request_permission` by OpenClaude Desktop's mode (`permissions.js`) and shows a Codex approval card only
   when the mode asks. A read-only thread nobody answers (approvalPolicy `never` in a read-only sandbox without a mode
   hint: the `/workflow` runner's agents in Plan or Ask) is `readOnly`: the agent's asking mode, not its plan mode
   (which would have it plan and end on a plan review or a question), edits refused, and whatever would ask refused. The agent process runs in a macOS Seatbelt sandbox per mode (`sandbox.js`): writes only to
@@ -59,7 +59,7 @@ Zero runtime dependencies; Node 22+. Entry: `node bin/app-server.mjs app-server 
   option per approach with its description, plus "Leave Plan mode without implementing" = `plan_reject_and_exit`).
 - **Rewind:** Gemini (session file `$rewindTo`), Qwen (`qwen/control/session/rewind`) and Kimi (its own undo through
   a throwaway `kimi web` server on an overlay of the thread's home: `POST /sessions/{id}:undo`; files stay as they are).
-- **Gemini specifics:** its own sandbox is off (`GEMINI_SANDBOX=false`, Code Desktop's Seatbelt confines it instead);
+- **Gemini specifics:** its own sandbox is off (`GEMINI_SANDBOX=false`, OpenClaude Desktop's Seatbelt confines it instead);
   `is_background` shell commands are tracked (Background tasks lists and stops them, closing the session stops them);
   a session file its retention cleanup deleted is written back from the bridge's history; turn tokens come from the
   session file (cached and thinking tokens included).

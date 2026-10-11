@@ -46,7 +46,7 @@ test('CLAUDE_WORKFLOW_NAME_ONLY: saved workflows are not "named", nested workflo
   fs.mkdirSync(path.join(cwd, '.claude', 'workflows'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'workflows', 'saved.js'), 'export const meta = { name: "saved", description: "x" };\nreturn 1');
   assert.ok(tool.findSavedWorkflow({ cwd, home, name: 'saved' }).workflow);
-  assert.match(tool.findSavedWorkflow({ cwd, home, name: 'saved', nameOnly: true }).error, /Available: \(none\)\. Code Desktop bundles no named workflows/);
+  assert.match(tool.findSavedWorkflow({ cwd, home, name: 'saved', nameOnly: true }).error, /Available: \(none\)\. OpenClaude Desktop bundles no named workflows/);
   assert.match(tool.workflowToolDescription({ nameOnly: true }), /bundles no named workflows/);
   assert.equal(workflowRunnerEnv(resolveWorkflowSettings({ env: { CLAUDE_WORKFLOW_NAME_ONLY: '1' } })).CLAUDE_WORKFLOW_NAME_ONLY, '1');
   assert.equal(workflowRunnerEnv(resolveWorkflowSettings({})).CLAUDE_WORKFLOW_NAME_ONLY, undefined);
@@ -115,11 +115,11 @@ test('the Terminal pane’s shims: an agent the app installed answers by name, u
   fs.mkdirSync(path.dirname(entry), { recursive: true });
   fs.writeFileSync(entry, '#!/usr/bin/env node\n');
   fs.writeFileSync(path.join(data, 'cores', 'qwen', 'manifest.json'), JSON.stringify({ version: '1.0.0', binary: 'package/cli-entry.js', runner: 'node' }));
-  const manager = createCoreManager({ dataDir: () => data, getConfig: () => ({}), save: () => {}, home: path.join(data, 'home'), env: {}, nodeBinary: () => "/Apps/Code Desktop's.app/node", fetchImpl: () => { throw new Error('no network'); } });
+  const manager = createCoreManager({ dataDir: () => data, getConfig: () => ({}), save: () => {}, home: path.join(data, 'home'), env: {}, nodeBinary: () => "/Apps/OpenClaude Desktop's.app/node", fetchImpl: () => { throw new Error('no network'); } });
   const dir = manager.terminalShims(path.join(data, 'terminal-bin'));
   const shim = fs.readFileSync(path.join(dir, 'qwen'), 'utf8');
   assert.match(shim, /^#!\/bin\/sh\n/);
-  assert.ok(shim.includes(`ELECTRON_RUN_AS_NODE=1 exec '/Apps/Code Desktop'\\''s.app/node' '${entry}' "$@"`), shim);
+  assert.ok(shim.includes(`ELECTRON_RUN_AS_NODE=1 exec '/Apps/OpenClaude Desktop'\\''s.app/node' '${entry}' "$@"`), shim);
   assert.equal(fs.statSync(path.join(dir, 'qwen')).mode & 0o111, 0o111);
   fs.writeFileSync(path.join(dir, 'stale'), 'x');
   manager.terminalShims(dir);

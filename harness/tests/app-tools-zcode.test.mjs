@@ -1,4 +1,4 @@
-// Code Desktop's own tools server ("code_desktop") on the ZCode bridge (packages/zcode-bridge/src/app-tools.js): the
+// OpenClaude Desktop's own tools server ("code_desktop") on the ZCode bridge (packages/zcode-bridge/src/app-tools.js): the
 // bridge (bin/app-server.mjs, a temp HOME) drives test-support/fake-zcode.mjs. session/create carries the stdio entry
 // named by the app's start token, beside the servers of ZCode's own config (the list is the session's complete set);
 // session/resume names the thread id; a fork is reopened so its server names the fork; throwaway sessions (the
@@ -17,7 +17,7 @@ const BIN = path.join(root, 'packages/zcode-bridge/bin/app-server.mjs')
 const FAKE = path.join(root, 'packages/zcode-bridge/test-support/fake-zcode.mjs')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const TOOLS = {
-  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
+  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
   CODE_DESKTOP_AGENT_TOOLS_SOCKET: '/tmp/cd-tools-x/s',
   CODE_DESKTOP_AGENT_TOOLS_TOKEN: 'tok',
 }
@@ -50,7 +50,7 @@ const sessionOf = (mcpServers) => mcpServers?.find((server) => server.name === '
 
 test('app-tools.js: the ZCode entry has its own process per session and a long tool timeout', () => {
   assert.deepEqual(zcodeAppToolsServer(appToolsServer(TOOLS), 'sess_1'), {
-    name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'],
+    name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'],
     env: [{ name: 'ELECTRON_RUN_AS_NODE', value: '1' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_SOCKET', value: '/tmp/cd-tools-x/s' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_TOKEN', value: sessionToken('tok', 'sess_1') }, { name: 'CODE_DESKTOP_AGENT_SESSION', value: 'sess_1' }],
     isolation: 'session', timeoutMs: 600000,
   })
@@ -86,7 +86,7 @@ test('ZCode: create names the start token beside the config servers, resume and 
 })
 
 test('ZCode: the tools server\'s instructions (preview auto-verify) reach GLM with the prompt; a session without the server gets none', { timeout: 60000 }, async () => {
-  const instructions = 'Tools provided by Code Desktop. Verifying changes in the preview: …'
+  const instructions = 'Tools provided by OpenClaude Desktop. Verifying changes in the preview: …'
   assert.equal(appToolsServer({ ...TOOLS, CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ ...JSON.parse(TOOLS.CODE_DESKTOP_AGENT_TOOLS_SERVER), instructions }) }).instructions, instructions)
   assert.equal(appToolsServer(TOOLS).instructions, null)
   const b = bridge({ ...TOOLS, CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ ...JSON.parse(TOOLS.CODE_DESKTOP_AGENT_TOOLS_SERVER), instructions }) })

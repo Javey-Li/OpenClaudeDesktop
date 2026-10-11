@@ -91,7 +91,7 @@ function createSessionOperations({ getClient, getConfig, save, emit, verifyGit =
   // recorded under the other provider still forks and resumes; other cores' params pass unchanged.
   const pending = new Map(), active = new Map();
   // Threads in Codex's review mode (enteredReviewMode … exitedReviewMode, or a review/start of ours in flight): the
-  // review delegate gets the session's MCP servers too, and Code Desktop's own may serve it only read-only tools.
+  // review delegate gets the session's MCP servers too, and OpenClaude Desktop's own may serve it only read-only tools.
   const reviewing = new Set();
   const publish = entry => emit({ kind: 'session-operation', threadId: entry.threadId, operation: entry.operation,
     phase: entry.phase, turnId: entry.turnId || null, activeTurnId: entry.activeTurnId || null, error: entry.error || null,

@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -79,18 +81,26 @@ test('decorateCoreParams: DeepSeek merges the namespaced key on start, resume an
   assert.deepEqual(other, {});
 });
 
-test('decorateCoreParams: Codex appends developerInstructions on start and resume only', () => {
-  const read = () => ({ text: 'Mine', systemPrompt: 'ignored by Codex', instructions: 'ignored' });
-  const start = { developerInstructions: 'App' };
-  decorateCoreParams('thread/start', start, { engine: undefined, cwd: '/w', read });
-  assert.equal(start.developerInstructions, 'App\n\nMine');
+test('decorateCoreParams: a custom prompt replaces Codex\'s, other cores get no default line; without one the text is appended', () => {
+  const { CUSTOM_PROMPT_CODEX_CONFIG } = require('../electron/instructions-service.cjs');
+  const read = () => ({ text: 'Global\n\nProject', systemPrompt: 'Global', instructions: 'Project' });
+  const start = { developerInstructions: 'App', config: { model: 'x' } };
+  decorateCoreParams('thread/start', start, { engine: { engine: 'codex' }, cwd: '/w', read });
+  assert.deepEqual([start.baseInstructions, start.developerInstructions, start.personality], ['Global', 'Project', 'none']);
+  assert.deepEqual(start.config, { model: 'x', ...CUSTOM_PROMPT_CODEX_CONFIG });
   assert.equal(start.codeDesktop, undefined);
   const resume = {};
-  decorateCoreParams('thread/resume', resume, { engine: 'codex', cwd: '/w', read });
-  assert.equal(resume.developerInstructions, 'Mine');
+  decorateCoreParams('thread/resume', resume, { engine: 'codex', cwd: '/w', read: () => ({ text: 'Global', systemPrompt: 'Global', instructions: null }) });
+  assert.deepEqual([resume.baseInstructions, resume.developerInstructions], ['Global', null], 'no default line, no project text');
+  const bridge = { developerInstructions: 'App' };
+  decorateCoreParams('thread/start', bridge, { engine: undefined, cwd: '/w', read });
+  assert.deepEqual([bridge.developerInstructions, bridge.baseInstructions], ['Global\n\nProject', undefined], 'the app line is replaced');
   const turn = {};
   decorateCoreParams('turn/start', turn, { engine: 'codex', cwd: '/w', read });
   assert.deepEqual(turn, {});
+  const projectOnly = { developerInstructions: 'App' };
+  decorateCoreParams('thread/start', projectOnly, { engine: 'codex', cwd: '/w', read: () => ({ text: 'Mine', systemPrompt: null, instructions: 'Mine' }) });
+  assert.deepEqual([projectOnly.developerInstructions, projectOnly.baseInstructions], ['App\n\nMine', undefined]);
   const empty = { developerInstructions: 'App' };
   decorateCoreParams('thread/start', empty, { engine: 'codex', cwd: '/w', read: () => ({ text: '' }) });
   assert.equal(empty.developerInstructions, 'App');

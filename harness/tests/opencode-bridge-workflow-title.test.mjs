@@ -1,5 +1,5 @@
 // A workflow agent's session on the OpenCode / MiMo bridge (packages/opencode-bridge/src/index.js createThread): the
-// Code Desktop workflow runner (clientInfo.name code-desktop-workflows, app/electron/workflow-child.mjs) gets its
+// OpenClaude Desktop workflow runner (clientInfo.name code-desktop-workflows, app/electron/workflow-child.mjs) gets its
 // sessions created with a title, so OpenCode's and MiMo's SessionPrompt.ensureTitle spend no model request naming
 // each agent; the placeholder never becomes the thread's name. Every new session reads its folder's MCP servers once,
 // so tool calls are attributed from the first turn.

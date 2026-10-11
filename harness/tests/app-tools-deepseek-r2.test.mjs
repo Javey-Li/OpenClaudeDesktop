@@ -1,4 +1,4 @@
-// Code Desktop's own tools (code_desktop, app/electron/agent-tools-server.mjs) on the DeepSeek core, round 2: the real
+// OpenClaude Desktop's own tools (code_desktop, app/electron/agent-tools-server.mjs) on the DeepSeek core, round 2: the real
 // core (bin/codex-app-server.mjs) in a temp home, a fake app channel and a scripted loopback model.
 //   - a turn/start sent right after thread/start, or right after thread/unsubscribe (a Cron prompt or a workflow
 //     <task-notification> reaching a session the user left), sees mcp__code_desktop__* on its first request;
@@ -141,7 +141,7 @@ test('projection: an MCP call stopped before the bridge recorded it as aborted i
   assert.equal(failed.error.message, 'Error: no preview is open')
 })
 
-test('DeepSeek core: first turns see Code Desktop tools, sub-agents share the root client, Stop interrupts an app tool call', { timeout: 240000 }, async () => {
+test('DeepSeek core: first turns see OpenClaude Desktop tools, sub-agents share the root client, Stop interrupts an app tool call', { timeout: 240000 }, async () => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-ds2-')))
   const workspace = path.join(home, 'w')
   fs.mkdirSync(workspace)

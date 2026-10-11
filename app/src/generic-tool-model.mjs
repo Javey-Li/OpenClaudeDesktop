@@ -56,7 +56,7 @@ export function genericToolLabel(item,state=commandRowState(item)) {
   const {verbs:[running,done,failedVerb],meta}=HARNESS_TOOLS[harness](item);
   return {label:busy?running:failed?failedVerb??done:done,meta};
  }
- // Code Desktop's own tools (the code_desktop MCP server: preview, …) read as what they did.
+ // OpenClaude Desktop's own tools (the code_desktop MCP server: preview, …) read as what they did.
  const app=appToolLabel(item,state);
  if(app)return app;
  // Any other Harness tool: its presenter title ("Create goal") when the bridge sent one.
@@ -144,7 +144,7 @@ export function todoChecklist(item) {
 // Each pair also keeps why it has no real answer (`unanswered`: 'skipped' with
 // neither a selection nor custom text, 'dismissed' when the call was stopped), as
 // the source ps (c06cf64bb) keeps it apart from the answer text.
-// Code Desktop's AskUserQuestion (agent-tools/ask.mjs answerText): Claude Code's sentence, each answered question as
+// OpenClaude Desktop's AskUserQuestion (agent-tools/ask.mjs answerText): Claude Code's sentence, each answered question as
 // "question"="answer" (no double quote inside either: the tool writes them as '), a skipped one left out.
 function appAnswerPairs(item,state) {
  const questions=(Array.isArray(item.arguments?.questions)?item.arguments.questions:[]).filter(entry=>record(entry)&&string(entry.question).trim());

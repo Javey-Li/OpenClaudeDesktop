@@ -1,6 +1,6 @@
 # Codex extension pack
 
-OpenAI's Codex as a Code Desktop core. Code Desktop's only built-in core is DeepSeek Harness; Codex is added from
+OpenAI's Codex as an OpenClaude Desktop core. OpenClaude Desktop's only built-in core is DeepSeek Harness; Codex is added from
 this pack (Settings › Cores › Extension packs › Codex › Add), which the app ships in `extensions/codex`.
 
 Codex is a native core: its own `codex app-server --stdio` speaks the protocol, so the pack has no bridge. Choosing

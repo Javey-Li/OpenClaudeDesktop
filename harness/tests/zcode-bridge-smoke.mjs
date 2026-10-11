@@ -1,5 +1,5 @@
 // Parity smoke of the ZCode core: the real ZCode agent (`zcode app-server --stdio` from the official release)
-// behind harness/packages/zcode-bridge, driven through Code Desktop's own client (app/electron/codex.cjs) with a
+// behind harness/packages/zcode-bridge, driven through OpenClaude Desktop's own client (app/electron/codex.cjs) with a
 // local scripted Anthropic-Messages model standing in for GLM. Every notification is fed through the app's real
 // transcript reducer (app/src/state.js) and the usage / customize / model-menu view models, so the checks assert
 // what the UI would show. Isolated: a temp HOME (ZCode keeps everything under ~/.zcode), no network.
@@ -315,7 +315,7 @@ try {
     assert.equal(fs.readFileSync(path.join(ws, 'out.txt'), 'utf8').trim(), 'hi')
   })
 
-  await check('one card per request: ZCode re-sends an unanswered approval / question every few seconds; Code Desktop shows it once', async () => {
+  await check('one card per request: ZCode re-sends an unanswered approval / question every few seconds; OpenClaude Desktop shows it once', async () => {
     let from = events.length
     await client.request('turn/start', turnParams(mainThread.id, 'RUN_OTHER resent', 'ask'))
     const req = await nextRequest('item/commandExecution/requestApproval', from)
@@ -1184,7 +1184,7 @@ try {
     if (plugin) await client.request('codeDesktop/plugin/remove', { pluginName: plugin.id }).catch(() => {})
   })
 
-  await check('sign out removes the Code Desktop API key provider', async () => {
+  await check('sign out removes the OpenClaude Desktop API key provider', async () => {
     await client.request('account/logout', {})
     const personal = JSON.parse(fs.readFileSync(path.join(home, '.zcode/v2/provider_config.json'), 'utf8'))
     assert.ok(!personal.config.providerConfigRules.providerRules.some((rule) => rule.providerId.startsWith('code-desktop-')))

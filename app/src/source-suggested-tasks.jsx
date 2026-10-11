@@ -1,5 +1,5 @@
 // The "Suggested task" card (2.2553.1 code-transcript.js ud, :1430-1720): tasks the agent suggested with spawn_task
-// (Code Desktop's agent tools, electron/agent-tools/session.mjs) float at the top right of the transcript, newest
+// (OpenClaude Desktop's agent tools, electron/agent-tools/session.mjs) float at the top right of the transcript, newest
 // first, stacked when there are more: "Suggested task · in {dir}", the title, the tldr (the prompt on hover), X to
 // dismiss, "{position} of {count}" to step through them, and Start, which starts a new session with the task's prompt
 // in its folder. Nothing runs until the user clicks Start. A dismissed or started task stays gone for this viewer

@@ -104,7 +104,7 @@ test('Storage: Disk space used, Code sessions and worktrees, Runtime and App cac
   const lower = render(React.createElement(pages.StorageRows, { value: { ...value, incomplete: true } }));
   assert.ok(lower.includes('Some folders couldn’t be measured, so this is a lower bound.'));
   const kinds = render(React.createElement(pages.StorageKinds, { label: 'Code storage by kind', color: 'var(--cds-chart-categorical-2)',
-    items: value.areas[0].kinds.map(kind => kind.outside ? { ...kind, tip: 'History from DeepSeek Harness outside Code Desktop. Shown for completeness; not counted above and never removed from here.' } : kind) }));
+    items: value.areas[0].kinds.map(kind => kind.outside ? { ...kind, tip: 'History from DeepSeek Harness outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.' } : kind) }));
   assert.match(kinds, /<div role="img" aria-label="Code storage by kind: Conversation history 5 B; Worktrees in use or with changes 13 B" class="ss-storage-kind-bar">/);
   assert.equal((kinds.match(/class="ss-storage-kind-bar">([\s\S]*?)<\/div><ul/)?.[1].match(/<div /g) || []).length, 2, 'the outside kind stays out of the bar');
   assert.deepEqual([...kinds.matchAll(/class="ss-storage-kind-dot" style="background-color:([^;]+);opacity:([\d.]+)"/g)].map(match => [match[1], Number(match[2])]),

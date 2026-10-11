@@ -1,7 +1,7 @@
 /**
  * Codex app-server protocol (v0.155.1, JSON-RPC lines on stdio) served by the official ZCode agent.
  *
- * Code Desktop spawns `node bin/app-server.mjs app-server --stdio`; this bridge starts `zcode app-server --stdio`
+ * OpenClaude Desktop spawns `node bin/app-server.mjs app-server --stdio`; this bridge starts `zcode app-server --stdio`
  * (the agent process the ZCode desktop app drives, speaking the ZCode Protocol) and acts as its host.
  *
  *   thread                ZCode session (sess_…); Thread.cliVersion "zcode <version>"
@@ -147,14 +147,14 @@ export function goalOf(target, threadId) {
 // ZCode slash commands the bridge serves through Codex methods instead (thread/compact/start, the permission modes).
 const SERVED_COMMANDS = new Set(['compact', 'plan'])
 const COMMAND_PATH = 'command:'
-// ZCode tools whose host side Code Desktop doesn't provide: scheduled tasks (Cron*, the agent → host automation/*
+// ZCode tools whose host side OpenClaude Desktop doesn't provide: scheduled tasks (Cron*, the agent → host automation/*
 // requests) and off-peak tasks (OffPeak*, offPeak/*). They are kept off every session and turn, so GLM never offers to
 // schedule something that would never run; the automation/* answers below are only the fallback for a path that
 // still reaches them.
 export const UNAVAILABLE_TOOLS = Object.freeze(['CronCreate', 'CronDelete', 'CronList', 'CronUpdate', 'OffPeakCreate', 'OffPeakList'])
 const UNAVAILABLE_TOOL_SET = new Set(UNAVAILABLE_TOOLS)
 // ZCode's dynamic-workflow tool family (core/src/tool/handlers/index.ts DYNAMIC_WORKFLOW_TOOL_NAMES): withheld while
-// Code Desktop's Dynamic workflows setting is off (codeDesktop.dynamicWorkflows on thread/start, thread/resume, turn/start).
+// OpenClaude Desktop's Dynamic workflows setting is off (codeDesktop.dynamicWorkflows on thread/start, thread/resume, turn/start).
 export const WORKFLOW_TOOLS = Object.freeze(['CreateWorkflow', 'AmendWorkflow', 'SaveWorkflow', 'ListSavedWorkflows', 'ListModels', 'EvalWorkflowSnippet', 'ListWorkflowRuns', 'GetWorkflowRun', 'ResumeWorkflowRun', 'ResolveWorkflowQuestion'])
 // ZCode's official Browser Use and Computer Use plugins, and the node_repl tool both drive (bootstrap
 // official-plugin-definitions.ts, built-in-node-repl.ts).
@@ -163,8 +163,8 @@ const COMPUTER_USE_PLUGIN = 'computer-use@zcode-plugins-official'
 export const NODE_REPL_TOOL = 'mcp__node_repl__js'
 // What GLM is told while Browser Use is on (its skills stay listed: ZCode has no per-session skill switch), so it
 // checks web pages with the tools that work here instead of loading a skill that can only fail.
-export const NO_BROWSER_NOTE = 'Browser Use is not available here: ZCode\'s browser-use skills (control-browser, web-gui-tester) need a ZCode browser, and Code Desktop provides none. Do not load those skills or call node_repl.'
-export const PREVIEW_INSTEAD = 'To open, check, click through or screenshot a web page or a local dev server, use Code Desktop\'s preview tools (preview_start, navigate, read_page, screenshot and the rest) instead.'
+export const NO_BROWSER_NOTE = 'Browser Use is not available here: ZCode\'s browser-use skills (control-browser, web-gui-tester) need a ZCode browser, and OpenClaude Desktop provides none. Do not load those skills or call node_repl.'
+export const PREVIEW_INSTEAD = 'To open, check, click through or screenshot a web page or a local dev server, use OpenClaude Desktop\'s preview tools (preview_start, navigate, read_page, screenshot and the rest) instead.'
 export const NO_PREVIEW_INSTEAD = 'To check a web page or a local dev server, use Bash (curl, the project\'s own tests), and tell the user that you can\'t view it in a browser here.'
 // The attachment kinds ZCode's protocol takes by file type (bootstrap server-operations.ts mapProtocolPromptAttachment:
 // 'pdf' or an application/pdf mimeType, 'video', 'image'; anything else is a plain file, which the core hands the model
@@ -183,7 +183,7 @@ export function fileAttachment(localPath, filename = path.basename(localPath)) {
   return { kind: 'file', localPath, filename, ...(TEXT_MIME[extension] ? { mimeType: TEXT_MIME[extension] } : {}) }
 }
 
-export const SCHEDULING_UNAVAILABLE = 'Scheduled tasks aren’t available for ZCode in Code Desktop, so nothing was scheduled. Tell the user it can’t be scheduled here; it can be run now instead.'
+export const SCHEDULING_UNAVAILABLE = 'Scheduled tasks aren’t available for ZCode in OpenClaude Desktop, so nothing was scheduled. Tell the user it can’t be scheduled here; it can be run now instead.'
 
 export async function main() {
   const env = { ...process.env }
@@ -221,11 +221,11 @@ export async function main() {
       try { fs.rmSync(folder.dir, { recursive: true, force: true }) } catch {}
     }
   }
-  // Code Desktop's own tools (app-tools.js): a code_desktop server in each app session's mcpServers.
+  // OpenClaude Desktop's own tools (app-tools.js): a code_desktop server in each app session's mcpServers.
   const appTools = appToolsServer(env)
   // How often a session waiting for its background work to settle is checked (whenSettled).
   const settlePollMs = Number(env.ZCODE_BRIDGE_SETTLE_POLL_MS) > 0 ? Number(env.ZCODE_BRIDGE_SETTLE_POLL_MS) : 2500
-  // Code Desktop's ZCode settings (zcodeCoreSettingDefs), kept beside the bridge's thread state.
+  // OpenClaude Desktop's ZCode settings (zcodeCoreSettingDefs), kept beside the bridge's thread state.
   const coreSettingsFile = path.join(stateDir, 'core-settings.json')
   const readCoreSettings = () => { try { const value = JSON.parse(fs.readFileSync(coreSettingsFile, 'utf8')); return value && typeof value === 'object' ? value : {} } catch { return {} } }
   const coreSettingDefs = () => { let desktop = {}; try { desktop = JSON.parse(fs.readFileSync(path.join(home, '.zcode', 'v2', 'setting.json'), 'utf8')) ?? {} } catch {} return zcodeCoreSettingDefs(desktop) }
@@ -300,7 +300,7 @@ export async function main() {
       // ZCode's dynamic workflows are a host-decided gate its protocol server keeps closed by default (fail-closed:
       // appRuntimePreferences.dynamicWorkflowEnabled false). The bridge never opens it for the process
       // (workspace/updateDynamicWorkflowPolicy): each session it creates or resumes says dynamicWorkflowEnabled itself,
-      // from Code Desktop's Dynamic workflows setting (sessionWorkflowGate).
+      // from OpenClaude Desktop's Dynamic workflows setting (sessionWorkflowGate).
       return connection
     })()
     try { return await starting } finally { starting = null }
@@ -570,7 +570,7 @@ export async function main() {
     const names = new Set(UNAVAILABLE_TOOLS)
     if (thread.dynamicWorkflows !== true) for (const name of WORKFLOW_TOOLS) names.add(name)
     // node_repl's `js` drives the browser ZCode's host provides (Browser Use) or the computer (Computer Use, which shares
-    // it). Code Desktop provides no browser (interaction/browserList: no backends), so it stays only for Computer Use.
+    // it). OpenClaude Desktop provides no browser (interaction/browserList: no backends), so it stays only for Computer Use.
     if (!officialPluginOn(COMPUTER_USE_PLUGIN, false)) names.add(NODE_REPL_TOOL)
     if (!thread.tools) return [...names]
     for (const name of thread.tools.disabled) names.add(name)
@@ -597,7 +597,7 @@ export async function main() {
   /**
    * A session's mcpServers: ZCode takes the list as the session's complete set of configured servers (it replaces the
    * user + project config ZCode would merge itself), so it is sent only when it differs from ZCode's own (disabled
-   * servers, or Code Desktop's code_desktop server named for `session`: the thread id, or the app's start token on
+   * servers, or OpenClaude Desktop's code_desktop server named for `session`: the thread id, or the app's start token on
    * thread/start), and then rebuilt the way ZCode builds it for the session folder: the project's own .zcode/config.json
    * and zcode.json servers from the worktree root down, shadowed by the user's (catalog.effectiveMcpServers), each with
    * its timeout, OAuth client and protocol version. undefined otherwise.
@@ -608,7 +608,7 @@ export async function main() {
     if (!disabled.size && !own) return undefined
     const config = catalog.readConfig(paths.cliConfig)
     const cwd = thread.cwd ?? home
-    // With MCP off in ZCode's config (features.mcp false) only Code Desktop's own server runs.
+    // With MCP off in ZCode's config (features.mcp false) only OpenClaude Desktop's own server runs.
     const configured = config?.features?.mcp === false && own ? [] : catalog.protocolMcpServers({ mcp: { servers: catalog.effectiveMcpServers(config, cwd) } }, { cwd }).filter((server) => !disabled.has(server.name) && server.name !== own?.name)
     return own ? [...configured, own] : configured
   }
@@ -1446,7 +1446,7 @@ export async function main() {
   async function askPermission(params, interaction) {
     const { thread } = threadForRequest(params)
     if (!thread) return permissionAnswer(params, 'decline').response
-    // Code Desktop's own tools need no card here: the app asks the user itself where it matters (as for Codex).
+    // OpenClaude Desktop's own tools need no card here: the app asks the user itself where it matters (as for Codex).
     if (appTools && typeof params.toolName === 'string' && params.toolName.startsWith(`mcp__${appTools.name}__`)) return permissionAnswer(params, 'accept').response
     if (WORKFLOW_RUN_TOOLS.includes(params.toolName)) return askWorkflowRun(params, thread, interaction)
     // The client never answers approvals (approvalPolicy "never", e.g. the workflow runner): refuse now, with a reason.
@@ -1481,7 +1481,7 @@ export async function main() {
    * starts nothing (the projection settles the run as never started). Bypass permissions asks nothing.
    */
   async function askWorkflowRun(params, thread, interaction) {
-    // Dynamic workflows off (or Code Desktop's engine chosen): the tools are withheld; a stray request starts nothing.
+    // Dynamic workflows off (or OpenClaude Desktop's engine chosen): the tools are withheld; a stray request starts nothing.
     if (thread.dynamicWorkflows !== true) return { ...permissionAnswer(params, 'decline').response, reason: 'Dynamic workflows are off for this session. Nothing was started.' }
     // A read-only mode (Plan, Chat, review) never runs one: ZCode runs a workflow's agents unconfined once the run is
     // allowed, so one click would let them change the project while the mode still says read-only.
@@ -1548,7 +1548,7 @@ export async function main() {
   async function onRuntimeHeaders(params) {
     const { signedIn } = readAccounts()
     const account = signedIn[params.providerId]
-    if (!account) return { headersApplied: false, errorMessage: 'Sign in to your Coding Plan in Code Desktop (Settings › Account) first.' }
+    if (!account) return { headersApplied: false, errorMessage: 'Sign in to your Coding Plan in OpenClaude Desktop (Settings › Account) first.' }
     return { headersApplied: true, requestAuth: { apiKey: account.apiKey } }
   }
 
@@ -1626,7 +1626,7 @@ export async function main() {
 
   // ---------------------------------------------------------------- customization
 
-  /** Code Desktop's tools server's instructions when this thread's sessions get that server ('' otherwise). */
+  /** OpenClaude Desktop's tools server's instructions when this thread's sessions get that server ('' otherwise). */
   function appToolsInstructions(thread) {
     if (!appTools?.instructions || !thread) return ''
     if ((thread.tools?.disabledServers ?? []).includes(appTools.name)) return ''
@@ -1635,7 +1635,7 @@ export async function main() {
 
   /**
    * While ZCode's Browser Use is on (its default), what GLM is told about browsing: its skills say to open web pages
-   * and localhost through a ZCode browser, which Code Desktop doesn't provide (its node_repl tool is withheld:
+   * and localhost through a ZCode browser, which OpenClaude Desktop doesn't provide (its node_repl tool is withheld:
    * toolDenylist), so GLM is pointed at the preview tools, or at Bash when this session has none.
    */
   function browserNote(thread) {
@@ -1648,17 +1648,21 @@ export async function main() {
     const thread = threads.get(sessionId)
     if (!thread) return null
     const custom = thread.customization ?? {}
-    const sections = []
-    if (typeof custom.instructions === 'string' && custom.instructions.trim()) sections.push(`# Project instructions\n\n${custom.instructions.trim()}`)
-    if (typeof thread.developerInstructions === 'string' && thread.developerInstructions.trim()) sections.push(thread.developerInstructions.trim())
-    // ZCode never shows the model an MCP server's initialize instructions, so Code Desktop's (the preview
-    // auto-verify workflow) ride along with the system prompt the proxy already customizes.
-    const tools = appToolsInstructions(thread)
-    if (tools) sections.push(tools)
-    const browser = browserNote(thread)
-    if (browser) sections.push(browser)
-    const params = modelParamsFor(custom.modelParams, thread.model, model)
     const systemPrompt = typeof custom.systemPrompt === 'string' && custom.systemPrompt.trim() ? fillVariables(custom.systemPrompt, thread, model) : null
+    const sections = []
+    // With the user's own system prompt nothing the system wrote goes with it: their project instructions (bare) and
+    // a workflow agent's role only, no heading, tool guidance or browser note.
+    if (typeof custom.instructions === 'string' && custom.instructions.trim()) sections.push(systemPrompt ? custom.instructions.trim() : `# Project instructions\n\n${custom.instructions.trim()}`)
+    if (typeof thread.developerInstructions === 'string' && thread.developerInstructions.trim()) sections.push(thread.developerInstructions.trim())
+    if (!systemPrompt) {
+      // ZCode never shows the model an MCP server's initialize instructions, so OpenClaude Desktop's (the preview
+      // auto-verify workflow) ride along with the system prompt the proxy already customizes.
+      const tools = appToolsInstructions(thread)
+      if (tools) sections.push(tools)
+      const browser = browserNote(thread)
+      if (browser) sections.push(browser)
+    }
+    const params = modelParamsFor(custom.modelParams, thread.model, model)
     if (!systemPrompt && !sections.length && !params) return null
     return { systemPrompt, appendSections: sections, maxTokens: params?.maxTokens ?? null, temperature: params?.temperature ?? null }
   }
@@ -1689,7 +1693,7 @@ export async function main() {
     dryRuns.add(id)
     try {
       await request('session/subscribe', { sessionId: id, deliveryKind: 'desktop-continuous', includeSnapshot: false }).catch(() => {})
-      await request('session/send', { sessionId: id, content: 'Code Desktop prompt preview', inputId: `cd-preview-${randomUUID()}` })
+      await request('session/send', { sessionId: id, content: 'OpenClaude Desktop prompt preview', inputId: `cd-preview-${randomUUID()}` })
       const deadline = Date.now() + 15000
       while (!proxy.seen.has(id) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100))
       await new Promise((resolve) => setTimeout(resolve, 300))
@@ -2124,7 +2128,7 @@ export async function main() {
       if (child !== wantChildren) continue
       if (session.sessionKind === 'selection_side_chat') continue
       const meta = store.get(session.sessionId) ?? {}
-      // Archived here, or (when Code Desktop never set it) archived in the ZCode app.
+      // Archived here, or (when OpenClaude Desktop never set it) archived in the ZCode app.
       if ((meta.archived ?? !!session.archivedAt) !== archivedOnly) continue
       const cwd = session.workspace?.workspacePath ?? meta.cwd ?? home
       if (cwds && !cwds.has(cwd)) continue
@@ -2215,7 +2219,7 @@ export async function main() {
       }
       case 'account/logout': return logout()
       case 'account/usage/read': return accountUsage(await request('usage/stats', { range: 'all', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }))
-      // Code Desktop's tools changed (a Settings switch turned Dynamic workflows or the preview on or off): ZCode keeps
+      // OpenClaude Desktop's tools changed (a Settings switch turned Dynamic workflows or the preview on or off): ZCode keeps
       // the MCP tool list it read when the session opened, so every loaded session reopens with the new list.
       case 'codeDesktop/appTools/changed': {
         if (appTools) void refreshMcpSessions().catch((error) => log(`zcode-bridge: tools refresh: ${error.message}`))
@@ -2512,7 +2516,7 @@ export async function main() {
         const forked = await request('session/fork', { sessionId: threadId, target: { kind: 'turn', turnIndex: index } })
         const id = forked?.forkedSessionId
         if (!id) throw new RpcError(-32000, 'ZCode did not fork the session.')
-        // ZCode opens the fork with its parent's runtime, MCP servers included: Code Desktop's code_desktop server would
+        // ZCode opens the fork with its parent's runtime, MCP servers included: OpenClaude Desktop's code_desktop server would
         // still name the parent. Reopened (it is persisted), the fork gets one named for itself.
         if (appTools) await request('session/close', { sessionId: id }).catch(() => {})
         store.update(id, { forkedFromId: threadId, cwd: source.cwd, permission: source.permission, model: source.model ?? undefined, effort: source.effort ?? undefined, tools: source.tools ?? undefined, customization: source.customization ?? undefined, developerInstructions: source.developerInstructions ?? undefined })
@@ -2814,7 +2818,7 @@ export async function main() {
 }
 
 /**
- * The host's answers to ZCode's scheduled-task requests (automation-port.ts). Code Desktop keeps no automations, so
+ * The host's answers to ZCode's scheduled-task requests (automation-port.ts). OpenClaude Desktop keeps no automations, so
  * the binding check and the list are truthfully empty, and a create, update or delete fails with a reason the model
  * can pass on (instead of ZCode's "Try again later", which an unanswered binding check turns into).
  */

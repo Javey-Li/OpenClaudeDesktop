@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Code Desktop core entry: a Codex app-server compatible JSON-RPC endpoint on
- * stdio, backed by a DeepSeek Harness runtime. Code Desktop spawns this as
+ * OpenClaude Desktop core entry: a Codex app-server compatible JSON-RPC endpoint on
+ * stdio, backed by a DeepSeek Harness runtime. OpenClaude Desktop spawns this as
  * `<binary> app-server --stdio`, exactly as it spawned the Codex CLI.
  *
  * Credentials, sessions and settings come from the user's Harness home
@@ -31,7 +31,7 @@ if (args.includes('--version') || args.includes('-V')) {
   process.exit(0)
 }
 
-// Overlays after the app-owned profile (Settings › Harness): Code Desktop sets
+// Overlays after the app-owned profile (Settings › Harness): OpenClaude Desktop sets
 // CODE_DESKTOP_CORE_PATCHES to <userData>/harness/overlay.patch.yml and
 // user.patch.yml, joined with the path delimiter. CODE_DESKTOP_CORE_SAFE_MODE=1
 // skips them all, so a broken overlay can never lock the core out.

@@ -1,4 +1,4 @@
-// Code Desktop's own agent-tool approvals (a terminal command, an outside site, a dev server, a workflow) on the
+// OpenClaude Desktop's own agent-tool approvals (a terminal command, an outside site, a dev server, a workflow) on the
 // session's in-app approval card: CodexClient.localApproval registers them with the approval ledger like a core's
 // request and answers them locally (codex.cjs), and approval-card-model.mjs words them (agentToolCard).
 import test from 'node:test';

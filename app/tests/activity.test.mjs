@@ -161,7 +161,7 @@ test("main.cjs serves the home stats from codeDesktop/stats/read, keeps the last
 test("keptCodeStats: only the producing core's kept result paints first", () => {
   const { statsCoreKey, keptCodeStats } = createRequire(import.meta.url)("../electron/activity.cjs");
   const stats = { dailyActivity: [{ date: "2026-09-30", messageCount: 1, sessionCount: 1, toolCallCount: 0 }], dailyModelTokens: [], modelUsage: {}, peakActivityHour: 9 };
-  const bridge = statsCoreKey({ kind: "deepseek", command: "/usr/bin/node", prefix: ["/Apps/Code Desktop/core.js"] });
+  const bridge = statsCoreKey({ kind: "deepseek", command: "/usr/bin/node", prefix: ["/Apps/OpenClaude Desktop/core.js"] });
   const codexOverride = statsCoreKey({ kind: "override", command: "/opt/codex/codex", prefix: [] });
   const fixture = statsCoreKey({ kind: "override", command: "/tmp/codex-server.cjs", prefix: [] });
   assert.equal(bridge, "deepseek", "the default bridge is one core whatever its script path");

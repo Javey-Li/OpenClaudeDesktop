@@ -1,6 +1,6 @@
 // The model-invoked Workflow tool (agent-tools/workflow.mjs) and its notifications: pure pieces modeled on Claude
 // Code 2.1.280's Workflow tool (input validation, launch text, <task-notification>, saved-workflow lookup, the
-// opt-in reminders). Main-process only (Node fs). The model-facing description is Code Desktop's own wording of
+// opt-in reminders). Main-process only (Node fs). The model-facing description is OpenClaude Desktop's own wording of
 // Claude's rules: the opt-in rule, the cost ask, the script contract and the size guideline.
 import fs from "node:fs";
 import path from "node:path";
@@ -30,7 +30,7 @@ export const workflowSlug = (name) => String(name ?? "").toLowerCase().replace(/
 export * from "./workflow-reminders.mjs";
 import { sizeGuidelineText, SYSTEM_NOTIFICATION } from "./workflow-reminders.mjs";
 
-// --- Model-facing description (Code Desktop's wording of Claude's rules).
+// --- Model-facing description (OpenClaude Desktop's wording of Claude's rules).
 const DESCRIPTION = `Run a dynamic workflow: a JavaScript script that orchestrates many subagents deterministically. The run goes to the background — this tool returns at once with a task ID and run ID, and a <task-notification> message arrives in this conversation when the workflow finishes. The user watches progress in the Tasks pane (/workflows).
 
 Call this tool ONLY when the user has explicitly opted into multi-agent orchestration. A workflow can start dozens of agents and use a lot of tokens, so the user must ask for that scale; never infer it. Explicit opt-in is one of:
@@ -65,7 +65,7 @@ Scale to the request: "find any bugs" → a few finders and a single verify vote
 Prefer pipeline() over barriers; verify findings adversarially before reporting them; log() what a bounded workflow leaves out. To resume after a stop, failure or script edit, call this tool with {scriptPath, resumeFromRunId}: the longest unchanged prefix of agent() calls replays from cache. Read <transcript dir>/journal.jsonl before diagnosing an empty result.`;
 export function workflowToolDescription({ sizeGuideline = "medium", sizeIsDefault = true, nameOnly = false } = {}) {
   const advisory = sizeGuidelineText(sizeGuideline, sizeIsDefault);
-  // Claude Code under CLAUDE_WORKFLOW_NAME_ONLY lists only its bundled workflows; Code Desktop bundles none.
+  // Claude Code under CLAUDE_WORKFLOW_NAME_ONLY lists only its bundled workflows; OpenClaude Desktop bundles none.
   const restricted = nameOnly ? `\n\nThis session runs named bundled workflows only (CLAUDE_WORKFLOW_NAME_ONLY): call this tool as {name, args}. ${NAME_ONLY_NONE}` : "";
   return DESCRIPTION + restricted + (advisory ? `\n\n${advisory}` : "");
 }
@@ -254,8 +254,8 @@ export function savedWorkflows({ cwd, home, folders: extraFolders }) {
 }
 // CLAUDE_WORKFLOW_NAME_ONLY (Claude Code 2.1.280): the registry holds only bundled workflows, so a project's or the
 // user's own .claude/workflows scripts don't count as "named" (else any project could ship a script under a name),
-// and nested workflow({scriptPath}) is refused. Code Desktop bundles no workflows.
-export const NAME_ONLY_NONE = "Code Desktop bundles no named workflows, so no workflow can run in this session.";
+// and nested workflow({scriptPath}) is refused. OpenClaude Desktop bundles no workflows.
+export const NAME_ONLY_NONE = "OpenClaude Desktop bundles no named workflows, so no workflow can run in this session.";
 export const NAME_ONLY_SCRIPT_PATH = "workflow({scriptPath}): this session restricts workflows to named bundled workflows (CLAUDE_WORKFLOW_NAME_ONLY is set) — nest with workflow('<name>') instead.";
 export function findSavedWorkflow({ cwd, home, name, nameOnly = false, folders }) {
   if (nameOnly) return { error: `Workflow "${name}" not found. Available: (none). ${NAME_ONLY_NONE}` };
@@ -322,7 +322,7 @@ export function workflowTaskNotification({ taskId, toolUseId, outputFile, status
   if (status !== "completed") {
     const lines = [];
     if (scriptPath && runId) lines.push(`To resume after editing the script, call: Workflow({scriptPath: '${scriptPath}', resumeFromRunId: '${runId}'${argsText}})`);
-    // Code Desktop's run folder holds the journal (one {"type":"result",...} line per completed agent), not per-agent
+    // OpenClaude Desktop's run folder holds the journal (one {"type":"result",...} line per completed agent), not per-agent
     // transcripts as Claude's does.
     if (transcriptDir) lines.push(`Agent results: ${transcriptDir}/journal.jsonl (one {"type":"result",...} line per completed agent)`);
     if (lines.length) body += `\n<recovery>${xml(lines.join("\n"))}</recovery>`;
@@ -350,7 +350,7 @@ export function workflowTaskNotification({ taskId, toolUseId, outputFile, status
   return `${head}${body}\n</task-notification>`;
 }
 /**
- * A model-started run that ended because Code Desktop quit (or crashed) while it ran: Claude Code 2.1.280's
+ * A model-started run that ended because OpenClaude Desktop quit (or crashed) while it ran: Claude Code 2.1.280's
  * orphaned-workflow notification on resume (status stopped, "didn't finish before the previous session ended", the
  * resumeFromRunId recovery line), with this run's own scriptPath and args so the model can relaunch it as is.
  */
@@ -360,7 +360,7 @@ export function workflowOrphanNotification({ taskId, toolUseId, name, runId, scr
   const argsText = args !== undefined ? `, args: ${JSON.stringify(args)}` : "";
   const resume = runId && scriptPath ? ` To pick up where it left off, relaunch with Workflow({scriptPath: '${scriptPath}', resumeFromRunId: '${runId}'${argsText}}) — completed agent() calls return cached.`
     : runId ? " To pick up where it left off, relaunch with Workflow({scriptPath, resumeFromRunId}) using the run id from the summary — completed agent() calls return cached." : "";
-  const note = `No completion record was found for it in the previous session. It was still running when the previous Code Desktop process exited.${resume}`;
+  const note = `No completion record was found for it in the previous session. It was still running when the previous OpenClaude Desktop process exited.${resume}`;
   let head = "<task-notification>";
   for (const [tag, value] of [["task-id", taskId], ["tool-use-id", toolUseId], ["status", "stopped"], ["summary", summary]]) if (value) head += `\n<${tag}>${value}</${tag}>`;
   return `${head}\n<note>${xml(note)}</note>\n</task-notification>`;

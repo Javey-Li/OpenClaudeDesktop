@@ -262,7 +262,7 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
   const isCodex = client => !!client?.serverInfo && coreForEngine(client.serverInfo.engine).id === "codex";
   // The provider the owner's Codex child was launched with, from its `-c` args (child.spawnargs): a save applies
   // only after the restart, and a CODEX_BINARY / options.binary child never gets them. Without a live child, the
-  // args the next spawn takes. null: no Code Desktop provider table, so naming one would fail the request.
+  // args the next spawn takes. null: no OpenClaude Desktop provider table, so naming one would fail the request.
   function launchedProvider(client) {
     const codex = codexPrefs(), id = codex.CODEX_PROVIDER_ID;
     const live = Array.isArray(client?.child?.spawnargs) ? client.child.spawnargs : null;
@@ -450,7 +450,7 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
       if (!codex) throw new Error("Model settings aren’t available.");
       if (p.op === "codex-provider-read") {
         // The provider the user's own config.toml picks (model_provider, not openai or this app's codedesktop): while
-        // Code Desktop's endpoint is OpenAI, that relay is what Codex really talks to, so the page says so.
+        // OpenClaude Desktop's endpoint is OpenAI, that relay is what Codex really talks to, so the page says so.
         const view = codexProviderView();
         if (view.mode === "custom") return view;
         const client = getClient?.();

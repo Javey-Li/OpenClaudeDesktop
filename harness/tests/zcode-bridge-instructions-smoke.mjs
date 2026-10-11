@@ -1,5 +1,5 @@
 // Smoke of the ZCode core on an install the bridge's provider proxy cannot front (no zcode-builtin.json next to
-// the agent, as with a bare `zcode` on PATH): capabilities.customization is false, so Code Desktop sends Settings ›
+// the agent, as with a bare `zcode` on PATH): capabilities.customization is false, so OpenClaude Desktop sends Settings ›
 // Instructions as developerInstructions, and the bridge must still get them to the model (inlined into the prompt,
 // once, again when they change) while the transcript shows only what the user typed. The real ZCode agent runs
 // from a copy without the catalog beside it (ZCode itself reads the catalog through ZCODE_BUILTIN_PROVIDER_CONFIG_FILE),

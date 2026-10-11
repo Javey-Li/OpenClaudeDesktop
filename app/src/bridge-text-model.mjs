@@ -22,10 +22,10 @@ const PATTERNS = [
   [/^(.+) isn’t in your Gemini CLI settings\. It comes from a project’s \.gemini\/settings\.json or an extension; remove it there\.$/,
     (name) => t("{name} isn’t in your Gemini CLI settings. It comes from a project’s .gemini/settings.json or an extension; remove it there.", { name })],
   // MiniMax: a session begun in mcode's terminal runs in the user's own MiniMax home (agents/minimax.js permissionWarning).
-  [/^This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: (Ask|Accept edits) cannot stop edits inside the project, and Code Desktop's tool switches and instructions don't apply\. Start a new session in Code Desktop to use them\.$/,
-    (mode) => t("This conversation was started in MiniMax Code’s terminal, so it runs in your own MiniMax home as it is: {mode} can’t stop edits inside the project, and Code Desktop’s tool switches and instructions don’t apply. Start a new session in Code Desktop to use them.", { mode: mode === "Ask" ? t("Manual") : t("Accept edits") })],
-  [/^This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: Code Desktop's tool switches and instructions don't apply\. Start a new session in Code Desktop to use them\.$/,
-    () => t("This conversation was started in MiniMax Code’s terminal, so it runs in your own MiniMax home as it is: Code Desktop’s tool switches and instructions don’t apply. Start a new session in Code Desktop to use them.")],
+  [/^This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: (Ask|Accept edits) cannot stop edits inside the project, and OpenClaude Desktop's tool switches and instructions don't apply\. Start a new session in OpenClaude Desktop to use them\.$/,
+    (mode) => t("This conversation was started in MiniMax Code’s terminal, so it runs in your own MiniMax home as it is: {mode} can’t stop edits inside the project, and OpenClaude Desktop’s tool switches and instructions don’t apply. Start a new session in OpenClaude Desktop to use them.", { mode: mode === "Ask" ? t("Manual") : t("Accept edits") })],
+  [/^This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: OpenClaude Desktop's tool switches and instructions don't apply\. Start a new session in OpenClaude Desktop to use them\.$/,
+    () => t("This conversation was started in MiniMax Code’s terminal, so it runs in your own MiniMax home as it is: OpenClaude Desktop’s tool switches and instructions don’t apply. Start a new session in OpenClaude Desktop to use them.")],
   // Gemini's sign-in hint after the agent's own refusal (agents/gemini.js authHint): the agent's text stays, the hint reads
   // in the UI language.
   [/^([\s\S]*\S)\s+(Gemini CLI is set to use Vertex AI: set GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION \(with Application Default Credentials\), or GOOGLE_API_KEY\.|Gemini CLI has no API key for its selected sign-in method: set GEMINI_API_KEY, sign in with Google, or pick another method with \/auth in Gemini CLI\.)$/,
@@ -86,8 +86,8 @@ const PATTERNS = [
   [/^Off in Qwen’s settings \(tools\.todoWrite\.enabled\)\.$/, () => t("Off in Qwen’s settings (tools.todoWrite.enabled).")],
   [/^Qwen turns this on only with (lsp\.enabled|experimental\.agentTeam) in its settings\.$/, (key) => t("Qwen turns this on only with {key} in its settings.", { key })],
   // MiniMax sessions begun in mcode's terminal (agents/minimax.js): its 2-minute tool timeout.
-  [/^This conversation was started in MiniMax Code's terminal, so MiniMax Code stops waiting for Code Desktop's own tools \(terminal, preview, Workflow\) after 2 minutes\. Answer their approval cards within that time, or start a new session in Code Desktop\.$/,
-    () => t("This conversation was started in MiniMax Code’s terminal, so MiniMax Code stops waiting for Code Desktop’s own tools (terminal, preview, Workflow) after 2 minutes. Answer their approval cards within that time, or start a new session in Code Desktop.")],
+  [/^This conversation was started in MiniMax Code's terminal, so MiniMax Code stops waiting for OpenClaude Desktop's own tools \(terminal, preview, Workflow\) after 2 minutes\. Answer their approval cards within that time, or start a new session in OpenClaude Desktop\.$/,
+    () => t("This conversation was started in MiniMax Code’s terminal, so MiniMax Code stops waiting for OpenClaude Desktop’s own tools (terminal, preview, Workflow) after 2 minutes. Answer their approval cards within that time, or start a new session in OpenClaude Desktop.")],
   // MiniMax's official plugins need its account sign-in (agents/minimax.js minimaxPluginError), behind the core's name.
   [/^(?:MiniMax Code: )?Sign in with your MiniMax account \(Settings › Account\) to install or change MiniMax’s official plugins\.$/,
     () => t("Sign in with your MiniMax account (Settings › Account) to install or change MiniMax’s official plugins.")],
@@ -103,21 +103,21 @@ const PATTERNS = [
   // Gemini CLI's folder trust (agents/gemini.js GEMINI_UNTRUSTED_FOLDER).
   [/^Gemini CLI ignores this folder’s GEMINI\.md, \.gemini settings, hooks, skills and connectors until you trust the folder\.$/,
     () => t("Gemini CLI ignores this folder’s GEMINI.md, .gemini settings, hooks, skills and connectors until you trust the folder.")],
-  // The untrusted folder keeps Code Desktop's tools server out too (agents/gemini.js GEMINI_UNTRUSTED_TOOLS /
+  // The untrusted folder keeps OpenClaude Desktop's tools server out too (agents/gemini.js GEMINI_UNTRUSTED_TOOLS /
   // GEMINI_UNTRUSTED_FOLDER_AND_TOOLS).
-  [/^Gemini CLI starts no connectors here, including Code Desktop’s preview, terminal, Workflow, question and file tools, until you trust the folder\.$/,
-    () => t("Gemini CLI starts no connectors here, including Code Desktop’s preview, terminal, Workflow, question and file tools, until you trust the folder.")],
-  [/^Gemini CLI ignores this folder’s GEMINI\.md, \.gemini settings, hooks and skills, and starts no connectors \(Code Desktop’s preview, terminal, Workflow, question and file tools included\), until you trust the folder\.$/,
-    () => t("Gemini CLI ignores this folder’s GEMINI.md, .gemini settings, hooks and skills, and starts no connectors (Code Desktop’s preview, terminal, Workflow, question and file tools included), until you trust the folder.")],
+  [/^Gemini CLI starts no connectors here, including OpenClaude Desktop’s preview, terminal, Workflow, question and file tools, until you trust the folder\.$/,
+    () => t("Gemini CLI starts no connectors here, including OpenClaude Desktop’s preview, terminal, Workflow, question and file tools, until you trust the folder.")],
+  [/^Gemini CLI ignores this folder’s GEMINI\.md, \.gemini settings, hooks and skills, and starts no connectors \(OpenClaude Desktop’s preview, terminal, Workflow, question and file tools included\), until you trust the folder\.$/,
+    () => t("Gemini CLI ignores this folder’s GEMINI.md, .gemini settings, hooks and skills, and starts no connectors (OpenClaude Desktop’s preview, terminal, Workflow, question and file tools included), until you trust the folder.")],
   // ZCode's project hooks waiting for the ZCode app's review (zcode-bridge catalog.hooksList).
   [/^This project’s hooks are waiting for review\. Open the folder in the ZCode app and trust them there; until then ZCode doesn’t run them\.$/,
     () => t("This project’s hooks are waiting for review. Open the folder in the ZCode app and trust them there; until then ZCode doesn’t run them.")],
   // Gemini CLI's new project hooks in a trusted folder (agents/gemini.js folderNotice), named before it runs them.
   [/^Gemini CLI will run this project’s hooks from \.gemini\/settings\.json: (.+)\. Remove them there if you didn’t add them\.$/,
     (hooks) => t("Gemini CLI will run this project’s hooks from .gemini/settings.json: {hooks}. Remove them there if you didn’t add them.", { hooks })],
-  // Gemini settings that keep Code Desktop's tools server out (agents/gemini.js geminiAppToolsBlock).
-  [/^Gemini CLI’s (project settings \(\.gemini\/settings\.json\)|system settings|admin settings|settings) don’t allow Code Desktop’s tools server \(mcp\.allowed, mcp\.excluded or admin MCP settings\), so Gemini can’t use the preview, terminal or Workflow tools in this folder\.$/,
-    (where) => t("Gemini CLI’s {where} don’t allow Code Desktop’s tools server (mcp.allowed, mcp.excluded or admin MCP settings), so Gemini can’t use the preview, terminal or Workflow tools in this folder.", { where: t(where) })],
+  // Gemini settings that keep OpenClaude Desktop's tools server out (agents/gemini.js geminiAppToolsBlock).
+  [/^Gemini CLI’s (project settings \(\.gemini\/settings\.json\)|system settings|admin settings|settings) don’t allow OpenClaude Desktop’s tools server \(mcp\.allowed, mcp\.excluded or admin MCP settings\), so Gemini can’t use the preview, terminal or Workflow tools in this folder\.$/,
+    (where) => t("Gemini CLI’s {where} don’t allow OpenClaude Desktop’s tools server (mcp.allowed, mcp.excluded or admin MCP settings), so Gemini can’t use the preview, terminal or Workflow tools in this folder.", { where: t(where) })],
   // Qwen Code's connector sign-in hint (agents/qwen.js), for a server it can't sign in to from here.
   [/^Sign in to (.+) in Qwen Code: run \/mcp auth (\S+) in a qwen terminal, then check again\.$/,
     (server) => t("Sign in to {server} in Qwen Code: run /mcp auth {server} in a qwen terminal, then check again.", { server })],

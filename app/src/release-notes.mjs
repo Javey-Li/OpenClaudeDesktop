@@ -2,14 +2,14 @@
 // versioned `releases` list: {version, date, entries: [{surface, kind, text}]}, newest first). This client has a
 // single surface, so an entry is {version, date, items: [{kind, text}]}; `limits` is the local "Known limits"
 // footnote. Text may hold [[keys]] (keycaps) and `code` spans (I, :5071-5094).
-// Code Desktop is a frame for many agent cores, so the notes are core-neutral: DeepSeek Harness appears only as
+// OpenClaude Desktop is a frame for many agent cores, so the notes are core-neutral: DeepSeek Harness appears only as
 // the built-in core (a product name), never as "the assistant" every user runs.
 export const RELEASE_NOTES = Object.freeze([
   {
     version: "0.2.130",
     date: "2026-10-01",
     items: [
-      { kind: "feat", text: "Code Desktop is now a frame for agent cores: choose one in Settings › Cores. DeepSeek Harness is built in; the others install on demand or use the copy already on this Mac." },
+      { kind: "feat", text: "OpenClaude Desktop is now a frame for agent cores: choose one in Settings › Cores. DeepSeek Harness is built in; the others install on demand or use the copy already on this Mac." },
       { kind: "feat", text: "The model menu lists the running core’s models and each model’s reasoning efforts." },
       { kind: "feat", text: "Sessions are saved by the core that ran them; the built-in DeepSeek Harness core keeps them in `~/.dsh`, so the DeepSeek Harness app can open them too." },
       { kind: "feat", text: "Plan mode, queued messages and `/compact` work along with approvals, sub-agents, skills and image input, wherever the running core supports them." },
@@ -19,7 +19,7 @@ export const RELEASE_NOTES = Object.freeze([
     ],
     limits: [
       "Some commands, such as /fork, /review and /rewind, depend on the running core; the slash menu says when one isn’t available.",
-      "Sessions started outside Code Desktop, or before you switched cores, don’t appear in the sidebar.",
+      "Sessions started outside OpenClaude Desktop, or before you switched cores, don’t appear in the sidebar.",
       "Removing a session hides it here only, unless the core can delete its own history.",
       "Some cores can’t add MCP servers or turn skills on or off from Settings; use that core’s own configuration.",
       "Usage counts and cost estimates come from records on this Mac, not from your provider’s bill.",

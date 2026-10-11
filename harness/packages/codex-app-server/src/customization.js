@@ -1,5 +1,5 @@
 /**
- * Per-thread Code Desktop customization carried on thread/start,
+ * Per-thread OpenClaude Desktop customization carried on thread/start,
  * thread/resume and turn/start as params.codeDesktop.customization:
  *   systemPrompt (C1) - the user's global instructions, which replace the whole
  *                       built-in system prompt when set, string | null (system-prompt.js)

@@ -1,12 +1,12 @@
 /**
- * The Harness command registry (dsh-commands) as Code Desktop's core slash
+ * The Harness command registry (dsh-commands) as OpenClaude Desktop's core slash
  * commands: codeDesktop/commands/list returns the commands the running
  * profile registers for a thread's agent (/goal, /feedback, …), and
  * codeDesktop/commands/execute runs one directly against the agent, as the
  * DeepSeek app's composer does (no model message; the registry logs
  * command/run and command/done).
  *
- * Commands Code Desktop already drives through its own protocol are not
+ * Commands OpenClaude Desktop already drives through its own protocol are not
  * listed and refuse to run here: /compact is thread/compact/start (a Codex
  * compaction turn), /plan is the Plan permission mode and /permission the
  * Mode picker (approval.js keeps Harness plan mode and the permission preset
@@ -55,7 +55,7 @@ export function listedCommands(descriptors) {
 export function commandLine(name, args) {
   const bare = typeof name === 'string' ? name.trim().replace(/^\//u, '') : ''
   if (!COMMAND_NAME.test(bare)) throw invalidParams('command must be a slash command name such as "goal".')
-  if (APP_OWNED_COMMANDS.has(bare)) throw invalidParams(`/${bare} runs through Code Desktop's own control, not as a core command.`)
+  if (APP_OWNED_COMMANDS.has(bare)) throw invalidParams(`/${bare} runs through OpenClaude Desktop's own control, not as a core command.`)
   const input = typeof args === 'string' ? args.replace(/^\s+/u, '') : ''
   return input ? `/${bare} ${input}` : `/${bare}`
 }

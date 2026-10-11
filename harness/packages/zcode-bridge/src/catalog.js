@@ -1,5 +1,5 @@
 /**
- * Skills, MCP servers, plugins and hooks: ZCode's own configuration, shown and edited in Code Desktop's shapes.
+ * Skills, MCP servers, plugins and hooks: ZCode's own configuration, shown and edited in OpenClaude Desktop's shapes.
  *
  *   skills/list            skills/referenceCatalog (user ~/.zcode/skills, ~/.agents/skills, project .zcode/skills,
  *                          .agents/skills, plugin skills); enabled per ~/.zcode/cli/config.json `skills[<path>]`

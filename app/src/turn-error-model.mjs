@@ -198,7 +198,7 @@ const UNAUTHENTICATED = /\b401\b[^\n]*unauthorized|missing bearer|missing (?:api
 // model: the session's model, for Codex's Astra rule on the cybersecurity refusal.
 export function describeTurnError(error, { canRewind = false, signIn = false, model = "" } = {}) {
   const view = presentTurnError(turnErrorCategory(error), { message: error?.message, canRewind });
-  // A safety refusal: Codex's body and links (Learn more, plus the access program that applies). Code Desktop does not
+  // A safety refusal: Codex's body and links (Learn more, plus the access program that applies). OpenClaude Desktop does not
   // read Codex's verified-access programs, so a model outside Daybreak gets the neutral 'Limited' notice.
   if (view.category === "safety_block") {
     if (isBioSafetyBlock(error?.message)) return Object.freeze({ ...view,

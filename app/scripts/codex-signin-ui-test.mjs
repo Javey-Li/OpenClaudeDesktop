@@ -35,7 +35,7 @@ async function launch(){app=await electron.launch({args:[root],executablePath:pa
 try{
  await integrity();
  await launch();
- const setup=()=>page.getByRole('dialog',{name:'Set up Code Desktop',exact:true});
+ const setup=()=>page.getByRole('dialog',{name:'Set up OpenClaude Desktop',exact:true});
  await setup().waitFor();await page.getByRole('button',{name:'Get started',exact:true}).click();
  // Codex is the Extension Pack the app ships (extensions/codex): added first (CODE_DESKTOP_PICK_PACK stands in for the picker).
  await setup().getByRole('button',{name:'Import extension pack…',exact:true}).click();

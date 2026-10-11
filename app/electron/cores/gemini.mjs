@@ -25,7 +25,7 @@ export default Object.freeze({
   // The ACP bridge reports these in initialize too (acp-bridge server.js capabilities()); its Seatbelt profile keeps
   // network open (the agent must reach its model API), so sandboxNetwork is "always".
   implies: Object.freeze({
-    // Claude Code tools the agent has itself: web_fetch (WebFetch); no question tool under ACP (ask_user is excluded in ACP mode): Code Desktop's AskUserQuestion stands in.
+    // Claude Code tools the agent has itself: web_fetch (WebFetch); no question tool under ACP (ask_user is excluded in ACP mode): OpenClaude Desktop's AskUserQuestion stands in.
     nativeTools: Object.freeze(["WebFetch"]),
     generatesTitles: true, customization: true, permissionHints: true, systemPromptPreview: true, deleteHistory: true, unloadOnNavigate: true,
     structuredOutput: false, sideQuestion: true, sandboxNetwork: "always",

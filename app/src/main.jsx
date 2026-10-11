@@ -7,7 +7,7 @@ import { reportActionError, sessionActionErrorKind, ACTION_ERROR_COPY, cleanErro
 import { saveConfirmedPreferences } from './preference-save.mjs';
 import {WorkflowRow,WorkflowCard,WorkflowLaunch} from "./source-workflow.jsx";
 import { resolveWorkflowSettings } from "../electron/prefs/workflow-settings.mjs";
-import { ultracodeMatches } from "../electron/prefs/workflow-keyword.mjs";
+import { ultracodeMatches, withoutSystemReminders } from "../electron/prefs/workflow-keyword.mjs";
 import { withUltracodeLevel, coreEffort, durableEffort, isTopTierEffort as isUltracodeTier } from "./model-menu-model.mjs";
 import {mergeWorkflow} from "./workflow-progress-model.mjs";
 import {parseWorkflowLaunch} from "./workflow-launch-model.mjs";
@@ -232,7 +232,7 @@ function sidebarCycleRows() {
 const call = (action, p) =>
   api
     ? api.call(action, p)
-    : Promise.reject(new Error(t("Open Code Desktop to connect to DeepSeek.")));
+    : Promise.reject(new Error(t("Open OpenClaude Desktop to connect to DeepSeek.")));
 const rpc = (method, params = {}) => call("rpc", { method, params }).then(rpcResult);
 // Skills / Connectors / Plugins catalog shared by the settings pages and the
 // composer Add menu (loaded on demand, refreshed by skills/changed and the
@@ -616,9 +616,17 @@ function App({ side = 0, initialSession = null }) {
     const pr = thread?.codeDesktop?.pr;
     return pr && (pr.url || pr.number) && !thread.prState ? { ...thread, prState: "open", prLink: typeof pr.url === "string" ? pr.url : null } : thread;
   };
+  // A core names a session from its first message, which can carry the app's hidden <system-reminder> blocks (the
+  // workflow size guideline on a core's own engine): the sidebar and window title show only what the user typed.
+  const withoutReminders = (thread) => {
+    if (!thread || typeof thread !== "object") return thread;
+    const name = typeof thread.name === "string" && thread.name.includes("<system-reminder>") ? withoutSystemReminders(thread.name) : thread.name;
+    const preview = typeof thread.preview === "string" && thread.preview.includes("<system-reminder>") ? withoutSystemReminders(thread.preview) : thread.preview;
+    return name === thread.name && preview === thread.preview ? thread : { ...thread, name, preview };
+  };
   function setSessions(next) {
     const list = typeof next === "function" ? next(sessionsRef.current) : next;
-    const shown = Array.isArray(list) ? list.map(shownThread).map(withPullRequest) : list;
+    const shown = Array.isArray(list) ? list.map(withoutReminders).map(shownThread).map(withPullRequest) : list;
     sessionsRef.current = Array.isArray(list) && shown.every((thread, index) => thread === list[index]) ? list : shown;
     setSessionsState(sessionsRef.current);
   }
@@ -664,7 +672,7 @@ function App({ side = 0, initialSession = null }) {
   // This side's open session and title, for the window's split store (sidebar selection, tabs, layout persistence).
   useEffect(() => { splitStore.reportSide(side, { current, title: session ? session.name || session.preview || "" : "" }); }, [current, session?.name, session?.preview]);
   // Multi-window: the window title names its primary session, so the Window menu and Mission Control tell windows apart.
-  useEffect(() => { if (side === 0) document.title = session ? `${session.name || session.preview || t("Untitled session")} — Code Desktop` : "Code Desktop"; }, [current, session?.name, session?.preview]);
+  useEffect(() => { if (side === 0) document.title = session ? `${session.name || session.preview || t("Untitled session")} — OpenClaude Desktop` : "OpenClaude Desktop"; }, [current, session?.name, session?.preview]);
   // A core whose sessions can run as one of its own primary agents (capabilities.primaryAgents: OpenCode/MiMo's
   // default_agent and custom primary agents): the folder's list, and the agent chosen per session ('' = the draft).
   const [primaryAgents, setPrimaryAgents] = useState(null);
@@ -687,7 +695,7 @@ function App({ side = 0, initialSession = null }) {
     const agent = primaryAgents ? agentChoices[key] : null;
     return agent ? { ...params, codeDesktop: { ...(params.codeDesktop ?? {}), agent } } : params;
   };
-  // Pins and groups Codex keeps on its own threads (Thread.section), where Code Desktop recorded none (sidebar-model).
+  // Pins and groups Codex keeps on its own threads (Thread.section), where OpenClaude Desktop recorded none (sidebar-model).
   const shownSessionMetadata = useMemo(() => withCoreSections(sessionMetadata, sessions, { customGroups, pinnedSectionId: codexPinnedSection }), [sessionMetadata, sessions, customGroups, codexPinnedSection]);
   // A committed feature branch of a GitHub repository: the band offers Create PR (a fixed turn) or GitHub's compare page.
   const bandPrAction = pullRequestAction({ status: gitStatus, identity: repoIdentities[workdir] ?? null, responding: running });
@@ -1142,7 +1150,7 @@ function App({ side = 0, initialSession = null }) {
   const workflowState = useMemo(() => resolveWorkflowSettings({ config: boot?.config || {}, env: boot?.workflowEnv || {}, managed: boot?.workflowManaged || {}, parallelism: boot?.workflowParallelism ?? 4 }),
     [boot?.config, boot?.workflowEnv, boot?.workflowManaged, boot?.workflowParallelism]);
   // A row that runs the core's own workflow tool (requiresWorkflowTool: MiMo's /deep-research) is left out while the
-  // session withholds that tool: Dynamic workflows off, or Code Desktop's engine chosen for this core.
+  // session withholds that tool: Dynamic workflows off, or OpenClaude Desktop's engine chosen for this core.
   const coreWorkflowToolOn = workflowState.enabled && workflowEngine(boot?.core, boot?.config?.workflowEngines) === "agent";
   const offeredSkills = useMemo(() => customizeSnapshot.skills.skills.filter((row) => row.requiresWorkflowTool !== true || coreWorkflowToolOn), [customizeSnapshot.skills.skills, coreWorkflowToolOn]);
   const commandSkills = useMemo(() => offeredSkills.filter(skillInvocable)
@@ -1155,7 +1163,7 @@ function App({ side = 0, initialSession = null }) {
   const customCommandsEntry = customCommandsSnapshot.entries[workdir || cwd || ""];
   const customCommands = useMemo(() => customCommandsEntry ? mergeCommands({ global: customCommandsEntry.global, project: customCommandsEntry.project,
     builtinIds: sessionCommands.flatMap((entry) => [entry.id, ...(entry.aliases || [])]), skillNames: commandSkills.map((skill) => skill.name) }) : [], [customCommandsEntry, commandSkills]);
-  // Saved workflows as /<name> while Code Desktop's engine runs this core's workflows (loaded below workflowState).
+  // Saved workflows as /<name> while OpenClaude Desktop's engine runs this core's workflows (loaded below workflowState).
   const [savedWorkflowRows, setSavedWorkflowRows] = useState([]);
   const commandContext = { current, archived:session?.archived, connected:!!boot?.connected && !state.approvalClosed,
     loading, running, sending, pending:actionPending, hasHistory:items.length > 0, unsupportedMethods, skills: commandSkills, customCommands: savedWorkflowRows.length ? [...customCommands, ...savedWorkflowRows] : customCommands,
@@ -1174,7 +1182,7 @@ function App({ side = 0, initialSession = null }) {
     setEffort((value) => fallback.supportedReasoningEfforts?.some((e) => e.reasoningEffort === value) ? value : fallback.defaultReasoningEffort || "medium");
   }, [models, model]);
   // Settings › Code › Dynamic workflows in effect (the environment and managed settings main reported win).
-  // Saved workflows as /<name> (Claude Code getWorkflowCommands) while Code Desktop's engine runs this core's workflows:
+  // Saved workflows as /<name> (Claude Code getWorkflowCommands) while OpenClaude Desktop's engine runs this core's workflows:
   // its Workflow tool runs them by name.
   // A core with its own saved-workflow library (capabilities.savedWorkflows: ZCode's .zcode/workflows) offers that one
   // while its own engine runs its workflows (main.cjs 'saved-workflows' picks the list).
@@ -3013,7 +3021,7 @@ function App({ side = 0, initialSession = null }) {
           // Codex only: the DeepSeek core honors developerInstructions (structured.js, for workflow agents), and its
           // persona and custom instructions come from the profile and codeDesktop.customization instead.
           ...(coreSupports(boot?.core, "customization") ? {} : { developerInstructions:
-            "You are the assistant in Code Desktop, a local desktop client. Follow the user language. When asked for a plan, use the plan tool. Do not claim to be Claude." }),
+            "You are the assistant in OpenClaude Desktop, a local desktop client. Follow the user language. When asked for a plan, use the plan tool. Do not claim to be Claude." }),
         };
         // The draft's turned-off tools (Add › Tools); main saves them as the new session's.
         if (toolSelection) startParams.codeDesktop = { ...startParams.codeDesktop, tools: sessionTools };
@@ -3187,6 +3195,44 @@ function App({ side = 0, initialSession = null }) {
       return result;
     } finally { actionLock.current.delete(id); }
   }
+  // /clear (Claude Code's in-place clear): the open session's row continues as a fresh session in the same folder with
+  // the same model, speed, permission and tools; the old conversation is archived (still in Archived and /resume), so
+  // the sidebar gains no extra row. Without an open session it only empties the composer.
+  async function clearSession(clearCommand) {
+    const origin = currentRef.current, old = sessions.find((thread) => thread.id === origin);
+    if (!origin || !old || old.archived) { clearCommand(); if (origin) navigate(null); return; }
+    if (state.active[origin] || running || sending || operationPending(state.operations?.[origin]) || actionLock.current.has(origin)) throw new Error(t("Wait for the current task to finish or stop it"));
+    if (!boot?.connected) throw new Error(t("Reconnect to DeepSeek first"));
+    actionLock.current.add(origin);
+    try {
+      const startParams = {
+        cwd: old.cwd || workdir,
+        model: model || null,
+        serviceTier,
+        ...threadPermissionParams({ permission: effectivePermission, mode, ...permissionHints() }),
+        ...(coreSupports(boot?.core, "customization") ? {} : { developerInstructions:
+          "You are the assistant in OpenClaude Desktop, a local desktop client. Follow the user language. When asked for a plan, use the plan tool. Do not claim to be Claude." }),
+      };
+      const tools = toolSelection ? normalizeSelection(boot?.config?.threadTools?.[origin]) : null;
+      if (tools) startParams.codeDesktop = { ...startParams.codeDesktop, tools };
+      const r = await rpc("thread/start", withAgentChoice(startParams, origin));
+      const id = r.thread.id;
+      if (agentChoices[origin]) setAgentChoices((choices) => ({ ...choices, [id]: choices[origin] }));
+      if (tools) setBoot(value => value?.config ? { ...value, config: { ...value.config, threadTools: { ...value.config.threadTools, [id]: tools } } } : value);
+      bypassMode.adoptSession(id);
+      // The fresh session takes the old row's place in the list.
+      setSessions((list) => {
+        const rest = list.filter((thread) => thread.id !== id), at = rest.findIndex((thread) => thread.id === origin);
+        return at < 0 ? [r.thread, ...rest] : [...rest.slice(0, at), r.thread, ...rest.slice(at)];
+      });
+      clearCommand();
+      navigate(id);
+      // The same folder (and worktree) goes on in the new session: archive the old one without removing its worktree.
+      actionLock.current.delete(origin);
+      await sessionAction("archive", old, { keepView: true, worktreeChecked: true, worktree: null })
+        .catch((e) => setError(t("The new session started, but the old one couldn’t be archived: {error}", { error: e.message })));
+    } finally { actionLock.current.delete(origin); }
+  }
   // A core command (/goal …) runs on the core against the open session's agent, never as a model message; the core
   // answers {kind: "success" | "error", text} (codeDesktop/commands/execute).
   async function runCoreCommand(entry, args, sourceDraft, { confirmed = false } = {}) {
@@ -3326,7 +3372,7 @@ function App({ side = 0, initialSession = null }) {
           case "recap": void runRecap(current); break;
           // /btw [question]: the side chat, without touching the running turn.
           case "btw": setSideChat({ open: true, pending: args || null }); clearCommand(); break;
-          case "clear": navigate(null); break;
+          case "clear": await clearSession(clearCommand); break;
           // 'Resume a session': every session the core keeps, its own CLI's or app's included (source-resume-dialog.jsx).
           case "resume": setActionDialog({ kind: "resume", query: args || "" }); break;
           case "config": setSettings("code"); break;
@@ -3447,7 +3493,7 @@ function App({ side = 0, initialSession = null }) {
     try { data.tokenUsage = await rpc("account/usage/read", {}); }
     catch (error) { data.tokenUsageError = error.message; }
     // A core with no daily buckets or breakdown (Codex on an API key or custom endpoint): the page shows the tokens
-    // Code Desktop counted on this Mac instead, the same numbers as Home's stats card (main.cjs 'stats').
+    // OpenClaude Desktop counted on this Mac instead, the same numbers as Home's stats card (main.cjs 'stats').
     const usage = data.tokenUsage;
     if (!(Array.isArray(usage?.dailyUsageBuckets) && usage.dailyUsageBuckets.length) && !usage?.deepseek && !usage?.breakdown) {
       try { data.localStats = await call("stats"); } catch {}
@@ -4856,7 +4902,7 @@ function App({ side = 0, initialSession = null }) {
                 <SourceFindBar ref={findBarRef} shortcuts={splitActive} sessionKey={current ?? "draft"}
                   getScope={() => transcriptRef.current?.getContent?.()}
                   scroll={{ reveal: (rect) => transcriptRef.current?.reveal?.(rect) ?? false }} />
-                {/* Tasks the agent suggested (spawn_task, Code Desktop's agent tools): Start begins a new session with the
+                {/* Tasks the agent suggested (spawn_task, OpenClaude Desktop's agent tools): Start begins a new session with the
                     task's prompt in its folder, as the ⌘K 'Start a session' row does; nothing runs before that. */}
                 {current && <SourceSuggestedTasks key={`suggested:${current}`} items={state.items[current]} sessionId={current} cwd={workdir || null}
                   disabled={!boot?.connected || !!settings}
@@ -5292,7 +5338,7 @@ function App({ side = 0, initialSession = null }) {
                   {section === "artifacts"
                     ? t("Files created in your workspace are available in the project browser.")
                     : section === "routines"
-                      ? t("Scheduled tasks aren’t available in Code Desktop yet.")
+                      ? t("Scheduled tasks aren’t available in OpenClaude Desktop yet.")
                       : t("Configure your local DeepSeek environment and workspace.")}
                 </p>
                 {section === "artifacts" && (
@@ -5512,7 +5558,7 @@ function PopoutApp({ sessionId, pane, cwd }) {
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const toggleAlwaysOnTop = () => call("popout-always-on-top", { value: !alwaysOnTop })
     .then((value) => setAlwaysOnTop(value === true)).catch((reason) => setError(reason.message));
-  useEffect(() => { document.title = `${PANE_NAMES[pane] ?? t("Pane")} — Code Desktop`; }, [pane]);
+  useEffect(() => { document.title = `${PANE_NAMES[pane] ?? t("Pane")} — OpenClaude Desktop`; }, [pane]);
   return (
     <div className="popout-root" data-popout-pane={pane} data-popout-session={sessionId} data-connected={connected}>
       <main className="workspace epitaxy-root cds-root popout-workspace" data-density="compact" data-platform="desktop">

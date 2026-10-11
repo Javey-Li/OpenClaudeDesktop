@@ -19,7 +19,7 @@ export const sessionCommands = [
   {id:'fast',label:t('Fast mode'),description:t('Turn fast mode on or off'),argumentHint:'[on|off]',connected:true,idle:true},
   {id:'plan',label:t('Plan mode'),description:t('Switch to plan mode or view this session’s plan'),argumentHint:'[open|<description>]',idle:true},
   {id:'permissions',aliases:['allowed-tools'],label:t('Permission mode'),description:t('Change the permission mode'),idle:true},
-  {id:'resume',aliases:['continue'],label:t('Resume a session'),description:t('Continue a DeepSeek session from this computer, including ones started outside Code Desktop'),argumentHint:'[search]'},
+  {id:'resume',aliases:['continue'],label:t('Resume a session'),description:t('Continue a DeepSeek session from this computer, including ones started outside OpenClaude Desktop'),argumentHint:'[search]'},
   {id:'status',label:t('Session status'),description:t('Show this session’s version, model, environment, and account'),session:true,idle:true,icon:'UsageGaugeMiddle'},
   // usage-credits / extra-usage: Claude Code's credit commands open the same page, which shows the core's credits.
   {id:'usage',aliases:['stats','cost','usage-credits','extra-usage','credits'],label:t('Usage'),description:t('Show plan usage, credits and rate limits')},
@@ -67,7 +67,7 @@ export function sessionCommandHint(command, context={}) {
 export function sessionCommandDescription(command, context={}) {
   if(command?.id==='usage'&&context?.perTokenBilling===true)return t('Show the tokens used on this Mac');
   // The list is built when the module loads, before the running core's assistant name is known: /resume names it now.
-  if(command?.id==='resume')return t('Continue a DeepSeek session from this computer, including ones started outside Code Desktop');
+  if(command?.id==='resume')return t('Continue a DeepSeek session from this computer, including ones started outside OpenClaude Desktop');
   return command?.description??'';
 }
 export function commandSuggestion(name) {
@@ -145,7 +145,7 @@ export function parseSessionCommand(text, context={}) {
   else if(args&&!command.argumentHint)error=t('/{command} doesn’t take arguments here. Remove the text after the command and try again.',{command:requested});
   return {id,args,requested,command,suggestion,error};
 }
-// /btw asks codeDesktop/sideQuestion. The Code Desktop cores (the built-in one and the bridges) serve the extension; on a
+// /btw asks codeDesktop/sideQuestion. The OpenClaude Desktop cores (the built-in one and the bridges) serve the extension; on a
 // native core (Codex) main.cjs answers it with Codex's own side conversation, an ephemeral thread/fork
 // (native-side-chat.cjs, as tui/src/app/side.rs), so it needs thread/fork. A core that reports
 // capabilities.sideQuestion false decides. No core yet (still connecting): the other gates speak.
@@ -175,7 +175,7 @@ export function workflowEngineChoice(core, engines) {
   const id=coreForEngine(typeof core==='string'?core:core.engine).id;
   return engines&&typeof engines==='object'&&engines[id]==='codeDesktop'?'codeDesktop':'native';
 }
-// Who runs /workflow: Code Desktop's runner ('runner') — its own engine, or, for a core whose launcher script can go
+// Who runs /workflow: OpenClaude Desktop's runner ('runner') — its own engine, or, for a core whose launcher script can go
 // straight to its engine (capabilities.workflowScripts: the DeepSeek Harness, codeDesktop/workflow/startScript through
 // workflow-harness.mjs), that engine — or the core's model with its own workflow tool ('agent': MiMo, Qwen Code,
 // ZCode's CreateWorkflow) while that core's own engine is chosen. Either way the run shows in the same WorkflowCard.

@@ -23,7 +23,7 @@ const codeTheme = Object.freeze({
 
 const desktopCall = (action, params) =>
   window.desktop?.call(action, params) ??
-  Promise.reject(new Error(t("Open Code Desktop to connect to DeepSeek.")));
+  Promise.reject(new Error(t("Open OpenClaude Desktop to connect to DeepSeek.")));
 
 // The fence body takes the Rr triple-click (code-block-current.js:1244-1266)
 // and carries data-code-text for the transcript context menu's Copy code block.

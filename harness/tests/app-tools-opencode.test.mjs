@@ -1,4 +1,4 @@
-// Code Desktop's own tools server ("code_desktop") on the OpenCode / MiMo bridge (packages/opencode-bridge/src/
+// OpenClaude Desktop's own tools server ("code_desktop") on the OpenCode / MiMo bridge (packages/opencode-bridge/src/
 // app-tools.js): OpenCode runs one MCP server per folder for every session, so the server is registered once in the
 // bridge's generated config layer (socket and token as {env:…} references, never written; the user's config is never
 // touched), each session's runtime file names its app thread (a sub-agent: its root), and the generated plugin adds
@@ -19,7 +19,7 @@ import { appToolsServer, opencodeAppToolsEntry, appToolsPrefix, SESSION_ARG } fr
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-oc-')))
 const TOOLS = {
-  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
+  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
   CODE_DESKTOP_AGENT_TOOLS_SOCKET: '/tmp/cd-tools-x/s',
   CODE_DESKTOP_AGENT_TOOLS_TOKEN: 'secret-tok',
 }
@@ -27,7 +27,7 @@ const TOOLS = {
 test('app-tools.js: one local entry, the secret only as an {env:} reference; nothing without the variables', () => {
   const server = appToolsServer(TOOLS)
   assert.deepEqual(opencodeAppToolsEntry(server), {
-    type: 'local', command: ['/Apps/Code Desktop', '/Apps/agent-tools-server.mjs'], timeout: 600000,
+    type: 'local', command: ['/Apps/OpenClaude Desktop', '/Apps/agent-tools-server.mjs'], timeout: 600000,
     environment: { ELECTRON_RUN_AS_NODE: '1', CODE_DESKTOP_AGENT_TOOLS_SOCKET: '{env:CODE_DESKTOP_AGENT_TOOLS_SOCKET}', CODE_DESKTOP_AGENT_TOOLS_TOKEN: '{env:CODE_DESKTOP_AGENT_TOOLS_TOKEN}' },
   })
   assert.equal(appToolsPrefix(server), 'code_desktop_')
@@ -186,7 +186,7 @@ test('every step\'s history drops the session argument from code_desktop calls (
   assert.deepEqual(stored, { url: 'http://localhost:3000', [SESSION_ARG]: 'ses_root' }, 'a new part: what OpenCode read is untouched')
   assert.equal(first.parts[0], text)
   assert.deepEqual(first.parts[2].state.input, { [SESSION_ARG]: 'mine' }, 'another server\'s argument of that name stays')
-  assert.deepEqual(second.parts[0].state.input, { [SESSION_ARG]: 'x' }, 'a session without Code Desktop\'s tools is left alone')
+  assert.deepEqual(second.parts[0].state.input, { [SESSION_ARG]: 'x' }, 'a session without OpenClaude Desktop\'s tools is left alone')
   // Nothing to do (a compaction's history, an empty step): no failure.
   await hooks['experimental.chat.messages.transform']({}, { messages: [] })
   await hooks['experimental.chat.messages.transform']({}, {})

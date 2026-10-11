@@ -109,7 +109,7 @@ export function attachStructuredOutput(agentCtx, schema) {
 }
 
 /**
- * Whether a request lets the model run dynamic workflows: Code Desktop's
+ * Whether a request lets the model run dynamic workflows: OpenClaude Desktop's
  * Dynamic workflows setting, which its main process stamps on every
  * DeepSeek-mode thread/start, thread/resume, turn/start and permission change
  * (`codeDesktop.dynamicWorkflows`). null: the request does not say.

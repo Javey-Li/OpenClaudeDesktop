@@ -53,11 +53,11 @@ test('Usage page: the tokens counted on this Mac by day and model when the core 
 
 test('bridge sentences: MiniMax’s terminal-session warning and its plugin sign-in refusal read in the UI language', (context) => {
   context.after(() => setLocale('en-US'));
-  const strict = "This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: Ask cannot stop edits inside the project, and Code Desktop's tool switches and instructions don't apply. Start a new session in Code Desktop to use them.";
+  const strict = "This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: Ask cannot stop edits inside the project, and OpenClaude Desktop's tool switches and instructions don't apply. Start a new session in OpenClaude Desktop to use them.";
   assert.match(localizeBridgeText(strict), /^This conversation was started in MiniMax Code’s terminal.*Manual can’t stop edits/);
   setLocale('zh-CN');
   assert.match(localizeBridgeText(strict), /“手动”无法阻止/);
-  assert.match(localizeBridgeText("This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: Code Desktop's tool switches and instructions don't apply. Start a new session in Code Desktop to use them."), /MiniMax Code 的终端/);
+  assert.match(localizeBridgeText("This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: OpenClaude Desktop's tool switches and instructions don't apply. Start a new session in OpenClaude Desktop to use them."), /MiniMax Code 的终端/);
   assert.match(localizeBridgeText('MiniMax Code: Sign in with your MiniMax account (Settings › Account) to install or change MiniMax’s official plugins.'), /请登录你的 MiniMax 账户/);
 });
 
@@ -171,7 +171,7 @@ test('codex features: memories and beta features read and written the way Codex�
   } };
   const codex = createCodexFeatures({ getClient: () => client });
   const read = await codex.run({ op: 'read' });
-  assert.deepEqual(read.beta.map((feature) => feature.name), ['network_proxy'], 'Worktrees and Prevent sleep are Code Desktop’s own');
+  assert.deepEqual(read.beta.map((feature) => feature.name), ['network_proxy'], 'Worktrees and Prevent sleep are OpenClaude Desktop’s own');
   assert.deepEqual(read.memories, { enabled: false, useMemories: false, generateMemories: true, status: { threads: 3, ready: true } });
   await codex.run({ op: 'set-feature', name: 'memories', enabled: true });
   const write = requests.find(([method]) => method === 'config/batchWrite');

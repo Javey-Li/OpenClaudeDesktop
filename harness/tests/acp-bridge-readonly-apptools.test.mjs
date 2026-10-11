@@ -1,5 +1,5 @@
 // ACP bridge (harness/packages/acp-bridge): read-only threads nobody answers (the /workflow runner's agents) stay out
-// of the agent's own plan mode; Code Desktop's tools on Qwen (Plan mode, mcp.allowed, deferred tools) and Gemini (Plan
+// of the agent's own plan mode; OpenClaude Desktop's tools on Qwen (Plan mode, mcp.allowed, deferred tools) and Gemini (Plan
 // Mode policy); MCP results an agent reports only in rawOutput (MiniMax Code).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -116,7 +116,7 @@ test('Gemini: a read-only workflow agent stays in Gemini’s default mode (its s
   } finally { await b.close() }
 })
 
-test('Qwen: Code Desktop’s tools are allowed in Plan, listed up front, and join an mcp.allowed list only where one exists', () => {
+test('Qwen: OpenClaude Desktop’s tools are allowed in Plan, listed up front, and join an mcp.allowed list only where one exists', () => {
   const qwen = adapterById('qwen')
   const home = tmp(), project = tmp()
   const systemFile = path.join(home, 'admin', 'settings.json')
@@ -144,7 +144,7 @@ test('Qwen: Code Desktop’s tools are allowed in Plan, listed up front, and joi
   assert.deepEqual(none.permissions.allow, ['read_file'])
 })
 
-test('Gemini: a user-tier Plan Mode rule keeps Code Desktop’s tools listed; the user’s own policies keep loading', () => {
+test('Gemini: a user-tier Plan Mode rule keeps OpenClaude Desktop’s tools listed; the user’s own policies keep loading', () => {
   const gemini = adapterById('gemini')
   const home = tmp()
   const userFile = path.join(home, '.gemini', 'settings.json')

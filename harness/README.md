@@ -1,12 +1,12 @@
-# Code Desktop DeepSeek 内核（UI 是 Claude，地核是 DeepSeek）
+# OpenClaude Desktop DeepSeek 内核（UI 是 Claude，地核是 DeepSeek）
 
-Code Desktop（`../app`，还原 Claude Desktop 的 Code 界面）原本通过 `codex app-server --stdio` 驱动 Codex。
+OpenClaude Desktop（`../app`，还原 Claude Desktop 的 Code 界面）原本通过 `codex app-server --stdio` 驱动 Codex。
 本目录把内核换成 **DeepSeek Harness**（`deepseek-ai/deepseek-harness`，MIT，dsh 0.2.0-rc.2）：
 一个运行在 Harness 进程内部的 Cordis 插件，对外说 **Codex app-server 协议**，对内调用 Harness 的
 agent、会话、流式输出、工具与审批。UI 侧几乎不用改。
 
 ```text
-Code Desktop (Electron, Claude UI)
+OpenClaude Desktop (Electron, Claude UI)
    │  Codex v2 JSON-RPC, 换行分帧, stdio
    ▼
 node harness/bin/codex-app-server.mjs app-server --stdio
@@ -32,7 +32,7 @@ Lab 的 API Key 与账号模型路由默认设置 `retryPolicy: { mode: normal, 
 
 ```sh
 npm install            # 首次
-npm run start          # 手动跑 stdio 服务（一般由 Code Desktop 拉起）
+npm run start          # 手动跑 stdio 服务（一般由 OpenClaude Desktop 拉起）
 node tests/hook-context-smoke.mjs # 安装包的真实 Workflow 子代理、Hook 上下文及超时检查，无需 key
 node tests/live-smoke.mjs   # 用 app 自己的 CodexClient 做真机端到端测试（会调用 DeepSeek API）
 node tests/fake-model-smoke.mjs   # 同一客户端对真实内核，模型换成本地脚本化的 Messages 服务（DEEPSEEK_BASE_URL），不需要 key 与网络
@@ -40,11 +40,11 @@ node tests/fake-model-smoke.mjs   # 同一客户端对真实内核，模型换�
 
 `fake-model-smoke.mjs` 覆盖 developerInstructions、outputSchema、模型的 `Workflow`／`RunWorkflow` 工具（进度、回放、CLI 参数校验、自动结果通知、TaskStop、Dynamic workflows 开关）与 runner agent 的只读/可写权限。内核由 `#!/usr/bin/env node` 启动，CodexClient 会把 `~/.local/bin`、`/usr/local/bin` 放到 PATH 前面：那里的 node 必须 ≥ 22（Harness 要求），否则内核启动即退出。
 
-Code Desktop 的沙箱实现由自己的 bundle 组装（`packages/code-desktop-app/cordis.patch.yml`）：`sandbox-fs.js`、`sandbox-shell.js`、`sandbox-approval.js` 分别提供文件边界、系统命令沙箱与审批。共享 DSH Purge 依赖保持原样；即使其实现主动绕过 fs/bash/approval，本 profile 仍执行 `thread/start` 的 read-only / workspace-write 限制。`approvalPolicy: never` 拒绝提权；预设应用失败会让请求失败，不能静默沿用较宽权限。测试见 `tests/sandbox.test.mjs` 和 fake smoke 的 write/edit/bash 权限矩阵。
+OpenClaude Desktop 的沙箱实现由自己的 bundle 组装（`packages/code-desktop-app/cordis.patch.yml`）：`sandbox-fs.js`、`sandbox-shell.js`、`sandbox-approval.js` 分别提供文件边界、系统命令沙箱与审批。共享 DSH Purge 依赖保持原样；即使其实现主动绕过 fs/bash/approval，本 profile 仍执行 `thread/start` 的 read-only / workspace-write 限制。`approvalPolicy: never` 拒绝提权；预设应用失败会让请求失败，不能静默沿用较宽权限。测试见 `tests/sandbox.test.mjs` 和 fake smoke 的 write/edit/bash 权限矩阵。
 
 本 profile 为 Bash 启用 `exitCodePolicy: claude-code`：普通非零前台退出触发失败 Hook，`grep` 无匹配、`diff` 差异等退出码 1 保留成功分类。日志与终端卡保留输出和退出码；新结果的展示元数据让 UI 区分语义成功与失败，旧记录仍按原规则显示。后台任务与未知退出码保留 Harness 的处理方式。
 
-Code Desktop 默认使用本内核（`app/electron/codex.cjs` 的 `resolveCore()`）：
+OpenClaude Desktop 默认使用本内核（`app/electron/codex.cjs` 的 `resolveCore()`）：
 
 | 环境变量 | 作用 |
 |---|---|
@@ -59,7 +59,7 @@ Code Desktop 默认使用本内核（`app/electron/codex.cjs` 的 `resolveCore()
 
 DeepSeek API key：在 DeepSeek Harness（官方 App 或 `dsh web`）里配置一次即可，本内核直接读同一个 `~/.dsh`（也可以设 `DEEPSEEK_API_KEY` 环境变量）。没有 key 时首页显示 "Add your DeepSeek API key" 卡片（Refresh / Get an API key），保存 key 后内核发 `account/updated`，app 自动重读。
 
-## 在 Code Desktop profile 里加自己的 Cordis 插件
+## 在 OpenClaude Desktop profile 里加自己的 Cordis 插件
 
 内核的 profile 分层组装，后写的层按 `id` 覆盖前面的行（loader 的 patch 语义：`config` 整体替换，不做深合并）：
 
@@ -72,7 +72,7 @@ profile/cordis.yml ([])
  → <userData>/harness/user.patch.yml                (你自己的补丁，最后生效)
 ```
 
-`<userData>` 在 macOS 上是 `~/Library/Application Support/Code Desktop`（`CODE_DESKTOP_DATA` 可改）。
+`<userData>` 在 macOS 上是 `~/Library/Application Support/OpenClaude Desktop`（`CODE_DESKTOP_DATA` 可改）。
 所有改动都在**下次内核启动**时生效：Settings › Harness › Restart core（或 Developer › Reconnect）。
 
 ### 1. 随 app 发布：写进 `profile/cordis.patch.yml`
@@ -178,8 +178,8 @@ agent、审批 / 权限行和 app bundle 插入的行显示 “Required”，要
 | `account/read` | account.js `accountReadResponse`：`ctx.credentials.describe(credentialRef('DEEPSEEK_API_KEY'))`（只有 configured/source，不碰值）与 `ctx.deepseekAccount.getState()`。key 能解析或已登录 DeepSeek Platform（`credential-stored`）→ `{account: {type:'apiKey'}}`，否则 `account: null`；`requiresOpenaiAuth` 永远 false（本内核没有 ChatGPT 登录）。桥接扩展 `deepseek: {apiKey: {configured, source}, platform, links}`（source 为 Harness 的来源层：`file` = `~/.dsh/.credentials.yaml`、`env`、`project-env`、`user-env`）：app 据此显示 "DeepSeek API key" 行（来源说明、Refresh、Manage keys → platform.deepseek.com/api_keys，没有 Sign out / ChatGPT 登录）和首页的加 key 卡片，账户菜单写 "DeepSeek API · API key"。Harness 无论有没有 key 都注册 DeepSeek provider，所以不再看 `listProviders()`（只在没有 credentials 服务时退回它）。`credentials/reference-updated`、`credentials/record-updated`、`deepseek-account/signed-out` → `account/updated`。`account/login/*`、`account/logout` 仍是 `-32601`（在 DeepSeek Harness 里管理 key） |
 | `account/usage/read` | usage.js：`sessionQuery.listSessions()` 列出的全部 Harness 会话（同一 DSH_HOME，DeepSeek Harness App 的会话也算；桥接层软删除的跳过）逐个折叠：每条 `assistant/message` 的 `usage.inputTokens + usage.outputTokens`（Harness 的 inputTokens 只是未命中缓存的输入，前缀缓存读写不计入，与原版 input + output 相同）按事件本地日期分桶；`turn/start → turn/end` 最长耗时为 `longestRunningTurnSec`；fork 只算最后一个 `session/end-seed {inherited:true}` 之后的事件。返回 Codex `{summary: {lifetimeTokens, peakDailyTokens, longestRunningTurnSec, currentStreakDays, longestStreakDays}, dailyUsageBuckets: [{startDate, tokens}]（升序）, threadUsage: null}`，Codex 字段全部是安全整数；连续天数同原版（当前连续从今天往回数，今天没有用量为 0）。另带桥接扩展 `deepseek`（usage.js `foldSessionBilling` / `deepseekUsage` + `pricing.js`）：每条 `assistant/message` 按本地日期、`source.model`、峰谷时段（北京时间周一至周五 09–12、14–18 为高峰，不计法定节假日）和类别（inputTokens=未命中、cacheReadTokens=命中、cacheWriteTokens 按未命中计费、outputTokens 含推理）记 token，按 DeepSeek 官方人民币价估算：`{currency:'CNY', pricingUrl, allTime, last30Days, today, models:[{model, displayName, …}], daily:[{date, …}]}`，每项 totals 为 `{tokens（四类之和）, inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, peakTokens, unpricedTokens, costCny, inputCostCny, cacheReadCostCny, outputCostCny}`；旧 id deepseek-v4-flash / -vision-exp 按 deepseek-flash 计价，未知模型只计 token、费用为 null。缓存 version 3（加 `billing` 折叠，旧文件重新折叠一次）。本进程的线程直接用内存事件；其余按 `sessionPersistence.list()` 的 revision 缓存（内存 + `usage-cache.json`，换时区作废），只重读变化的日志，最多 4 个并发；读不了的日志跳过（同一 revision 不再重试）。并发请求共用一次折叠。`account/rateLimits/read` 仍全为 null（DeepSeek 按 token 计费；有 `deepseek` 时 Usage 页显示总量/近 30 天/今天的 token 与 ≈¥、费用构成、分模型和每日列表，否则仍是 "DeepSeek bills per token; there are no plan usage limits." 和每日 token 表） |
 | `initialize` | 额外返回 `engine: 'deepseek-harness'`、`engineVersion`、`capabilities`（`CAPABILITIES`，index.js）与 `configPath`（`ctx.configEditor.documentPath`，即桥接层自己的 profile 补丁 `profile/cordis.patch.yml`）。`capabilities.unsupportedMethods` 列出本内核必然失败的 Codex 请求（`review/start`、`thread/revert`；`thread/fork` 与 `thread/backgroundTerminals/*` 已实现，见 fork.js、jobs.js）；`skillToggle: false`（没有逐技能开关）、`mcpConfigWrite: false`（不写 MCP 配置）、`livePermissions: true`（支持下面的 `codeDesktop/thread/permissions`）、`codeStats: true`（支持下面的 `codeDesktop/stats/read`）、`coreCommands: true`（`codeDesktop/commands/list` / `execute` 提供内核自己的斜杠命令，commands.js；execute 必须带 turn/start 的权限参数并先应用它们）、`sideQuestion: true`（`codeDesktop/sideQuestion` 回答 /btw，side-question.js）。app 的 `main.cjs connect()` 把它们存为 `boot.core = {engine, engineVersion, capabilities, configPath}`；没有 engine 的服务器（Codex、UI 测试假服务器）一律按 `engine: 'codex'` 处理，保留全部控件 |
-| `codeDesktop/thread/permissions`（桥接扩展） | 运行中切换 Mode（Code Desktop F05：Mode/Model/Effort 在轮次进行中保持可用，源码 c360a9e1c Ud）：参数与 turn/start 的权限参数相同（approvalPolicy、sandboxPolicy、`codeDesktop` 提示），对本进程已加载的线程立即 `applyPermissions`——预设马上切换（之后的工具调用按新模式询问或放行，Ask 的 pre-execute 读的是 `thread.permission.approvalPolicy`），plan mode 从下一步生效；未加载的线程返回 `{applied:false}`，它的下一次 turn/start 或 thread/resume 本来就带新模式。app 只在 `capabilities.livePermissions` 为真且轮次进行中时发送；main.cjs 白名单放行并像 turn/start 一样校验 bypass。Codex 没有对应请求，所以 Codex 内核下模式从下一次 turn/start 起生效 |
-| `codeDesktop/stats/read`（桥接扩展） | 首页统计卡（Code Desktop F09，原版 cc43287c9 `$O` getCodeStats → code-home.js Iw/Xw/eT/cT）：与 `account/usage/read` 共用同一次逐会话折叠和 `usage-cache.json`（缓存 version 2，旧文件重新折叠一次），fork 同样只算最后一个 `session/end-seed {inherited:true}` 之后。usage.js `foldSessionStats` 按事件本地日期记：sessions（会话第一条人类 `user/message` 那天 +1；子代理会话 `header.origin === 'subagent'` 的委派 prompt 也是 `source.kind: 'user'`，由 index.js 在折叠缓存之外标记 `subagent`，`codeStats` 不计其会话，但计消息、工具调用与 token，与 thread/list 不列子代理一致）、messages（人类 `user/message` + `assistant/message`）、toolCalls（`tool/call`）、按本地小时的消息直方图、按 `assistant/message.data.message.source.model` 的未缓存输入 + 输出 token；每个模型累计 input/output/cacheRead/cacheWrite。返回原版形状 `{dailyActivity: [{date, messageCount, sessionCount, toolCallCount}], dailyModelTokens: [{date, tokensByModel}], modelUsage: {[model]: {inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens}}, peakActivityHour}`（日期升序，只列有活动的日子；peakActivityHour 为全时段最忙的本地小时，没有则 null）。app 只在 `capabilities.codeStats` 为真时调用，并把上次结果存进 config 以便下次启动立即显示；Codex 内核用 app 自己的 activity 账本兜底 |
+| `codeDesktop/thread/permissions`（桥接扩展） | 运行中切换 Mode（OpenClaude Desktop F05：Mode/Model/Effort 在轮次进行中保持可用，源码 c360a9e1c Ud）：参数与 turn/start 的权限参数相同（approvalPolicy、sandboxPolicy、`codeDesktop` 提示），对本进程已加载的线程立即 `applyPermissions`——预设马上切换（之后的工具调用按新模式询问或放行，Ask 的 pre-execute 读的是 `thread.permission.approvalPolicy`），plan mode 从下一步生效；未加载的线程返回 `{applied:false}`，它的下一次 turn/start 或 thread/resume 本来就带新模式。app 只在 `capabilities.livePermissions` 为真且轮次进行中时发送；main.cjs 白名单放行并像 turn/start 一样校验 bypass。Codex 没有对应请求，所以 Codex 内核下模式从下一次 turn/start 起生效 |
+| `codeDesktop/stats/read`（桥接扩展） | 首页统计卡（OpenClaude Desktop F09，原版 cc43287c9 `$O` getCodeStats → code-home.js Iw/Xw/eT/cT）：与 `account/usage/read` 共用同一次逐会话折叠和 `usage-cache.json`（缓存 version 2，旧文件重新折叠一次），fork 同样只算最后一个 `session/end-seed {inherited:true}` 之后。usage.js `foldSessionStats` 按事件本地日期记：sessions（会话第一条人类 `user/message` 那天 +1；子代理会话 `header.origin === 'subagent'` 的委派 prompt 也是 `source.kind: 'user'`，由 index.js 在折叠缓存之外标记 `subagent`，`codeStats` 不计其会话，但计消息、工具调用与 token，与 thread/list 不列子代理一致）、messages（人类 `user/message` + `assistant/message`）、toolCalls（`tool/call`）、按本地小时的消息直方图、按 `assistant/message.data.message.source.model` 的未缓存输入 + 输出 token；每个模型累计 input/output/cacheRead/cacheWrite。返回原版形状 `{dailyActivity: [{date, messageCount, sessionCount, toolCallCount}], dailyModelTokens: [{date, tokensByModel}], modelUsage: {[model]: {inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens}}, peakActivityHour}`（日期升序，只列有活动的日子；peakActivityHour 为全时段最忙的本地小时，没有则 null）。app 只在 `capabilities.codeStats` 为真时调用，并把上次结果存进 config 以便下次启动立即显示；Codex 内核用 app 自己的 activity 账本兜底 |
 | `skills/list` | 每个 cwd 调 `ctx.skills.snapshot({cwd})`（catalog.js `skillsListEntry`）：SkillSummary → SkillMetadata，`scope` 按来源（`project-*` → repo，`user-*`/`custom` → user，bundled/runtime → system），`enabled` = `invocation.modelInvocable`（Codex 兼容），另带 `userInvocable` / `modelInvocable`（完整调用策略：`disable-model-invocation: true` 的技能只能 /name 调用，`user-invocable: false` 的只由模型调用；Codex 客户端忽略这两个字段，app 据此决定 '/' 与 Add › Skills 是否列出、Customize 的 Trigger 事实），SKILL.md `metadata.version` 存在时带 `version`，`pluginId: null`；没有路径的虚拟技能、两种调用都被禁止的技能不列出；`complete: false` 时加一条 `{path: cwd, message: 'Some skill sources could not be read.'}`。根目录：`<project>/.dsh/skills`、`<project>/.agents/skills`、`~/.dsh/skills`、`~/.agents/skills` 及内置技能。Harness 的 `skills/change` → `skills/changed`（app 防抖重读）。`skills/config/write` → `-32601`，提示在 SKILL.md frontmatter 加 `disable-model-invocation: true`（errors.js `skillToggleUnsupported`）；app 在 DeepSeek 内核上不画 Enable skill 开关与 Disabled 徽标（原版 cfaabd194 `Ce` / customize-skills :3130 都以可切换为前提） |
 | `config/read` | `{config: {sandbox_mode, approval_policy, mcp_servers}, origins: {}, layers: null}`（catalog.js `configReadResponse`）：权限取 `params.cwd` 下最近活动的已加载线程（`latestThreadIn`），否则默认 workspace-write / on-request。`mcp_servers` 每个 `@deepseek-ai/dsh-mcp-client` 条目一张表（键 = `serverName`）：command、args、url、cwd、`enabled`，`env` / `headers` 只给键名（值一律 `''`，密钥不出内核）。app 的沙箱行说明为 "Set per session with the Mode menu (DeepSeek Harness permission presets)." |
 | `mcpServerStatus/list` | profile 里每个 MCP client 条目（`ctx.configEditor.entries()`）一行（catalog.js `mcpServerStatuses`）：`runtimeStatus` 由条目决定，disabled → `disabled`，fiber active → `connected`，pending/loading → `starting`，failed → `failed`，其余 null；`tools` 来自 `ctx.tools.schemas()` 中 `mcp__<server>__` 前缀的工具，键为原始工具名；`authStatus: 'unsupported'`、`resources: []`、`serverInfo: null`。`config/mcpServer/reload`（Reconnect）重启每个在运行的 MCP client fiber（`fiber.restart()`，用当前配置重连），从未启动的 `entry.refresh()`。`config/batchWrite`、`mcpServer/oauth/login` 仍不支持：app 在 `mcpConfigWrite: false` 时隐藏 "Add custom connector"/"Remove connector"/Developer 的 Delete，改为提示 "Add a @deepseek-ai/dsh-mcp-client entry to <configPath>, then Reconnect" 并给 Edit config 按钮（打开 `configPath`，settings-pages.cjs `editConfigTarget`） |
@@ -210,8 +210,8 @@ Settings → Instructions（C1）。偏好键 `customInstructions = {enabled, gl
 - 未实现：`review/start`、`thread/revert`（经 `capabilities.unsupportedMethods` 告知 app：/review、/rewind 不出现在斜杠菜单，并提示该内核暂不支持）、MCP 配置写入（`config/batchWrite`；在 `profile/cordis.patch.yml` 手动加 `@deepseek-ai/dsh-mcp-client` 条目后 Reconnect）、MCP OAuth 登录、逐技能开关（`skills/config/write`；用 SKILL.md 的 `disable-model-invocation: true`）、账户余额（`account/rateLimits/read` 的 credits；Harness 只有登录 DeepSeek Platform 后才有钱包余额）、app 内保存 API key（`account/login/start`）。技能列表、config/read、MCP 状态、插件（bundle）列表与账户 token 用量（来自本机会话日志）已实现。
 - `account/usage/read` 是本机 `~/.dsh` 会话日志的统计，不是 DeepSeek 平台账单：别的机器、直接调 API 的用量不在内；模型重试中途失败的 attempt（`assistant/attempt`）不计。首次读取要逐个回放全部会话日志（之后只读变化的）。
 - MCP 状态只看插件 fiber：`failOnStartupError` 为 false（默认）的服务器即使首次连接失败也会 active（无工具，并自行重连），这时显示 Connected、0 个工具。MCP 服务器是内核级的，所有会话共用，状态不按会话区分。
-- 用户自己 DeepSeek Harness App profile（`~/.dsh/profiles/…`）里的 MCP 服务器和插件不会被 Code Desktop 的内核加载；Connectors / Plugins 页只显示桥接层 profile（`harness/profile`）里的内容。
-- Code Desktop 偏好里记住的 Codex 会话（cliVersion 为纯版本号或 modelProvider 为 openai）在 DeepSeek 内核下读不到：侧栏不列出它们，只在列表顶部显示一行说明（"N Codex sessions aren’t available with the DeepSeek core…"），id 保留在配置里，`CODE_DESKTOP_CORE=codex` 启动即恢复。
+- 用户自己 DeepSeek Harness App profile（`~/.dsh/profiles/…`）里的 MCP 服务器和插件不会被 OpenClaude Desktop 的内核加载；Connectors / Plugins 页只显示桥接层 profile（`harness/profile`）里的内容。
+- OpenClaude Desktop 偏好里记住的 Codex 会话（cliVersion 为纯版本号或 modelProvider 为 openai）在 DeepSeek 内核下读不到：侧栏不列出它们，只在列表顶部显示一行说明（"N Codex sessions aren’t available with the DeepSeek core…"），id 保留在配置里，`CODE_DESKTOP_CORE=codex` 启动即恢复。
 - 没有可压缩历史时 `/compact` 仍以 completed 的空轮结束（界面显示 "Conversation compacted"），回放里不留这一轮。
 - `thread/delete` 同时删除对应的 Harness 历史目录（`<DSH_HOME>/sessions/<project>/<id>/`，桥接 `index.js` 的 `deleteSessionFiles`）；其他会话不受影响。fake smoke 使用临时 `DSH_HOME` 验证删除后的目录与会话不可读。
 - 图片附件走 Harness 附件存储，以图片块发给模型；只有不支持图片输入的模型（目录里 `inputModalities` 不含 `image`，如 deepseek-v4-pro）不能附图：app 在暂存时就拒绝（"The selected model doesn’t support image input."），已暂存后再换模型发送则内核返回 `-32602`。用户气泡里的图片是附件存储里规范化后的副本（可能被缩小、换格式），不是原文件。`@` 提及的行内 chip 位置（`text_elements`）不保存，回放时提及只显示为文件卡片；技能以 `/name` 文本出现在气泡里（不是技能卡片）；以前用文本标记发出的图片在回放里显示为图片卡片（原路径）。
@@ -222,7 +222,7 @@ Settings → Instructions（C1）。偏好键 `customInstructions = {enabled, gl
 - Plan 评审用的是通用问题卡 + Markdown 计划条目，原版专用的计划卡（"Claude proposed a plan"、Open plan、Revise）没有移植。`multi_select` 问题在问题卡里只能单选；`ask_user_question` 用 legacy 阻塞模式，没有接 timed 模式（`attachWait` / 迟到回复）。
 - 首次连接需启动 Harness 运行时（约 2–4 秒），期间首页显示 "Connecting to DeepSeek…"。
 - 冷读（侧栏、自动归档、`thread/list`）的 `model` 是默认路由，不是会话日志里的模型；打开会话（`thread/resume`）后才是真实模型。冷行的 `updatedAt` 是最后一次提问时间，已加载线程是最后一次回复/轮次结束时间，两者可能差几分钟。投影缓存按节流写入（每 200 个事件或 5 秒，轮次结束与会话释放时必写）。本内核启动后另一个进程（DeepSeek App）才写的检查点，本进程的缓存表一直看不到：不带轮次的 `thread/read`（侧栏、自动归档）发现日志 revision 变了会回放一次，但 `thread/list` 的行（标题、最近时间）会停在旧值，直到某次 `thread/read` 回放写回或内核重启。另一个进程正在跑一轮时，每次 `thread/read` 都回放（不写回半截的轮次）。启动列表与缓存表加载之间被别的进程写入的会话，revision 已是新的，那一次写入要等下一次变化才会被发现。
-- 离开或归档会话才释放写锁；仍在运行、有排队或待处理卡片、有后台 job 的会话保持加载（不会在空闲后自动释放），直到下次离开它或退出 Code Desktop。`thread/backgroundTerminals/list` 返回会话自己仍在运行的 bash/pwsh job（jobs.js），`terminate` / `clean` 可停止它们，Tasks 面板显示并能 Stop。在 DeepSeek App 里打开着的会话，Code Desktop 打开时报 `sessionBusyElsewhere`，转录区显示通用的加载失败状态（Retry），已有内容时横幅显示这句说明。
+- 离开或归档会话才释放写锁；仍在运行、有排队或待处理卡片、有后台 job 的会话保持加载（不会在空闲后自动释放），直到下次离开它或退出 OpenClaude Desktop。`thread/backgroundTerminals/list` 返回会话自己仍在运行的 bash/pwsh job（jobs.js），`terminate` / `clean` 可停止它们，Tasks 面板显示并能 Stop。在 DeepSeek App 里打开着的会话，OpenClaude Desktop 打开时报 `sessionBusyElsewhere`，转录区显示通用的加载失败状态（Retry），已有内容时横幅显示这句说明。
 - Dynamic workflows 现在跑在 DeepSeek 内核上：`main.cjs` 按 `resolveCore()` 给 workflow runner 传 `{command: node, args: [本脚本, 'app-server', '--stdio']}`（workflow-service.cjs `workflowCoreCommand`；`CODE_DESKTOP_WORKFLOW_BINARY` 仍可覆盖，`CODE_DESKTOP_CORE=codex` 时仍用 Codex CLI）。runner 的 `developerInstructions`（agentType 的 system prompt）与 `outputSchema`（`agent(prompt, {schema})`）都由上面的 structured.js 实现。runner agent 的权限跟随启动时会话的 Mode（app `permission-policy.mjs workflowAccess`，主进程推出）：Auto / Accept edits → workspace-write，Bypass → danger-full-access，Plan / Ask / chat → read-only；一律 `approvalPolicy: never`（不询问），脚本的 `sandbox` 选项不能提高它。注意 workspace-write 下 DSH 文件策略也允许写平台临时目录。
 - 子代理：只投影持久事件，不转发子代理的 token 级流式增量（Tasks 面板里的回答按步出现，不逐字出现）；子代理的审批卡片显示在父会话上（按命令 / diff，没有子代理条目的 "run <description>" 标题）；前台运行与可续运行之外的后台 job 形式（`started background subagent job`）不跟踪结束状态；内核重启前没有收到结束通知的可续子代理，回放时委派行仍是 running。本批次之前创建的子代理没有记下 label，`thread/list` 里 `agentNickname` 为空（app 回退到委派行的 description，`thread/read` 从子会话的 descriptor 读到 label）。
 

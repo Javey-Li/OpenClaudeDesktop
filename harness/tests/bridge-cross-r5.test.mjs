@@ -86,7 +86,7 @@ test('OpenCode / MiMo review: a pull request number or URL is the review command
   assert.equal(reviewLabel({ type: 'commit', sha: 'abcdef1234567890' }), 'Commit abcdef123456')
 })
 
-test('Qwen settings: usage statistics are a setting Code Desktop shows (privacy.usageStatisticsEnabled, on by default)', () => {
+test('Qwen settings: usage statistics are a setting OpenClaude Desktop shows (privacy.usageStatisticsEnabled, on by default)', () => {
   const qwen = adapterById('qwen')
   const def = qwen.coreSettings.defs.find((entry) => entry.key === 'privacy.usageStatisticsEnabled')
   assert.deepEqual(def, { key: 'privacy.usageStatisticsEnabled', type: 'boolean', default: true })

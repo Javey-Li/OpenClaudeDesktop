@@ -263,7 +263,7 @@ export function toolItem(part, context) {
   }
   // OpenCode's `invalid` tool (tool/invalid.ts): a call to a tool that doesn't exist, or with arguments that don't fit
   // its schema, rerouted there and "completed" with the reason. It is a failed call of the tool the model attempted
-  // (input.tool), so Code Desktop's own tools keep their titles and every row reads as failed.
+  // (input.tool), so OpenClaude Desktop's own tools keep their titles and every row reads as failed.
   if (tool === 'invalid') {
     const attempted = typeof input.tool === 'string' && input.tool.trim() ? input.tool.trim() : null
     const reason = (typeof input.error === 'string' && input.error.trim() ? input.error.trim() : null) ?? output ?? errorText(state) ?? 'The tool call was invalid.'
@@ -347,7 +347,7 @@ const RESUME_GAP_MS = 5000
  * A run that goes on after its call ended follows MiMo's own run list (GET /workflows?sessionID=, context.workflowRuns:
  * status, counters, phase; its transcript from GET /workflows/:runID/transcript): a background start (async: true,
  * whose call returns the run id at once), a resume call no earlier call of the thread started (MiMo took it:
- * {"resumed":true}), and a settled run MiMo ran again (Code Desktop's Resume, the model's resume call, another client:
+ * {"resumed":true}), and a settled run MiMo ran again (OpenClaude Desktop's Resume, the model's resume call, another client:
  * context.workflowResumed, or a row updated well after the call ended). Such a run is background, and stops through
  * MiMo's own tool (stopScope 'run': the bridge asks the model to cancel it). A run MiMo's list still has running but
  * no longer runs (it quit: context.workflowLive false) ended failed. A failed or stopped top-level run is resumable
@@ -480,7 +480,7 @@ function viewedImage(tool, file, state, output) {
 }
 
 /**
- * A tool input without the session argument the plugin adds to Code Desktop's own tools (app-tools.js): older calls
+ * A tool input without the session argument the plugin adds to OpenClaude Desktop's own tools (app-tools.js): older calls
  * still have it in their stored input (the plugin's tool.execute.after drops it from new ones).
  */
 function withoutSessionArg(input) {

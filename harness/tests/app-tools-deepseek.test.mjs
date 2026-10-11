@@ -1,4 +1,4 @@
-// Code Desktop's own tools server ("code_desktop", app/electron/agent-tools-server.mjs) on the DeepSeek core
+// OpenClaude Desktop's own tools server ("code_desktop", app/electron/agent-tools-server.mjs) on the DeepSeek core
 // (packages/codex-app-server/src/app-tools.js): the real core, spawned with CODE_DESKTOP_AGENT_TOOLS_* pointing at a
 // fake app channel (the unix-socket protocol of app/electron/agent-tools-host.cjs), starts the stdio server for each
 // thread named by the thread id, its tools reach the model as mcp__code_desktop__<tool>, a call reaches the app
@@ -123,7 +123,7 @@ test('appToolsServer: parsed from the launch variables; absent or broken variabl
   assert.equal(plugged, 0)
 })
 
-test('Ask mode: Code Desktop tools run without a card, for the thread and its sub-agents', async () => {
+test('Ask mode: OpenClaude Desktop tools run without a card, for the thread and its sub-agents', async () => {
   assert.equal(isAppTool('mcp__code_desktop__preview_screenshot'), true)
   assert.equal(isAppTool('mcp__other__x'), false)
   const permission = { approvalPolicy: 'untrusted', mode: 'ask' }

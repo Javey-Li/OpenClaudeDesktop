@@ -45,8 +45,8 @@ export function shellWrapper({ shell = '/bin/zsh', sandboxExec = '/usr/bin/sandb
   const quoted = (value) => `'${String(value).replaceAll("'", `'\\''`)}'`
   return [
     '#!/bin/sh',
-    '# Code Desktop: runs the agent\'s shell commands inside the session\'s sandbox (opencode-bridge sandbox.js).',
-    // Code Desktop's tools channel (app-tools.js) is for the code_desktop server only, never the agent's commands.
+    '# OpenClaude Desktop: runs the agent\'s shell commands inside the session\'s sandbox (opencode-bridge sandbox.js).',
+    // OpenClaude Desktop's tools channel (app-tools.js) is for the code_desktop server only, never the agent's commands.
     'unset CODE_DESKTOP_AGENT_TOOLS_SOCKET CODE_DESKTOP_AGENT_TOOLS_TOKEN CODE_DESKTOP_AGENT_TOOLS_SERVER',
     `if [ "$CODE_DESKTOP_SANDBOX" = "none" ]; then unset CODE_DESKTOP_SANDBOX CODE_DESKTOP_SANDBOX_PROFILE; exec ${quoted(shell)} "$@"; fi`,
     `profile="\${CODE_DESKTOP_SANDBOX_PROFILE:-${FAIL_CLOSED_PROFILE.replaceAll('"', '\\"')}}"`,

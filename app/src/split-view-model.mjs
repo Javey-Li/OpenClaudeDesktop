@@ -1,7 +1,7 @@
 // Split view: two sessions side by side in one window, each side its own App (transcript, composer, panes,
 // model and permission state); see source-split-view.jsx. Claude Desktop 2.2553.1 (desktop-sidebar.js
 // WR/GR, ER/DR/CR/wR, IR; desktop-layout.css .dframe-pane-*) shows a primary pane and extra session panes in
-// columns and rows; Code Desktop keeps two columns: the primary side (0) and the secondary side (1).
+// columns and rows; OpenClaude Desktop keeps two columns: the primary side (0) and the secondary side (1).
 // Pure state transitions: each returns { state, effects } where an effect asks a side's App to navigate
 // ({ navigate: [side, sessionId|null] }) or to take keyboard focus ({ focus: side }).
 

@@ -15,7 +15,7 @@ const path = require("node:path");
 const { coreSupports, coreById } = require("./core-registry.mjs");
 
 const METHOD_NOT_FOUND = -32601;
-const USER_PATCH_EXAMPLE = `# Your own patches for the Code Desktop DeepSeek core profile.
+const USER_PATCH_EXAMPLE = `# Your own patches for the OpenClaude Desktop DeepSeek core profile.
 # Applied after the app-owned profile and after Settings › Harness changes;
 # the last write to a row wins. Restart the core (Settings › Harness › Restart
 # core) to apply. A file that fails to parse stops the core from starting:
@@ -129,7 +129,7 @@ function createHarnessProfile({ app, shell, dialog, getConfig = () => undefined,
     const state = normalizeOverlay(next);
     writeAtomic(files.state, JSON.stringify(state, null, 2) + "\n");
     if (stateEmpty(state)) fs.rmSync(files.overlay, { force: true });
-    else writeAtomic(files.overlay, "# Managed by Code Desktop (Settings › Harness). Put your own patches in user.patch.yml.\n" + JSON.stringify(renderOverlay(state), null, 2) + "\n");
+    else writeAtomic(files.overlay, "# Managed by OpenClaude Desktop (Settings › Harness). Put your own patches in user.patch.yml.\n" + JSON.stringify(renderOverlay(state), null, 2) + "\n");
     syncEnv();
     markPending();
     return state;

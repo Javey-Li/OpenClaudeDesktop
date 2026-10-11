@@ -82,7 +82,7 @@ test("a workspace program named sh/bash/zsh is never unwrapped", () => {
   assert.equal(displayCommand(["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command", "dir"]).text, "dir");
 });
 
-test("Code Desktop's terminal, dev server and Monitor cards show the command exactly as it runs", () => {
+test("OpenClaude Desktop's terminal, dev server and Monitor cards show the command exactly as it runs", () => {
   const card = (agentTool, command) => approvalCardModel({ method: "item/commandExecution/requestApproval", params: { threadId: "t", cwd: "/w", command, codeDesktop: { agentTool } } }, null);
   for (const kind of ["terminal-command", "preview-server", "monitor"]) {
     for (const command of ["/bin/sh -c 'npm test'", "bash -lc 'npm run dev'", "./sh -c 'npm test'"]) {

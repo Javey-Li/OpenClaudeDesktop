@@ -1,4 +1,4 @@
-// ZCode bridge: what a session keeps when Code Desktop's own tools join it (the project's MCP servers and each server's
+// ZCode bridge: what a session keeps when OpenClaude Desktop's own tools join it (the project's MCP servers and each server's
 // settings), and the background work that must outlive leaving the session or an MCP refresh (LiveProjector).
 // End to end against the real ZCode agent: tests/zcode-bridge-smoke.mjs.
 import { test } from 'node:test'

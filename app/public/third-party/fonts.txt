@@ -1,4 +1,4 @@
-Font licenses — Code Desktop (local comparison build)
+Font licenses — OpenClaude Desktop (local comparison build)
 
 Provenance
 ----------

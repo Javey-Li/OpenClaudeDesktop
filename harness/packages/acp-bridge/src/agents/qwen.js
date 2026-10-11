@@ -37,7 +37,7 @@ const todoWriteOn = (...scopes) => !scopes.some((settings) => settings?.tools?.t
 // Qwen 0.24.7's opt-in tools (config.ts: TodoWriteTool with tools.todoWrite.enabled, LspTool with lsp.enabled, the agent
 // team tools with experimental.agentTeam or QWEN_CODE_ENABLE_AGENT_TEAM=1).
 export const QWEN_TEAM_TOOLS = Object.freeze(['team_create', 'team_delete', 'team_plan_approval', 'request_shutdown', 'task_create', 'task_update', 'task_list'])
-/** Why Qwen leaves a tool out with these user settings, or null (the todo list is on in Code Desktop unless turned off). */
+/** Why Qwen leaves a tool out with these user settings, or null (the todo list is on in OpenClaude Desktop unless turned off). */
 export function qwenOptInReason(name, user = {}, env = {}) {
   if (name === 'todo_write' && !todoWriteOn(user)) return 'Off in Qwen’s settings (tools.todoWrite.enabled).'
   if (name === 'lsp' && user?.lsp?.enabled !== true) return 'Qwen turns this on only with lsp.enabled in its settings.'
@@ -65,7 +65,7 @@ export const BUILTIN_TOOLS = [
   ['get_goal', 'Reads the goal.'], ['update_goal', 'Updates the goal.'], ['propose_goal', 'Proposes a goal.'],
 ]
 
-/** Code Desktop's UI locale as a Qwen Code language code (cli/src/i18n/languages.ts SUPPORTED_LANGUAGES: zh, en …), else null. */
+/** OpenClaude Desktop's UI locale as a Qwen Code language code (cli/src/i18n/languages.ts SUPPORTED_LANGUAGES: zh, en …), else null. */
 export function qwenLanguage(locale) {
   if (typeof locale !== 'string') return null
   if (/^zh(?:-(?:CN|Hans))?$/i.test(locale)) return 'zh'
@@ -157,7 +157,7 @@ export function qwenSkillHidden(policy, skill) {
 
 // ------------------------------------------------------------ Qwen's own Auto-mode checks
 //
-// The bridge runs Qwen in its 'default' mode and answers every request itself, so in Code Desktop's Auto a request
+// The bridge runs Qwen in its 'default' mode and answers every request itself, so in OpenClaude Desktop's Auto a request
 // would be approved by kind alone. Qwen's own Auto mode (core/src/permissions/autoMode.ts, destructive-commands.ts)
 // still stops destructive git / infrastructure commands, writes to paths that change later runs (git hooks, npm
 // scripts, CI, Qwen's settings, rules, hooks and instructions) and sends connector tools to its classifier:
@@ -459,7 +459,7 @@ export function readQwenUsageRecords(file, cursor = null) {
       if (!input && !output && !count(entry.totalTokens)) continue
       models[name] = { inputTokens: input, cachedInputTokens: Math.min(count(entry.cachedTokens), input), outputTokens: output, reasoningOutputTokens: count(entry.thoughtsTokens), totalTokens: count(entry.totalTokens) || input + output, requests: count(entry.requests) }
     }
-    // A session that never called the model (Code Desktop's model discovery opens some) is no activity.
+    // A session that never called the model (OpenClaude Desktop's model discovery opens some) is no activity.
     if (!Object.keys(models).length) continue
     const completedAtMs = Number.isFinite(record.timestamp) ? record.timestamp : Number.isFinite(record.startTime) ? record.startTime + count(record.durationMs) : Date.now()
     records.push({ key: `${record.sessionId}:${completedAtMs}`, sessionId: record.sessionId, startedAtMs: Number.isFinite(record.startTime) ? record.startTime : completedAtMs, completedAtMs, toolCalls: count(record.tools?.totalCalls), models })
@@ -513,14 +513,14 @@ export function qwenExtensionEnabledAt(overrides, dir) {
   return enabled
 }
 
-// Code Desktop's tools Qwen lists up front (tools.visible) instead of behind tool_search: Qwen defers every MCP tool, and
+// OpenClaude Desktop's tools Qwen lists up front (tools.visible) instead of behind tool_search: Qwen defers every MCP tool, and
 // its deferred-tools reminder names no session server's tools, so without them it would never learn the Preview, the
 // Terminal pane or the Workflow tool exist (and run dev servers in its own shell). The other code_desktop tools stay
 // one tool_search away (their names share these tools' words).
 export const QWEN_VISIBLE_APP_TOOLS = Object.freeze(['preview_start', 'preview_list', 'screenshot', 'read_page', 'list_terminal_tabs', 'read_terminal', 'run_in_terminal', 'Workflow'])
 
 /**
- * Code Desktop's tools server instructions as Qwen's model gets them (adapter.appToolsInstructions: Qwen never shows
+ * OpenClaude Desktop's tools server instructions as Qwen's model gets them (adapter.appToolsInstructions: Qwen never shows
  * an MCP server's initialize instructions), with where its tools are: the up-front ones (QWEN_VISIBLE_APP_TOOLS) and
  * the rest behind tool_search, which a reopened session may need for all of them until the server has connected.
  */
@@ -558,7 +558,7 @@ export async function qwenAwaitSessionTools(host, sessionId, server, { timeout =
 }
 
 /**
- * The system-scope settings that give a session Code Desktop's tools server (`name`) on Qwen, merged into `overlay`
+ * The system-scope settings that give a session OpenClaude Desktop's tools server (`name`) on Qwen, merged into `overlay`
  * (the thread's system settings, which already hold the admin's): `layers` are the other settings files' contents
  * (system defaults, user, project).
  *   permissions.allow  mcp__<name>: Qwen's Plan mode refuses every tool that still needs confirmation, and session MCP
@@ -637,14 +637,14 @@ export default {
       // after a turn, so the launch keeps them off unless the user's settings say true (launch below); off is the default here.
       { key: 'ui.enableFollowupSuggestions', type: 'boolean', default: false },
       // Qwen's todo list (tools.todoWrite.enabled, opt-in in Qwen: settingsSchema.ts, config.ts isTodoWriteEnabled): the
-      // only tool behind its live plan (turn/plan/updated). On in Code Desktop unless the user's settings say false
+      // only tool behind its live plan (turn/plan/updated). On in OpenClaude Desktop unless the user's settings say false
       // (launch below). Read at launch.
       { key: 'tools.todoWrite.enabled', type: 'boolean', default: true },
       // Qwen's output styles (cli /output-style, general.outputStyle; its built-in ones, core/core/output-styles.ts):
       // 'default' is no style. Qwen's own setting, so it applies in its terminal too.
       { key: 'general.outputStyle', type: 'select', options: ['default', 'Concise', 'Proactive', 'Explanatory', 'Learning'], default: 'default' },
       // Qwen's secondary models (settingsSchema.ts; its TUI sets them with /model --fast|--compaction|--vision|--image|
-      // --voice and /advisor, which Code Desktop's own /model shadows): picked from the running model list.
+      // --voice and /advisor, which OpenClaude Desktop's own /model shadows): picked from the running model list.
       { key: 'fastModel', type: 'select', options: 'models', default: null },
       { key: 'compactionModel', type: 'select', options: 'models', default: null },
       { key: 'visionModel', type: 'select', options: 'models', default: null },
@@ -656,12 +656,12 @@ export default {
 
   // Dynamic workflows is part of the launch (tools.workflowsEnabled): a change restarts Qwen for the thread.
   workflowsInLaunch: true,
-  // Qwen never shows the model an MCP server's initialize instructions: Code Desktop's join --append-system-prompt.
+  // Qwen never shows the model an MCP server's initialize instructions: OpenClaude Desktop's join --append-system-prompt.
   appToolsInstructions: (instructions, name) => qwenAppToolsInstructions(instructions, name),
   /**
    * Qwen connects a session's MCP servers in the background and declares their tools to the model once every server
    * has settled (config.ts startMcpDiscoveryInBackground → setTools); over ACP nothing waits for that, and a reopened
-   * session's first prompt (session/resume answers at once) went out without Code Desktop's tools. The bridge waits,
+   * session's first prompt (session/resume answers at once) went out without OpenClaude Desktop's tools. The bridge waits,
    * up to QWEN_TOOLS_WAIT_MS, until the session's own status (qwen/status/session/resources) shows `server` connected
    * and no server still connecting.
    */
@@ -697,25 +697,25 @@ export default {
     if (!ctx.env.QWEN_CODE_SYSTEM_DEFAULTS_PATH) env.QWEN_CODE_SYSTEM_DEFAULTS_PATH = path.join(path.dirname(systemFile), 'system-defaults.json')
     if (config.appTools && !(config.disabledServers ?? []).includes(config.appTools)) Object.assign(overlay, qwenAppToolsSettings(overlay, config.appTools, [env.QWEN_CODE_SYSTEM_DEFAULTS_PATH ?? ctx.env.QWEN_CODE_SYSTEM_DEFAULTS_PATH, userSettingsFile(ctx.env), config.cwd ? path.join(config.cwd, '.qwen', 'settings.json') : null].filter(Boolean).map((file) => readJsonFile(file, {}) ?? {})))
     if (user?.ui?.enableFollowupSuggestions !== true && overlay?.ui?.enableFollowupSuggestions === undefined) overlay.ui = { ...overlay.ui, enableFollowupSuggestions: false }
-    // The todo list (Code Desktop's task checklist) is on unless the user's or the project's settings turn it off.
+    // The todo list (OpenClaude Desktop's task checklist) is on unless the user's or the project's settings turn it off.
     const project = config.cwd ? readJsonFile(path.join(config.cwd, '.qwen', 'settings.json'), {}) ?? {} : {}
     if (todoWriteOn(user, project) && overlay?.tools?.todoWrite?.enabled === undefined) overlay.tools = { ...overlay.tools, todoWrite: { ...overlay.tools?.todoWrite, enabled: true } }
     // Qwen's own sandbox (tools.sandbox / QWEN_SANDBOX / --sandbox) would relaunch it under its sandbox-exec profile, which
     // allows writes only in the launch folder: Bypass would lose its full access, and added folders and MCP servers would
-    // stay confined. Code Desktop's own Seatbelt profile and permission modes decide instead (the system scope wins over
+    // stay confined. OpenClaude Desktop's own Seatbelt profile and permission modes decide instead (the system scope wins over
     // the user's settings, and QWEN_SANDBOX wins over both: sandboxConfig.ts getSandboxCommand).
     overlay.tools = { ...overlay.tools, sandbox: false }
     env.QWEN_SANDBOX = 'false'
     // Dynamic workflows (Settings › Code): Qwen's own Workflow tool registers only with tools.workflowsEnabled, which it
     // honours at system scope (config.ts isWorkflowsEnabled; a workspace value is ignored). Never against the user's own
-    // QWEN_CODE_DISABLE_WORKFLOWS. Off (or Code Desktop's engine chosen) is forced at system scope, over a user's own
+    // QWEN_CODE_DISABLE_WORKFLOWS. Off (or OpenClaude Desktop's engine chosen) is forced at system scope, over a user's own
     // settings.json (and /review's on-demand workflow, enableReviewWorkflow), and over QWEN_CODE_ENABLE_WORKFLOWS.
     if (config.dynamicWorkflows === true && ctx.env.QWEN_CODE_DISABLE_WORKFLOWS !== '1') overlay.tools = { ...overlay.tools, workflowsEnabled: true }
     else {
       overlay.tools = { ...overlay.tools, workflowsEnabled: false }
       if (ctx.env.QWEN_CODE_ENABLE_WORKFLOWS === '1') env.QWEN_CODE_DISABLE_WORKFLOWS = '1'
     }
-    // Qwen's replies, command descriptions and errors follow Code Desktop's UI language (cli/src/i18n/index.ts reads
+    // Qwen's replies, command descriptions and errors follow OpenClaude Desktop's UI language (cli/src/i18n/index.ts reads
     // QWEN_CODE_LANG before LANG and the macOS locale), unless the user chose one (QWEN_CODE_LANG, general.language).
     const lang = qwenLanguage(ctx.env.CODE_DESKTOP_LOCALE)
     if (lang && !ctx.env.QWEN_CODE_LANG && !user?.general?.language) env.QWEN_CODE_LANG = lang
@@ -727,14 +727,14 @@ export default {
 
   /** Qwen's own Auto-mode asks the bridge keeps (qwenMustAsk); server.js onPermission asks instead of allowing. */
   mustAsk(ctx, { call, paths, cwd }) {
-    // A workflow starts many agents on its own: asked about in every mode but Bypass, as Code Desktop's engine asks
+    // A workflow starts many agents on its own: asked about in every mode but Bypass, as OpenClaude Desktop's engine asks
     // ("Run a dynamic workflow?"), with no standing grant.
     if (isQwenWorkflowCall(call)) return { reason: 'A dynamic workflow runs many agents at once and can use a lot of your usage limit.', always: true }
     const hint = this.classify(call)
     return qwenMustAsk({ call, kind: call?.kind ?? 'other', paths: paths ?? pathsOf(call, cwd ?? null), env: ctx.env, mcp: hint?.type === 'mcp' })
   },
 
-  /** The approval card a call gets in place of the generic command card (a workflow: Code Desktop's workflow card). */
+  /** The approval card a call gets in place of the generic command card (a workflow: OpenClaude Desktop's workflow card). */
   approvalTool(call) { return isQwenWorkflowCall(call) ? workflowApprovalTool(call) : null },
 
   classify(call) {
@@ -762,7 +762,7 @@ export default {
   },
 
   /**
-   * Qwen's own dynamic workflows (qwen-workflow.js): Qwen runs them, Code Desktop shows them. workflowRun folds each
+   * Qwen's own dynamic workflows (qwen-workflow.js): Qwen runs them, OpenClaude Desktop shows them. workflowRun folds each
    * update of a `workflow` call into its run (undefined for other tools); workflowTasks / workflowFromTask poll the
    * session's run registry while a run is active; stopWorkflow cancels a run by its id.
    */
@@ -876,7 +876,7 @@ export default {
     return host.call('qwen/control/session/goal/control', { sessionId: thread.id, request }, 30000)
   },
   /**
-   * Code Desktop's /review on Qwen runs Qwen's own bundled review skill (its multi-agent pipeline) instead of a generic
+   * OpenClaude Desktop's /review on Qwen runs Qwen's own bundled review skill (its multi-agent pipeline) instead of a generic
    * prompt: '/review' for the uncommitted changes, '/review <instructions>' for custom ones. A branch or commit target
    * keeps the generic prompt (null).
    */
@@ -991,7 +991,7 @@ export default {
     return result?.cancelled === true
   },
 
-  /** exit_plan_mode's review: approve continues in default (Code Desktop applies its own after-plan mode). */
+  /** exit_plan_mode's review: approve continues in default (OpenClaude Desktop applies its own after-plan mode). */
   planExit(params) {
     const call = params?.toolCall ?? {}
     if (call._meta?.toolName !== 'exit_plan_mode' && call.kind !== 'switch_mode') return null
@@ -1000,7 +1000,7 @@ export default {
   },
 
   /**
-   * Every Qwen session on this Mac, wherever it was started (the Qwen CLI in any folder, or Code Desktop): Qwen's
+   * Every Qwen session on this Mac, wherever it was started (the Qwen CLI in any folder, or OpenClaude Desktop): Qwen's
    * session/list answers for one project folder at a time, so the bridge asks once per folder found on disk
    * (qwenProjectCwds), then once for the utility folder itself.
    */
@@ -1138,13 +1138,13 @@ export default {
 
   login: null,
   /**
-   * Sign out: the API keys Code Desktop saved through qwen/providers/connect (qwenKeysFile) leave settings.json, with
+   * Sign out: the API keys OpenClaude Desktop saved through qwen/providers/connect (qwenKeysFile) leave settings.json, with
    * the provider models that read them; keys and providers the user configured themselves stay.
    */
   logout(ctx) {
     const file = qwenKeysFile(ctx.env)
     const keys = new Set(Array.isArray(readJsonFile(file, {})?.envKeys) ? readJsonFile(file, {}).envKeys : [])
-    if (!keys.size) throw new Error('Code Desktop saved no Qwen Code key to remove. Keys set up in Qwen Code itself are removed with /auth there.')
+    if (!keys.size) throw new Error('OpenClaude Desktop saved no Qwen Code key to remove. Keys set up in Qwen Code itself are removed with /auth there.')
     const settingsFile = userSettingsFile(ctx.env)
     const settings = readJsonFile(settingsFile, {}) ?? {}
     if (settings.env && typeof settings.env === 'object') for (const key of keys) delete settings.env[key]
@@ -1295,7 +1295,7 @@ export default {
       if (op !== 'install') return null
       const output = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`.replace(/\x1b(?:\[[0-9;?]*[A-Za-z]|[78])/g, '')
       const asked = /^\s*\?\s+([^\n›]+)/m.exec(output)?.[1]?.trim()
-      return asked ? Object.assign(new Error(`This extension asks for "${asked}" while it installs, which Code Desktop can’t answer yet. Install it once in a terminal with: qwen extensions install ${value}`), { stdout: '', stderr: '' }) : null
+      return asked ? Object.assign(new Error(`This extension asks for "${asked}" while it installs, which OpenClaude Desktop can’t answer yet. Install it once in a terminal with: qwen extensions install ${value}`), { stdout: '', stderr: '' }) : null
     }
     let result
     try {
@@ -1308,7 +1308,7 @@ export default {
     return result
   },
 
-  /** Sessions run in Qwen's own terminal UI (and every one before Code Desktop) for the Usage page: readQwenUsageRecords. */
+  /** Sessions run in Qwen's own terminal UI (and every one before OpenClaude Desktop) for the Usage page: readQwenUsageRecords. */
   usageRecords: (ctx, cursor) => readQwenUsageRecords(path.join(homeOf(ctx.env), 'usage_record.jsonl'), cursor),
 
   // Qwen registers some tools only when a setting opts in (config.ts): each says which, so the Tools menu shows it as off.

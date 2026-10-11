@@ -46,9 +46,9 @@ export const assistantStepOf = (itemId) => /^msg-(\d+)\.(\d+)\.\d+$/.exec(String
 
 /** Parse model-produced tool arguments; malformed JSON stays a string. */
 /**
- * A failed DeepSeek web search's error as Code Desktop shows it: the search provider's recovery text points at the
+ * A failed DeepSeek web search's error as OpenClaude Desktop shows it: the search provider's recovery text points at the
  * DeepSeek app's settings pages (Settings > Plugins > Plugin configuration > Web search, "the web Models page"), which
- * Code Desktop doesn't have. Web search always uses DeepSeek's official API with an official key, set in Settings ›
+ * OpenClaude Desktop doesn't have. Web search always uses DeepSeek's official API with an official key, set in Settings ›
  * Models › API connection (in relay mode the relay's key is never used for it).
  */
 export function searchErrorText(text) {
@@ -388,7 +388,7 @@ export function toolItem({ callId, name, args, cwd, definition, threadId, time =
     // "Searched <pattern>"), not a directory listing.
     const query = args?.pattern ?? args?.query ?? null
     const command = view?.title ?? `${name} ${query ?? ''}`.trim()
-    // arguments (a Code Desktop extension of the Codex search action): the call's raw
+    // arguments (an OpenClaude Desktop extension of the Codex search action): the call's raw
     // inputs, which the row body lists like the source's generic details (qO). tool (also an
     // extension): the Harness tool name, so a group summary reads glob as the source's
     // 'found files' and grep as 'searched code' (cf6ae6197 fk).

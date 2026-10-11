@@ -42,11 +42,11 @@ async function shot(name){await page.screenshot({path:path.join(directory,name+'
 try{
  await integrity();await launch();
  step('default-on');await poll(async()=>(await live()).length===1,'tray created at launch');const [tray]=await live();
- assert.deepEqual(tray.image,{size:{width:24,height:24},template:true});assert.equal(tray.tooltip,'Code Desktop');report.metrics.launchTray=tray;
+ assert.deepEqual(tray.image,{size:{width:24,height:24},template:true});assert.equal(tray.tooltip,'OpenClaude Desktop');report.metrics.launchTray=tray;
  report.checks.push('A profile without menuBarEnabled gets one 24pt template tray image with the app name tooltip at launch');
  step('menu-usage');await poll(async()=>(await page.evaluate(()=>window.desktop.call('init'))).account?.account?.email==='menu@example.invalid','fixture account');
  const readsBefore=(await requests()).filter(r=>r.method==='account/rateLimits/read').length;let menu=await rightClick();
- assert.deepEqual(labels(menu),['Show App','---','Pro plan','Usage: 72%','---','Quit Code Desktop']);assert.deepEqual(menu.filter(i=>i.label==='Pro plan'||i.label?.startsWith('Usage')).map(i=>i.enabled),[false,false]);
+ assert.deepEqual(labels(menu),['Show App','---','Pro plan','Usage: 72%','---','Quit OpenClaude Desktop']);assert.deepEqual(menu.filter(i=>i.label==='Pro plan'||i.label?.startsWith('Usage')).map(i=>i.enabled),[false,false]);
  assert.equal((await requests()).filter(r=>r.method==='account/rateLimits/read').length,readsBefore+1);report.metrics.menu=menu;
  report.checks.push('Right click refetches actual rate limits and shows NOr Show App / greyed Pro plan and peak Usage: 72% / Quit rows');
  step('held-and-failed-read');await set('account/rateLimits/read',{result:limits(90),hold:'tray'});const t0=Date.now();menu=await rightClick();report.metrics.heldMenuMs=Date.now()-t0;
@@ -118,7 +118,7 @@ try{
  // keep-awake rows are no longer repeated here, and three skeleton rows stand in until the desktop snapshot arrives.
  step('settings-row');await openGeneral();await settings().getByRole('switch',{name:'Run on startup',exact:true}).waitFor();await settings().locator('.ss-version').waitFor();assert.equal(await settings().locator('[data-settings-skeleton]').count(),0);const order=await settings().locator('[data-setting-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.settingId));report.metrics.generalOrder=order;
  assert.deepEqual(order,['version','startup','menuBarEnabled','storage'],'source order');
- await settings().getByText('Show Code Desktop in the menu bar.',{exact:true}).waitFor();assert.equal(await menuSwitch().getAttribute('aria-checked'),'true');await shot('menu-bar-general');
+ await settings().getByText('Show OpenClaude Desktop in the menu bar.',{exact:true}).waitFor();assert.equal(await menuSwitch().getAttribute('aria-checked'),'true');await shot('menu-bar-general');
  report.checks.push('General shows version, Run on startup, Menu bar (checked by default, adapted source description) and Storage, with no duplicated keep-awake rows');
  step('toggle-off');await menuSwitch().click();await poll(async()=>(await read('preferences.json')).menuBarEnabled===false,'disabled saved');await poll(async()=>(await live()).length===0,'tray destroyed');
  // Main persists and updates the tray before its IPC reply reaches the renderer.
@@ -150,9 +150,9 @@ try{
  report.checks.push('The 760x768 frame is written to userData/window-state.json at quit and restored on relaunch inside the display work area (Ebe/Iye); the window minimum is 600x400');
  step('persist-off-relaunched');await page.waitForTimeout(300);assert.deepEqual(await trays(),[]);await openGeneral();assert.equal(await menuSwitch().getAttribute('aria-checked'),'false');
  report.checks.push('A saved off preference survives restart: no tray is created and the switch reads off');
- step('quit-item');await menuSwitch().click();await poll(async()=>(await live()).length===1,'tray for quit');await poll(async()=>(await read('preferences.json')).menuBarEnabled===true,'enabled for quit');menu=await rightClick();assert.equal(labels(menu).at(-1),'Quit Code Desktop');
+ step('quit-item');await menuSwitch().click();await poll(async()=>(await live()).length===1,'tray for quit');await poll(async()=>(await read('preferences.json')).menuBarEnabled===true,'enabled for quit');menu=await rightClick();assert.equal(labels(menu).at(-1),'Quit OpenClaude Desktop');
  // Clicking it would end the app before the offscreen runner records its boundary evidence; Quit -> app.quit wiring is unit-tested.
- report.checks.push('After re-enabling in the restarted app the tray menu ends with Quit Code Desktop');
+ report.checks.push('After re-enabling in the restarted app the tray menu ends with Quit OpenClaude Desktop');
  assert.deepEqual(report.rendererErrors,[]);await integrity();report.requestCounts=Object.fromEntries(['account/read','account/rateLimits/read'].map(m=>[m,0]));for(const r of await requests())if(r.method in report.requestCounts)report.requestCounts[r.method]++;report.passed=true;
 }catch(error){report.failure=error.stack;report.phase=phase;process.exitCode=1;if(page)await shot('failure').catch(()=>{});}
 finally{if(app)await app.close().catch(()=>{});const bytes=JSON.stringify(report,null,2)+'\n';await fs.writeFile(path.join(directory,'report.json'),bytes);await fs.writeFile(path.join(evidence,'menu-bar-ui-report.json'),bytes);console.log(bytes);}

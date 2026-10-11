@@ -15,7 +15,7 @@ const evidence = await fs.mkdtemp(path.join(evidenceRoot, `highlight-${mode}-`))
 const profile = await fs.mkdtemp(path.join(evidence, "profile-"));
 const workspace = path.join(profile, "workspace"); await fs.mkdir(workspace);
 const appPath = process.env.TEST_APP_PATH ? path.resolve(process.env.TEST_APP_PATH) : null;
-const executablePath = appPath ? path.join(appPath, "Contents/MacOS/Code Desktop")
+const executablePath = appPath ? path.join(appPath, "Contents/MacOS/OpenClaude Desktop")
   : process.env.TEST_ELECTRON_BINARY || path.join(root, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const buildFile = process.env.TEST_EXPECT_BUILD || path.join(root, "dist/build-info.json");
 const expected = JSON.parse(await fs.readFile(buildFile, "utf8"));

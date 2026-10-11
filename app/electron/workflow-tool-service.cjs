@@ -1,4 +1,4 @@
-// The main-process side of the model's Workflow tool (agent-tools/workflow.mjs), for cores that run Code Desktop's
+// The main-process side of the model's Workflow tool (agent-tools/workflow.mjs), for cores that run OpenClaude Desktop's
 // workflow engine, modeled on Claude Code 2.1.280:
 //   • launch(): validates the call (workflow-tool-model.mjs), resolves the script (inline → persisted under the
 //     session's data as <slug>-<runId>.js, 0600; name → saved workflow; scriptPath), asks Claude's "Run a dynamic
@@ -35,12 +35,12 @@ const ACCESS = ["read-only", "workspace-write", "danger-full-access"];
  *        Bypass gives danger-full-access only then (a Mode change or an opt-out applies before the session's next turn)
  * @param {() => ({engine: "codeDesktop"}|{engine: "native", name?: string, skill?: string}|null)} [o.workflowTool]
  *        the engine that runs the session's workflows now, and the core's own workflow tool on its own engine (the
- *        ultracode reminders name that tool: Code Desktop's Workflow tool isn't there then)
+ *        ultracode reminders name that tool: OpenClaude Desktop's Workflow tool isn't there then)
  * @param {{get: (threadId: string) => object|undefined, set: (threadId: string, state: object) => void}} [o.reminderStore]
  *        where a session's ultracode/size reminder state outlives the app (main.cjs: config.sessionMetadata): the core's
  *        history still holds "Ultracode is on" after a relaunch, so turning it off then must still say so
  */
-function createWorkflowToolService({ workflowService, getConfig, updateConfig, settings, dataRoot, home, requestApproval, startTurn, notify = () => {}, core = () => ({}), validateAccess = async () => {}, workflowTool = () => null, bypassAllowed = () => true, reminderStore = null }) {
+function createWorkflowToolService({ workflowService, getConfig, updateConfig, settings, dataRoot, home, requestApproval, startTurn, notify = () => {}, core = () => ({}), validateAccess = async () => {}, workflowTool = () => null, bypassAllowed = () => true, reminderStore = null, customPrompt = () => false }) {
   const turns = new Map(); // threadId → {params, permission, mode, active}
   const reminders = new Map(); // threadId → ultracode/size state (also kept in reminderStore, read once per launch)
   const reminderState = (threadId) => {
@@ -123,8 +123,10 @@ function createWorkflowToolService({ workflowService, getConfig, updateConfig, s
     const { turnReminders, reminderItem } = await load("workflow-reminders.mjs");
     let tool = null;
     try { tool = workflowTool(); } catch { tool = null; }
+    // With the user's own system prompt (Settings › Instructions) no default text of ours goes along: the size
+    // guideline reminder is left out; what the user turned on (the keyword, ultracode) still gets its reminder.
     const result = turnReminders({ enabled: true, keyword: turn.keyword === true, keywordTrigger: resolved.keywordTrigger, ultracode: turn.ultracode === true,
-      state: reminderState(params.threadId), size: resolved.sizeGuideline, sizeIsDefault: resolved.sizeSource ? resolved.sizeSource === "default" : getConfig()?.workflowSizeGuideline === undefined, tool });
+      state: reminderState(params.threadId), size: customPrompt() ? undefined : resolved.sizeGuideline, sizeIsDefault: resolved.sizeSource ? resolved.sizeSource === "default" : getConfig()?.workflowSizeGuideline === undefined, tool });
     keepReminderState(params.threadId, result.state);
     if (result.reminders.length && Array.isArray(params.input)) params.input = [...params.input, reminderItem(result.reminders)];
     return params;
@@ -215,7 +217,7 @@ function createWorkflowToolService({ workflowService, getConfig, updateConfig, s
     const checked = model.checkWorkflowInput(raw, resolved);
     if (checked.error) throw new Error(checked.error);
     const input = checked.input;
-    if (!config.threadIds?.includes(sessionId)) throw new Error("This tool works only in a Code Desktop session.");
+    if (!config.threadIds?.includes(sessionId)) throw new Error("This tool works only in an OpenClaude Desktop session.");
     const entry = turns.get(sessionId);
     const cwd = typeof entry?.params?.cwd === "string" && entry.params.cwd ? entry.params.cwd : sessionCwd || config.cwd;
     // An inline script is always validated (Claude validateInput), even when scriptPath or name decides what runs.

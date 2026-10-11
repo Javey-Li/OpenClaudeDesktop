@@ -1,5 +1,5 @@
 /**
- * Code Desktop's own tools: the local MCP server "code_desktop" (app/electron/agent-tools-server.mjs) every core runs
+ * OpenClaude Desktop's own tools: the local MCP server "code_desktop" (app/electron/agent-tools-server.mjs) every core runs
  * for the app's sessions only. The app starts the core with
  *   CODE_DESKTOP_AGENT_TOOLS_SERVER  {"name":"code_desktop","command":…,"args":[…],"env":{…}}
  *   CODE_DESKTOP_AGENT_TOOLS_SOCKET / CODE_DESKTOP_AGENT_TOOLS_TOKEN  the app's channel and its secret
@@ -43,7 +43,7 @@ export function sessionToken(secret, session) {
   return createHmac('sha256', String(secret)).update(`code-desktop-agent-session\n${session}`).digest('hex')
 }
 
-/** Whether a tool is one of Code Desktop's own (the app asks the user itself where it matters, as for Codex). */
+/** Whether a tool is one of OpenClaude Desktop's own (the app asks the user itself where it matters, as for Codex). */
 export const isAppTool = (toolName) => typeof toolName === 'string' && toolName.startsWith(APP_TOOL_PREFIX)
 
 /**
@@ -56,7 +56,7 @@ export const isAppTool = (toolName) => typeof toolName === 'string' && toolName.
  */
 export function installAppTools(agentCtx, server, { session, cwd, logger = console }) {
   if (!server || typeof session !== 'string' || !session) return undefined
-  const warn = (error) => logger.warn?.(`Code Desktop tools for ${session}: ${error?.message ?? error}`)
+  const warn = (error) => logger.warn?.(`OpenClaude Desktop tools for ${session}: ${error?.message ?? error}`)
   try {
     const config = Config({
       transport: 'stdio', serverName: server.name, command: server.command, args: [...server.args],
@@ -102,7 +102,7 @@ export function shareAppTools(childCtx, rootCtx, server, { logger = console } = 
   try {
     return inheritMcpServer(childCtx, rootCtx, server.name, () => true) === true
   } catch (error) {
-    logger.warn?.(`Code Desktop tools for a sub-agent: ${error?.message ?? error}`)
+    logger.warn?.(`OpenClaude Desktop tools for a sub-agent: ${error?.message ?? error}`)
     return false
   }
 }

@@ -1,5 +1,5 @@
 // The ACP bridge's APP_TOOL_NAMES (Gemini's Plan Mode policy and Qwen's up-front tools name them one by one) must list
-// every tool Code Desktop's agent-tools server serves (app/electron/agent-tools/*.mjs): a tool missing there still
+// every tool OpenClaude Desktop's agent-tools server serves (app/electron/agent-tools/*.mjs): a tool missing there still
 // works, but Gemini's Plan Mode would hide it.
 import test from 'node:test'
 import assert from 'node:assert/strict'

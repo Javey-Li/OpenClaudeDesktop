@@ -1,7 +1,7 @@
 {
   "format": 1,
-  "version": "0.155.1",
-  "description": "OpenAI Codex for Code Desktop: the official open-source Codex CLI, whose app-server speaks Code Desktop's protocol itself.",
+  "version": "0.162.1",
+  "description": "OpenAI Codex for OpenClaude Desktop: the official open-source Codex CLI, whose app-server speaks OpenClaude Desktop's protocol itself.",
   "core": {
     "id": "codex",
     "assistant": "Codex",
@@ -44,11 +44,11 @@
       "systemPaths": ["~/.local/bin/codex", "/opt/homebrew/bin/codex", "/usr/local/bin/codex"],
       "release": {
         "type": "tar.gz",
-        "version": "0.155.1",
-        "tag": "rust-v0.155.1",
+        "version": "0.162.1",
+        "tag": "rust-v0.162.1",
         "assets": {
-          "arm64": { "name": "codex-aarch64-apple-darwin.tar.gz", "size": 90600719, "sha256": "5e5a51470dce2423f9d96bd191d0bbc4cc0e2848a6833df5178eaf47a07a3768" },
-          "x64": { "name": "codex-x86_64-apple-darwin.tar.gz", "size": 98684755, "sha256": "ff22ad0bf28b8568dbfb28ef0ea64451fe5170fa0f9118bf764ca6cb24c27791" }
+          "arm64": { "name": "codex-aarch64-apple-darwin.tar.gz", "size": 98104184, "sha256": "b293a0fcdd871900a44c0a4f40a1aa401b31e02854f790ebdb8bd5d1177fd1fe" },
+          "x64": { "name": "codex-x86_64-apple-darwin.tar.gz", "size": 107055460, "sha256": "d68e39d8f62639f33f7d00656554cb9c3ef7809e664a3827e62ab3ace3c21b21" }
         },
         "url": "https://github.com/openai/codex/releases/download/{tag}/{name}"
       }

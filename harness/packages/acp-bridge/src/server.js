@@ -66,7 +66,7 @@ const seconds = (ms) => Math.floor((ms ?? Date.now()) / 1000)
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 /**
- * The session's added folders (/add-dir, Code Desktop's writable roots) as ACP additionalDirectories, for an agent that
+ * The session's added folders (/add-dir, OpenClaude Desktop's writable roots) as ACP additionalDirectories, for an agent that
  * declares sessionCapabilities.additionalDirectories (Kimi: they join its workspace, its prompt's Additional
  * Directories section and its AGENTS.md / skills discovery). Kimi honors them on session/new.
  */
@@ -114,11 +114,11 @@ function interpolate(text, variables) {
  */
 export function serve({ input, output, env = process.env, adapter, log = (line) => process.stderr.write(`${line}\n`) }) {
   const program = agentProgram(env, adapter)
-  // The agent's own environment: the user's, without Code Desktop's launch variables.
+  // The agent's own environment: the user's, without OpenClaude Desktop's launch variables.
   const agentEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('CODE_DESKTOP_') && key !== 'ELECTRON_RUN_AS_NODE'))
   const stateDir = env.CODE_DESKTOP_BRIDGE_STATE || path.join(os.homedir(), '.code-desktop', 'acp-bridge', adapter?.id ?? 'unknown')
   fs.mkdirSync(stateDir, { recursive: true })
-  // Code Desktop's own tools (app-tools.js): one code_desktop server per app session, never in throwaway sessions.
+  // OpenClaude Desktop's own tools (app-tools.js): one code_desktop server per app session, never in throwaway sessions.
   const appTools = appToolsServer(env)
   const sessionMcpServers = (thread, session) => {
     // An agent that got the server in its launch config (adapter.appToolsInLaunch: MiniMax's mcp.json) gets none here.
@@ -133,7 +133,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     const identity = thread.appToolsSession ?? (typeof thread.id === 'string' && thread.id && !thread.id.startsWith('pending-') ? thread.id : null)
     return appToolsLaunchEntry(appTools, identity)
   }
-  // Code Desktop's tools server's instructions (the preview verification workflow, "these act on this session only"),
+  // OpenClaude Desktop's tools server's instructions (the preview verification workflow, "these act on this session only"),
   // for an agent that never shows the model an MCP server's initialize instructions (adapter.appToolsInstructions: Kimi,
   // MiniMax, Qwen): only while the thread's sessions get that server (named as sessionMcpServers / launchAppTools name it),
   // and never once the user switched it off. '' otherwise.
@@ -191,7 +191,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     log,
     commandLine: (args) => commandLine(program, args),
     utility: () => utilityHost(),
-    // Code Desktop's code_desktop server too, so its calls read as that server's (Gemini names tools mcp_<server>_<tool>).
+    // OpenClaude Desktop's code_desktop server too, so its calls read as that server's (Gemini names tools mcp_<server>_<tool>).
     mcpServerNames: () => { let names = []; try { names = adapter.mcpServers(ctx, null).map((server) => server.name) } catch {} return appTools ? [...names, appTools.name] : names },
   }
 
@@ -211,7 +211,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
 
   function requireAgent() {
     if (initError) throw new RpcError(SERVER_ERROR, initError)
-    if (!adapter) throw new RpcError(SERVER_ERROR, 'Code Desktop could not tell which ACP agent to run (set CODE_DESKTOP_ACP_AGENT to gemini, qwen, kimi or minimax).')
+    if (!adapter) throw new RpcError(SERVER_ERROR, 'OpenClaude Desktop could not tell which ACP agent to run (set CODE_DESKTOP_ACP_AGENT to gemini, qwen, kimi or minimax).')
     if (!program.binary) throw new RpcError(SERVER_ERROR, `${adapter.name} is not installed. Install it in Settings › Cores, or put \`${adapter.binaryNames[0]}\` on your PATH.`)
   }
 
@@ -341,7 +341,10 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
   function launchConfig(thread) {
     const variables = { model: thread.model ?? '', cwd: thread.cwd, provider: adapter.name }
     const systemPrompt = thread.custom.systemPrompt ? interpolate(thread.custom.systemPrompt, variables) : null
-    const appendParts = [thread.custom.persona, thread.custom.instructions, thread.developerInstructions, appToolsInstructions(thread)].filter(Boolean)
+    // With the user's own system prompt nothing the system wrote goes with it: no persona, no app-tools guidance; only
+    // the user's project instructions and a workflow agent's role (developerInstructions) follow it.
+    const appendParts = (systemPrompt ? [thread.custom.instructions, thread.developerInstructions]
+      : [thread.custom.persona, thread.custom.instructions, thread.developerInstructions, appToolsInstructions(thread)]).filter(Boolean)
     return {
       threadDir: thread.launchDir ?? store.threadDir(thread.id),
       agentHome: thread.agentHome ?? undefined,
@@ -361,14 +364,14 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       dynamicWorkflows: thread.dynamicWorkflows === true,
       // An agent that takes the reasoning effort only at launch (adapter.effortInLaunch: Gemini's thinking config).
       effort: thread.effort ?? null,
-      // Code Desktop's tools server name, when sessions get one (Gemini lets it past a user's mcp.allowed list).
+      // OpenClaude Desktop's tools server name, when sessions get one (Gemini lets it past a user's mcp.allowed list).
       appTools: appTools?.name ?? null,
       // The whole server for an agent that declares it in its launch config (adapter.appToolsInLaunch), else null.
       appToolsEntry: launchAppTools(thread),
     }
   }
 
-  // Code Desktop's tools changed (codeDesktop/appTools/changed: a Settings switch turned Dynamic workflows or the
+  // OpenClaude Desktop's tools changed (codeDesktop/appTools/changed: a Settings switch turned Dynamic workflows or the
   // preview on or off). The ACP agents keep the MCP tool list they read when the session opened (Kimi, Qwen and
   // MiniMax ignore tools/list_changed), so the change is part of the launch key: an idle session relaunches before
   // its next turn and session/load lists the tools again; a busy one once its work ends (deferRestart).
@@ -384,7 +387,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       elicitation: (params) => onElicitation(thread, params),
       extension: async (method, params) => {
         const answer = adapter.onExtension?.(method, params, agentTurnApi(thread))
-        if (answer === undefined) throw new RpcError(METHOD_NOT_FOUND, `${method} is not supported by Code Desktop.`)
+        if (answer === undefined) throw new RpcError(METHOD_NOT_FOUND, `${method} is not supported by OpenClaude Desktop.`)
         return answer
       },
     }
@@ -727,7 +730,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       thread.suppress = true
       // The agent's own copy may be gone (Gemini's session retention): the adapter can write it back from the history.
       const restored = adapter.beforeLoad?.(ctx, thread.id, { cwd: thread.cwd, turns: thread.projector.turns }) === true
-      if (restored) thread.pendingNote = `${adapter.name} had deleted its copy of this conversation (its session retention period ended). Code Desktop restored the messages from its own history; earlier tool results are not included.`
+      if (restored) thread.pendingNote = `${adapter.name} had deleted its copy of this conversation (its session retention period ended). OpenClaude Desktop restored the messages from its own history; earlier tool results are not included.`
       result = await host.call('session/load', { sessionId: thread.id, cwd: storedIn, mcpServers: sessionMcpServers(thread, thread.id), ...additionalDirectoriesFor(host, thread) }, 180000)
       try { adapter.afterLoad?.(ctx, thread.id) } catch {}
       // An agent that replays the conversation after session/load answers (adapter.replaysAfterLoad: Gemini): the
@@ -753,7 +756,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
 
   /**
    * An agent that declares a session's MCP tools only once its servers have connected (adapter.awaitSessionTools: Qwen
-   * discovers them in the background, and after session/resume the first prompt went out with none of Code Desktop's
+   * discovers them in the background, and after session/resume the first prompt went out with none of OpenClaude Desktop's
    * tools): the thread's next prompt waits for them (runTurnBody), as long as the adapter allows. null when no wait.
    */
   function awaitSessionTools(thread, host) {
@@ -885,7 +888,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
   }
 
   /**
-   * The ACP mode for the thread's Code Desktop mode: plan for the read-only modes a user is in (Plan, chat, review), the
+   * The ACP mode for the thread's OpenClaude Desktop mode: plan for the read-only modes a user is in (Plan, chat, review), the
    * agent's asking mode otherwise. readOnly (a /workflow agent nobody answers) stays in the asking mode: the agent's plan
    * mode would have it write a plan and end on a plan review or question (Kimi), or take its shell away and wait for
    * the user (Gemini); decide() refuses its edits and the read-only sandbox holds.
@@ -1665,7 +1668,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     }
     const item = detached ? projector.detachedItem(call) : projector.itemForPermission(call, notes)
     emit(notes)
-    // Code Desktop's own tools need no card here: the app asks the user itself where it matters (as for Codex).
+    // OpenClaude Desktop's own tools need no card here: the app asks the user itself where it matters (as for Codex).
     if (appTools && item?.type === 'mcpToolCall' && item.server === appTools.name) return selected(optionFor(options, 'allow_once', 'allow_always'))
     const paths = pathsOf(call, thread.cwd)
     const roots = [thread.cwd, ...(thread.permission.writableRoots ?? [])]
@@ -1904,7 +1907,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
   const PLAN_APPROACH = 'plan-approach'
   const PLAN_LEAVE = 'Leave Plan mode without implementing'
 
-  /** A plan review: the plan item, then Code Desktop's plan card (question id 'plan-review'). */
+  /** A plan review: the plan item, then OpenClaude Desktop's plan card (question id 'plan-review'). */
   async function reviewPlan(thread, params, plan, call) {
     const turn = thread.projector.activeTurn ?? thread.projector.ensureTurn([], Date.now())
     const text = planTextOf(plan, call)
@@ -2058,7 +2061,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     try {
       let host = await ensureHost(thread)
       thread.suppress = false
-      // Code Desktop's tools, where the agent declares them only once their server has connected (awaitSessionTools).
+      // OpenClaude Desktop's tools, where the agent declares them only once their server has connected (awaitSessionTools).
       if (thread.toolsReady) { const ready = thread.toolsReady; thread.toolsReady = null; await ready }
       // A model or effort picked since the session opened (the process stays up across turns).
       await applyModel(thread)
@@ -2469,7 +2472,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
 
   /** A mode the agent cannot fully honour is said once per thread and mode (never silently weaker). */
   function warnPermission(thread) {
-    // appTools: the session gets Code Desktop's tools server (not switched off). An adapter may answer several messages.
+    // appTools: the session gets OpenClaude Desktop's tools server (not switched off). An adapter may answer several messages.
     const appToolsOn = Boolean(appTools) && !(thread.tools?.disabledServers ?? []).includes(appTools.name)
     const answer = adapter.permissionWarning?.(thread.permission.mode, { agentHome: thread.agentHome, tools: thread.tools, custom: thread.custom, developerInstructions: thread.developerInstructions, appTools: appToolsOn })
     const messages = (Array.isArray(answer) ? answer : [answer]).filter((message) => typeof message === 'string' && message)
@@ -3023,7 +3026,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     return false
   }
 
-  /** The agent's own usage records (sessions run outside Code Desktop) folded into the ledger; Code Desktop's threads count once. */
+  /** The agent's own usage records (sessions run outside OpenClaude Desktop) folded into the ledger; OpenClaude Desktop's threads count once. */
   function mergeAgentUsage() {
     if (!adapter?.usageRecords) return
     // The workflow runner's sessions reach the ledger through its usage inbox: never counted again from the agent's records.
@@ -3355,7 +3358,9 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       // Otherwise: a throwaway session with no tools whose only input is the transcript.
       const dir = path.join(stateDir, 'side', randomUUID())
       fs.mkdirSync(dir, { recursive: true })
-      const config = { threadDir: dir, systemPrompt: SIDE_QUESTION_SYSTEM, appendPrompt: null, disabledTools: (adapter.builtinTools?.() ?? []).map((tool) => tool.name), disabledServers: mcpServersFor(null).map((server) => server.name), modelParams: null, model, sandbox: 'read-only', writable: [], cwd: dir, sideQuestion: true, ephemeral: true }
+      // The user's own system prompt, when set, replaces ours here too.
+      const custom = live?.custom?.systemPrompt ? interpolate(live.custom.systemPrompt, { model: model ?? '', cwd: live.cwd, provider: adapter.name }) : null
+      const config = { threadDir: dir, systemPrompt: custom ?? SIDE_QUESTION_SYSTEM, appendPrompt: null, disabledTools: (adapter.builtinTools?.() ?? []).map((tool) => tool.name), disabledServers: mcpServersFor(null).map((server) => server.name), modelParams: null, model, sandbox: 'read-only', writable: [], cwd: dir, sideQuestion: true, ephemeral: true }
       const launch = adapter.launch(ctx, config)
       const line = commandLine(program, launch.args)
       const wrapped = wrapLaunch(line, { profile: 'read-only', writable: [], agentPaths: [...adapter.agentPaths(agentEnv), stateDir, dir], profileFile: path.join(dir, 'agent.sb'), ...sandboxExtras() })
@@ -3525,7 +3530,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
   }
 
   async function handle(method, params) {
-    if (closed) throw new RpcError(SERVER_ERROR, 'Code Desktop core is shutting down.')
+    if (closed) throw new RpcError(SERVER_ERROR, 'OpenClaude Desktop core is shutting down.')
     switch (method) {
       case 'initialize': {
         clientReady = true
@@ -4132,7 +4137,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
         setImmediate(() => drainQueue(thread))
         return {}
       }
-      // The agent's own settings Code Desktop can change (adapter.coreSettings: Gemini's and Qwen's settings.json keys).
+      // The agent's own settings OpenClaude Desktop can change (adapter.coreSettings: Gemini's and Qwen's settings.json keys).
       case 'codeDesktop/coreSettings/read': {
         requireAgent()
         if (!adapter.coreSettings) throw new RpcError(METHOD_NOT_FOUND, `${adapter.name} has no settings here.`)
@@ -4322,7 +4327,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       transport.close()
       threads.clear()
       store.flush()
-      return Promise.allSettled([...live.map((thread) => closeThread(thread, 'Code Desktop core stopped.')), utility?.then((host) => host.stop())])
+      return Promise.allSettled([...live.map((thread) => closeThread(thread, 'OpenClaude Desktop core stopped.')), utility?.then((host) => host.stop())])
     }).then(() => undefined)
     return shuttingDown
   }

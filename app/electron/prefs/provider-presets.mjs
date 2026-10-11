@@ -18,7 +18,7 @@ export const PRESETS = Object.freeze([
     models: ['deepseek-v4-pro', 'deepseek-flash'],
   },
   {
-    id: 'glm', brand: 'zhipu', name: 'GLM', vendor: 'Zhipu', api: 'anthropic-messages',
+    id: 'glm', reasoning: true, brand: 'zhipu', name: 'GLM', vendor: 'Zhipu', api: 'anthropic-messages',
     variants: [
       { id: 'cn', label: 'China (bigmodel.cn)', baseURL: 'https://open.bigmodel.cn/api/anthropic', keyUrl: 'https://open.bigmodel.cn/' },
       { id: 'intl', label: 'International (Z.ai)', baseURL: 'https://api.z.ai/api/anthropic', keyUrl: 'https://z.ai/manage-apikey/apikey-list' },
@@ -27,7 +27,7 @@ export const PRESETS = Object.freeze([
     note: 'GLM Coding Plan keys work on the same endpoint.',
   },
   {
-    id: 'kimi', brand: 'kimi', name: 'Kimi', vendor: 'Moonshot', api: 'anthropic-messages',
+    id: 'kimi', reasoning: true, brand: 'kimi', name: 'Kimi', vendor: 'Moonshot', api: 'anthropic-messages',
     variants: [
       { id: 'cn', label: 'China (moonshot.cn)', baseURL: 'https://api.moonshot.cn/anthropic', keyUrl: 'https://platform.kimi.com/console/api-keys' },
       { id: 'intl', label: 'International (moonshot.ai)', baseURL: 'https://api.moonshot.ai/anthropic', keyUrl: 'https://platform.kimi.ai/console/api-keys' },
@@ -36,7 +36,7 @@ export const PRESETS = Object.freeze([
     note: 'A key only works on the platform it was created on.',
   },
   {
-    id: 'qwen', brand: 'qwen', name: 'Qwen', vendor: 'Alibaba Cloud', api: 'anthropic-messages',
+    id: 'qwen', reasoning: true, brand: 'qwen', name: 'Qwen', vendor: 'Alibaba Cloud', api: 'anthropic-messages',
     variants: [
       { id: 'cn', label: 'China (Bailian)', baseURL: 'https://dashscope.aliyuncs.com/apps/anthropic', keyUrl: 'https://bailian.console.aliyun.com/' },
       { id: 'coding', label: 'Coding Plan (China)', baseURL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic', keyUrl: 'https://bailian.console.aliyun.com/' },
@@ -46,7 +46,7 @@ export const PRESETS = Object.freeze([
     note: 'Keys are tied to their region; Coding Plan keys (sk-sp-…) only work on Coding Plan endpoints.',
   },
   {
-    id: 'minimax', brand: 'minimax', name: 'MiniMax', api: 'anthropic-messages',
+    id: 'minimax', reasoning: true, brand: 'minimax', name: 'MiniMax', api: 'anthropic-messages',
     variants: [
       { id: 'cn', label: 'China (minimax.cn)', baseURL: 'https://api.minimax.cn/anthropic', keyUrl: 'https://platform.minimax.cn/user-center/basic-information/interface-key' },
       { id: 'intl', label: 'International (minimax.io)', baseURL: 'https://api.minimax.io/anthropic', keyUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key' },
@@ -54,7 +54,7 @@ export const PRESETS = Object.freeze([
     models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed'],
   },
   {
-    id: 'mimo', brand: 'mimo', name: 'MiMo', vendor: 'Xiaomi', api: 'anthropic-messages',
+    id: 'mimo', reasoning: true, brand: 'mimo', name: 'MiMo', vendor: 'Xiaomi', api: 'anthropic-messages',
     variants: [
       { id: 'official', label: 'Official API', baseURL: 'https://api.xiaomimimo.com/anthropic', keyUrl: 'https://platform.xiaomimimo.com/#/console/api-keys' },
       { id: 'token-plan', label: 'Token Plan', baseURL: 'https://token-plan-cn.xiaomimimo.com/anthropic', keyUrl: 'https://platform.xiaomimimo.com/' },
@@ -72,7 +72,7 @@ export const PRESETS = Object.freeze([
     models: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna'],
   },
   {
-    id: 'gemini', brand: 'gemini', name: 'Gemini', vendor: 'Google', api: 'openai-completions',
+    id: 'gemini', reasoning: true, brand: 'gemini', name: 'Gemini', vendor: 'Google', api: 'openai-completions',
     variants: [{ id: 'official', label: 'Official API', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/', keyUrl: 'https://aistudio.google.com/apikey' }],
     models: ['gemini-3.8-flash', 'gemini-3.1-pro-preview'],
   },
@@ -88,6 +88,14 @@ export const PRESETS = Object.freeze([
     models: [],
   },
 ]);
+
+// `reasoning: true`: the vendor's models think, but the core has no catalog for the route, so the provider overlay
+// declares their effort levels (model-settings.mjs providerOverlayRow). Claude and OpenAI ride the core's own
+// catalogs, which already carry each model's levels.
+const REASONING_BASE_URLS = new Set(PRESETS.filter(preset => preset.reasoning).flatMap(preset => preset.variants.map(variant => normalizeBaseURL(variant.baseURL))));
+function normalizeBaseURL(url) { return String(url ?? '').trim().replace(/\/+$/, '').toLowerCase(); }
+/** Whether a provider endpoint is one of the thinking presets' official endpoints. */
+export const isReasoningPresetEndpoint = (baseURL) => REASONING_BASE_URLS.has(normalizeBaseURL(baseURL));
 
 export const presetById = (id) => PRESETS.find((preset) => preset.id === id) ?? null;
 

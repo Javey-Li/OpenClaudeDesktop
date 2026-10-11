@@ -1,10 +1,10 @@
-// Smoke of what a ZCode session keeps once Code Desktop's own tools (the code_desktop agent-tools server) join it,
+// Smoke of what a ZCode session keeps once OpenClaude Desktop's own tools (the code_desktop agent-tools server) join it,
 // against the real ZCode agent behind harness/packages/zcode-bridge with a local scripted model standing in for GLM:
 //   - the project's own MCP servers (.zcode/config.json of the folder, zcode.json at the worktree root, run in its
 //     own folder) are still offered beside code_desktop's tools;
 //   - a background command keeps running after the session is left (thread/unsubscribe), GLM hears it finished
 //     (task-notification), and the session is released afterwards;
-//   - a background sub-agent survives a Code Desktop tools refresh (codeDesktop/appTools/changed) and reports back.
+//   - a background sub-agent survives an OpenClaude Desktop tools refresh (codeDesktop/appTools/changed) and reports back.
 // Isolated: temp HOME (set TMPDIR to a short folder: ZCode puts sockets there), loopback model, no network.
 //
 // Usage: node tests/zcode-bridge-session-scope-smoke.mjs   (ZCODE_BINARY=/path/to/zcode.cjs to use another ZCode)
@@ -91,10 +91,10 @@ try {
   await client.request('account/login/start', { type: 'apiKey', apiKey: 'sk-smoke', codeDesktop: { template: 'zai-api', baseUrl: fake.url } })
   await sleep(2000)
 
-  // 1. The project's MCP servers beside Code Desktop's tools.
+  // 1. The project's MCP servers beside OpenClaude Desktop's tools.
   const first = await start()
   const { tools } = await turn(first, 'hello')
-  check('Code Desktop tools are offered', tools.includes('mcp__code_desktop__smoke_echo'), tools.join(','))
+  check('OpenClaude Desktop tools are offered', tools.includes('mcp__code_desktop__smoke_echo'), tools.join(','))
   check('the folder’s own .zcode/config.json MCP server is still offered', tools.includes('mcp__projmcp__echo'), tools.filter((name) => name.startsWith('mcp__')).join(','))
   check('the worktree root’s zcode.json MCP server runs in its folder and is offered', tools.includes('mcp__rootmcp__echo'), tools.filter((name) => name.startsWith('mcp__')).join(','))
 
@@ -111,7 +111,7 @@ try {
   const released = await until(() => events.some((event) => event.method === 'thread/status/changed' && event.params.threadId === second && event.params.status?.type === 'notLoaded'), 15000)
   check('the session is released once its background work settled', released)
 
-  // 3. A background sub-agent survives a Code Desktop tools refresh.
+  // 3. A background sub-agent survives an OpenClaude Desktop tools refresh.
   const third = await start()
   await turn(third, 'BG_AGENT')
   await sleep(1000)
@@ -119,7 +119,7 @@ try {
   const from = events.length
   await client.request('codeDesktop/appTools/changed', { revision: 1 })
   const childDone = await until(() => events.slice(from).some((event) => event.method === 'turn/completed' && event.params.threadId !== third && event.params.turn?.status === 'completed'), 30000)
-  check('a background sub-agent completes although Code Desktop’s tools changed meanwhile', childDone, events.slice(from).map((event) => event.method).join(','))
+  check('a background sub-agent completes although OpenClaude Desktop’s tools changed meanwhile', childDone, events.slice(from).map((event) => event.method).join(','))
   await until(() => notifications() > notifiedBeforeChild, 15000)
   check('GLM is told the background sub-agent finished', notifications() > notifiedBeforeChild)
 } catch (error) {

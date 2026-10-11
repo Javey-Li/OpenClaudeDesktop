@@ -25,7 +25,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const pack=path.join(directory,'kimi-pack');await fs.mkdir(path.join(pack,'bridge/bin'),{recursive:true});
 await fs.writeFile(path.join(pack,'bridge/bin/app-server.mjs'),'#!/usr/bin/env node\n// fixture bridge\n');
 await fs.writeFile(path.join(pack,'README.md'),'# Kimi Code pack (fixture)\n');
-await fs.writeFile(path.join(pack,'manifest.json'),JSON.stringify({format:1,version:'0.3.0',description:'Kimi Code, Moonshot’s open-source coding agent, in Code Desktop.',core:{id:'kimi',name:'Kimi Code',vendor:'Moonshot',engine:'kimi',kind:'bridge',
+await fs.writeFile(path.join(pack,'manifest.json'),JSON.stringify({format:1,version:'0.3.0',description:'Kimi Code, Moonshot’s open-source coding agent, in OpenClaude Desktop.',core:{id:'kimi',name:'Kimi Code',vendor:'Moonshot',engine:'kimi',kind:'bridge',
  models:'Kimi models',license:'MIT',bridge:{script:'bridge/bin/app-server.mjs'},implies:{customization:true,toolSelection:true,permissionHints:true},
  agent:{binary:'kimi',systemPaths:[],release:{type:'tar.gz',version:'2.1.0',tag:'v2.1.0',url:`http://127.0.0.1:${server.address().port}/{name}`,assets:{arm64:{name:'kimi-aarch64-apple-darwin.tar.gz',size:bytes.length,sha256},x64:{name:'kimi-aarch64-apple-darwin.tar.gz',size:bytes.length,sha256}}}}}},null,2));
 const env={...process.env,CODE_DESKTOP_DATA:profile,CODEX_HOME:path.join(profile,'codex-home'),CODEX_BINARY:path.join(root,'tests/fixtures/codex-server.cjs'),CODE_DESKTOP_CORE_SYSTEM_PATHS:'',CODE_DESKTOP_PICK_PACK:pack};
@@ -39,7 +39,7 @@ const readJson=file=>fs.readFile(path.join(profile,file),'utf8').then(JSON.parse
 async function launch(){app=await electron.launch({args:[root],executablePath:path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),env,timeout:20000});page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',e=>report.rendererErrors.push(e.message));await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(1324,900));}
 try{
  await integrity();await launch();
- const setup=page.getByRole('dialog',{name:'Set up Code Desktop',exact:true});await setup.waitFor();
+ const setup=page.getByRole('dialog',{name:'Set up OpenClaude Desktop',exact:true});await setup.waitFor();
  await page.getByRole('button',{name:'Get started',exact:true}).click();await page.getByRole('heading',{name:'Choose your agent',exact:true}).waitFor();
  // The built-in DeepSeek core; Codex is an Extension Pack, so a fresh setup has no Codex card until it is added.
  await poll(async()=>await setup.locator('[data-core=deepseek]').count()===1,'built-in agent listed');
@@ -80,7 +80,7 @@ try{
  await settings.getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'Cores',exact:true}).click();
  await settings.locator('[data-core-status=kimi]').waitFor();
  report.metrics.cores=await settings.evaluate(n=>n.innerText.slice(n.innerText.indexOf('Agent cores')));
- assert.match(report.metrics.cores,/Kimi Code[\s\S]*(Running|Selected)[\s\S]*Downloaded by Code Desktop · 2\.1\.0/);assert.match(report.metrics.cores,/Extension packs[\s\S]*Kimi Code[\s\S]*0\.3\.0/);
+ assert.match(report.metrics.cores,/Kimi Code[\s\S]*(Running|Selected)[\s\S]*Downloaded by OpenClaude Desktop · 2\.1\.0/);assert.match(report.metrics.cores,/Extension packs[\s\S]*Kimi Code[\s\S]*0\.3\.0/);
  await page.screenshot({path:path.join(directory,'settings-cores-pack.png')});
  // The pack runs the current core, so Remove asks first; the app then restarts on DeepSeek Harness (the fixture answers
  // as it again) and reloads for its copy.

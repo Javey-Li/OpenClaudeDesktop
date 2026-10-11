@@ -102,7 +102,7 @@ test('the app mode hint is read only when present and valid; an approved plan ne
 
 test("the plan card's codeDesktop.afterPlan overrides the turn hint; Bypass only as the card's explicit choice", () => {
   const items = [planReview()]
-  // Code Desktop R07 plan card: Accept → 'ask', the primary → its trust-forward target.
+  // OpenClaude Desktop R07 plan card: Accept → 'ask', the primary → its trust-forward target.
   const accept = { answers: { [PLAN_REVIEW]: { answers: ['Approve'] } }, codeDesktop: { afterPlan: 'ask' } }
   assert.equal(isPlanApproval(items, harnessAnswer(items, accept)), true)
   assert.equal(approvedAfterPlan(accept, 'acceptEdits'), 'ask')

@@ -35,7 +35,7 @@ export default Object.freeze({
     modelWorkflows: true,
   }),
   // Qwen's saved workflows (core agents/runtime/workflow-saved.ts: <project>/.qwen/workflows, ~/.qwen/workflows; its
-  // workflow-creator skill writes there): Code Desktop's workflow engine reads them too and saves there first.
+  // workflow-creator skill writes there): OpenClaude Desktop's workflow engine reads them too and saves there first.
   workflowFolders: Object.freeze([".qwen/workflows"]),
   configFile: "~/.qwen/settings.json",
   // Settings › Storage (settings-pages.cjs sessionStore): a session is <home>/projects/<project>/chats/<id>.jsonl
@@ -47,7 +47,7 @@ export default Object.freeze({
   // Every provider of Qwen Code 0.24.7's /auth (core/src/providers/all-providers.ts) with each of its regions
   // (presets/*.ts baseUrl ids), so an international or Hong Kong key reaches its own endpoint. Its custom
   // OpenAI-compatible provider needs a base URL and models, which Settings › Models › Custom providers does not
-  // serve on this core; sign-out (signOutRemovesKeys) removes the keys Code Desktop saved in ~/.qwen/settings.json.
+  // serve on this core; sign-out (signOutRemovesKeys) removes the keys OpenClaude Desktop saved in ~/.qwen/settings.json.
   login: Object.freeze({
     browser: Object.freeze([]),
     apiKey: Object.freeze([

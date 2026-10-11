@@ -35,6 +35,7 @@ import {
 import { CODEX_LOCAL_SERVERS, codexBaseURLError, codexLocalEndpoint, parseCodexModels } from '../electron/prefs/codex-provider.mjs';
 import { fastTierForModel, speedTiersForModel } from '../electron/preferences.mjs';
 import { coreCapabilities, coreName } from '../electron/core-registry.mjs';
+import { modelDisplayName, modelFamily } from '../electron/prefs/model-families.mjs';
 import './models-settings.css';
 
 const TIER_LABELS = { offPeak: t('Off-peak'), peak: t('Peak') };
@@ -69,12 +70,19 @@ export function ContextWindowFields({ ids, values, disabled, onChange }) {
   return <div className="msx-context-windows">
     <span id={labelId} className="msx-image-models-label">{t('Context window')}</span>
     <div className="msx-context-list" role="group" aria-labelledby={labelId}>
-      {ids.map(id => <label key={id} className="msx-context-row"><span className="msx-context-id">{id}</span>
+      {ids.map(id => <label key={id} className="msx-context-row"><span className="msx-context-id" title={id}>{modelDisplayName(id) !== id ? <>{modelDisplayName(id)} <span className="msx-context-raw">{id}</span></> : id}</span>
         <input data-cds="TextInput" className="cds-input cds-reset msx-context-input" aria-label={t('Context window for {id}', { id })} value={values?.[id] ?? ''} maxLength={16}
-          placeholder={t('Default')} disabled={disabled} spellCheck={false} autoCapitalize="off" autoComplete="off" onChange={event => onChange({ ...values, [id]: event.target.value })}/></label>)}
+          placeholder={t('Default (262K)')} disabled={disabled} spellCheck={false} autoCapitalize="off" autoComplete="off" onChange={event => onChange({ ...values, [id]: event.target.value })}/></label>)}
     </div>
     <span className="msx-help">{t('Optional. How many tokens each model can read, such as 131072, 128K or 1M. Empty: the core assumes 262,144 tokens and compacts later than a smaller model needs.')}</span>
   </div>;
+}
+
+// The provider row's model list: names with the context windows the user set ("GLM 5.3 200K, GLM 5.3 Flash").
+const shortTokens = (count) => count >= 1000000 && count % 1000000 === 0 ? `${count / 1000000}M` : count >= 1000 ? `${Math.round(count / 1000)}K` : String(count);
+function providerModelSummary(provider) {
+  const names = provider.models.slice(0, 4).map(id => provider.contextWindows?.[id] ? `${modelDisplayName(id)} ${shortTokens(provider.contextWindows[id])}` : modelDisplayName(id));
+  return provider.models.length > 4 ? `${names.join(', ')} ${t('and {count} more', { count: provider.models.length - 4 })}` : names.join(', ');
 }
 
 // Add / edit one custom provider. The key is write-only: it is sent once to the
@@ -82,7 +90,7 @@ export function ContextWindowFields({ ids, values, disabled, onChange }) {
 function ProviderDialog({ initial, protocols, harness = true, coreLabel = '', onSubmit, onCancel }) {
   const editing = !!initial;
   const [form, setForm] = useState(() => ({ route: initial?.route ?? '', displayName: initial?.displayName ?? '', api: initial?.api ?? protocols[0],
-    baseURL: initial?.baseURL ?? '', models: (initial?.models ?? []).join('\n'), imageModels: initial?.imageModels ?? [], contextWindows: { ...(initial?.contextWindows ?? {}) }, apiKey: '' }));
+    baseURL: initial?.baseURL ?? '', models: (initial?.models ?? []).join('\n'), imageModels: initial?.imageModels ?? null, contextWindows: { ...(initial?.contextWindows ?? {}) }, apiKey: '' }));
   const [error, setError] = useState(''), [saving, setSaving] = useState(false), [clearKey, setClearKey] = useState(false);
   const routeRef = useRef(null), ids = { help: useId() };
   const set = key => event => { const value = event.target.value; setForm(current => ({ ...current, [key]: value })); };
@@ -122,7 +130,9 @@ function ProviderDialog({ initial, protocols, harness = true, coreLabel = '', on
           placeholder={'gpt-4.1-mini\nqwen3-coder'} onChange={set('models')}/>
         <span id={ids.help} className="msx-help">{t('One per line, as the endpoint names them.')}</span>
       </label>
-      <ImageModelChips ids={splitIds(form.models)} selected={form.imageModels} onChange={imageModels => setForm(current => ({ ...current, imageModels }))}/>
+      {/* Until the user marks images (null), the chips show what the model families take and nothing is saved, so a
+          family's images keep applying to models added later. */}
+      <ImageModelChips ids={splitIds(form.models)} selected={form.imageModels ?? splitIds(form.models).filter(id => modelFamily(id)?.image === true)} onChange={imageModels => setForm(current => ({ ...current, imageModels }))}/>
       <ContextWindowFields ids={splitIds(form.models)} values={form.contextWindows} onChange={contextWindows => setForm(current => ({ ...current, contextWindows }))}/>
       <label className="msx-field"><span className="msx-label">{t('API key')}</span>
         <input data-cds="TextInput" className="cds-input cds-reset" type="password" aria-label={t('API key')} value={form.apiKey} maxLength={4096} autoComplete="off" spellCheck={false}
@@ -687,7 +697,7 @@ export function SourceModelsSettings({ config = {}, boot, engine, desktopCall, o
 
   // ---- Custom providers (the Harness llm-pi-ai adapter, DeepSeek core only)
   const providerRows = providers.providers.map(provider => settingRow(`provider-${provider.route}`, provider.displayName ? `${provider.displayName} (${provider.route})` : provider.route,
-    `${PROTOCOL_LABELS[provider.api] || provider.api} · ${provider.baseURL} · ${tn(provider.models.length, '{count} model', '{count} models')} · ${provider.hasKey ? t('key saved') : t('no key')}`,
+    `${PROTOCOL_LABELS[provider.api] || provider.api} · ${provider.baseURL} · ${providerModelSummary(provider)} · ${provider.hasKey ? t('key saved') : t('no key')}`,
     <div className="msx-actions">
       <SourceSettingsButton size="sm" variant="ghost" disabled={!!providerBusy} aria-label={t('Edit {name}', { name: provider.displayName || provider.route })} onClick={() => setProviderDialog({ initial: provider })}>{t('Edit')}</SourceSettingsButton>
       <SourceSettingsButton size="sm" disabled={!!providerBusy} busy={providerBusy === provider.route} aria-label={t('Remove {name}', { name: provider.displayName || provider.route })}

@@ -1,7 +1,7 @@
-# Code Desktop over dsh-base: a Codex app-server compatible JSON-RPC endpoint on
+# OpenClaude Desktop over dsh-base: a Codex app-server compatible JSON-RPC endpoint on
 # stdio. Stdout belongs to the protocol; diagnostics go to stderr.
 
-# Code Desktop owns its confinement contract; shared DSH Purge stays as-is.
+# OpenClaude Desktop owns its confinement contract; shared DSH Purge stays as-is.
 - id: fs-sandbox
   disabled: true
 
@@ -60,7 +60,7 @@
     personaSuffix: Your working directory is {{cwd}}.
     personaPrefix: >-
       You are a coding agent powered by the {{model}} model, working inside
-      Code Desktop, a local desktop client for DeepSeek Harness.
+      OpenClaude Desktop, a local desktop client for DeepSeek Harness.
 
 # Session titles: dsh-base's session-title-llm (dsh-session-title-first-prompt-llm) writes a short summary title from
 # the first prompt, as the official DeepSeek app does; the bridge forwards it as thread/name/updated, which is why it

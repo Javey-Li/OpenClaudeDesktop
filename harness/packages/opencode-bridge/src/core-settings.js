@@ -7,7 +7,7 @@ const isRecord = (value) => !!value && typeof value === 'object' && !Array.isArr
 
 /**
  * The settings a flavor offers. kind 'config': a key of the agent's config (dotted path); kind 'env': an environment
- * switch of the agent server. default: what the agent does when Code Desktop sets nothing.
+ * switch of the agent server. default: what the agent does when OpenClaude Desktop sets nothing.
  */
 export function coreSettingDefs(flavor) {
   if (flavor?.id === 'mimo') return [

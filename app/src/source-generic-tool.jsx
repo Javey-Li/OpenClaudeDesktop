@@ -35,7 +35,7 @@ export function SourceGenericToolBody({item,state,cwd,onOpenFileRef,inCard=false
  return <div className="sgt-body" data-standalone={standalone||undefined}><div className="sgt-body-inner">
   <div className="sgt-details" role="group" aria-label={t("Tool call details")} tabIndex={0}>
    {failed?result:args}{failed?args:result}
-   {item.codeDesktop?.mcpApp&&<div className="sgt-note" data-mcp-app="">{t("This connector also has an interactive view, which Code Desktop can’t show yet.")}</div>}
+   {item.codeDesktop?.mcpApp&&<div className="sgt-note" data-mcp-app="">{t("This connector also has an interactive view, which OpenClaude Desktop can’t show yet.")}</div>}
   </div><CommandCopyButton text={detail.copyText}/>
  </div></div>;
 }

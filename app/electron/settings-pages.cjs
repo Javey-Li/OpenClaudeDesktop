@@ -3,7 +3,7 @@ const path = require('node:path');
 
 // Only fields rendered in Developer. In particular, HTTP headers, tokens and
 // environment values must not be included in this renderer-facing snapshot.
-// Code Desktop's own tools server (agent-tools-host.cjs "code_desktop", a launch override on Codex) is never one of the
+// OpenClaude Desktop's own tools server (agent-tools-host.cjs "code_desktop", a launch override on Codex) is never one of the
 // user's servers: Settings › Code › Preview and Dynamic workflows control it.
 const APP_TOOLS_SERVER = 'code_desktop';
 function mcpDefinitions(config) {
@@ -126,7 +126,7 @@ async function measure(root, { io, limit, skip, bucket }) {
 }
 
 // Fidelity F14: the original's storage areas (c71860c77-B72Ova_w.js ht/mt over index.chunk-ChZ67Jhw.js
-// pfi/hfi). 'code': Code Desktop's own conversation history in the core home (sessions/*/<thread id> for
+// pfi/hfi). 'code': OpenClaude Desktop's own conversation history in the core home (sessions/*/<thread id> for
 // active and archived threads, plus the bridge's code-desktop records) and its worktrees; everything else in
 // that home (other apps' sessions, dsh-runtimes, profiles, ...) is an outside kind, shown but not counted
 // (the original's 'Other Claude Code history'). 'runtime': the core package or executable. 'app': web

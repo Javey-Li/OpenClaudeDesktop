@@ -55,15 +55,15 @@ test('the side chat treats Codex’s -32600 unknown variant like -32601 method n
  assert.equal(sideQuestionUnsupported(new Error('boom')),false);
 });
 
-test('/workflow runs on every core: structured output or the JSON fallback (runner jsonAgent.js); a core with its own engine runs it unless Settings chose Code Desktop',()=>{
- // Code Desktop's runner asks for JSON in the prompt where the core has no structured output, so no core is excluded.
- assert.equal(workflowsSupported({engine:'zcode',capabilities:{structuredOutput:false,modelWorkflows:false}}),true,'a ZCode that reports no workflows of its own: Code Desktop\'s engine');
+test('/workflow runs on every core: structured output or the JSON fallback (runner jsonAgent.js); a core with its own engine runs it unless Settings chose OpenClaude Desktop',()=>{
+ // OpenClaude Desktop's runner asks for JSON in the prompt where the core has no structured output, so no core is excluded.
+ assert.equal(workflowsSupported({engine:'zcode',capabilities:{structuredOutput:false,modelWorkflows:false}}),true,'a ZCode that reports no workflows of its own: OpenClaude Desktop\'s engine');
  // ZCode's own engine (CreateWorkflow): never hidden, and it runs /workflow itself.
  assert.equal(workflowsSupported({engine:'zcode',capabilities:{structuredOutput:false}}),true);
  assert.equal(workflowsSupported('zcode'),true,'before it connects');
  assert.equal(workflowEngine({engine:'zcode',capabilities:{structuredOutput:false}}),'agent');
  assert.equal(workflowsSupported({engine:'gemini',capabilities:{structuredOutput:false,modelWorkflows:false}}),true);
- // Settings › Code › Dynamic workflows › Workflow engine: Code Desktop's engine for a core that has its own.
+ // Settings › Code › Dynamic workflows › Workflow engine: OpenClaude Desktop's engine for a core that has its own.
  assert.equal(workflowEngine({engine:'zcode',capabilities:{structuredOutput:false}},{zcode:'codeDesktop'}),'runner');
  assert.equal(workflowsSupported({engine:'opencode',capabilities:{structuredOutput:true}}),true);
  assert.equal(workflowsSupported({engine:'deepseek-harness',capabilities:{structuredOutput:true}}),true);

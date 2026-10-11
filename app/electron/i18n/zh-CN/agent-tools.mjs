@@ -1,4 +1,4 @@
-// zh-CN: Claude Code tools Code Desktop's agent-tools server serves to a core without them (AskUserQuestion,
+// zh-CN: Claude Code tools OpenClaude Desktop's agent-tools server serves to a core without them (AskUserQuestion,
 // PushNotification, SendUserFile, ReportFindings, chapters and suggested tasks, open_terminal_tab, Monitor, the cron
 // tools and WebFetch: their rows, approval cards and Background tasks rows).
 // Keys are the exact English source strings.

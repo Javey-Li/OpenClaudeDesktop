@@ -63,7 +63,7 @@ try {
   threadId = t.thread.id;
   await c.request("thread/name/set", {
     threadId,
-    name: "Code Desktop integration smoke test",
+    name: "OpenClaude Desktop integration smoke test",
   });
   await c.request("turn/start", {
     threadId,

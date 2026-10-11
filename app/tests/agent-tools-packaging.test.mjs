@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
 // The agent tools in the packaged app: the package script keeps electron/agent-tools-server.mjs, the host and the tool
-// modules inside app.asar, and a core starts the server as `<Code Desktop binary> <…/app.asar/electron/agent-tools-server.mjs>`
+// modules inside app.asar, and a core starts the server as `<OpenClaude Desktop binary> <…/app.asar/electron/agent-tools-server.mjs>`
 // with ELECTRON_RUN_AS_NODE=1 (agent-tools-host.cjs serverCommand). A production-like app.asar is built with
 // @electron/asar from what the package filter keeps; Electron (as Node) then loads the host and the real tool modules
 // from inside it, starts the server exactly as a core would and speaks MCP to it over stdio (initialize, tools/list,

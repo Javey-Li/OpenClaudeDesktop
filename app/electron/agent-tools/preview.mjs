@@ -1,4 +1,4 @@
-// Preview tools for the agent (Code Desktop's local MCP server, agent-tools-host.cjs). They act on THIS session's
+// Preview tools for the agent (OpenClaude Desktop's local MCP server, agent-tools-host.cjs). They act on THIS session's
 // preview only: ctx.preview is preview-service.cjs forSession(session), and every call goes through it.
 // Modeled on the 2.2553.1 preview tools (preview_start / preview_stop / preview_list / preview_logs, and the browser
 // tools navigate / read_page / get_page_text / read_console_messages / read_network_requests / resize_window).

@@ -1,5 +1,5 @@
 // DeepSeek's goals (dsh-goal: one durable objective per session; dsh-goal-round-driver continues an active, armed goal
-// at idle up to its round cap) as Codex's thread/goal/* for Code Desktop's goal strip and /goal.
+// at idle up to its round cap) as Codex's thread/goal/* for OpenClaude Desktop's goal strip and /goal.
 //
 // Phases map onto ThreadGoal.status: active (armed) → active; an active goal disarmed after a session restart or fork →
 // paused, with codeDesktop.disarmed, since nothing runs until it is resumed; paused, blocked and complete as they are.

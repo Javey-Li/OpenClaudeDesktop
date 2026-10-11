@@ -265,7 +265,7 @@ async function snapshot(cwd, trace) {
   const ctx = await repository(cwd, trace);
   if (!ctx) return null;
   const response = await git(ctx, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], { paths: true });
-  // Code Desktop's own worktrees inside the repository (.code/worktrees, main.cjs prepare-worktree) are never the main
+  // OpenClaude Desktop's own worktrees inside the repository (.code/worktrees, main.cjs prepare-worktree) are never the main
   // checkout's changes, even where .git/info/exclude predates them (the official status excludes .claude likewise).
   // Filtered here: this query runs with GIT_LITERAL_PATHSPECS, so no exclude pathspec.
   return { ctx, records: parseStatus(response.output).filter((record) => !OWN_WORKTREES.test(record.path)) };

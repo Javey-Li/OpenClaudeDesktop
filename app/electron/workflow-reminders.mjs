@@ -2,8 +2,8 @@
 // mode on / still on / off, and the size guideline. Kept apart from workflow-tool-model.mjs (which loads the workflow
 // script parser) so turn/start never waits for that. Main-process only.
 //
-// On Code Desktop's engine they name its Workflow tool and point at the Ultracode section of that tool's description
-// (Claude points at its authoring-reference skill, which Code Desktop doesn't ship). On a core's own engine (Settings ›
+// On OpenClaude Desktop's engine they name its Workflow tool and point at the Ultracode section of that tool's description
+// (Claude points at its authoring-reference skill, which OpenClaude Desktop doesn't ship). On a core's own engine (Settings ›
 // Dynamic workflows › Workflow engine: the agent's) that tool doesn't exist: they name the core's own workflow tool
 // (descriptor workflowTool {name, skill?}) and carry the ultracode guidance themselves.
 import { SIZE_LIMITS } from "./prefs/workflow-settings.mjs";
@@ -32,12 +32,12 @@ export function sizeGuidelineChangeText(size) {
 
 const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 /**
- * The reminders' wording for the engine that runs this session's workflows: Code Desktop's (the Workflow tool, the
+ * The reminders' wording for the engine that runs this session's workflows: OpenClaude Desktop's (the Workflow tool, the
  * constants above) or the core's own ({engine: "native", name?, skill?}: its tool, e.g. ZCode's CreateWorkflow after
  * its dynamic-workflows skill; no name: "your own dynamic-workflow tool").
  */
 // A core whose Workflow tool waits behind load_tools (agent-tools-host.cjs deferredGroups: DeepSeek, OpenCode, MiMo).
-export const DEFERRED_WORKFLOW_NOTE = "If the Workflow tool isn't listed yet, load it first with Code Desktop's load_tools tool (group \"workflow\").";
+export const DEFERRED_WORKFLOW_NOTE = "If the Workflow tool isn't listed yet, load it first with OpenClaude Desktop's load_tools tool (group \"workflow\").";
 export function reminderTexts(tool = null) {
   if (!tool || tool.engine !== "native") {
     const note = tool?.deferred === true ? ` ${DEFERRED_WORKFLOW_NOTE}` : "";

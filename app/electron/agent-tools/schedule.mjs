@@ -1,6 +1,6 @@
 // CronCreate / CronList / CronDelete: Claude Code's session scheduler (electron/schedule-service.cjs) for a core
 // without its own. Kimi, Qwen and MiMo schedule prompts themselves, so their descriptors list CronCreate in
-// nativeTools and get none of these. (ZCode has Cron* tools too, but they need a host automation service Code Desktop
+// nativeTools and get none of these. (ZCode has Cron* tools too, but they need a host automation service OpenClaude Desktop
 // doesn't run, so the zcode bridge withholds them and ZCode gets these.) A fired prompt reaches the session as a new turn once it is idle, with the
 // session's own Mode, so it never runs with more access than the session has.
 //
@@ -23,7 +23,7 @@ When the user's request is approximate, pick a minute that is not 0 or 30 ("ever
 ## Not for live watching
 To watch a log file, process or command output and be told the moment something changes, use Monitor instead — cron re-runs a prompt at fixed wall-clock intervals.
 ## Runtime behavior
-The user approves the schedule first. Jobs only fire while this session is idle (not mid-turn), and only while Code Desktop is running: they are session-only and gone when the app quits (durable has no effect). Recurring tasks auto-expire after ${EXPIRY_DAYS} days — they fire one final time, then are deleted. Tell the user about the ${EXPIRY_DAYS}-day limit when scheduling recurring jobs.
+The user approves the schedule first. Jobs only fire while this session is idle (not mid-turn), and only while OpenClaude Desktop is running: they are session-only and gone when the app quits (durable has no effect). Recurring tasks auto-expire after ${EXPIRY_DAYS} days — they fire one final time, then are deleted. Tell the user about the ${EXPIRY_DAYS}-day limit when scheduling recurring jobs.
 Returns a job ID you can pass to CronDelete.`;
 
 const describeJob = (job) => `${job.id} — ${job.humanSchedule}${job.humanSchedule !== job.cron ? ` (${job.cron})` : ""} (${job.recurring ? "recurring" : "one-shot"}) [session-only]: ${job.prompt.length > 80 ? `${job.prompt.slice(0, 79)}…` : job.prompt}`;
@@ -45,7 +45,7 @@ export const tools = [
         cron: { type: "string", description: "Standard 5-field cron expression in local time: \"M H DoM Mon DoW\" (e.g. \"*/5 * * * *\" = every 5 minutes, \"30 14 28 2 *\" = Feb 28 at 2:30pm local once)." },
         prompt: { type: "string", description: "The prompt to enqueue at each fire time." },
         recurring: { type: "boolean", description: `true (default) = fire on every cron match until deleted or auto-expired after ${EXPIRY_DAYS} days. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month.` },
-        durable: { type: "boolean", description: "Has no effect — durable persistence is not available. All jobs are session-only (in memory, gone when Code Desktop quits)." },
+        durable: { type: "boolean", description: "Has no effect — durable persistence is not available. All jobs are session-only (in memory, gone when OpenClaude Desktop quits)." },
       },
       required: ["cron", "prompt"],
       additionalProperties: false,
@@ -63,7 +63,7 @@ export const tools = [
       if (ctx.signal?.aborted) throw new Error("The turn was stopped. Nothing was scheduled.");
       if (!(answer === true || answer?.approved === true)) throw new Error("The user declined. Nothing was scheduled.");
       const job = schedules.create({ cron: args.cron, prompt: args.prompt, recurring });
-      const where = "Session-only (not written to disk, gone when Code Desktop quits)";
+      const where = "Session-only (not written to disk, gone when OpenClaude Desktop quits)";
       return job.recurring
         ? `Scheduled recurring job ${job.id} (${job.humanSchedule}). ${where}. Auto-expires after ${EXPIRY_DAYS} days. Use CronDelete to cancel sooner.`
         : `Scheduled one-shot task ${job.id} (${job.humanSchedule}). ${where}. It will fire once then auto-delete.`;

@@ -1,6 +1,6 @@
 // Leaving a session on the DeepSeek core releases it (thread/unsubscribe):
 // a loaded Harness session holds its log's write lock, so a session merely
-// viewed here could not be continued in the DeepSeek app until Code Desktop
+// viewed here could not be continued in the DeepSeek app until OpenClaude Desktop
 // quit. Only an idle session is released; turn/start, thread/resume and
 // the session actions reopen it through the core when it is used again.
 // Codex keeps every resumed thread subscribed (unchanged).

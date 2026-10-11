@@ -75,20 +75,20 @@ test('Workflow(<name>) rules: deny > ask > allow; "always allow" adds an allow r
   assert.deepEqual(allowWorkflowRule({ allow: ['x'] }, 'y'), { allow: ['x', 'y'], ask: [], deny: [] });
 });
 
-test('engine switch per core: derived from capabilities.modelWorkflows, native by default, Code Desktop when chosen', () => {
+test('engine switch per core: derived from capabilities.modelWorkflows, native by default, OpenClaude Desktop when chosen', () => {
   const native = { engine: 'zcode', capabilities: { modelWorkflows: true, structuredOutput: false } };
   const plain = { engine: 'kimi', capabilities: { structuredOutput: false } };
   assert.equal(hasNativeWorkflowEngine(native), true); assert.equal(hasNativeWorkflowEngine(plain), false);
   assert.equal(workflowEngineChoice(native, {}), 'native');
   assert.equal(workflowEngineChoice(native, { zcode: 'codeDesktop' }), 'codeDesktop');
-  assert.equal(workflowEngineChoice(plain, { kimi: 'native' }), 'codeDesktop', 'no engine of its own: always Code Desktop');
+  assert.equal(workflowEngineChoice(plain, { kimi: 'native' }), 'codeDesktop', 'no engine of its own: always OpenClaude Desktop');
   assert.equal(workflowEngine(native, {}), 'agent', '/workflow goes to the model\'s own tool');
-  assert.equal(workflowEngine(native, { zcode: 'codeDesktop' }), 'runner', '/workflow goes to Code Desktop\'s runner');
+  assert.equal(workflowEngine(native, { zcode: 'codeDesktop' }), 'runner', '/workflow goes to OpenClaude Desktop\'s runner');
   assert.equal(workflowEngine({ engine: 'deepseek', capabilities: { modelWorkflows: true, workflowScripts: true } }, {}), 'runner');
   assert.equal(workflowEngineFor({ zcode: 'codeDesktop' }, 'zcode', true), 'codeDesktop');
   assert.equal(workflowEngineFor({}, 'zcode', true), 'native');
   assert.equal(workflowEngineFor({ kimi: 'native' }, 'kimi', false), 'codeDesktop');
-  // Cores without structured output run Code Desktop's engine too (the JSON fallback): no structuredOutput gate.
+  // Cores without structured output run OpenClaude Desktop's engine too (the JSON fallback): no structuredOutput gate.
   assert.equal(workflowsSupported(plain), true);
   assert.equal(workflowsSupported({ engine: 'gemini', capabilities: { structuredOutput: false } }), true);
   // ZCode's native engine runs in any mode now (one approval per run in the bridge): no Bypass-only gate.

@@ -139,7 +139,7 @@ export function SourceHarnessSettings({ config, boot, engine, busy, desktopCall,
   const brokenCore = !connected && prefs.overlayEnabled && (!view.overlayEmpty || state.paths?.userExists) && (restartFailed || state.overlaySuspect === true);
 
   const profileRows = [
-    settingRow('harness-profile-folder', t('Profile folder'), state.profile?.profileDir || t('The profile the Code Desktop core ships with.'), button('harness-profile-folder', t('Open profile folder'), () => op('harness-profile-folder', { op: 'open-folder', which: 'profile' }))),
+    settingRow('harness-profile-folder', t('Profile folder'), state.profile?.profileDir || t('The profile the OpenClaude Desktop core ships with.'), button('harness-profile-folder', t('Open profile folder'), () => op('harness-profile-folder', { op: 'open-folder', which: 'profile' }))),
     settingRow('harness-user-patch', t('Profile patch'), t('Your own patches in user.patch.yml, applied after everything else.'), button('harness-user-patch', t('Edit profile patch'), () => op('harness-user-patch', { op: 'edit-user-patch' }))),
     settingRow('harness-app-overlay', t('App overlay'), t('The changes made on this page, kept in overlay.patch.yml.'), button('harness-app-overlay', t('Open app overlay'), () => op('harness-app-overlay', { op: 'open-folder', which: 'app' }))),
     settingRow('harness-overlay-enabled', t('Use overlays'), t('Start the core with the app overlay and your profile patch. Turn off to start with the shipped profile only.'),
@@ -157,7 +157,7 @@ export function SourceHarnessSettings({ config, boot, engine, busy, desktopCall,
   }
 
   const mcpRows = view.mcp.map(entry => settingRow(`harness-row-${entry.id}`, entry.serverName || entry.id,
-    `${entry.transport === 'streamable-http' ? 'HTTP' : entry.transport === 'stdio' ? t('Local command') : t('MCP server')} · ${entry.added ? t('Added in Code Desktop') : entry.bundle ? t('From {bundle}', { bundle: entry.bundle }) : t('From your profile patch')}${failedNote(entry)}`,
+    `${entry.transport === 'streamable-http' ? 'HTTP' : entry.transport === 'stdio' ? t('Local command') : t('MCP server')} · ${entry.added ? t('Added in OpenClaude Desktop') : entry.bundle ? t('From {bundle}', { bundle: entry.bundle }) : t('From your profile patch')}${failedNote(entry)}`,
     <div className="hs-controls">{entry.added && button(`harness-row-${entry.id}`, t('Remove'), () => op(`harness-row-${entry.id}`, { op: 'mcp-remove', id: entry.id }))}{toggle(entry, t('Enable {name}', { name: entry.serverName || entry.id }))}</div>));
 
   const skillRows = view.skillDirs.map(dir => settingRow(`harness-skill-${dir}`, dir, t('Skill folder'), button(`harness-skill-${dir}`, t('Remove'), () => op('harness-skill-dirs', { op: 'skill-dirs', dirs: view.skillDirs.filter(item => item !== dir) }))));

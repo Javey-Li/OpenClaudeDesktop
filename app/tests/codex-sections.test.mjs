@@ -36,7 +36,7 @@ test('Codex sections import as the Pinned id and linked custom groups; local cha
   assert.deepEqual(codex.calls.at(-1), ['thread/section/move', { threadId: 't2', sectionId: null }]);
 });
 
-test('the sidebar reads Codex pins and sections where Code Desktop recorded none', () => {
+test('the sidebar reads Codex pins and sections where OpenClaude Desktop recorded none', () => {
   const groups = [{ id: 'g1', name: 'Auth work', codexSectionId: 'sec-a' }];
   const sessions = [{ id: 'a', section: { id: 'sec-pin' } }, { id: 'b', section: { id: 'sec-a' } }, { id: 'c', section: { id: 'sec-pin' } }, { id: 'd' }];
   const shown = withCoreSections({ c: { pinned: false } }, sessions, { customGroups: groups, pinnedSectionId: 'sec-pin' });

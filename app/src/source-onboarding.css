@@ -122,3 +122,16 @@ html[data-reduce-motion="true"] .sob-agent, html[data-reduce-motion="true"] .sob
 .sob-signin-row { display:flex; flex-direction:column; align-items:center; gap:6px; width:100%; }
 .sob-signin-done { margin:8px 0; text-align:center; color:var(--cds-text-secondary); }
 .sob-signin-skip { align-self:center; }
+
+/* Connect a model (ConnectCard): wide and short so it fits one screen — providers as a compact two-column grid on
+   the left, the connection form on the right. Narrow windows fall back to one column. */
+.sob-card.sob-connect { max-width:920px; display:grid; grid-template-columns:minmax(0, 340px) minmax(0, 1fr); align-items:start; gap:28px; padding:24px 28px; }
+.sob-connect-pane { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.sob-connect .sob-presets { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.sob-connect .sob-actions { flex-direction:row; justify-content:flex-end; margin-top:2px; }
+.sob-connect .sob-actions > .sob-wide { width:auto; min-width:180px; order:2; }
+.sob-connect .sob-legal { text-align:left; }
+@media (max-width: 760px) {
+  .sob-card.sob-connect { grid-template-columns:minmax(0, 1fr); }
+  .sob-connect .sob-presets { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+}

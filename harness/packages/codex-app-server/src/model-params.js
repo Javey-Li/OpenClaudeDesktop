@@ -1,5 +1,5 @@
 /**
- * Per-model request parameters from Code Desktop (Settings → Models): max
+ * Per-model request parameters from OpenClaude Desktop (Settings → Models): max
  * output tokens and temperature, sent by the app on thread/start,
  * thread/resume and turn/start as
  * params.codeDesktop.customization.modelParams = {[wireModelId]: {maxTokens?, temperature?}} | null

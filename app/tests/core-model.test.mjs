@@ -136,7 +136,7 @@ test('configuredCatalogModels: the model of the user’s own Codex config.toml i
   assert.equal(catalogId(configuredCatalogModels(codex, { model: 'o3', model_provider: null }, { label })[0]), 'o3');
   assert.equal(configuredCatalogModels(codex, { model: 'gpt-5.6-terra', model_provider: 'openai' }, { label }), null);
   assert.equal(configuredCatalogModels(codex, { model: 'gpt-5.6-terra' }, { label }), null);
-  // Code Desktop's own endpoint already has its catalog; no model, or a bad one, changes nothing.
+  // OpenClaude Desktop's own endpoint already has its catalog; no model, or a bad one, changes nothing.
   assert.equal(configuredCatalogModels(codex, { model: 'relay-a', model_provider: 'codedesktop' }, { appProvider: 'codedesktop', label }), null);
   assert.equal(configuredCatalogModels(codex, { model: null, model_provider: 'dummy' }, { label }), null);
   assert.equal(configuredCatalogModels(codex, null, { label }), null);

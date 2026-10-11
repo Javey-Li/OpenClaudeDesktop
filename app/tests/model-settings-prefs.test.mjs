@@ -113,7 +113,7 @@ test('custom provider definitions and the managed llm-pi-ai overlay row', async 
   assert.deepEqual(normalizeProviders([provider, provider, { route: 'x' }]), [provider]);
   assert.equal(providerOverlayRow([]), null);
   assert.deepEqual(providerOverlayRow([provider]), { config: { providers: { 'my-gw': { displayName: 'Gateway', api: 'openai-completions', baseURL: 'https://gw.example.com/v1',
-    apiKeyEnv: 'CODE_DESKTOP_PROVIDER_KEY_MY_GW', models: [{ id: 'gpt-4.1-mini' }, { id: 'qwen3-coder' }] } } } });
+    apiKeyEnv: 'CODE_DESKTOP_PROVIDER_KEY_MY_GW', models: [{ id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', input: ['text', 'image'] }, { id: 'qwen3-coder', name: 'Qwen 3 Coder', reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high' } }] } } } });
 });
 
 test('model ids the cores list: Qwen `(authType)` suffixes and models.dev `@` ids', () => {
@@ -136,4 +136,37 @@ test('coreTakesModelParams: an explicit modelParams capability decides, else cus
   assert.equal(coreTakesModelParams({ customization: false }), false);
   assert.equal(coreTakesModelParams({}), false);
   assert.equal(coreTakesModelParams(undefined), false);
+});
+
+test('a thinking preset endpoint (GLM) declares Low/Medium/High; other custom endpoints stay undeclared', async () => {
+  const { providerOverlayRow: row } = await import('../electron/prefs/model-settings.mjs');
+  const providers = row([
+    { route: 'glm-cn', api: 'anthropic-messages', baseURL: 'https://open.bigmodel.cn/api/anthropic/', models: ['glm-5.3'] },
+    { route: 'mine', api: 'anthropic-messages', baseURL: 'https://example.com', models: ['m1'] },
+  ]).config.providers;
+  assert.deepEqual(providers['glm-cn'].models[0].reasoningEfforts, { off: null, low: 'low', medium: 'medium', high: 'high' });
+  assert.equal('reasoningEfforts' in providers.mine.models[0], false);
+});
+
+test('a relay serving GLM/Kimi/Qwen ids gets effort levels by model id', async () => {
+  const { providerOverlayRow: row } = await import('../electron/prefs/model-settings.mjs');
+  const relay = row([{ route: 'glm-cn', api: 'anthropic-messages', baseURL: 'https://apitiantian.com', models: ['glm-5.3', 'glm-5.3-flash', 'zhipu/glm-5.3', 'qwen3.8-max', 'kimi-k3', 'my-model'] }]).config.providers['glm-cn'].models;
+  assert.deepEqual(relay.map(model => 'reasoningEfforts' in model), [true, true, true, true, true, false]);
+});
+
+test('model families: a relay id is named and described like the vendor model', async () => {
+  const { modelFamily } = await import('../electron/prefs/model-families.mjs');
+  const { providerModelEntry } = await import('../electron/prefs/model-settings.mjs');
+  const names = ['glm-5.3', 'zhipu/glm-5.3', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-4o', 'qwen3.8-max', 'MiniMax-M3', 'kimi-k3', 'gemini-3.8-flash'].map(id => modelFamily(id).name);
+  assert.deepEqual(names, ['GLM 5.3', 'GLM 5.3', 'Claude Opus 5.5', 'GPT-6.1 Sol', 'GPT-4o', 'Qwen 3.8 Max', 'MiniMax M3', 'Kimi K3', 'Gemini 3.8 Flash']);
+  assert.equal(modelFamily('gpt-4.1-mini').reasoning, false);
+  assert.equal(modelFamily('qwen3-235b-a22b-instruct').reasoning, false);
+  assert.equal(modelFamily('my-model'), null);
+  const relay = { route: 'relay', baseURL: 'https://relay.example', models: ['claude-opus-5-5'] };
+  assert.deepEqual(providerModelEntry(relay, 'claude-opus-5-5').input, ['text', 'image'], 'family images apply until the user marks');
+  assert.equal('input' in providerModelEntry({ ...relay, imageModels: [] }, 'claude-opus-5-5'), false, 'an empty mark list means none');
+  assert.deepEqual(providerModelEntry({ ...relay, route: 'openai', models: ['gpt-6.1-sol'] }, 'gpt-6.1-sol').reasoningEfforts, { off: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }, 'a model newer than the core catalog');
+  assert.deepEqual(Object.keys(providerModelEntry(relay, 'claude-opus-5-5').reasoningEfforts), ['off', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(Object.keys(providerModelEntry(relay, 'claude-sonnet-4-5').reasoningEfforts), ['off', 'low', 'medium', 'high', 'max']);
+  assert.deepEqual(Object.keys(providerModelEntry(relay, 'deepseek-v4-pro').reasoningEfforts), ['off', 'low', 'high', 'max']);
 });

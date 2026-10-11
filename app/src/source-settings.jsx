@@ -346,7 +346,7 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
       // c71860c77:2188-2212 YlYBASRBOt with DeepSeek substituted; the <link> to Anthropic's security page has no
       // DeepSeek counterpart, so the link element is dropped.
       row('bypass',t('Allow bypass permissions mode'),<>{t('Bypass all permission checks and let DeepSeek work uninterrupted. This works well for workflows like fixing lint errors or generating boilerplate code. Letting DeepSeek run arbitrary commands is risky and can result in data loss, system corruption, or data exfiltration (e.g., via prompt injection attacks).')}{!bypass.allowed && !bypassChecking && <span className="ss-bypass-reason"> {t(bypass.reason)}</span>}</>,<SettingSwitch label={t('Allow bypass permissions mode')} checked={shownValue('allowBypassPermissions',config.allowBypassPermissions)===true} disabled={!config.allowBypassPermissions && (!boot?.connected || (!bypass.allowed && !bypassChecking))} onChange={value=>save('allowBypassPermissions',value,'bypass')}/>,t('Bypass all permission checks and let DeepSeek work uninterrupted.')),
-      // c71860c77:2180-2245: the Dynamic workflows switch comes straight after Bypass; Code Desktop's extra workflow rows
+      // c71860c77:2180-2245: the Dynamic workflows switch comes straight after Bypass; OpenClaude Desktop's extra workflow rows
       // (source-settings-workflows.jsx: engine, keyword, size, Advanced) nest beneath it, indented, only while it is on.
       ...workflowSettingsGroup({config,boot,engine,shownValue,save,rowErrors,setRowErrors,models,advanced:workflowAdvanced,setAdvanced:setWorkflowAdvanced,desktopCall,cwd:customize?.cwd??config.cwd??null}).rows,
       levelRow('permissionNotifications',t('Permission requests'),t('DeepSeek needs your approval to use a tool.')),
@@ -403,14 +403,14 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
           return row('codexPermissionProfile',t('Permission profile'),t('What Codex may write and reach in Auto, Manual and Accept edits. Plan and Bypass keep their own access. Applies to your next message.'),
             <SourceSelect label={t('Permission profile')} align="end" value={value} disabled={busy} onChange={next=>save('codexPermissionProfile',next==='config'?null:next==='app'?'':next)}
               items={[{value:'config',label:configured?t('Follow config.toml ({profile})',{profile:configured}):t('Follow config.toml'),description:configured?(profiles.find(p=>p.id===configured)?.description??null):appDescription},
-                {value:'app',label:t('Code Desktop sandbox'),description:appDescription},
+                {value:'app',label:t('OpenClaude Desktop sandbox'),description:appDescription},
                 ...profiles.map(profile=>({value:profile.id,label:profile.id,description:profile.allowed?profile.description:t('Not allowed by your organization'),disabled:!profile.allowed}))]}/>);})()]:[]),
       ]:[]),
       row('permissions',t('Permission mode'),t('Auto asks when needed. Manual always asks before making changes. Accept edits applies file edits without asking. Plan is read-only.'),<SourceSelect label={t('Default permission mode')} value={shownValue('permission',permission)} disabled={busy} onChange={value=>save('permission',value,'permissions')} items={[{value:'auto',label:t('Auto')},{value:'ask',label:t('Manual')},{value:'acceptEdits',label:t('Accept edits')},{value:'plan',label:t('Plan')},
         // Bypass as the default only while its opt-in (Code › Allow bypass permissions mode) is on; main re-checks it.
         ...(config.allowBypassPermissions===true?[{value:'bypass',label:t('Bypass permissions')}]:[])]}/>),
     ]},
-    // The agent's own settings it lets Code Desktop change (core-settings-model.mjs labels): applied when its process
+    // The agent's own settings it lets OpenClaude Desktop change (core-settings-model.mjs labels): applied when its process
     // next starts (an idle session restarts at once).
     ...(coreSettings?.settings?.length?[{tab:'code',title:t('{core} settings',{core:coreName(boot?.core)}),rows:coreSettings.settings.map(setting=>{
       const {label,description}=coreSettingLabel(setting.key,boot?.core),id=`core-${setting.key}`,current=setting.value??setting.default;
@@ -468,10 +468,10 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
           <SourceSettingsButton size="sm" variant="ghost" disabled={busy} onClick={()=>revokeDevice(device)}>{t('Remove')}</SourceSettingsButton>)),
       ]:[]),
     ]}]:[]),
-    // Codex /experimental: its beta features (Worktrees and Prevent sleep are Code Desktop's own). Codex reads them at start.
+    // Codex /experimental: its beta features (Worktrees and Prevent sleep are OpenClaude Desktop's own). Codex reads them at start.
     ...(codexFeatures?.beta?.length?[{tab:'code',title:'Beta features',rows:[
       ...codexFeatures.beta.map(feature=>row(`codex-beta-${feature.name}`,t(feature.displayName),
-        [t(feature.description),feature.name==='realtime_conversation'?t('Voice isn’t in Code Desktop yet; it works with /voice in the Codex terminal.'):''].filter(Boolean).join(' '),
+        [t(feature.description),feature.name==='realtime_conversation'?t('Voice isn’t in OpenClaude Desktop yet; it works with /voice in the Codex terminal.'):''].filter(Boolean).join(' '),
         <SettingSwitch label={t(feature.displayName)} checked={feature.enabled} disabled={busy} onChange={value=>codexFeature(`codex-beta-${feature.name}`,{op:'set-feature',name:feature.name,enabled:value},{restart:true})}/>)),
       ...(codexRestart?[row('codex-beta-restart',t('Restart Codex to apply'),t('Beta features take effect when Codex starts.'),
         <SourceSettingsButton size="sm" variant="primary" disabled={busy||!customize?.onRestartCore} onClick={()=>{setCodexRestart(false);customize?.onRestartCore?.();}}>{t('Restart')}</SourceSettingsButton>)]:[]),
@@ -496,9 +496,9 @@ function SettingsContent({ presence, config, model, effort, permission, boot, bu
     // branch draws three skeleton rows under the version row.
     {tab:'general',title:'General desktop settings',skeleton:desktop===null,rows:[
       ...(build?.version?[row('version',t('Desktop app version'),'',<span className="ss-version">{build.version}</span>)]:[]),
-      row('startup',t('Run on startup'),t('Automatically start Code Desktop when you log in to your computer.'),<SettingSwitch label={t('Run on startup')} checked={shownValue('runOnStartup',desktop?.desktop?.runOnStartup)===true} disabled={!desktop?.desktop} onChange={enabled=>commit('startup',{runOnStartup:enabled},async()=>{const value=await desktopCall('desktop-startup',{enabled});setDesktop(current=>current?.desktop?{...current,desktop:{...current.desktop,runOnStartup:value===true}}:current);setDesktopRevision(n=>n+1);})}/>),
-      booleanRow('menuBarEnabled',t('Menu bar'),t('Show Code Desktop in the menu bar.')),
-      row('storage',t('Storage'),t('See how much space Code Desktop uses on this computer.'),<SourceSettingsButton size="sm" onClick={()=>setStorage(true)}>{t('Manage')}</SourceSettingsButton>),
+      row('startup',t('Run on startup'),t('Automatically start OpenClaude Desktop when you log in to your computer.'),<SettingSwitch label={t('Run on startup')} checked={shownValue('runOnStartup',desktop?.desktop?.runOnStartup)===true} disabled={!desktop?.desktop} onChange={enabled=>commit('startup',{runOnStartup:enabled},async()=>{const value=await desktopCall('desktop-startup',{enabled});setDesktop(current=>current?.desktop?{...current,desktop:{...current.desktop,runOnStartup:value===true}}:current);setDesktopRevision(n=>n+1);})}/>),
+      booleanRow('menuBarEnabled',t('Menu bar'),t('Show OpenClaude Desktop in the menu bar.')),
+      row('storage',t('Storage'),t('See how much space OpenClaude Desktop uses on this computer.'),<SourceSettingsButton size="sm" onClick={()=>setStorage(true)}>{t('Manage')}</SourceSettingsButton>),
     ]},
     {tab:'developer',title:'Local MCP servers',rows:[
       row('mcp-config',t('Configuration'),local.mcp,<button disabled={!boot?.connected} onClick={()=>action('mcp-config',()=>desktopCall('desktop-edit-config'))}>{t('Edit config')}</button>),

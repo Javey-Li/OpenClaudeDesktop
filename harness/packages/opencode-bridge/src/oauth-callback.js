@@ -130,7 +130,7 @@ export class OAuthCallbacks {
     if (req.method !== 'GET' || !known) return send(404, 'Not found', 'Nothing is waiting for a sign-in here.')
     const state = url.searchParams.get('state')
     const entry = this.find(port, url.pathname, state)
-    if (!entry) return send(400, 'Sign-in expired', 'This sign-in link has expired. Start the sign-in again from Code Desktop.')
+    if (!entry) return send(400, 'Sign-in expired', 'This sign-in link has expired. Start the sign-in again from OpenClaude Desktop.')
     const failure = url.searchParams.get('error_description') || url.searchParams.get('error')
     const code = url.searchParams.get('code')
     if (!failure && !code) return send(400, 'Sign-in failed', 'The sign-in page did not return an authorization code.')
@@ -143,7 +143,7 @@ export class OAuthCallbacks {
     let result
     try { result = await entry.complete(code) } catch (error) { result = { success: false, error: error?.message || String(error) } }
     entry.done({ success: result.success === true, error: result.success ? null : result.error || 'The sign-in did not complete.' })
-    if (result.success) send(200, `Signed in to ${entry.name}`, 'You can close this tab and return to Code Desktop.')
+    if (result.success) send(200, `Signed in to ${entry.name}`, 'You can close this tab and return to OpenClaude Desktop.')
     else send(200, 'Sign-in failed', result.error || 'The sign-in did not complete.')
   }
 

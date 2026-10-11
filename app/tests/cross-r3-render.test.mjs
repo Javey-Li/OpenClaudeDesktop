@@ -34,7 +34,7 @@ test('Session status copies its id and info; per-token cores skip the usage-limi
   assert.match(html, /Account usage limits/);
   const perToken = render(React.createElement(SessionStatusDialog, { ...props, core: { name: 'DeepSeek Harness', version: null, perTokenBilling: true } }));
   assert.doesNotMatch(perToken, /Account usage limits/);
-  assert.match(sessionInfoText({ ...props, core: { name: 'Codex', version: '0.155.1' }, appVersion: '0.2.130' }), /Session ID: th-1\nSession: Fix bug\nCore: Codex 0\.155\.1\nCode Desktop: 0\.2\.130/);
+  assert.match(sessionInfoText({ ...props, core: { name: 'Codex', version: '0.155.1' }, appVersion: '0.2.130' }), /Session ID: th-1\nSession: Fix bug\nCore: Codex 0\.155\.1\nOpenClaude Desktop: 0\.2\.130/);
 });
 
 test('Resume dialog: search, folder scope and a loading list', async () => {

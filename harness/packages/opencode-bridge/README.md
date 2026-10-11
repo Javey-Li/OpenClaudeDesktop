@@ -1,7 +1,7 @@
-# OpenCode / MiMo Code bridge for Code Desktop
+# OpenCode / MiMo Code bridge for OpenClaude Desktop
 
 A zero-dependency Node bridge that makes the official **OpenCode** and **MiMo Code** (Xiaomi's OpenCode fork)
-binaries speak the Codex app-server protocol (v0.155.1, JSON-RPC lines on stdio) that Code Desktop drives.
+binaries speak the Codex app-server protocol (v0.155.1, JSON-RPC lines on stdio) that OpenClaude Desktop drives.
 One bridge serves both agents; it ships as two Extension Packs (`opencode`, `mimo`) built by
 `work/agents/opencode-bridge/make-pack.mjs`.
 
@@ -18,7 +18,7 @@ node bin/app-server.mjs app-server --stdio
 | `bridge/src/*.js` | the bridge (no imports outside this folder, no npm dependencies) |
 | `README.md` | this file |
 
-The agent program itself is not in the pack: Code Desktop downloads the pinned official release (size + sha256
+The agent program itself is not in the pack: OpenClaude Desktop downloads the pinned official release (size + sha256
 checked) or uses the user's own install.
 
 ## Pinned agent releases
@@ -36,7 +36,7 @@ checked) or uses the user's own install.
   random password). The global SSE stream (`/global/event`) carries every session's events.
 - **Config overlay.** `OPENCODE_CONFIG_DIR` / `MIMOCODE_CONFIG_DIR` points at `<state>/config`, layered over the
   user's own config: Settings › Models custom providers (`CODE_DESKTOP_PROVIDERS_FILE`, keys by `{env:…}` reference),
-  Connectors (MCP) added in Code Desktop, skill switches, plugins added in Code Desktop, `autoupdate: false`.
+  Connectors (MCP) added in OpenClaude Desktop, skill switches, plugins added in OpenClaude Desktop, `autoupdate: false`.
 - **Plugin.** `<state>/config/plugin/code-desktop.js` (generated, no imports) is the per-session channel the HTTP API
   lacks: custom system prompt (replaces the assembled prompt; skills/MCP catalogs kept), project instructions,
   per-model temperature / max tokens, the shell sandbox profile, and a capture of the real prompt for the preview.
@@ -92,7 +92,7 @@ checked) or uses the user's own install.
   workflows on MiMo's engine, not in a read-only mode). A run MiMo's list keeps running that this MiMo no longer
   holds (it quit) ends failed. A command wins over a skill of its name (MiMo's `/deep-research`); a command whose
   template calls `workflow({…})` carries `requiresWorkflowTool` and is refused while the thread withholds the tool.
-- **Code Desktop's tools.** The plugin names the app thread with the `__code_desktop_session` argument
+- **OpenClaude Desktop's tools.** The plugin names the app thread with the `__code_desktop_session` argument
   (`tool.execute.before`); `experimental.chat.messages.transform` drops it from every step's history, so the model
   never sees it and the prompt prefix stays the same across steps and turns.
 - **State.** `threads.json` may be shared by several bridges (a workflow run starts its own core on the same state

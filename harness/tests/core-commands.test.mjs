@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { SessionGrants, applyPermissions } from '../packages/codex-app-server/src/approval.js'
 import { commandLine, commandResult, executeCommand, listedCommands, requireCommandPermission } from '../packages/codex-app-server/src/commands.js'
 
-test('the core\'s commands are listed, except the ones Code Desktop drives itself', () => {
+test('the core\'s commands are listed, except the ones OpenClaude Desktop drives itself', () => {
   const rows = listedCommands([
     { name: 'compact', description: 'Compact the conversation' },
     { name: 'feedback', description: 'Send feedback' },

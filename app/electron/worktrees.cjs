@@ -28,7 +28,7 @@ async function excludeWorktreeRoot(run, repoCwd, base) {
   try { text = fs.readFileSync(exclude, "utf8"); } catch {}
   if (text.split(/\r?\n/).some((line) => line.trim() === pattern)) return pattern;
   fs.mkdirSync(path.dirname(exclude), { recursive: true });
-  fs.appendFileSync(exclude, `${text && !text.endsWith("\n") ? "\n" : ""}# Code Desktop worktrees\n${pattern}\n`);
+  fs.appendFileSync(exclude, `${text && !text.endsWith("\n") ? "\n" : ""}# OpenClaude Desktop worktrees\n${pattern}\n`);
   return pattern;
 }
 

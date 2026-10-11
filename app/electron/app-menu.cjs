@@ -11,7 +11,7 @@ const { t, getLocale } = require("./i18n/index.mjs");
 // Electron names label-less role items in English; other locales name them
 // explicitly (en-US keeps the native role labels).
 const roleLabel = (text, values) => getLocale() === "en-US" ? {} : { label: t(text, values) };
-const APP_NAME = "Code Desktop";
+const APP_NAME = "OpenClaude Desktop";
 const SEPARATOR = Object.freeze({ type: "separator" });
 // RZ(e, dispatch, "cmd"): when a menu item fires through its own accelerator
 // with ⌘ held, the chord reached the menu because the page did not take it
@@ -28,7 +28,7 @@ const splitDispatch = (emit, command) => (_item, window, event) => { if (!render
 // no local updater.
 function appSubmenu(emit) {
   return {
-    label: "Code Desktop",
+    label: "OpenClaude Desktop",
     submenu: [
       { role: "about", ...roleLabel("About {appName}", { appName: APP_NAME }) },
       SEPARATOR,

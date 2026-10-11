@@ -1,4 +1,4 @@
-// Computer use in the transcript (source-computer-use.jsx). A core reports a step either as Code Desktop's own
+// Computer use in the transcript (source-computer-use.jsx). A core reports a step either as OpenClaude Desktop's own
 // item {type: "computerUse", id, status, action, screenshot?, app?, display?} (bridges emit this when their
 // agent controls the computer), or as an ordinary tool call in one of the shapes agents use:
 //   Anthropic computer tool   name "computer", {action: "left_click", coordinate: [x, y], text?, scroll_direction?, …}

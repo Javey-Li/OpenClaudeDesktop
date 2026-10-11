@@ -7,7 +7,7 @@ import { fillComposer } from "./composer-test-helpers.mjs";
 // Dynamic workflows configuration and behavior, modeled on Claude Code 2.1.280, on the isolated Codex protocol
 // fixture: Settings › Code › Dynamic workflows (layout in light, dark and narrow; Advanced collapsed by default; a
 // numeric row saves and clears), the "ultracode" keyword (highlight, notice, alt+w, the turn's hidden reminder),
-// ultracode mode (xhigh + its standing reminder, on/off) and a model-started run through Code Desktop's Workflow tool
+// ultracode mode (xhigh + its standing reminder, on/off) and a model-started run through OpenClaude Desktop's Workflow tool
 // (agent-tools MCP server → approval → background run → <task-notification> back to the model as a new turn).
 // Never opens user sessions, writes the clipboard or shows native dialogs (the approval sheet is stubbed in main).
 const project = path.resolve(import.meta.dirname, "../..");
@@ -71,7 +71,7 @@ try {
   assert.equal((await allRowIds()).indexOf("dynamicWorkflows"), (await allRowIds()).indexOf("bypass") + 1, "right after Bypass");
   assert.deepEqual(await rowIds(), ["dynamicWorkflows", "workflowEngine", "workflowKeywordTrigger", "workflowSizeGuideline", "workflowAdvanced"], "uncrowded: Advanced collapsed by default");
   assert.equal(await group.getByRole("switch", { name: "Dynamic workflows", exact: true }).getAttribute("aria-checked"), "true", "on by default");
-  assert.match(await group.locator('[data-setting-id="workflowEngine"]').textContent(), /no workflow engine of its own, so Code Desktop runs its workflows/);
+  assert.match(await group.locator('[data-setting-id="workflowEngine"]').textContent(), /no workflow engine of its own, so OpenClaude Desktop runs its workflows/);
   assert.equal(await group.getByRole("switch", { name: "Ultracode keyword trigger", exact: true }).getAttribute("aria-checked"), "true");
   assert.equal(await group.getByRole("combobox", { name: "Dynamic workflow size", exact: true }).getAttribute("data-value"), "medium");
   const advanced = group.getByRole("button", { name: "Advanced", exact: true });
@@ -176,7 +176,7 @@ try {
   await poll(async () => { if (!(await workflowCard.count())) return true; await new Promise((resolve) => setTimeout(resolve, 500)); await workflowCard.locator('[data-approval-action="accept"]').click({ timeout: 2000 }).catch(() => {}); return false; }, "workflow card answered");
   await idle();
   const listed = await poll(async () => (await requests()).find((entry) => entry.method === "mcp:tools/list"), "tools/list");
-  assert.ok(listed.params.tools.includes("Workflow"), "Code Desktop's Workflow tool is listed");
+  assert.ok(listed.params.tools.includes("Workflow"), "OpenClaude Desktop's Workflow tool is listed");
   assert.match(listed.params.workflowDescription, /ONLY when the user has explicitly opted into multi-agent orchestration/);
   const called = await poll(async () => (await requests()).find((entry) => entry.method === "mcp:tools/call"), "tools/call");
   metrics.launchText = called.params.result.content[0].text;

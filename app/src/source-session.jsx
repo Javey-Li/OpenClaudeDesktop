@@ -110,7 +110,7 @@ import { formatTokenCount } from "./usage-cost-model.mjs";
 // Source chain and deliberate Codex adaptations: analysis/source-session-batch1.md.
 const desktopCall = (action, params) =>
   window.desktop?.call(action, params) ??
-  Promise.reject(new Error(t("Open Code Desktop to connect to DeepSeek.")));
+  Promise.reject(new Error(t("Open OpenClaude Desktop to connect to DeepSeek.")));
 const basename = (path = "") =>
   path.split(/[\\/]/).filter(Boolean).at(-1) || t("Files");
 const textOf = (value) =>
@@ -755,12 +755,12 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
   if (computerUseAction(item))
     return <SourceComputerUseStep item={item} state={commandRowState(item, pendingApprovalItemIds.has(item.id))} Step={SourceStep} stepProps={stepDefaults} inToolGroup={inToolGroup} />;
   // `present` (the DeepSeek core's deliverables): file cards instead of a tool row.
-  // mark_chapter (Code Desktop's agent tools): the chapter heading, lifted out of the tool rows (cd5a31703 d2).
+  // mark_chapter (OpenClaude Desktop's agent tools): the chapter heading, lifted out of the tool rows (cd5a31703 d2).
   const chapter = chapterOf(item);
   if (chapter) return <h2 className="source-message source-chapter" data-transcript-item-id={item.id} data-chapter="" id={`chapter-${item.id}`}
     title={chapter.summary || undefined}>{chapter.title}</h2>;
   if (itemDeliverables(item)) return <SourceDeliverables item={item} sessionKey={sessionKey} failed={item.status === "failed" || item.success === false} />;
-  // A finished ReportFindings call (Code Desktop's agent tools) reads as the review it reported, like a review mode's
+  // A finished ReportFindings call (OpenClaude Desktop's agent tools) reads as the review it reported, like a review mode's
   // Review result (exitedReviewMode below); its findings also drive the Changes pane's findings bar.
   const reported = reportedFindings(item, cwd);
   if (reported)

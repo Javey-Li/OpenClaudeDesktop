@@ -1,7 +1,7 @@
 // Codex's own sidebar organization (app-server threadSection/list|create|update|delete and thread/section/move,
-// stable in 0.155.1; every Thread carries section and sectionEnteredAt), kept in step with Code Desktop's pins and
-// custom groups while Codex runs, so organizing chats in the Codex app/CLI or in Code Desktop shows in both.
-// The built-in section named "Pinned" is Code Desktop's pin; every other section is a custom group (codexSectionId).
+// stable in 0.155.1; every Thread carries section and sectionEnteredAt), kept in step with OpenClaude Desktop's pins and
+// custom groups while Codex runs, so organizing chats in the Codex app/CLI or in OpenClaude Desktop shows in both.
+// The built-in section named "Pinned" is OpenClaude Desktop's pin; every other section is a custom group (codexSectionId).
 // Cores without sections keep the local store alone.
 const crypto = require("node:crypto");
 

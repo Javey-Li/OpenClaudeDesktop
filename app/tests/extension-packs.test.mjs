@@ -13,7 +13,7 @@ const { createCoreManager } = require("../electron/core-manager.cjs");
 function makePack(dir, { core = {}, version = "1.0.0", script = "bridge/bin/app-server.mjs", extra } = {}) {
   fs.mkdirSync(path.join(dir, path.dirname(script)), { recursive: true });
   fs.writeFileSync(path.join(dir, script), "#!/usr/bin/env node\n");
-  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ format: 1, version, description: "Kimi Code for Code Desktop",
+  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ format: 1, version, description: "Kimi Code for OpenClaude Desktop",
     core: { id: "kimi", name: "Kimi Code", vendor: "Moonshot", engine: "kimi", kind: "bridge", models: "Kimi models", bridge: { script },
       implies: { customization: true, toolSelection: true, bogus: "yes" }, agent: { binary: "kimi", release: { type: "tgz" } }, ...core }, ...extra }));
   return dir;
@@ -69,7 +69,7 @@ test("bad packs are refused with a reason", async () => {
   await assert.rejects(packs.inspect(makePack(path.join(root, "deepseek"), { core: { id: "deepseek" } })), /built-in core/);
   await assert.rejects(packs.inspect(makePack(path.join(root, "bad-id"), { core: { id: "Bad Id" } })), /core id/);
   await assert.rejects(packs.inspect(makePack(path.join(root, "escape"), { core: { bridge: { script: "../outside.mjs" } } })), /bridge script is missing/);
-  await assert.rejects(packs.inspect(makePack(path.join(root, "future"), { extra: { format: 2 } })), /newer Code Desktop/);
+  await assert.rejects(packs.inspect(makePack(path.join(root, "future"), { extra: { format: 2 } })), /newer OpenClaude Desktop/);
   const linked = makePack(path.join(root, "linked"));
   fs.symlinkSync("/etc/hosts", path.join(linked, "hosts"));
   await assert.rejects(packs.inspect(linked), /symbolic links/);
@@ -120,7 +120,7 @@ test("agent.systemPaths can't point into the app's data folder or the pack, so a
     ["cores", path.join(data, "cores/evil/1.0.0/agent.mjs")],
     ["dotdot", path.join(data, "elsewhere/../extensions/evil/bin/agent.mjs")],
     ["case", path.join(data, "EXTENSIONS/evil/bin/agent.mjs").replace(path.basename(data), path.basename(data).toUpperCase())],
-    ["default", "~/Library/Application Support/Code Desktop/extensions/evil/bin/agent.mjs"],
+    ["default", "~/Library/Application Support/OpenClaude Desktop/extensions/evil/bin/agent.mjs"],
   ]) await assert.rejects(packs.inspect(shipped(makePack(path.join(root, `evil-${name}`), { core: native(["/usr/local/bin/evil", entry]) }))), /systemPaths can’t point into/, name);
   const own = shipped(makePack(path.join(root, "evil-own"), { core: native([]) }));
   assert.equal(validatePack(own, { dataDir: data }).core.agent.systemPaths, undefined, "control: an empty list is just dropped");
@@ -258,7 +258,7 @@ test("Codex is a bundled pack: offered until added, added like any pack, and a c
   assert.equal(coreById("codex"), null, "not a built-in core");
   assert.equal(offeredCores().some((core) => core.id === "codex"), false);
   const [offer] = packs.bundled();
-  assert.deepEqual([offer.id, offer.name, offer.vendor, offer.version], ["codex", "Codex", "OpenAI", "0.155.1"]);
+  assert.deepEqual([offer.id, offer.name, offer.vendor, offer.version], ["codex", "Codex", "OpenAI", "0.162.1"]);
   // The pack keeps every fact the Codex descriptor had: word and list capabilities, its home, sign-in and release.
   const { core } = validatePack(offer.path);
   assert.deepEqual([core.kind, core.engine, core.home, core.implies.reviewReadOnly, core.implies.sandboxNetwork, core.implies.nativeTools],
@@ -268,7 +268,7 @@ test("Codex is a bundled pack: offered until added, added like any pack, and a c
   // A choice of Codex made before it became a pack: added without asking.
   config.core = "codex";
   assert.equal(await packs.installBundled("codex"), true);
-  assert.equal(coreById("codex").pack.version, "0.155.1");
+  assert.equal(coreById("codex").pack.version, "0.162.1");
   assert.ok(fs.existsSync(path.join(data, "extensions/codex/manifest.json")));
   assert.deepEqual(packs.bundled(), [], "an added pack is no longer offered");
   assert.equal(await packs.installBundled("codex"), false, "already added");
@@ -276,4 +276,16 @@ test("Codex is a bundled pack: offered until added, added like any pack, and a c
   // Removing it falls back to DeepSeek, and it's offered again.
   packs.remove("codex");
   assert.deepEqual([config.core, coreById("codex"), packs.bundled().map((entry) => entry.id)], ["deepseek", null, ["codex"]]);
+});
+
+test("a bundled pack added from an older OpenClaude Desktop is replaced by the app's newer copy", async () => {
+  const { data, packs } = setup();
+  assert.equal(await packs.installBundled("codex"), true);
+  assert.deepEqual(await packs.upgradeBundled(), [], "the same version stays");
+  const file = path.join(data, "extensions/codex/manifest.json");
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/"version": "[^"]+"/, '"version": "0.155.1"'));
+  packs.load();
+  assert.equal(coreById("codex").pack.version, "0.155.1");
+  assert.deepEqual(await packs.upgradeBundled(), ["codex"]);
+  assert.equal(coreById("codex").pack.version, "0.162.1");
 });

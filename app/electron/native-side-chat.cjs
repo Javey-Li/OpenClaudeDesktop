@@ -47,11 +47,12 @@ const boundaryItem = () => ({ type: "message", role: "user", content: [{ type: "
 
 /**
  * @param {{getClient: () => any, emit: (event: object) => void, settings?: () => {model?: string|null, effort?: string|null, serviceTier?: string|null},
- *   decorateFork?: (params: object, parentId: string, owner: any) => object}} options
- *   decorateFork: the thread/fork params as the app sends them (main.cjs: Code Desktop's own tools act for the parent
+ *   decorateFork?: (params: object, parentId: string, owner: any) => object, customPrompt?: () => boolean}} options
+ *   customPrompt: the user's global instructions are the whole prompt; the side chat then sends no text of its own
+ *   decorateFork: the thread/fork params as the app sends them (main.cjs: OpenClaude Desktop's own tools act for the parent
  *   session, its read-only ones only, with that session's own credential).
  */
-function createNativeSideChat({ getClient, emit, settings = () => ({}), decorateFork = (params) => params }) {
+function createNativeSideChat({ getClient, emit, settings = () => ({}), decorateFork = (params) => params, customPrompt = () => false }) {
   const forks = new Map(); // parent thread id → {forkId, owner}
   const forkParents = new Map(); // fork id → parent thread id
   const requests = new Map(); // requestId → {parentId, forkId, owner, turnId, text, done, resolve, reject}
@@ -86,13 +87,14 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     forking.set(parentId, (forking.get(parentId) ?? 0) + 1);
     let params = {
       threadId: parentId, ephemeral: true, excludeTurns: true,
-      developerInstructions: SIDE_DEVELOPER_INSTRUCTIONS,
+      // The user's own prompt is the whole prompt (Settings › Instructions): no side-chat instructions of ours.
+      ...(customPrompt() ? {} : { developerInstructions: SIDE_DEVELOPER_INSTRUCTIONS }),
       approvalPolicy: "never", sandbox: "read-only",
       ...(typeof model === "string" && model ? { model } : {}),
       ...(typeof serviceTier === "string" && serviceTier ? { serviceTier } : {}),
       ...(typeof effort === "string" && effort ? { config: { model_reasoning_effort: effort } } : {}),
     };
-    try { params = decorateFork(params, parentId, owner) ?? params; } catch { /* undecorated: Code Desktop's tools refuse */ }
+    try { params = decorateFork(params, parentId, owner) ?? params; } catch { /* undecorated: OpenClaude Desktop's tools refuse */ }
     const response = await owner.request("thread/fork", params).finally(() => { const left = (forking.get(parentId) ?? 1) - 1; if (left > 0) forking.set(parentId, left); else forking.delete(parentId); });
     const forkId = response?.thread?.id;
     if (typeof forkId !== "string" || !forkId) throw new Error(i18n.t("The side conversation couldn’t start."));
@@ -116,7 +118,7 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     if (!Array.isArray(params.history) || params.history.length === 0) drop(parentId);
     const forkId = await fork(owner, parentId);
     const fresh = forks.get(parentId);
-    const text = fresh?.boundaryPending ? `${SIDE_BOUNDARY_PROMPT}\n\n${question}` : question;
+    const text = fresh?.boundaryPending && !customPrompt() ? `${SIDE_BOUNDARY_PROMPT}\n\n${question}` : question;
     if (fresh) fresh.boundaryPending = false;
     return await new Promise((resolve, reject) => {
       const request = { parentId, forkId, owner, turnId: null, text: "", done: false, resolve, reject };

@@ -30,7 +30,7 @@ process.once('message',async options=>{
   await fs.writeFile(path.join(options.directory,'result.json'),'',{mode:0o600,flush:true});
   const journal=new Journal(path.join(options.directory,'journal.jsonl'),{reuse:options.resume});await journal.load();
   // commandArgs: the core's arguments (the DeepSeek bridge script + app-server --stdio); absent = the runner's Codex default.
-  const clientOptions={command:options.command,...(Array.isArray(options.commandArgs)?{args:options.commandArgs}:{}),clientInfo:{name:'code-desktop-workflows',title:'Code Desktop',version:options.version}};
+  const clientOptions={command:options.command,...(Array.isArray(options.commandArgs)?{args:options.commandArgs}:{}),clientInfo:{name:'code-desktop-workflows',title:'OpenClaude Desktop',version:options.version}};
   if(!options.plan){
    const client=await getClient(clientOptions);send({type:'connection',pid:client.pid});
    const hosted=await runHarnessWorkflow(client,options,send,value=>{runtime=value;if(typeof value?.pause!=='function')send({type:'pausable',pausable:false});});
@@ -73,7 +73,7 @@ process.once('message',async options=>{
    onAgentPlan:agent=>send({type:'plan-agent',...agent}),
    // workflow('name') resolves like the Workflow tool's name (Claude Code): a saved workflow's meta.name in the project's
    // .claude/workflows (up to the git root, nearest wins) or ~/.claude/workflows, with Claude's "Available: …" error.
-   // CLAUDE_WORKFLOW_NAME_ONLY: only bundled workflows (none in Code Desktop) and no workflow({scriptPath}).
+   // CLAUDE_WORKFLOW_NAME_ONLY: only bundled workflows (none in OpenClaude Desktop) and no workflow({scriptPath}).
    ...(nameOnly?{allowScriptPath:false,scriptPathRefusal:NAME_ONLY_SCRIPT_PATH}:{}),
    resolveWorkflow:async name=>{const {findSavedWorkflow}=await import('./workflow-tool-model.mjs');const found=findSavedWorkflow({cwd:options.cwd,home:os.homedir(),name,nameOnly,folders:Array.isArray(options.workflowFolders)?options.workflowFolders:[]});if(!found.workflow)throw new Error(`workflow('${name}'): no workflow with that name. ${found.error.replace(/^Workflow "[^"]*" not found\. /,'')}`);return found.workflow.filePath;},
   });

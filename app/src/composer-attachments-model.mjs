@@ -269,7 +269,7 @@ const hasNote = (content) => Array.isArray(content) && content.some((part) => pa
 // user's words: the reminders are dropped from what the app shows, and a notification turn becomes a system notice
 // (item.workflowNotification {status, summary}) with no user text.
 const hasReminder = (content) => Array.isArray(content) && content.some((part) => part?.type === "text" && typeof part.text === "string" && part.text.includes("<system-reminder>"));
-// A prompt Code Desktop's scheduler fired (electron/schedule-service.cjs firedText) carries this note: the bubble gets
+// A prompt OpenClaude Desktop's scheduler fired (electron/schedule-service.cjs firedText) carries this note: the bubble gets
 // Claude's 'Scheduled prompt · {time}' row (codeDesktop.origin, as the MiMo bridge marks its own cron fires).
 const SCHEDULED_NOTE = /<system-reminder>\nThis prompt was scheduled with CronCreate \(job ([0-9a-f]{1,32})[^)\n]*\) and fired at (\S+)\. It is not a new message from the user\.\n<\/system-reminder>/;
 export function scheduledOrigin(content) {

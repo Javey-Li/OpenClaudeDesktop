@@ -656,7 +656,7 @@ test('seatbelt profiles and the shell wrapper confine commands (fails closed)', 
 
 // ------------------------------------------------------------------ plugin
 
-test('the generated plugin: custom prompt replaces (catalogs kept), model params, sandbox env, prompt capture', async () => {
+test('the generated plugin: custom prompt replaces everything (no catalogs), model params, sandbox env, prompt capture', async () => {
   const state = tmp()
   fs.mkdirSync(path.join(state, 'runtime/sessions'), { recursive: true })
   fs.writeFileSync(path.join(state, 'runtime/sessions/ses_1.json'), JSON.stringify({ root: 'ses_1', cwd: '/w', systemPrompt: 'MINE for {{model}} at {{cwd}} {{unknown}}', instructions: 'PROJECT', modelParams: { 'p/m': { temperature: 0.2, maxTokens: 999 } }, sandbox: { mode: 'workspace-write', roots: ['/w'], network: false } }))
@@ -669,9 +669,7 @@ test('the generated plugin: custom prompt replaces (catalogs kept), model params
   await hooks['experimental.chat.system.transform']({ sessionID: 'ses_1', model: { id: 'm', providerID: 'p' } }, output)
   assert.equal(output.system.length, 2)
   assert.match(output.system[0], /^MINE for m at \/w \{\{unknown\}\}/)
-  assert.match(output.system[0], /<mcp_instructions>/)
-  assert.match(output.system[0], /Skills provide specialized instructions/)
-  assert.doesNotMatch(output.system[0], /You are OpenCode|<env>/)
+  assert.doesNotMatch(output.system[0], /You are OpenCode|<env>|<mcp_instructions>|Skills provide specialized instructions/)
   assert.equal(output.system[1], 'PROJECT')
   const captured = JSON.parse(fs.readFileSync(path.join(state, 'runtime/prompts/ses_1.json'), 'utf8'))
   assert.match(captured.default[0], /You are OpenCode/)

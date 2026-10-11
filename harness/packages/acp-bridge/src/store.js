@@ -3,7 +3,7 @@
  *
  *   index.json            thread id (= ACP session id) → metadata: cwd, name,
  *                         archived, deleted, created/updated, model, effort,
- *                         lineage, the thread's Code Desktop settings
+ *                         lineage, the thread's OpenClaude Desktop settings
  *                         (permission, tools, customization)
  *   threads/<id>.json     the thread's Codex turns as the bridge projected them
  *                         (history after a restart without replaying the agent)

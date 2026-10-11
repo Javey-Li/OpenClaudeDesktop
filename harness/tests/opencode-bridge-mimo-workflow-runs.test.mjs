@@ -1,6 +1,6 @@
 // MiMo workflow runs that outlive their call (work/agents/sources/mimo/packages/opencode/src/tool/workflow.ts async: true,
 // operation 'resume'; workflow/runtime.ts resume; server/routes/instance/workflows.ts list / resume / transcript): their
-// card follows MiMo's own run list, a failed or stopped run resumes from Code Desktop (codeDesktop/workflow/resume), a
+// card follows MiMo's own run list, a failed or stopped run resumes from OpenClaude Desktop (codeDesktop/workflow/resume), a
 // background run stops through MiMo's own cancel, and /deep-research runs MiMo's command, not its same-named skill.
 import test from 'node:test'
 import assert from 'node:assert/strict'

@@ -1,9 +1,9 @@
 /**
  * Harness user questions ↔ Codex `item/tool/requestUserInput`, and the Plan
- * mode that Code Desktop selects through its permission menu.
+ * mode that OpenClaude Desktop selects through its permission menu.
  *
  *   AskUserQuestionItem            → ToolRequestUserInputQuestion (free text always allowed;
- *                                  multiSelect is a Code Desktop extension field)
+ *                                  multiSelect is an OpenClaude Desktop extension field)
  *   ToolRequestUserInputResponse   → AskUserQuestionAnswer ({id, selected, custom?})
  *   exit_plan_mode's plan review   a question with intent 'plan-review'; the plan
  *                                  itself renders as a Codex `plan` item (projection.js)
@@ -93,7 +93,7 @@ export function questionFailure(aborted, cause) {
 }
 
 /**
- * Code Desktop's mode hint (`codeDesktop: {permissionMode, afterPlan}` on
+ * OpenClaude Desktop's mode hint (`codeDesktop: {permissionMode, afterPlan}` on
  * thread/start, thread/resume and turn/start). Only the app's DeepSeek mode
  * sends it; without one the bridge leaves Harness plan mode alone.
  * @returns {{mode: string, afterPlan: 'auto' | 'ask' | 'acceptEdits' | 'bypass'} | null}
@@ -105,7 +105,7 @@ export function permissionHint(params) {
 }
 
 /**
- * The mode an approved plan continues in. Code Desktop's plan card names it on
+ * The mode an approved plan continues in. OpenClaude Desktop's plan card names it on
  * the response (`codeDesktop: {afterPlan}`: Accept → 'ask', its primary → the
  * mode used before Plan, or a 'More accept options' row); that choice wins over
  * the turn hint. Bypass is taken only from the response ('Accept and bypass

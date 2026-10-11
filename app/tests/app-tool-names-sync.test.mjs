@@ -1,4 +1,4 @@
-// The ACP bridge's APP_TOOL_NAMES (harness/packages/acp-bridge/src/app-tools.js) copies the tool names Code Desktop's
+// The ACP bridge's APP_TOOL_NAMES (harness/packages/acp-bridge/src/app-tools.js) copies the tool names OpenClaude Desktop's
 // agent tools serve: Gemini's Plan Mode policy and Qwen's up-front tools name them one by one, so a tool added here
 // and not there would be listed but refused in those modes. The two lists must match.
 import test from 'node:test';

@@ -1,6 +1,6 @@
 /**
  * Codex app-server compatible JSON-RPC on stdio, served from inside a DeepSeek
- * Harness runtime. Code Desktop speaks the Codex v2 protocol it was built for;
+ * Harness runtime. OpenClaude Desktop speaks the Codex v2 protocol it was built for;
  * this plugin answers with Harness agents, sessions, streaming, tools and
  * approvals.
  *
@@ -94,7 +94,7 @@ import { attachDeveloperInstructions, attachStructuredOutput, developerInstructi
 import { createCustomRef, applyCustomization, installCustomization } from './customization.js'
 import { installToolGate, isToolDenied, toolSelectionOf, toolsListResponse } from './tool-gate.js'
 import { normalizeInstructions as normalizeCustomInstructions } from './instructions.js'
-import { previewCustom, systemPromptPreview } from './system-prompt.js'
+import { installSubagentSystemPrompt, previewCustom, systemPromptPreview } from './system-prompt.js'
 import { profileReadResponse } from './profile.js'
 import { runSideQuestion, sessionTranscript, sideQuestionPrompt } from './side-question.js'
 import { ALIASES as PRICE_ALIASES, DEEPSEEK_PRICES, PEAK_WINDOWS, PRICING_URL } from './pricing.js'
@@ -141,7 +141,7 @@ const DSH_VERSION = '0.2.0-rc.2'
 // nor are review/start (review.js: a read-only review turn) and thread/revert (rewind.js: the turns after the cut leave
 // the model's view and the transcript; files stay as they are, so no rewindFiles).
 // reviewReadOnly 'noEdits': a review turn runs under the read-only preset with every escalation refused.
-// subAgentMessages: turn/start / turn/steer on a continuable sub-agent's id reach its inbox (Code Desktop's agent panel composer).
+// subAgentMessages: turn/start / turn/steer on a continuable sub-agent's id reach its inbox (OpenClaude Desktop's agent panel composer).
 // messageFeedback: codeDesktop/messageFeedback/list|put|delete (dsh-message-feedback, Good / Bad response on replies).
 const CAPABILITIES = { messageFeedback: true, subAgentMessages: true, unsupportedMethods: [], reviewReadOnly: 'noEdits', skillToggle: false, mcpConfigWrite: false, livePermissions: true, toolSelection: true, codeStats: true, modelWorkflows: true, structuredOutput: true, systemPromptPreview: true, coreCommands: true, sideQuestion: true, modelParams: true, sandboxNetwork: 'always', generatesTitles: true }
 
@@ -166,7 +166,7 @@ export function apply(ctx, config) {
   // leaves them out (they are never the user's sessions), and the profile turns their LLM titles off
   // (code-desktop-app/cordis.patch.yml: one paid title request per agent otherwise).
   const runnerRole = process.env.CODE_DESKTOP_WORKFLOW_RUNNER === '1'
-  // Code Desktop's own tools server (app-tools.js): one scoped client per thread's agent, or null.
+  // OpenClaude Desktop's own tools server (app-tools.js): one scoped client per thread's agent, or null.
   const appTools = appToolsServer(process.env)
   // Per-session usage folds for account/usage/read and codeDesktop/stats/read (usage.js), loaded on first use.
   let usageCache
@@ -596,10 +596,23 @@ export function apply(ctx, config) {
       logger.warn(`sub-agent start ${info?.id}: ${errorChain(error)}`)
     }
   })
-  // Sub-agents (at any depth) of a live root thread get Code Desktop's tools too, named by the root thread: they act
+  // Sub-agents (at any depth) of a live root thread get OpenClaude Desktop's tools too, named by the root thread: they act
   // on the session the user sees (its preview and terminals), as Claude Code's sub-agents inherit the session's MCP
   // tools. They borrow the root's client (app-tools.js shareAppTools): a 16-agent workflow starts no server of its own.
   // Workflows are one level deep: a sub-agent's Workflow call is refused at pre-execute.
+  // Sub-agents of a thread with a custom system prompt get it too (system-prompt.js installSubagentSystemPrompt).
+  const promptAgents = new WeakSet()
+  ctx.on('agent/created', ({ agent }) => {
+    try {
+      if (!agent?.ctx || promptAgents.has(agent) || agent.session?.header?.origin !== 'subagent') return
+      const root = rootThreadFor(agent, threads, headerOf)
+      if (!root?.custom) return
+      promptAgents.add(agent)
+      installSubagentSystemPrompt(agent.ctx, root.custom)
+    } catch (error) {
+      logger.warn(`sub-agent system prompt ${agent?.id}: ${errorChain(error)}`)
+    }
+  })
   const appToolAgents = new WeakSet()
   ctx.on('agent/created', ({ agent }) => {
     try {
@@ -763,7 +776,7 @@ export function apply(ctx, config) {
     const jobs = ctx.get('jobs')
     if (!jobs || !holder?.projector?.jobs?.has(jobId)) return false
     try {
-      return jobs.kill(jobId, holder.id, 'Stopped from Code Desktop') === 'requested'
+      return jobs.kill(jobId, holder.id, 'Stopped from OpenClaude Desktop') === 'requested'
     } catch (error) {
       logger.warn(`background terminal stop ${jobId}: ${errorChain(error)}`)
       return false
@@ -860,7 +873,7 @@ export function apply(ctx, config) {
     // A tool the session turned off (tool-gate.js): the session's own agent never sees it, and a
     // sub-agent's call is refused here on its root thread's selection.
     const owner = thread ?? rootThreadFor(exec.agent, threads, headerOf)
-    if (owner && isToolDenied(exec.name, owner.tools?.current)) return Promise.resolve({ kind: 'deny', reason: 'This tool is turned off for this session in Code Desktop.' })
+    if (owner && isToolDenied(exec.name, owner.tools?.current)) return Promise.resolve({ kind: 'deny', reason: 'This tool is turned off for this session in OpenClaude Desktop.' })
     if (!thread && exec.name === 'mcp__code_desktop__Workflow') return Promise.resolve({ kind: 'deny', reason: 'A sub-agent can’t start a dynamic workflow. Report back to the main agent instead.' })
     if (!thread) {
       const root = rootThreadFor(exec.agent, threads, headerOf)
@@ -874,7 +887,7 @@ export function apply(ctx, config) {
       return acceptsEdit({ permission: root.permission, toolName: exec.name, args: parseArguments(exec.arguments), cwd, root: root.cwd })
         .catch(() => false).then((accepted) => (accepted ? next() : ask()))
     }
-    // A model workflow (DeepSeek's own engine) asks once per run in every mode but Bypass: Code Desktop's "Run a dynamic
+    // A model workflow (DeepSeek's own engine) asks once per run in every mode but Bypass: OpenClaude Desktop's "Run a dynamic
     // workflow?" card, as its own engine and ZCode's do, never the Ask-mode command card with the raw JSON.
     if (isWorkflowTool(exec.name)) return next().then((decision) => {
       if (decision !== undefined && decision.kind !== 'allow' && decision.kind !== 'ask') return decision
@@ -1148,7 +1161,7 @@ export function apply(ctx, config) {
     thread.hydrate(events)
     await applyPermissions(thread, params)
     try { await ctx.sessions.flush(thread.agent.session) } catch {}
-    // The thread's first step (a turn/start right after this answer) sees Code Desktop's tools and instructions.
+    // The thread's first step (a turn/start right after this answer) sees OpenClaude Desktop's tools and instructions.
     await thread.appToolsReady
     return thread
   }
@@ -1213,7 +1226,7 @@ export function apply(ctx, config) {
       // The response carries the result: jobs this process no longer runs end in it.
       syncJobs(thread, { quiet: true })
       // A reopened thread's first step (a Cron prompt, a Monitor event or a <task-notification> after the user left
-      // it) sees Code Desktop's tools and instructions, as a new thread's does.
+      // it) sees OpenClaude Desktop's tools and instructions, as a new thread's does.
       await thread.appToolsReady
       return thread
     })().finally(() => opening.delete(threadId))
@@ -1758,7 +1771,7 @@ export function apply(ctx, config) {
   }
 
   /**
-   * Every Harness session except the ones Code Desktop removed, folded by usage.js.
+   * Every Harness session except the ones OpenClaude Desktop removed, folded by usage.js.
    * The home card, its stats and Settings › Usage may ask together: one fold serves all.
    */
   function readUsageSummaries() {
@@ -1801,7 +1814,7 @@ export function apply(ctx, config) {
   // ------------------------------------------------------------- dispatcher
 
   async function handle(method, params) {
-    if (closed) throw new RpcError(-32000, 'Code Desktop core is shutting down.')
+    if (closed) throw new RpcError(-32000, 'OpenClaude Desktop core is shutting down.')
     switch (method) {
       case 'initialize': {
         clientReady = true
@@ -1989,7 +2002,7 @@ export function apply(ctx, config) {
       case 'thread/name/set': {
         const id = requireId(params.threadId)
         const nameValue = typeof params.name === 'string' ? params.name.trim() : ''
-        // A cleared name only drops Code Desktop's override: the Harness title (the agent's own or an earlier rename)
+        // A cleared name only drops OpenClaude Desktop's override: the Harness title (the agent's own or an earlier rename)
         // stays in the session log and shows again.
         const named = nameValue ? await renameSession(id, nameValue) : null
         store.update(id, { name: named })
@@ -2300,7 +2313,7 @@ export function apply(ctx, config) {
     if (run.jobId) {
       const jobs = ctx.get('jobs')
       if (!jobs) throw new RpcError(-32000, 'Background jobs are not available in this Harness profile.')
-      return { status: jobs.kill(run.jobId, thread.id, 'Stopped from Code Desktop') === 'requested' ? 'stopping' : 'alreadyFinished' }
+      return { status: jobs.kill(run.jobId, thread.id, 'Stopped from OpenClaude Desktop') === 'requested' ? 'stopping' : 'alreadyFinished' }
     }
     if (item.status !== 'inProgress') return { status: 'alreadyFinished' }
     for (const pending of thread.pendingApprovals.values()) pending.abort('Turn interrupted.')
@@ -2356,7 +2369,7 @@ export function apply(ctx, config) {
   /**
    * thread/name/set: the rename is appended to the session log as a user-owned session/title (what the official
    * app's session controller does), so the DeepSeek app, `dsh web` and the session index show it too. A session not
-   * loaded here is opened for the rename and closed again; one open in another app keeps Code Desktop's name only.
+   * loaded here is opened for the rename and closed again; one open in another app keeps OpenClaude Desktop's name only.
    * Returns the title Harness accepted (normalized, possibly shortened); an empty one is invalidParams.
    */
   async function renameSession(id, name) {
@@ -2376,7 +2389,7 @@ export function apply(ctx, config) {
     let thread
     try { thread = await openThread(id) } catch (error) {
       if (error?.data?.codexErrorInfo === 'sessionBusyElsewhere' || isThreadNotFound(error)) {
-        logger.warn(`rename of ${id} kept in Code Desktop only: ${errorChain(error)}`)
+        logger.warn(`rename of ${id} kept in OpenClaude Desktop only: ${errorChain(error)}`)
         return name
       }
       throw error
@@ -2477,7 +2490,7 @@ export function apply(ctx, config) {
     const live = [...threads.values()]
     threads.clear()
     children.clear()
-    quiescing = Promise.allSettled([workflowExecutions.dispose(), ...live.map((thread) => thread.close('Code Desktop core stopped.')), ...unloading.values()]).then(() => undefined)
+    quiescing = Promise.allSettled([workflowExecutions.dispose(), ...live.map((thread) => thread.close('OpenClaude Desktop core stopped.')), ...unloading.values()]).then(() => undefined)
     return quiescing
   }
 

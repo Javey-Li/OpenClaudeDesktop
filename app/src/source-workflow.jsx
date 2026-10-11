@@ -69,7 +69,7 @@ function MemberControls({agent,onMember}) {
 // /workflows f: agents by state (Claude's filter), applied inside every phase; a phase with none left is hidden.
 const FILTERS=['all','running','done','error','skipped','pending'];
 const filterLabel=value=>({all:t('All agents'),running:t('Running'),done:t('Done'),error:t('Failed'),skipped:t('Skipped'),pending:t('Queued')})[value];
-// onPause(paused): /workflows p (Code Desktop's runner: no new agents start while paused; a model run only when its core
+// onPause(paused): /workflows p (OpenClaude Desktop's runner: no new agents start while paused; a model run only when its core
 // pauses it, run.pauseControls: Qwen). onResume(): a settled model run its core can resume (run.resumable: ZCode's own
 // resume gate). onSave({name,scope,overwrite}): /workflows s (the run's script into .claude/workflows or ~/.claude/workflows).
 export function WorkflowCard({run,onStop,onMember,onPause,onResume,onSave,onArtifact,renderMarkdown,onOpenFile,onSettings,models,warningLimits}) {

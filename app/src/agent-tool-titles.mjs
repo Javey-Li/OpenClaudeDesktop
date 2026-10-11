@@ -1,4 +1,4 @@
-// Friendly transcript titles for Code Desktop's own agent tools (preview, terminal and Workflow: the "code_desktop" MCP
+// Friendly transcript titles for OpenClaude Desktop's own agent tools (preview, terminal and Workflow: the "code_desktop" MCP
 // server every core runs, electron/agent-tools-host.cjs). Preview verbs are the 2.2553.1 ones (shared-5-CGK2eyBT.js hN map: "Starting
 // preview" / "Started preview" / "Couldn’t start preview", …). A core reports a call as an mcpToolCall with
 // server "code_desktop" (Codex, the DeepSeek core, ACP agents), or with the tool prefixed "code_desktop_" (OpenCode).

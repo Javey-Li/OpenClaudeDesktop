@@ -1,5 +1,5 @@
 // PushNotification: Claude Code's tool for telling the user something while they are away — a macOS notification
-// from Code Desktop that opens the session when clicked. It follows Settings › Notifications (the Task complete level
+// from OpenClaude Desktop that opens the session when clicked. It follows Settings › Notifications (the Task complete level
 // and the sound) and is not shown while the app is in front, where the user already sees the transcript.
 //
 // ctx.notifications.send({title, message}) → "sent" | "focused" | "off" | "unsupported" | "unknown"
@@ -18,12 +18,12 @@ export const tools = [
   {
     name: "PushNotification",
     title: "Send notification",
-    description: "Send the user a desktop notification from Code Desktop, e.g. when a long task finishes or you need their input while they may be away from the app. Clicking it opens this session. It follows the user's notification settings and isn't shown while they are looking at the app. Keep the message short (at most 200 characters) and specific; don't notify for routine progress. At most one notification every 10 seconds.",
+    description: "Send the user a desktop notification from OpenClaude Desktop, e.g. when a long task finishes or you need their input while they may be away from the app. Clicking it opens this session. It follows the user's notification settings and isn't shown while they are looking at the app. Keep the message short (at most 200 characters) and specific; don't notify for routine progress. At most one notification every 10 seconds.",
     inputSchema: {
       type: "object",
       properties: {
         message: { type: "string", description: "What to tell the user, at most 200 characters." },
-        title: { type: "string", description: "Optional short title. Default: Code Desktop." },
+        title: { type: "string", description: "Optional short title. Default: OpenClaude Desktop." },
       },
       required: ["message"],
       additionalProperties: false,
@@ -43,9 +43,9 @@ export const tools = [
         if (lastSent.size > 500) lastSent.delete(lastSent.keys().next().value);
         return "Notification sent.";
       }
-      const why = outcome === "focused" ? "the user is looking at Code Desktop right now, so they will see your reply"
+      const why = outcome === "focused" ? "the user is looking at OpenClaude Desktop right now, so they will see your reply"
         : outcome === "off" ? "the user turned these notifications off in Settings"
-          : outcome === "unsupported" ? "this Mac can’t show notifications from Code Desktop" : "this session can’t send notifications";
+          : outcome === "unsupported" ? "this Mac can’t show notifications from OpenClaude Desktop" : "this session can’t send notifications";
       return `Notification not sent: ${why}.`;
     },
   },

@@ -1,13 +1,13 @@
 // WebFetch: Claude Code's tool for reading a web page, for a core that has no way to (Codex with web search turned
-// off, which is how Code Desktop runs it on a custom model endpoint: prefs/codex-provider.mjs web_search="disabled").
+// off, which is how OpenClaude Desktop runs it on a custom model endpoint: prefs/codex-provider.mjs web_search="disabled").
 // Every other core fetches pages itself and lists WebFetch in nativeTools; Codex with web search on reads pages
 // through it (main.cjs agentToolServedToCore).
 //
-// The page is fetched by Code Desktop (ctx.web.fetch: Electron's network stack, the system proxy), outside the core's
+// The page is fetched by OpenClaude Desktop (ctx.web.fetch: Electron's network stack, the system proxy), outside the core's
 // sandbox, so each site asks the user first in the session's approval card (Allow once, or for the rest of the
 // session; Bypass permissions fetches without asking). Every redirect is checked again: a site the user allowed can't
 // hand the fetch to one they didn't. HTML comes back as Markdown, at most MAX_CONTENT characters, with the prompt, so
-// the agent answers from it (Claude Code runs the prompt through a small model; Code Desktop has none of its own).
+// the agent answers from it (Claude Code runs the prompt through a small model; OpenClaude Desktop has none of its own).
 export const group = "web";
 export const native = "WebFetch";
 

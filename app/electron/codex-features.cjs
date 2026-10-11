@@ -6,7 +6,7 @@
 //   confirmed memory/reset.
 // - Beta features (tui /experimental): experimentalFeature/list stage 'beta' with their display name and description,
 //   switched in config.toml features.<name> (config_update.rs build_feature_enabled_edit) and for the running process.
-//   Worktrees and Prevent sleep are left out: Code Desktop has its own (the composer's worktree option, Settings ›
+//   Worktrees and Prevent sleep are left out: OpenClaude Desktop has its own (the composer's worktree option, Settings ›
 //   Code › keep awake).
 // Only names the last listing offered are written.
 const { coreForEngine } = require("./core-registry.mjs");

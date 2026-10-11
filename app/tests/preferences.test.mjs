@@ -104,3 +104,9 @@ test('speeds: every faster tier a model lists, chosen by name, with fastMode kep
   assert.equal(validateServiceTier(catalog, 'sol', 'ultrafast'), 'ultrafast');
   assert.throws(() => validateServiceTier(catalog, 'terra', 'ultrafast'), /not available/);
 });
+test('a model without reasoning levels clears the saved effort instead of failing',()=>{
+  const next=settingsPatch({model:'deepseek-v4-pro',effort:'high'},{model:'glm-5.3',effort:null});
+  assert.equal(next.model,'glm-5.3');
+  assert.equal('effort' in next,false);
+  assert.throws(()=>settingsPatch({}, {effort:5}),/Invalid effort setting/);
+});

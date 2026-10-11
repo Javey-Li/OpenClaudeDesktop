@@ -252,7 +252,7 @@ export function usagePresentation(data, {todayKey, locale, core} = {}) {
 }
 
 /**
- * The tokens Code Desktop counted itself (the Home stats card's object: main.cjs readCodeStats — the core's
+ * The tokens OpenClaude Desktop counted itself (the Home stats card's object: main.cjs readCodeStats — the core's
  * codeDesktop/stats/read or this app's own ledger), for a Usage page whose core reports no daily buckets (a Codex API key
  * or custom endpoint): per day over the last 30 days, newest first, per model, and the total. Null when there is nothing.
  * @param {object | null | undefined} stats - {dailyModelTokens: [{date, tokensByModel}], modelUsage: {model: {inputTokens,…}}}

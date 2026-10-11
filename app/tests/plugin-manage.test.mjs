@@ -21,7 +21,7 @@ before(async () => {
 after(() => server?.close());
 
 const installed = { marketplaces: [{ name: 'deepseek-harness', path: '/profile', interface: { displayName: 'DeepSeek Harness profile' }, plugins: [
-  { id: '@code-desktop/dsh-code-desktop-app', name: '@code-desktop/dsh-code-desktop-app', version: '0.1.0', installed: true, enabled: true, source: { type: 'local' }, interface: { displayName: 'Code Desktop' }, codeDesktop: { removable: false, optional: false, readOnlyReason: 'management-required', loadError: null } },
+  { id: '@code-desktop/dsh-code-desktop-app', name: '@code-desktop/dsh-code-desktop-app', version: '0.1.0', installed: true, enabled: true, source: { type: 'local' }, interface: { displayName: 'OpenClaude Desktop' }, codeDesktop: { removable: false, optional: false, readOnlyReason: 'management-required', loadError: null } },
   { id: 'dsh-plugin-x', name: 'dsh-plugin-x', version: '1.2.3', installed: true, enabled: false, source: { type: 'local' }, interface: { displayName: 'Plugin X' }, codeDesktop: { removable: true, optional: false, readOnlyReason: null, loadError: 'Cannot find module' } },
 ] }] };
 
@@ -42,7 +42,7 @@ test('change results become page outcomes', () => {
   const blocked = pluginChangeOutcome({ changed: false, application: 'failed', stage: 'install', target: 'x', pendingBuilds: ['esbuild'], packageResult: { kind: 'build-blocked', output: 'ERR' } });
   assert.deepEqual([blocked.ok, blocked.message, blocked.pendingBuilds, blocked.output], [false, 'The package needs to run build scripts.', ['esbuild'], 'ERR']);
   assert.match(pluginChangeOutcome({ changed: false, application: 'failed', stage: 'install', target: 'x', error: { code: 'incompatible-version', incompatible: [{ name: 'p', version: '2.0.0' }] } }).message, /does not support .*\(p@2\.0\.0\)/);
-  assert.equal(pluginChangeOutcome({ changed: false, application: 'failed', stage: 'remove', target: 'x', error: { code: 'not-removable' } }).message, 'This plugin is part of Code Desktop and cannot be removed.');
+  assert.equal(pluginChangeOutcome({ changed: false, application: 'failed', stage: 'remove', target: 'x', error: { code: 'not-removable' } }).message, 'This plugin is part of OpenClaude Desktop and cannot be removed.');
   assert.deepEqual(pluginChangeOutcome({ changed: false, application: 'cancelled', stage: 'install', target: 'x' }), { ok: false, cancelled: true, message: 'Installation cancelled.' });
   assert.equal(pluginInstallStatus({ phase: 'installing', attempt: { registry: 'https://registry.npmjs.org/', index: 1, total: 2 } }), 'Installing from https://registry.npmjs.org/ (2/2)…');
   assert.equal(pluginInstallStatus({ phase: 'applying' }), 'Applying…');

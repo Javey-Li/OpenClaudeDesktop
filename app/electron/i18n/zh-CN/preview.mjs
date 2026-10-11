@@ -61,7 +61,7 @@ export default {
   "Dev server logs · {name}": "开发服务器日志 · {name}",
   "Close dev server logs": "关闭开发服务器日志",
   "Waiting for output…": "正在等待输出…",
-  "Open Code Desktop to use the preview.": "打开 Code Desktop 以使用预览。",
+  "Open OpenClaude Desktop to use the preview.": "打开 OpenClaude Desktop 以使用预览。",
   "Couldn’t capture the page.": "无法截取页面。",
   "Navigation": "导航",
   "Go back": "后退",

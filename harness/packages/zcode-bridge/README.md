@@ -1,9 +1,9 @@
-# ZCode core for Code Desktop
+# ZCode core for OpenClaude Desktop
 
 This Extension Pack adds **ZCode**, Z.ai's open-source coding agent for GLM models
-([github.com/zai-org/ZCode](https://github.com/zai-org/ZCode), Apache-2.0), as a Code Desktop core.
+([github.com/zai-org/ZCode](https://github.com/zai-org/ZCode), Apache-2.0), as an OpenClaude Desktop core.
 
-Code Desktop speaks the Codex app-server protocol (v0.155.1). This bridge speaks that protocol on stdio. Behind it,
+OpenClaude Desktop speaks the Codex app-server protocol (v0.155.1). This bridge speaks that protocol on stdio. Behind it,
 it runs the official ZCode agent process, `zcode app-server --stdio`. That is the same process, using the same
 ZCode Protocol, that the ZCode desktop app drives. The bridge plays the role of its host. Sessions, tools,
 permissions, skills, MCP, plugins, compaction, sub-agents and history all stay ZCode's own.
@@ -13,7 +13,7 @@ permissions, skills, MCP, plugins, compaction, sub-agents and history all stay Z
 | Path | Purpose |
 |---|---|
 | `manifest.json` | The core descriptor: id `zcode`, brand, release, capabilities. |
-| `bridge/bin/app-server.mjs` | The entry Code Desktop runs: `node app-server.mjs app-server --stdio`. |
+| `bridge/bin/app-server.mjs` | The entry OpenClaude Desktop runs: `node app-server.mjs app-server --stdio`. |
 | `bridge/src/` | The bridge, plain Node ESM with no dependencies. |
 
 | Module | Role |
@@ -24,7 +24,7 @@ permissions, skills, MCP, plugins, compaction, sub-agents and history all stay Z
 | `history.js` | Turns `session/messages` into Codex turns. |
 | `items.js` | Maps each tool to an item. |
 | `permissions.js` | Permission modes, approvals (and their session grants) and questions. |
-| `instructions.js` | Code Desktop's instructions inlined into the prompt when no provider proxy can carry them. |
+| `instructions.js` | OpenClaude Desktop's instructions inlined into the prompt when no provider proxy can carry them. |
 | `provider-proxy.js` | Per-thread system prompt, instructions and model parameters, plus the prompt preview. |
 | `accounts.js` | API keys, the Coding Plan sign-in and quota. |
 | `catalog.js` | Skills, MCP, plugins and hooks. |
@@ -80,20 +80,20 @@ An installed `/Applications/ZCode.app` (or `~/Applications`), or a `zcode` on PA
 **Set per connection:** `perTokenBilling` is true only when no GLM Coding Plan access is configured.
 
 `customization` and `systemPromptPreview` are on only when the bridge can front the provider endpoints (a
-`zcode-builtin.json` catalog next to the agent). Without one, Code Desktop sends its instructions as
+`zcode-builtin.json` catalog next to the agent). Without one, OpenClaude Desktop sends its instructions as
 `developerInstructions`, which the bridge inlines into the prompt (see Customization).
 
 `structuredOutput` stays off: ZCode has no output-schema turn, and a `turn/start` with an `outputSchema` fails with a
-message naming `outputSchema`. Code Desktop's own workflow runner needs it, so `/workflow` runs on ZCode's engine.
+message naming `outputSchema`. OpenClaude Desktop's own workflow runner needs it, so `/workflow` runs on ZCode's engine.
 
-**Unsupported methods:** `thread/rollback` (deprecated; Code Desktop uses `thread/revert`).
+**Unsupported methods:** `thread/rollback` (deprecated; OpenClaude Desktop uses `thread/revert`).
 
-## How Code Desktop features map onto ZCode
+## How OpenClaude Desktop features map onto ZCode
 
 - **Threads.** A thread is a ZCode session (`sess_…`), and `Thread.cliVersion` is `zcode <version>`.
   - Rename and delete use ZCode's V4 commands. Delete also removes the session's rows from ZCode's own database, `~/.zcode/cli/db/db.sqlite`.
   - Archive, the original input parts and the queue are bridge metadata, kept in `$CODE_DESKTOP_BRIDGE_STATE/threads.json`.
-    A session archived in the ZCode app (and never archived or unarchived in Code Desktop) is listed as archived.
+    A session archived in the ZCode app (and never archived or unarchived in OpenClaude Desktop) is listed as archived.
   - `thread/list` covers every session: ZCode's `session/list` returns only the 50 most recently updated unless asked
     for more and has no cursor, so the bridge asks for all of them (up to 5000) and pages, sorts and searches itself.
   - Fork uses `session/fork` at a turn. Compact uses `session/compact`, which is ZCode's own compaction turn.
@@ -116,7 +116,7 @@ message naming `outputSchema`. Code Desktop's own workflow runner needs it, so `
     `retry: {attempt, maxRetries}`, so the status row says "Retrying (n/max)…" until the model answers.
 - **Permission modes:**
 
-  | Code Desktop mode | ZCode mode |
+  | OpenClaude Desktop mode | ZCode mode |
   |---|---|
   | Ask | `build` |
   | Accept edits | `edit` |
@@ -153,7 +153,7 @@ message naming `outputSchema`. Code Desktop's own workflow runner needs it, so `
   - Provider-site model rules keep matching. The official Coding Plan endpoints still go through the ZCode platform gateway, as in ZCode itself.
   - The prompt preview is the prompt ZCode actually sent. Before a thread exists, the bridge captures it with a dry run that never reaches the model.
   - Without a provider catalog there is no proxy: `customization` is reported off, and the `developerInstructions`
-    Code Desktop sends instead are inlined into the prompt in a `<code-desktop-instructions>` block. They go with the
+    OpenClaude Desktop sends instead are inlined into the prompt in a `<code-desktop-instructions>` block. They go with the
     first prompt of a session, and again after they change, a compaction or a rewind. A slash command stays first:
     the block goes inside the arguments of a command that hands them to the model (`/skill <name> …`, `/init`,
     `/workflow`), and into a `/goal` objective, which ZCode repeats in every round it drives. Other commands (/mode,
@@ -191,7 +191,7 @@ message naming `outputSchema`. Code Desktop's own workflow runner needs it, so `
   `/` catalog (`workspace/readPresentation`). `skills/list` reports them as commands (path `command:<name>`,
   slash-only, never switched off), so the slash menu offers them. Sent, they run as `/<name> args`. `/goal` goes
   through `session/goal`, as in the ZCode app; when it starts no turn (`/goal`, `/goal pause` …), its reply is shown as
-  a turn of its own that ZCode does not keep. `/compact` and `/plan` are left out: Code Desktop's own commands do that.
+  a turn of its own that ZCode does not keep. `/compact` and `/plan` are left out: OpenClaude Desktop's own commands do that.
 - **MCP.** Servers are stored in `mcp.servers` of the same config file. Their status comes from `mcp/list`.
   OAuth uses the authorization URL ZCode reports.
   - ZCode gives a session its MCP servers when it opens it (`session/create`, `session/resume`). After a change
@@ -218,10 +218,10 @@ message naming `outputSchema`. Code Desktop's own workflow runner needs it, so `
     After a turn the bridge reads the quota again (at most every 30 seconds, and at once when the turn hit the plan
     limit) and sends `account/rateLimits/updated` for each window that changed, as Codex does after every turn.
 - **Dynamic workflows** run on ZCode's own engine: GLM starts one with `CreateWorkflow` (`AmendWorkflow` revises a run,
-  `ResumeWorkflowRun` restarts a stopped one), and `/workflow` asks it to. Code Desktop shows each run as its workflow
+  `ResumeWorkflowRun` restarts a stopped one), and `/workflow` asks it to. OpenClaude Desktop shows each run as its workflow
   row and Tasks card (`workflowRun` on the tool item, `src/workflows.js`):
   - The gate is per session. ZCode keeps its dynamic-workflow tools off unless the host turns them on, so the bridge
-    passes `dynamicWorkflowEnabled` on `session/create` and `session/resume` from Code Desktop's Dynamic workflows
+    passes `dynamicWorkflowEnabled` on `session/create` and `session/resume` from OpenClaude Desktop's Dynamic workflows
     setting, never opening `workspace/updateDynamicWorkflowPolicy` for the whole process. With the setting off, the
     workflow tools are also in the session's and every turn's tool denylist. Turning it on reopens the session before
     its next turn (ZCode registers the tools when it builds the session), unless a run or background task is still live.
@@ -258,21 +258,21 @@ message naming `outputSchema`. Code Desktop's own workflow runner needs it, so `
 | Feature | Reason |
 |---|---|
 | Structured-output turns | ZCode has no output-schema turn. |
-| Code Desktop's workflow runner | It needs structured output and asks no one about approvals. Workflows run on ZCode's own engine instead (see Dynamic workflows), one approval per run outside Bypass. |
+| OpenClaude Desktop's workflow runner | It needs structured output and asks no one about approvals. Workflows run on ZCode's own engine instead (see Dynamic workflows), one approval per run outside Bypass. |
 | Computer use | Needs ZCode's macOS helper app and the disabled-by-default official plugin. |
-| Browser control | Needs ZCode desktop's in-app browser. The bridge reports no browser backend and keeps node_repl's `js` tool off every session (unless ZCode's Computer Use, which shares it, is on). While Browser Use is on, GLM is told its skills can't run here and to use Code Desktop's preview tools instead. |
+| Browser control | Needs ZCode desktop's in-app browser. The bridge reports no browser backend and keeps node_repl's `js` tool off every session (unless ZCode's Computer Use, which shares it, is on). While Browser Use is on, GLM is told its skills can't run here and to use OpenClaude Desktop's preview tools instead. |
 | Fast service tier | GLM has no fast tier; GLM-5.3-Flash is a separate model. |
-| Scheduled tasks | ZCode's Cron* tools need ZCode desktop's automation store and scheduler (Settings › Automations), and Code Desktop has no Scheduled tasks surface yet. The tools are kept away from the model (see Tools). |
+| Scheduled tasks | ZCode's Cron* tools need ZCode desktop's automation store and scheduler (Settings › Automations), and OpenClaude Desktop has no Scheduled tasks surface yet. The tools are kept away from the model (see Tools). |
 | Off-peak tasks | Same reason: `OffPeak*` needs the ZCode desktop host. The agent only offers these tools when its host turns them on. |
 
 ## Environment
 
 | Variable | Meaning |
 |---|---|
-| `CODE_DESKTOP_AGENT_BINARY` | Set by Code Desktop: the agent program. |
-| `CODE_DESKTOP_AGENT_RUNNER` | Set by Code Desktop. |
-| `CODE_DESKTOP_NODE_BINARY` | Set by Code Desktop. |
-| `CODE_DESKTOP_BRIDGE_STATE` | Set by Code Desktop. |
+| `CODE_DESKTOP_AGENT_BINARY` | Set by OpenClaude Desktop: the agent program. |
+| `CODE_DESKTOP_AGENT_RUNNER` | Set by OpenClaude Desktop. |
+| `CODE_DESKTOP_NODE_BINARY` | Set by OpenClaude Desktop. |
+| `CODE_DESKTOP_BRIDGE_STATE` | Set by OpenClaude Desktop. |
 | `ZCODE_DATA_BASE_DIR` | Moves `~/.zcode`, as in ZCode. |
 | `CODE_DESKTOP_ZCODE_PLATFORM_ORIGIN` | Test hook only. Points the Coding Plan gateway and OAuth at a local stand-in. |
 | `ZCODE_BRIDGE_DEBUG` | `1` logs every ZCode notification to stderr (the first `ZCODE_BRIDGE_DEBUG_CHARS` characters, 600 by default). |

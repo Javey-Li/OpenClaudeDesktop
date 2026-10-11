@@ -449,7 +449,7 @@ function createCoreManager({ dataDir, getConfig, save, emit = () => {}, setCoreC
    */
   async function uninstall(id, { removeState = false } = {}) {
     const core = coreById(id);
-    if (!core || !core.agent) throw fail("This core isn’t installed by Code Desktop.");
+    if (!core || !core.agent) throw fail("This core isn’t installed by OpenClaude Desktop.");
     if (downloads.has(id)) throw fail("Wait for the download to finish or cancel it first.");
     let items = [];
     try { items = fs.readdirSync(coreDir(id), { withFileTypes: true }); } catch {}
@@ -500,8 +500,8 @@ function createCoreManager({ dataDir, getConfig, save, emit = () => {}, setCoreC
     for (const [name, installed] of wanted) {
       const file = path.join(dir, name);
       const body = installed.runner === "node"
-        ? `#!/bin/sh\n# Code Desktop: the ${name} it installed, under its own Node.\nELECTRON_RUN_AS_NODE=1 exec ${quote(nodeBinary())} ${quote(installed.path)} "$@"\n`
-        : `#!/bin/sh\n# Code Desktop: the ${name} it installed.\nexec ${quote(installed.path)} "$@"\n`;
+        ? `#!/bin/sh\n# OpenClaude Desktop: the ${name} it installed, under its own Node.\nELECTRON_RUN_AS_NODE=1 exec ${quote(nodeBinary())} ${quote(installed.path)} "$@"\n`
+        : `#!/bin/sh\n# OpenClaude Desktop: the ${name} it installed.\nexec ${quote(installed.path)} "$@"\n`;
       try {
         let current = null;
         try { current = fs.readFileSync(file, "utf8"); } catch {}

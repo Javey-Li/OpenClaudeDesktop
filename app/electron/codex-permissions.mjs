@@ -58,7 +58,7 @@ export function applyCodexPermissions(method, params, { profile = null, workspac
 }
 
 /**
- * The `-c` launch overrides that give Code Desktop's workflow runner's Codex agents the session's own Codex sandbox
+ * The `-c` launch overrides that give OpenClaude Desktop's workflow runner's Codex agents the session's own Codex sandbox
  * (the runner starts each agent with only sandbox "workspace-write"; it is the user's and stays as it is): the turn's
  * permission profile (or the chosen one), else its workspace-write network access and writable roots, which
  * applyCodexPermissions already merged with config.toml's [sandbox_workspace_write]. Only for workspace-write agents:

@@ -5,10 +5,10 @@ import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { INSTRUCTIONS_SECTION, normalizeInstructions } from '../packages/codex-app-server/src/instructions.js'
 import { applyCustomization, createCustomRef, installCustomization } from '../packages/codex-app-server/src/customization.js'
-import { KEPT_SECTIONS, SYSTEM_PROMPT_SECTION, applySystemPrompt, installSystemPrompt, interpolateLoose, normalizeSystemPrompt, previewCustom, systemPromptPreview } from '../packages/codex-app-server/src/system-prompt.js'
+import { KEPT_SECTIONS, SUBAGENT_KEPT_SECTIONS, SYSTEM_PROMPT_SECTION, applySystemPrompt, installSubagentSystemPrompt, installSystemPrompt, interpolateLoose, normalizeSystemPrompt, previewCustom, systemPromptPreview } from '../packages/codex-app-server/src/system-prompt.js'
 import { attachDeveloperInstructions } from '../packages/codex-app-server/src/structured.js'
 
-const PERSONA = 'You are a coding agent powered by the {{model}} model, working inside Code Desktop.'
+const PERSONA = 'You are a coding agent powered by the {{model}} model, working inside OpenClaude Desktop.'
 
 test('normalizeSystemPrompt: non-blank strings only, newlines normalized, never capped', () => {
   assert.equal(normalizeSystemPrompt('  You are X.\r\n'), 'You are X.')
@@ -45,9 +45,13 @@ test('applySystemPrompt: replaces every section, keeps the session-input section
   assert.deepEqual(out.sections.map((s) => s.name), [SYSTEM_PROMPT_SECTION, 'code-desktop:developer-instructions', 'tool:structured_output', INSTRUCTIONS_SECTION])
   assert.deepEqual(out.sections[0], { name: SYSTEM_PROMPT_SECTION, text: 'Be deepseek-flash at /w {{other}}.', interpolate: false })
   assert.equal(out.tools, assembly.tools, 'tool schemas untouched')
-  assert.equal(out.contexts, assembly.contexts, 'runtime context untouched')
+  assert.deepEqual(out.contexts, [], 'no system-written runtime context with a custom prompt')
   assert.equal(renderPrompt(out), 'Be deepseek-flash at /w {{other}}.\n\nDEV\n\nSTRUCT\n\nPROJECT')
   assert.deepEqual(KEPT_SECTIONS, [INSTRUCTIONS_SECTION, 'code-desktop:developer-instructions', 'tool:structured_output'])
+  // A subagent keeps its definition's role text as well.
+  const child = applySystemPrompt(assembly, { systemPrompt: 'MINE' }, new Set(SUBAGENT_KEPT_SECTIONS))
+  assert.deepEqual(child.sections.map((s) => s.name), [SYSTEM_PROMPT_SECTION, 'deployment:persona-prefix', 'code-desktop:developer-instructions', 'tool:structured_output', INSTRUCTIONS_SECTION])
+  assert.equal(installSubagentSystemPrompt(undefined, {}) instanceof Function, true)
 })
 
 test('installSystemPrompt is a no-op without an event context', () => {
@@ -108,7 +112,7 @@ test('real registry: the listener is agent-scoped and replaces the built-in prom
   assert.match(result.before, /^You are a coding agent powered by the deepseek-flash model/)
   assert.equal(result.text, "You are Captain Whale (deepseek-flash) in /w. Always start replies with 'Arrr'.\n\nWorkflow agent rules.\n\nUse pnpm.")
   assert.deepEqual(result.custom.tools.map((t) => t.name), ['bash'], 'tools are still sent as schemas')
-  assert.equal(result.otherAgent, 'You are a coding agent powered by the deepseek-flash model, working inside Code Desktop.\n\nUse bash carefully.\n\nYour working directory is /w.', 'other agents keep the built-in prompt')
+  assert.equal(result.otherAgent, 'You are a coding agent powered by the deepseek-flash model, working inside OpenClaude Desktop.\n\nUse bash carefully.\n\nYour working directory is /w.', 'other agents keep the built-in prompt')
   assert.doesNotMatch(result.otherAgent, /Captain Whale/)
   assert.equal(result.noProject, "You are Captain Whale (deepseek-flash) in /w. Always start replies with 'Arrr'.\n\nWorkflow agent rules.")
   assert.equal(result.cleared, result.before, 'null restores the built-in prompt')
@@ -136,7 +140,7 @@ test('systemPromptPreview: with an agent (exact) and without one (global layer +
   assert.deepEqual(result.withAgent.sections, [{ name: SYSTEM_PROMPT_SECTION, chars: 21 }, { name: INSTRUCTIONS_SECTION, chars: 16 }])
   assert.deepEqual(result.withAgent.tools, ['bash'])
   assert.deepEqual(result.withAgent.variables, { provider: 'deepseek-official', model: 'deepseek-pro', cwd: '/repo' })
-  assert.equal(result.withAgent.defaultText, 'You are a coding agent powered by the deepseek-pro model, working inside Code Desktop.\n\nUse bash carefully.\n\nYour working directory is /repo.')
+  assert.equal(result.withAgent.defaultText, 'You are a coding agent powered by the deepseek-pro model, working inside OpenClaude Desktop.\n\nUse bash carefully.\n\nYour working directory is /repo.')
   assert.doesNotMatch(result.withAgent.defaultText, /Preview project|Thread project/, 'the built-in default carries no customization')
   assert.match(result.withAgent.defaultTemplate, /powered by the \{\{model\}\} model[\s\S]*Your working directory is \{\{cwd\}\}\.$/, 'the template keeps the references')
   assert.equal(interpolateLoose(result.withAgent.defaultTemplate, result.withAgent.variables), result.withAgent.defaultText, 'pasting the template back gives the built-in text')

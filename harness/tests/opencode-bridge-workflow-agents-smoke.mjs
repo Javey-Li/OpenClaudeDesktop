@@ -1,4 +1,4 @@
-// Real-binary smoke of Code Desktop workflow agents on the OpenCode / MiMo bridge: the bridge runs as the workflow
+// Real-binary smoke of OpenClaude Desktop workflow agents on the OpenCode / MiMo bridge: the bridge runs as the workflow
 // runner's core (clientInfo code-desktop-workflows, CODE_DESKTOP_WORKFLOW_RUNNER=1) and is driven the way
 // app/third-party/codex-workflows-runner drives it (approvalPolicy "never"; every approval declined, every
 // requestUserInput an error). The REAL agent binary (work/agents/opencode-bridge/<flavor>/bin) talks to a loopback
@@ -50,7 +50,7 @@ function createModel(flavor, workspace) {
     const first = textOf(user[0]?.content)
     const results = user.flatMap((message) => (Array.isArray(message.content) ? message.content.filter((block) => block.type === 'tool_result') : []))
     if (results.length) return { text: `AFTER_TOOL ${textOf(results.at(-1).content).slice(0, 200).replace(/\s+/g, ' ')}` }
-    // MiMo: a background actor (the actor tool's default spawn) that calls one of Code Desktop's own tools.
+    // MiMo: a background actor (the actor tool's default spawn) that calls one of OpenClaude Desktop's own tools.
     if (/SPAWN_TOOLS_CHILD/.test(first)) return { tool: { name: 'actor', input: { operation: { action: 'spawn', subagent_type: 'general', description: 'Tools child', prompt: 'TOOLS_CHILD call the echo tool' } } } }
     if (/TOOLS_CHILD/.test(first)) {
       const name = tools.find((tool) => tool === 'code_desktop_echo')
@@ -178,7 +178,7 @@ async function runFlavor(flavor) {
     return { thread, done, messages, requests: model.requests.slice(before).filter((body) => (body.tools ?? []).length > 1) }
   }
   try {
-    await client.request('initialize', { clientInfo: { name: 'code-desktop-workflows', title: 'Code Desktop', version: '0' }, capabilities: { experimentalApi: true } }, 180000)
+    await client.request('initialize', { clientInfo: { name: 'code-desktop-workflows', title: 'OpenClaude Desktop', version: '0' }, capabilities: { experimentalApi: true } }, 180000)
     await check('a workflow agent is not offered the question tool', async () => {
       const { requests, messages } = await turn('workspace-write', 'PLAIN_REPLY hi')
       assert.ok(requests.length >= 1)
@@ -218,13 +218,13 @@ async function runFlavor(flavor) {
       assert.equal(count(), 0, 'no Workflow agent session is left')
     })
     if (flavor === 'mimo') {
-      // The app's own bridge, Ask permissions, Code Desktop's tools server attached (here: the echo server named code_desktop).
+      // The app's own bridge, Ask permissions, OpenClaude Desktop's tools server attached (here: the echo server named code_desktop).
       const appEnv = { ...env, CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: process.execPath, args: [mcpScript], env: {} }), CODE_DESKTOP_AGENT_TOOLS_SOCKET: path.join(home, 'tools.sock'), CODE_DESKTOP_AGENT_TOOLS_TOKEN: 'smoke-token' }
       delete appEnv.CODE_DESKTOP_WORKFLOW_RUNNER
       const app = runnerClient(appEnv, { decision: 'accept' })
       try {
-        await check('Ask permissions: a background actor can call Code Desktop\'s own tools (no rules dump)', async () => {
-          await app.request('initialize', { clientInfo: { name: 'code-desktop', title: 'Code Desktop', version: '0' }, capabilities: { experimentalApi: true } }, 180000)
+        await check('Ask permissions: a background actor can call OpenClaude Desktop\'s own tools (no rules dump)', async () => {
+          await app.request('initialize', { clientInfo: { name: 'code-desktop', title: 'OpenClaude Desktop', version: '0' }, capabilities: { experimentalApi: true } }, 180000)
           const { thread } = await app.request('thread/start', { cwd: workspace, model: 'fake/fake-model', approvalPolicy: 'untrusted', sandboxPolicy: { type: 'workspaceWrite', writableRoots: [workspace], networkAccess: false }, codeDesktop: { permissionMode: 'ask' } })
           await app.request('turn/start', { threadId: thread.id, input: [{ type: 'text', text: 'SPAWN_TOOLS_CHILD please', text_elements: [] }] })
           const deadline = Date.now() + 120000

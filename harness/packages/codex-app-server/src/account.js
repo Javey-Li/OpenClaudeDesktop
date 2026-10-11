@@ -23,7 +23,7 @@ export const DEEPSEEK_KEY_REF = 'DEEPSEEK_API_KEY'
  */
 export function accountReadResponse({ keyInfo, platformState, otherProviders = false } = {}) {
   const keyConfigured = keyInfo?.configured === true
-  // otherProviders: a Code Desktop custom provider has a key (CODE_DESKTOP_PROVIDER_KEY_*), so a session can
+  // otherProviders: an OpenClaude Desktop custom provider has a key (CODE_DESKTOP_PROVIDER_KEY_*), so a session can
   // run on it without a DeepSeek key.
   const configured = keyConfigured || platformState?.status === 'credential-stored' || otherProviders === true
   return {

@@ -39,18 +39,18 @@ test('engineCopy names the running core, its version and its config file; DeepSe
   assert.equal(deepseek.mcp, 'Local MCP servers from your DeepSeek Harness configuration.');
   // Codex saves connectors into the CLI's config.toml (Developer Remove, Customize › Connectors Add).
   const codex = copy.engineCopy(core('codex'));
-  assert.deepEqual(codex, { label: 'Codex core', engine: 'Runs Codex. Connectors you add or remove in Code Desktop are saved to ~/.codex/config.toml.',
+  assert.deepEqual(codex, { label: 'Codex core', engine: 'Runs Codex. Connectors you add or remove in OpenClaude Desktop are saved to ~/.codex/config.toml.',
     mcp: 'Local MCP servers from Codex’s configuration (~/.codex/config.toml).' });
   assert.equal(copy.engineCopy(core('codex', { capabilities: { mcpConfigWrite: false } })).engine, 'Runs Codex. Settings here do not rewrite its own configuration in ~/.codex/config.toml.');
   // A reported version and config path win over the descriptor's file; a home path is shortened to ~.
   const zcode = copy.engineCopy(core('zcode', { engineVersion: '1.4.2', configPath: '/Users/someone/.zcode/cli/config.json' }));
-  assert.equal(zcode.engine, 'Runs ZCode 1.4.2. Connectors you add or remove in Code Desktop are saved to ~/.zcode/cli/config.json.');
+  assert.equal(zcode.engine, 'Runs ZCode 1.4.2. Connectors you add or remove in OpenClaude Desktop are saved to ~/.zcode/cli/config.json.');
   assert.equal(zcode.label, 'ZCode core');
   // Qwen / Gemini write their own settings.json from Settings › Code (coreSettings), plus connectors when the bridge writes them.
   assert.equal(copy.engineCopy(core('qwen', { capabilities: { coreSettings: true, mcpConfigWrite: true } })).engine,
-    'Runs Qwen Code. Connectors and Qwen Code settings you change in Code Desktop are saved to ~/.qwen/settings.json.');
+    'Runs Qwen Code. Connectors and Qwen Code settings you change in OpenClaude Desktop are saved to ~/.qwen/settings.json.');
   assert.equal(copy.engineCopy(core('gemini', { capabilities: { coreSettings: true } })).engine,
-    'Runs Gemini CLI. Gemini CLI settings you change in Code Desktop are saved to ~/.gemini/settings.json.');
+    'Runs Gemini CLI. Gemini CLI settings you change in OpenClaude Desktop are saved to ~/.gemini/settings.json.');
   // An overlay core keeps its changes beside the user's file, which it names (not the overlay path it reports).
   assert.equal(copy.engineCopy(core('opencode', { configPath: '/tmp/state/opencode.json' })).engine,
     'Runs OpenCode. Settings here do not rewrite its own configuration in ~/.config/opencode/opencode.json.');
@@ -65,7 +65,7 @@ test('engineCopy names the running core, its version and its config file; DeepSe
   try {
     const zh = copy.engineCopy(core('codex'));
     assert.equal(zh.label, 'Codex 内核');
-    assert.equal(zh.engine, '运行 Codex。你在 Code Desktop 中添加或移除的连接器会保存到 ~/.codex/config.toml。');
+    assert.equal(zh.engine, '运行 Codex。你在 OpenClaude Desktop 中添加或移除的连接器会保存到 ~/.codex/config.toml。');
     assert.equal(/DeepSeek/.test(Object.values(zh).join(' ')), false);
   } finally { i18n.setLocale('en-US'); }
 });
@@ -94,7 +94,7 @@ test('the account group follows the chosen core while disconnected; sign-out cop
 
 test('Settings shell: Developer › Local engine and Preferences name the running core', () => {
   const codex = page('developer', { boot: { core: core('codex') } });
-  assert.ok(codex.includes('Codex core') && codex.includes('Runs Codex. Connectors you add or remove in Code Desktop are saved to ~/.codex/config.toml.'));
+  assert.ok(codex.includes('Codex core') && codex.includes('Runs Codex. Connectors you add or remove in OpenClaude Desktop are saved to ~/.codex/config.toml.'));
   assert.equal(/DeepSeek Harness|~\/\.dsh/.test(codex), false);
   const deepseek = page('developer', { boot: { core: core('deepseek-harness') } });
   assert.ok(deepseek.includes('DeepSeek core') && deepseek.includes('Settings here do not rewrite your DeepSeek Harness configuration.'));

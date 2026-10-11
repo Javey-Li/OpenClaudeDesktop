@@ -14,6 +14,7 @@ import { useExtensionImport } from "./source-extension-import.jsx";
 import { allCores, registerCores } from "../electron/core-registry.mjs";
 import { SourceBrandLogo } from "./source-brand-logo.jsx";
 import { PRESETS, presetById, presetDisplayName, presetRoute } from "../electron/prefs/provider-presets.mjs";
+import { modelDisplayName } from "../electron/prefs/model-families.mjs";
 import { OFFICIAL_BASE_URL, PROVIDER_PROTOCOLS } from "../electron/prefs/model-settings.mjs";
 import { t } from "../electron/i18n/index.mjs";
 import "./source-onboarding.css";
@@ -23,7 +24,7 @@ const PROTOCOL_LABELS = { "anthropic-messages": "Anthropic Messages", "openai-co
 function formFor(preset, variant = preset.variants[0]) {
   return {
     preset: preset.id, variant: variant.id, baseURL: variant.baseURL, api: preset.api,
-    model: preset.models[0] || "", route: presetRoute(preset, variant) || "", displayName: presetDisplayName(preset, variant), extraModels: "",
+    model: preset.models[0] || "", route: presetRoute(preset, variant) || "", displayName: presetDisplayName(preset, variant), extraModels: "", contextWindow: "",
   };
 }
 
@@ -74,7 +75,8 @@ function ConnectCard({ desktopCall, onDone, onBack, onOpenExternal }) {
       } else {
         const models = [...new Set([model, ...form.extraModels.split(/[\s,]+/), ...preset.models].map(id => id.trim()).filter(Boolean))];
         await desktopCall("model-settings", { op: "provider-save", apiKey: apiKey.trim(),
-          provider: { route: form.route.trim() || presetRoute(preset, variant) || "custom", displayName: form.displayName.trim(), api: form.api, baseURL: form.baseURL.trim(), models } });
+          provider: { route: form.route.trim() || presetRoute(preset, variant) || "custom", displayName: form.displayName.trim(), api: form.api, baseURL: form.baseURL.trim(), models,
+            ...(form.contextWindow.trim() ? { contextWindows: { [model]: form.contextWindow.trim() } } : {}) } });
       }
       stage = "restart";
       setBusy("restart");
@@ -88,7 +90,7 @@ function ConnectCard({ desktopCall, onDone, onBack, onOpenExternal }) {
 
   const busyLabel = { test: t("Testing connection…"), save: t("Saving…"), restart: t("Starting the core…") }[busy];
   return (
-    <form className="sob-card" onSubmit={submit} noValidate aria-describedby={ids.note}>
+    <form className="sob-card sob-connect" onSubmit={submit} noValidate aria-describedby={ids.note}>
       <div className="sob-section">
         <span className="sob-label">{t("Quick setup")}</span>
         <div className="sob-presets" role="radiogroup" aria-label={t("Quick setup")}>
@@ -104,6 +106,7 @@ function ConnectCard({ desktopCall, onDone, onBack, onOpenExternal }) {
           ))}
         </div>
       </div>
+      <div className="sob-connect-pane">
       {preset.variants.length > 1 && <div className="sob-field">
         <span className="sob-label">{t("Region or plan")}</span>
         <SourceSelect label={t("Region or plan")} value={form.variant} disabled={!!busy}
@@ -137,6 +140,12 @@ function ConnectCard({ desktopCall, onDone, onBack, onOpenExternal }) {
             items={PROVIDER_PROTOCOLS.map(value => ({ value, label: PROTOCOL_LABELS[value] }))} onChange={value => set({ api: value })} />
         </div>
         {!preset.builtIn && <>
+          {/* The model's context window, as Settings › Models › provider sets it per model: the core compacts by it. */}
+          <label className="sob-field"><span className="sob-label">{t("Context window")}</span>
+            <input data-cds="TextInput" className="cds-input cds-reset" value={form.contextWindow} maxLength={16} spellCheck={false} autoCapitalize="off" autoComplete="off"
+              placeholder={t("Default (262K)")} disabled={!!busy} onChange={event => set({ contextWindow: event.target.value })} />
+            <span className="sob-muted">{t("How many tokens {model} can read, such as 200K or 1M. Empty: the core assumes 262,144 and may compact too late for a smaller model.", { model: form.model.trim() ? modelDisplayName(form.model.trim()) : t("the model") })}</span>
+          </label>
           <label className="sob-field"><span className="sob-label">{t("Provider id")}</span>
             <input data-cds="TextInput" className="cds-input cds-reset" value={form.route} maxLength={32} spellCheck={false} autoCapitalize="off" disabled={!!busy}
               onChange={event => set({ route: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} />
@@ -158,6 +167,7 @@ function ConnectCard({ desktopCall, onDone, onBack, onOpenExternal }) {
         <SourceSettingsButton variant="ghost" disabled={!!busy} onClick={onBack}>{t("Back")}</SourceSettingsButton>
       </div>
       <p id={ids.note} className="sob-legal">{t("Your key is stored encrypted on this Mac and only sent to the endpoint above. Testing sends one tiny request to it.")}</p>
+      </div>
     </form>
   );
 }
@@ -266,7 +276,7 @@ function SignInCard({ signIn, onSkip, onBack }) {
     <div className="sob-card sob-signin">
       <div className="sob-signin-head">
         <SourceBrandLogo brand={core?.brand} size={52} />
-        <p className="sob-signin-lead">{t("Code Desktop runs {name} with your own account. Your sign-in stays on this Mac.", { name: core?.name ?? "" })}</p>
+        <p className="sob-signin-lead">{t("OpenClaude Desktop runs {name} with your own account. Your sign-in stays on this Mac.", { name: core?.name ?? "" })}</p>
       </div>
       {account ? <p className="sob-signin-done" role="status">{t("Signed in. Finishing setup…")}</p> : waiting ? (
         <div className="sob-signin-wait" role="status">
@@ -388,7 +398,7 @@ export function SourceOnboarding({ desktopCall, onDone, onSkip, onCoreChosen, on
   return (
     // The layer carries the z-index, like the other local modals: popups (SourceSelect) stack above a
     // dialog's parent.
-    <div ref={layer} className="sob-layer"><div ref={shell} className="sob-shell" data-step={step} role="dialog" aria-modal="true" aria-label={t("Set up Code Desktop")}>
+    <div ref={layer} className="sob-layer"><div ref={shell} className="sob-shell" data-step={step} role="dialog" aria-modal="true" aria-label={t("Set up OpenClaude Desktop")}>
       <div className="sob-drag" aria-hidden="true" />
       {step === "welcome" ? <>
         <SourceSpark size={64} className="sob-spark" />

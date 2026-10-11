@@ -26,7 +26,7 @@ export function validateHarnessProfile(value) {
 
 // ------------------------------------------------------------------ safety
 
-/** Rows the Code Desktop bundle inserts (harness/packages/code-desktop-app/cordis.patch.yml). */
+/** Rows the OpenClaude Desktop bundle inserts (harness/packages/code-desktop-app/cordis.patch.yml). */
 export const APP_BUNDLE_IDS = Object.freeze(['tool-ask-user', 'code-desktop-startup', 'codex-app-server']);
 /** Modules a person may switch off without breaking the core. */
 export const TOGGLE_SAFE_MODULE = /dsh-(tool-(?!ask-user)|mcp-client|skill-(?!filesystem)|web-search|hooks-|experimental-|repeat-tool-reminder|time-context|tmux-context)/;
@@ -153,7 +153,7 @@ export function mcpInsert(params, state) {
 /** Remove one row the overlay inserted (MCP servers, hook configs). */
 export function removeInsert(state, id) {
   const current = normalizeOverlay(state);
-  if (!current.inserts.some(item => item.id === id)) throw new Error(t('Only items added in Code Desktop can be removed here.'));
+  if (!current.inserts.some(item => item.id === id)) throw new Error(t('Only items added in OpenClaude Desktop can be removed here.'));
   return { ...current, inserts: current.inserts.filter(item => item.id !== id) };
 }
 
@@ -205,7 +205,7 @@ export function setSkillDirs(state, dirs) {
 export function setManagedRow(state, id, row) {
   const current = normalizeOverlay(state);
   if (!ROW_ID.test(id ?? '')) throw new Error(t('Invalid profile row id.'));
-  if (APP_BUNDLE_IDS.includes(id)) throw new Error(t('This row belongs to Code Desktop.'));
+  if (APP_BUNDLE_IDS.includes(id)) throw new Error(t('This row belongs to OpenClaude Desktop.'));
   const rows = { ...current.rows };
   if (row === null || row === undefined) delete rows[id];
   else rows[id] = normalizeOverlay({ rows: { [id]: row } }).rows[id] ?? {};

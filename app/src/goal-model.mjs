@@ -68,6 +68,6 @@ export function goalCommandResult(request, result) {
 }
 
 // Codex's /init (TUI slash_dispatch.rs: submits its init prompt as a user message): a normal turn that writes AGENTS.md,
-// the project instructions file Codex reads. Code Desktop's own wording of that request.
+// the project instructions file Codex reads. OpenClaude Desktop's own wording of that request.
 export const nativeInitCommand = () => ({ name: 'init', description: t('Create an AGENTS.md file with instructions for {name}', { name: getAssistantName() }), inputHint: '' });
 export const INIT_PROMPT = 'Create a file named AGENTS.md in the repository root that guides an agent working on this project: how the code is organized, how to build, test and run it, the coding conventions to follow, and anything to know before changing code. Base every statement on what you find in the repository, keep it concise (about 200 to 400 words) with Markdown headings, and if an AGENTS.md already exists, improve it instead of replacing it.';

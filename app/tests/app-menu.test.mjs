@@ -18,13 +18,13 @@ test('sidebarCollapsed persists only real booleans (shared-2 Zm collapsed beside
 
 test('menu bar follows ANr: App, File, Edit, View, Go, Window, Help',()=>{
  const template=appMenuTemplate({sidebarOpen:true,emit:()=>{}});
- assert.deepEqual(template.map(item=>item.label||item.role),['Code Desktop','File','Edit','View','Go','Window','Help']);
+ assert.deepEqual(template.map(item=>item.label||item.role),['OpenClaude Desktop','File','Edit','View','Go','Window','Help']);
  assert.deepEqual([template[5].role,template[6].role],['window','help']);
  assert.equal(template.some(item=>item.role==='editMenu'||item.role==='windowMenu'),false,'explicit Edit and Window submenus');
 });
 
 test('App submenu follows Gtr: About, Settings…, Services, Hide / Hide Others / Show All, Quit',()=>{
- const events=[];const items=menu(appMenuTemplate({sidebarOpen:true,emit:e=>events.push(e)}),'Code Desktop');
+ const events=[];const items=menu(appMenuTemplate({sidebarOpen:true,emit:e=>events.push(e)}),'OpenClaude Desktop');
  assert.deepEqual(shape(items),['about','---','Settings…','---','services','---','hide','hideOthers','unhide','---','quit']);
  const settings=items.find(item=>item.label==='Settings…');assert.equal(settings.accelerator,'CommandOrControl+,');
  settings.click();settings.click({},null,viaAccelerator);

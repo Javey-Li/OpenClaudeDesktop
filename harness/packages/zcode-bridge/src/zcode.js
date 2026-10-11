@@ -25,7 +25,7 @@ export class ZCodeError extends Error {
 const NOISE = new Set(['startup/storageState', 'process/mcpTelemetry', 'process/mcpResourceSamples', 'process/toolExecResource', 'process/resourceSample', 'v4/telemetry/event', 'computer-use/operation-event'])
 
 // session/requestRuntimePreferences: the desktop settings the agent asks its host for before a session's
-// runtime materializes. Code Desktop has no such settings; these are ZCode's own defaults for a host without
+// runtime materializes. OpenClaude Desktop has no such settings; these are ZCode's own defaults for a host without
 // them, except askUserQuestionAutoResolution, which stays off so a question always waits for the user.
 export const RUNTIME_PREFERENCES = Object.freeze({
   nativeSearchEnhancementsEnabled: true,
@@ -96,7 +96,7 @@ export class ZCodeConnection extends EventEmitter {
 
   /** An agent → host request: the registered handler answers it (or the request fails as unsupported). */
   async answer(message) {
-    // The host's answer: Code Desktop's ZCode settings over ZCode's own defaults (options.runtimePreferences).
+    // The host's answer: OpenClaude Desktop's ZCode settings over ZCode's own defaults (options.runtimePreferences).
     if (message.method === 'session/requestRuntimePreferences') {
       let result = RUNTIME_PREFERENCES
       try { result = { ...RUNTIME_PREFERENCES, ...(this.options.runtimePreferences?.() ?? {}) } } catch {}
@@ -105,7 +105,7 @@ export class ZCodeConnection extends EventEmitter {
     }
     const handler = this.handlers.get(message.method)
     if (!handler) {
-      this.write({ id: message.id, error: { code: -32601, message: `${message.method} is not available in Code Desktop.` } })
+      this.write({ id: message.id, error: { code: -32601, message: `${message.method} is not available in OpenClaude Desktop.` } })
       return
     }
     try {

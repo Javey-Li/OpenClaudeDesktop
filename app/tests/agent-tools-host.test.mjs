@@ -144,21 +144,21 @@ test('the channel refuses a wrong token and the server degrades without it', asy
 });
 
 test('codexArgs and launchEnv describe the server without exposing the secret on the command line', async (t) => {
-  const { host } = makeHost({ command: '/Applications/Code Desktop.app/Contents/MacOS/Code Desktop', runAsNode: true, serverScript: '/x/agent-tools-server.mjs' });
+  const { host } = makeHost({ command: '/Applications/OpenClaude Desktop.app/Contents/MacOS/OpenClaude Desktop', runAsNode: true, serverScript: '/x/agent-tools-server.mjs' });
   assert.deepEqual(host.codexArgs(), [], 'nothing before the channel exists');
   await host.start();
   t.after(() => host.stop());
   const args = host.codexArgs();
   const values = args.filter((_, index) => index % 2 === 1);
   assert.ok(args.filter((_, index) => index % 2 === 0).every((flag) => flag === '-c'));
-  assert.ok(values.includes('mcp_servers.code_desktop.command="/Applications/Code Desktop.app/Contents/MacOS/Code Desktop"'));
+  assert.ok(values.includes('mcp_servers.code_desktop.command="/Applications/OpenClaude Desktop.app/Contents/MacOS/OpenClaude Desktop"'));
   assert.ok(values.includes('mcp_servers.code_desktop.args=["/x/agent-tools-server.mjs"]'));
   assert.ok(values.includes('mcp_servers.code_desktop.env.ELECTRON_RUN_AS_NODE="1"'));
   assert.ok(values.includes('mcp_servers.code_desktop.env_vars=["CODE_DESKTOP_AGENT_TOOLS_SOCKET","CODE_DESKTOP_AGENT_TOOLS_TOKEN"]'));
   const env = host.launchEnv();
   assert.ok(!args.join(' ').includes(env.CODE_DESKTOP_AGENT_TOOLS_TOKEN), 'the token travels in the environment only');
   const { instructions, ...definition } = JSON.parse(env.CODE_DESKTOP_AGENT_TOOLS_SERVER);
-  assert.deepEqual(definition, { name: 'code_desktop', command: '/Applications/Code Desktop.app/Contents/MacOS/Code Desktop', args: ['/x/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } });
+  assert.deepEqual(definition, { name: 'code_desktop', command: '/Applications/OpenClaude Desktop.app/Contents/MacOS/OpenClaude Desktop', args: ['/x/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } });
   // The server's instructions travel with the definition, for bridges whose agent never shows them to the model (ZCode).
   assert.match(instructions, /Verifying changes in the preview/);
   assert.throws(() => host.provide('sessionId', () => 1), /Invalid service name/);
@@ -200,7 +200,7 @@ test('a session\'s own credential: accepted only for the session it names, and i
   // A scoped connection's per-call session and _meta.threadId are ignored.
   const direct = await host.call('thread-a', { name: 'whoami', arguments: {}, meta: { session: 'thread-b', threadId: 'thread-b' } }, undefined, { scoped: true });
   assert.equal(direct.content[0].text, 'session thread-a in /work/a');
-  await assert.rejects(host.call(null, { name: 'whoami', arguments: {}, meta: { session: 'thread-b', threadId: 'thread-b' } }, undefined, { scoped: true }), /only in a Code Desktop session/);
+  await assert.rejects(host.call(null, { name: 'whoami', arguments: {}, meta: { session: 'thread-b', threadId: 'thread-b' } }, undefined, { scoped: true }), /only in an OpenClaude Desktop session/);
   await scoped.close();
 });
 

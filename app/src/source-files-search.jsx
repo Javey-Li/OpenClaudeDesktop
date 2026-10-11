@@ -7,7 +7,7 @@ import "./source-files-search.css";
 import { t } from "../electron/i18n/index.mjs";
 
 const desktopCall = (action, params) => window.desktop?.call(action, params) ??
-  Promise.reject(new Error(t("Open Code Desktop to search local filenames.")));
+  Promise.reject(new Error(t("Open OpenClaude Desktop to search local filenames.")));
 
 function LitPath({ text, positions, offset = 0 }) {
   return pathSegments(text, positions, offset).map((segment, index) => segment.lit

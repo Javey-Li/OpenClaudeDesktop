@@ -303,7 +303,7 @@ export function projectDirs(cwd, home = os.homedir()) {
 }
 
 // ------------------------------------------------------------------ core settings
-// An agent's own settings.json keys Code Desktop can show and change (codeDesktop/coreSettings/read|write): each
+// An agent's own settings.json keys OpenClaude Desktop can show and change (codeDesktop/coreSettings/read|write): each
 // definition {key (dotted path), type boolean | number | integer | select | string, default, min?, max?, options?}.
 export function settingAt(object, key) {
   return String(key).split('.').reduce((value, part) => (value && typeof value === 'object' && !Array.isArray(value) ? value[part] : undefined), object)

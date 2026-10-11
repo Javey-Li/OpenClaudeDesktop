@@ -1,7 +1,7 @@
 {
   "version": "0.2.130",
-  "builtAt": "2026-10-10T12:48:47.235Z",
-  "sourceSha256": "75a4f1507573d2e4532d36f4b4d8848e6b9b9d528b75f96cb3efb2c65b4d48e5",
+  "builtAt": "2026-10-11T05:28:29.348Z",
+  "sourceSha256": "8185a12252dad4bfc3e3af8d1fa1c0247f9b316df8326ede4cd58784211cda2b",
   "sources": [
     {
       "path": "build/editor-notices/manifest.json",
@@ -585,7 +585,7 @@
     },
     {
       "path": "electron/extension-packs.cjs",
-      "sha256": "49228e4c212a59d672d99f9c71b690037f7e7ca997c551575e3732fa91bce5ff"
+      "sha256": "6a9a70735bc58f41503e1056c7780b9cde6f07f0352e980bc7c781ca8b2433fa"
     },
     {
       "path": "electron/file-name-matcher.cjs",
@@ -657,7 +657,7 @@
     },
     {
       "path": "electron/i18n/zh-CN/settings.mjs",
-      "sha256": "f031f3f06a13b60c7579083eb7128e7b3af30e894a4181819d43dad8a07e9e0b"
+      "sha256": "426859d9a99b93fb23b18b9c79b8e4d26078c307c9b813a6bb7b75f80ba3c57c"
     },
     {
       "path": "electron/i18n/zh-CN/sidebar.mjs",
@@ -681,7 +681,7 @@
     },
     {
       "path": "electron/instructions-service.cjs",
-      "sha256": "f84662af7548387da9bc3adc963402ffa72aae1cfa20d80a9a00fa47822a3800"
+      "sha256": "2a8ec77316afb9d9b7818184e9aa192cce8ffd3a314eba7a36c4b43bb8afce2d"
     },
     {
       "path": "electron/interrupt-turn.cjs",
@@ -689,7 +689,7 @@
     },
     {
       "path": "electron/main.cjs",
-      "sha256": "69acc50076c4c397e4df00256aa1cdbe9870c56e0d3e07d5b0eaa59efd9a9a72"
+      "sha256": "62dbeb0697a5be35171e32747ced1ed1b66e771efbda140f8508999f12dbb0f3"
     },
     {
       "path": "electron/menu-bar.cjs",
@@ -709,11 +709,11 @@
     },
     {
       "path": "electron/native-side-chat.cjs",
-      "sha256": "fa07f3e65db0f230cc9129f06a9636bc57f7b1f6ed07ec934d79c2e80a22d6ab"
+      "sha256": "7037a49fb482029456e40fa0683f5561a097fc4ded8be94deeecf640f3f36873"
     },
     {
       "path": "electron/native-thread-title.cjs",
-      "sha256": "3bc75376842c8f8e6f4577a7dcd00c374f88c85121d3cc091adcbc6ff033d714"
+      "sha256": "cd252f8c9eda4b37d9c8c88d5f06d76fa141b5f4251fdc3d53f2404b7da51180"
     },
     {
       "path": "electron/permission-policy.mjs",
@@ -729,7 +729,7 @@
     },
     {
       "path": "electron/preferences.mjs",
-      "sha256": "679dac000493a1fb34c7132ecfaad15700c8db73a16d3ff5aa88048a69c8c184"
+      "sha256": "b2413347f0eee2a813b6b354f8a3b46715fa3e8b3246affeb92ddb850fc6c539"
     },
     {
       "path": "electron/prefs/codex-provider.mjs",
@@ -752,8 +752,12 @@
       "sha256": "9cab588ee3eba96182261ea21b63290395e29be9c7977338e2f6cc35fb1a8860"
     },
     {
+      "path": "electron/prefs/model-families.mjs",
+      "sha256": "5ea645adedb19959072e2cb9ffb2a275d66da75b59bc859e67427cff6efb78d4"
+    },
+    {
       "path": "electron/prefs/model-settings.mjs",
-      "sha256": "e76741bb9f38ad9a1d9dfe480b92d0ff50b788f7624f13b9bcd6ca8fa43ce3dd"
+      "sha256": "30b4b82b0b4bce16b5d5f14368ea670d916b2f7d29961fc85bdb68627edd1720"
     },
     {
       "path": "electron/prefs/persona.mjs",
@@ -761,7 +765,7 @@
     },
     {
       "path": "electron/prefs/provider-presets.mjs",
-      "sha256": "d63891396f2a4bfae2985ff98ea2b9a75b1e312f1b04d06c570267d82d6d3688"
+      "sha256": "1bd0dc10242ccbd75b0bb111297057f5788a7deed6a00246ac453d4c8f421637"
     },
     {
       "path": "electron/prefs/theme.mjs",
@@ -885,7 +889,7 @@
     },
     {
       "path": "electron/workflow-tool-service.cjs",
-      "sha256": "af7ce24d9eaf2ffad4993f9bf7e761b470f2db65ec57458a2ac3b5cb94414862"
+      "sha256": "8f7963102b0b1da405545d0c4a4614169385acdafa5e73e6af689267be624295"
     },
     {
       "path": "electron/worktrees.cjs",
@@ -901,7 +905,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "58658c6ad7dfadae6b22b2c8fe75b934bcf9476984527e2ff697eff103279baa"
+      "sha256": "730541294ecba6a61bdb259c2a74ffdc1131237e3c0db3127ae2e320ddd36fd2"
     },
     {
       "path": "scripts/build-workflow-parser.mjs",
@@ -1337,7 +1341,7 @@
     },
     {
       "path": "src/main.jsx",
-      "sha256": "f78b26f10d44de6c5cd8c28de51366899bbd9fc8a30d0d877f76e78806b854d4"
+      "sha256": "951c7a11b3ab8fcaa35e5f9aae201f894463db5b80cc3f7fe01e424a86b3ec48"
     },
     {
       "path": "src/manual-text-save.mjs",
@@ -1381,7 +1385,7 @@
     },
     {
       "path": "src/models-settings.css",
-      "sha256": "9f1f596517d23f955e4f780cb2a7c901bb880d317e20c932868774f42bdc39b6"
+      "sha256": "90b49b0e3805a5df7073c4b2de5e5765d1e0409d64ab4cec3651a0217aab241b"
     },
     {
       "path": "src/pane-shortcuts.mjs",
@@ -2021,11 +2025,11 @@
     },
     {
       "path": "src/source-onboarding.css",
-      "sha256": "192588f3a9e01be6a025a04254c313b205ea38e905d1fd41db3d1111bafc4020"
+      "sha256": "812b6e1c113b3fb9f37836430c5ad8fba6a21bf9154c687cfa944655e2bda336"
     },
     {
       "path": "src/source-onboarding.jsx",
-      "sha256": "5a4c167eeb28d19f705fd8f7f99adcf2697cc0256a252e32301ce2b64081504d"
+      "sha256": "db24f065f63b19320ea41822700d525b0d9dc4908f60443f47288a9e087fa03f"
     },
     {
       "path": "src/source-pane-controls.css",
@@ -2285,7 +2289,7 @@
     },
     {
       "path": "src/source-settings-models.jsx",
-      "sha256": "d04d16a4e81d9a3cc56df978a37f05cad2c5c72a888fbf8810d5eae3b88e36e1"
+      "sha256": "b5c9f41d0df96a96178a539d68f8b4b1b8879531a40d8eef2c2741b85adf1501"
     },
     {
       "path": "src/source-settings-pages.css",

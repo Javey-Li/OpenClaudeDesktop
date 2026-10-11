@@ -1,5 +1,5 @@
 /**
- * Code Desktop's instructions (Settings › Instructions: global and project text, sent as Codex
+ * OpenClaude Desktop's instructions (Settings › Instructions: global and project text, sent as Codex
  * `developerInstructions`) on a ZCode install the provider proxy cannot front (no zcode-builtin.json catalog next to
  * the agent, e.g. a bare `zcode` on PATH). ZCode's protocol has no instructions parameter, so the bridge inlines them
  * into the prompt it sends, once per session and again whenever they change or a compaction / rewind may have
@@ -22,7 +22,7 @@ export function instructionsKey(text) {
 /** The block to put before a prompt, or '' when the instructions are empty. */
 export function instructionsBlock(text) {
   const value = typeof text === 'string' ? text.trim() : ''
-  return value ? `${OPEN}\nThe user's standing instructions for this session (from Code Desktop). Follow them.\n\n${value}\n${CLOSE}\n\n` : ''
+  return value ? `${OPEN}\nThe user's standing instructions for this session (from OpenClaude Desktop). Follow them.\n\n${value}\n${CLOSE}\n\n` : ''
 }
 
 // Of ZCode's own slash commands (its parseSlashCommand), these hand free text to a model prompt as typed: `/skill

@@ -283,7 +283,7 @@ function createCustomizeOperations({ getClient, getConfig, knownCwd, stat = fs.p
         if (cursor) params.cursor = cursor;
         // The listing may start configured servers; bound the wait.
         const listed = await owner.request("mcpServerStatus/list", params, MCP_LIST_TIMEOUT);
-        // Code Desktop's own tools server (agent-tools-host.cjs "code_desktop", which every core runs for the app's
+        // OpenClaude Desktop's own tools server (agent-tools-host.cjs "code_desktop", which every core runs for the app's
         // sessions) is never one of the user's connectors: Settings › Code › Preview and Dynamic workflows control it.
         const result = listed && Array.isArray(listed.data) ? { ...listed, data: listed.data.filter((server) => server?.name !== APP_TOOLS_SERVER) } : listed;
         knownServerNames.clear();

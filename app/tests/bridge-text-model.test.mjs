@@ -25,6 +25,6 @@ test('bridge warnings with the core or file names filled in read in the UI langu
   assert.match(localizeBridgeText('Qwen Code restarted to apply the stricter permission mode, which stopped its background work (npm test).'), /^Qwen Code 已重启.*（npm test）/);
   assert.equal(localizeBridgeText('Qwen Code could not restore some files: a.js, b.js'), 'Qwen Code 未能恢复部分文件：a.js, b.js');
   assert.match(localizeBridgeText('Gemini CLI ignores this folder’s GEMINI.md, .gemini settings, hooks, skills and connectors until you trust the folder.'), /^在你信任此文件夹之前/);
-  assert.match(localizeBridgeText('Gemini CLI starts no connectors here, including Code Desktop’s preview, terminal, Workflow, question and file tools, until you trust the folder.'), /^在你信任此文件夹之前.*终端/);
-  assert.match(localizeBridgeText('Gemini CLI ignores this folder’s GEMINI.md, .gemini settings, hooks and skills, and starts no connectors (Code Desktop’s preview, terminal, Workflow, question and file tools included), until you trust the folder.'), /^在你信任此文件夹之前.*钩子和技能/);
+  assert.match(localizeBridgeText('Gemini CLI starts no connectors here, including OpenClaude Desktop’s preview, terminal, Workflow, question and file tools, until you trust the folder.'), /^在你信任此文件夹之前.*终端/);
+  assert.match(localizeBridgeText('Gemini CLI ignores this folder’s GEMINI.md, .gemini settings, hooks and skills, and starts no connectors (OpenClaude Desktop’s preview, terminal, Workflow, question and file tools included), until you trust the folder.'), /^在你信任此文件夹之前.*钩子和技能/);
 });

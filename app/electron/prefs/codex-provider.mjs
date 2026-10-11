@@ -117,7 +117,7 @@ export function codexLaunchArgs(state, { catalogPath, keyless = false } = {}) {
   const provider = normalizeCodexProvider(state);
   if (!provider.baseURL) return [];
   // keyless: a local model server saved without a key; Codex then sends no Authorization header (no env_key).
-  const table = `{name=${tomlString('Code Desktop')},base_url=${tomlString(provider.baseURL)},${keyless ? '' : `env_key=${tomlString(CODEX_KEY_ENV)},`}wire_api=${tomlString(CODEX_WIRE_API)}}`;
+  const table = `{name=${tomlString('OpenClaude Desktop')},base_url=${tomlString(provider.baseURL)},${keyless ? '' : `env_key=${tomlString(CODEX_KEY_ENV)},`}wire_api=${tomlString(CODEX_WIRE_API)}}`;
   const args = ['-c', `model_providers.${CODEX_PROVIDER_ID}=${table}`, '-c', `shell_environment_policy.set.${CODEX_KEY_ENV}=""`];
   if (provider.mode !== 'custom' || !provider.models.length) return args;
   args.push('-c', `model_provider=${tomlString(CODEX_PROVIDER_ID)}`, '-c', `model=${tomlString(provider.models[0])}`);

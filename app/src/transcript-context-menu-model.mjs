@@ -4,7 +4,7 @@ import { t } from "../electron/i18n/index.mjs";
 // messageMenu: scroll-messages-current.js:33652-33818 CY. Items in order —
 // Copy (the selection, cmd+c); Copy code block / Copy path / Copy code over
 // code that is not inside a link; Open in default browser (http/https only),
-// Open in Preview (official: 'Open in Browser pane', :33727-33760; Code Desktop's pane is the Preview: a loopback http/https page while the
+// Open in Preview (official: 'Open in Browser pane', :33727-33760; OpenClaude Desktop's pane is the Preview: a loopback http/https page while the
 // session has a Preview pane, canOpenInPreview) and Copy link over a link; a separator when anything came before the
 // message items; Copy message and Copy message as Markdown; a separator
 // before Attach selection as context (cmd+shift+l, a selection of at least 2

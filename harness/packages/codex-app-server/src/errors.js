@@ -11,7 +11,7 @@ const SESSION_NOT_FOUND = 'SESSION_QUERY_SESSION_NOT_FOUND'
 /**
  * Codex app-server answers an unknown thread id with INVALID_PARAMS. The
  * `threadNotFound` info is this bridge's tag for it: the id is not a Harness
- * session (typically a Codex rollout remembered by Code Desktop).
+ * session (typically a Codex rollout remembered by OpenClaude Desktop).
  * @param {string} id - the requested thread id.
  */
 export function threadNotFound(id) {
@@ -68,7 +68,7 @@ export async function requireSession(id, read) {
 
 /**
  * The session's write lock is held by another process (the jsonl backend's
- * session.lock flock): the DeepSeek app, or a second Code Desktop core, has
+ * session.lock flock): the DeepSeek app, or a second OpenClaude Desktop core, has
  * it open. Opening fails until that app closes it.
  * @param {string} [id] - the requested thread id.
  */

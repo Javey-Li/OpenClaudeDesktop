@@ -1,4 +1,4 @@
-// Extension Packs: Code Desktop is the frame; an Extension Pack adds an agent core to it (core-registry.mjs).
+// Extension Packs: OpenClaude Desktop is the frame; an Extension Pack adds an agent core to it (core-registry.mjs).
 //
 // A pack is a folder or a .zip with
 //   manifest.json   {format: 1, version, core: {id, name, assistant?, vendor, engine, kind: "bridge"|"native", models?, homepage?,
@@ -32,7 +32,7 @@ const MAX_FILES = 5000, MAX_BYTES = 200 * 1024 * 1024;
 const CAPABILITY = /^[A-Za-z][A-Za-z0-9]{0,40}$/;
 // Capabilities whose value is a word rather than true/false (core-registry.mjs header), with the words allowed.
 const WORD_CAPABILITIES = Object.freeze({ sandboxNetwork: Object.freeze(["policy", "always"]), reviewReadOnly: Object.freeze(["sandbox", "noEdits"]) });
-// Capabilities whose value is a list of names: nativeTools, the Claude Code tools the agent has itself (Code Desktop's
+// Capabilities whose value is a list of names: nativeTools, the Claude Code tools the agent has itself (OpenClaude Desktop's
 // stand-ins for them aren't offered to it; main.cjs agentToolServedToCore).
 const LIST_CAPABILITIES = Object.freeze({ nativeTools: /^[A-Za-z][A-Za-z0-9_]{0,63}$/ });
 const capabilityValue = (key, value) => value === true || value === false || (Object.hasOwn(WORD_CAPABILITIES, key) && WORD_CAPABILITIES[key].includes(value))
@@ -49,6 +49,28 @@ const inside = (root, relative) => {
 };
 
 /** Every regular file under dir (no symlinks followed): {count, bytes, links}. */
+// fs.cpSync copies natively and can't read inside app.asar, where the bundled packs (Codex) ship; this copy goes
+// through the asar-aware readdir/readFile and keeps file modes and symbolic links (walk() then refuses the links).
+function copyTree(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name), target = path.join(to, entry.name);
+    if (entry.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(source), target);
+    else if (entry.isDirectory()) copyTree(source, target);
+    else if (entry.isFile()) { fs.writeFileSync(target, fs.readFileSync(source)); fs.chmodSync(target, fs.statSync(source).mode & 0o777); }
+  }
+}
+
+// Dotted numeric versions ("0.162.1" > "0.155.1"); a non-numeric part compares as 0.
+function compareVersions(a, b) {
+  const left = String(a).split(/[.-]/), right = String(b).split(/[.-]/);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (parseInt(left[index], 10) || 0) - (parseInt(right[index], 10) || 0);
+    if (difference) return Math.sign(difference);
+  }
+  return 0;
+}
+
 function walk(dir) {
   let count = 0, bytes = 0, links = 0;
   const visit = (current) => {
@@ -105,7 +127,7 @@ function cleanPlugins(value) {
 // pack's code runs only as its bridge or its agent release, never as a "system" install.
 const MAX_SYSTEM_PATHS = 12;
 const SYSTEM_PATH = /^(~\/|\/)[^\x00-\x1f\x7f]{1,300}$/;
-const DEFAULT_DATA_DIR = path.join(os.homedir(), "Library", "Application Support", "Code Desktop");
+const DEFAULT_DATA_DIR = path.join(os.homedir(), "Library", "Application Support", "OpenClaude Desktop");
 // The path with its longest existing ancestor resolved through symlinks, compared case-insensitively (APFS).
 function canonical(file) {
   let head = path.resolve(file), tail = [];
@@ -123,7 +145,7 @@ function cleanSystemPaths(value, forbidden) {
   for (const entry of kept) {
     const file = canonical(entry.startsWith("~/") ? path.join(os.homedir(), entry.slice(2)) : entry);
     if (folders.some((folder) => within(file, folder)))
-      throw new Error("The extension pack’s agent.systemPaths can’t point into Code Desktop’s own folders or the pack itself.");
+      throw new Error("The extension pack’s agent.systemPaths can’t point into OpenClaude Desktop’s own folders or the pack itself.");
   }
   return kept;
 }
@@ -148,7 +170,7 @@ function validatePack(root, { dataDir } = {}) {
   let manifest;
   try { manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8")); }
   catch { throw new Error("This isn’t an extension pack: manifest.json is missing or not valid JSON."); }
-  if (manifest?.format !== FORMAT) throw new Error(`This extension pack needs a newer Code Desktop (format ${manifest?.format ?? "unknown"}).`);
+  if (manifest?.format !== FORMAT) throw new Error(`This extension pack needs a newer OpenClaude Desktop (format ${manifest?.format ?? "unknown"}).`);
   const source = manifest.core;
   if (!source || typeof source !== "object") throw new Error("The extension pack has no core.");
   const id = typeof source.id === "string" ? source.id : "";
@@ -248,7 +270,7 @@ function createExtensionPacks({ dataDir, getConfig = () => ({}), save = () => {}
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), "code-desktop-pack-"));
     try {
       let dir = path.join(temp, "pack");
-      if (fs.statSync(target).isDirectory()) fs.cpSync(target, dir, { recursive: true, verbatimSymlinks: true });
+      if (fs.statSync(target).isDirectory()) copyTree(target, dir);
       else if (/\.zip$/i.test(target)) {
         await run("ditto", ["-x", "-k", target, dir]);
         // A zip of the folder itself: its single top-level folder is the pack.
@@ -327,6 +349,28 @@ function createExtensionPacks({ dataDir, getConfig = () => ({}), save = () => {}
     }
     return offers;
   }
+  /**
+   * Bundled packs the user added from an older OpenClaude Desktop: the app's own newer copy replaces them (a pack pins its
+   * agent's release, so an old copy keeps an old agent — Codex 0.155 can't list gpt-6.1-sol). Returns the ids updated.
+   */
+  async function upgradeBundled() {
+    let names = [];
+    try { names = fs.readdirSync(bundledDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && ID.test(entry.name)).map((entry) => entry.name); } catch { return []; }
+    const updated = [];
+    for (const name of names) {
+      const existing = installed().find((pack) => pack.core.id === name);
+      if (!existing) continue;
+      try {
+        const dir = path.join(bundledDir, name);
+        const { manifest } = validatePack(dir, { dataDir: dataDir() });
+        if (compareVersions(manifest.version, existing.manifest.version) <= 0) continue;
+        const { token } = await inspect(dir);
+        await install(token);
+        updated.push(name);
+      } catch (error) { console.warn(`Bundled pack ${name} update failed:`, error?.message ?? error); }
+    }
+    return updated;
+  }
   /** Add a bundled pack without asking (a choice already made); false when there is none or it's already added. */
   async function installBundled(id) {
     const offer = bundled().find((entry) => entry.id === id);
@@ -339,7 +383,7 @@ function createExtensionPacks({ dataDir, getConfig = () => ({}), save = () => {}
   /** The import picker's answer: CODE_DESKTOP_PICK_PACK (automation), else null for the caller's dialog. */
   const pickOverride = () => (typeof env.CODE_DESKTOP_PICK_PACK === "string" && env.CODE_DESKTOP_PICK_PACK ? env.CODE_DESKTOP_PICK_PACK : null);
 
-  return { load, descriptors, list, bundled, installBundled, inspect, install, discard, remove, pickOverride, root };
+  return { load, descriptors, list, bundled, installBundled, upgradeBundled, inspect, install, discard, remove, pickOverride, root };
 }
 
 module.exports = { createExtensionPacks, validatePack, FORMAT, BUNDLED_DIR };

@@ -1,4 +1,4 @@
-// Agent tools for the built-in Terminal pane (served by agent-tools-host.cjs over Code Desktop's local MCP server).
+// Agent tools for the built-in Terminal pane (served by agent-tools-host.cjs over OpenClaude Desktop's local MCP server).
 // Modeled on the official Claude Desktop 2.2553.1 "terminal" MCP server (index.chunk-DsuwRfEi.js): read-only
 // list/read, open_terminal_tab (a shell at its prompt, nothing typed), and run_in_terminal, which types a command only
 // after the user approves it in the app's approval card.

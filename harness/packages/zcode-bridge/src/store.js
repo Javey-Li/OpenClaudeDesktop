@@ -1,6 +1,6 @@
 /**
  * What the bridge keeps about threads beyond ZCode's own session store (CODE_DESKTOP_BRIDGE_STATE/threads.json):
- * Code Desktop's archive flag, deleted ids, per-thread customization / tool selection / permission mode, model
+ * OpenClaude Desktop's archive flag, deleted ids, per-thread customization / tool selection / permission mode, model
  * and effort, developer instructions, the original input parts of user messages (mentions, skills, images),
  * fork origins and the bridge-side queue.
  */

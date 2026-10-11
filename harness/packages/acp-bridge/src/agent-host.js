@@ -75,7 +75,7 @@ export class AgentHost extends EventEmitter {
         this.transport.call('initialize', {
           protocolVersion: ACP_PROTOCOL_VERSION,
           clientCapabilities: this.options.clientCapabilities ?? {},
-          clientInfo: { name: 'code-desktop', title: 'Code Desktop', version: '0.1.0' },
+          clientInfo: { name: 'code-desktop', title: 'OpenClaude Desktop', version: '0.1.0' },
         }, this.options.initializeTimeoutMs ?? 90000),
         this.exit.then(() => { throw new Error(`${this.label} exited before it answered initialize.${this.stderrTail()}`) }),
       ])
@@ -152,7 +152,7 @@ export class AgentHost extends EventEmitter {
       default:
         if (method.startsWith('terminal/') && handlers.terminal) return handlers.terminal(method, params)
         if (handlers.extension) return handlers.extension(method, params)
-        throw new RpcError(METHOD_NOT_FOUND, `${method} is not supported by Code Desktop.`)
+        throw new RpcError(METHOD_NOT_FOUND, `${method} is not supported by OpenClaude Desktop.`)
     }
   }
 

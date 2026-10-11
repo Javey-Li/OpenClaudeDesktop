@@ -43,7 +43,7 @@ export function taskKindLabel(task){return ({agent:t('Agent'),remote_agent:t('Re
  * Running section. Stopped servers are not tasks. */
 export function previewServerTasks(state){return (state?.servers??[]).filter(server=>['running','starting','stopping','failed'].includes(server?.status)).map(server=>({id:'preview:'+server.name,name:server.name,port:server.port??null,status:server.status==='failed'?'error':server.status,startedAt:Number.isFinite(server.startedAt)?server.startedAt:null}));}
 
-// Code Desktop's own background sources (electron/monitor-service.cjs, schedule-service.cjs), pushed by main.
+// OpenClaude Desktop's own background sources (electron/monitor-service.cjs, schedule-service.cjs), pushed by main.
 /** A session's Monitor commands as Background tasks rows: Claude's monitor_mcp tasks (kind "Monitor", expandable output, Stop). */
 export function monitorTasks(list){return (Array.isArray(list)?list:[]).filter(entry=>entry&&typeof entry.id==='string').map(entry=>({id:'monitor:'+entry.id,monitorId:entry.id,kind:'bash',taskType:'monitor_mcp',description:entry.description||entry.command||t('Monitor'),command:entry.command,output:entry.output||'',
  status:['running','completed','failed','stopped'].includes(entry.status)?entry.status:'unknown',startedAt:Number.isFinite(entry.startedAt)?entry.startedAt:null,completedAt:Number.isFinite(entry.startedAt)&&Number.isFinite(entry.durationMs)?entry.startedAt+entry.durationMs:null,durationMs:Number.isFinite(entry.durationMs)?entry.durationMs:undefined}));}

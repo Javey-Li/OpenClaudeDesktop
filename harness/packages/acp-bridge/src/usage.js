@@ -130,8 +130,8 @@ export class UsageLedger {
   }
 
   /**
-   * Sessions the agent ran outside Code Desktop, from its own usage records (adapter.usageRecords: Qwen's
-   * usage_record.jsonl): each record once (by key), unless `ownSession(sessionId)` says Code Desktop ran it and counted
+   * Sessions the agent ran outside OpenClaude Desktop, from its own usage records (adapter.usageRecords: Qwen's
+   * usage_record.jsonl): each record once (by key), unless `ownSession(sessionId)` says OpenClaude Desktop ran it and counted
    * its turns already. Returns the cursor to read on from next time (kept in the ledger).
    */
   mergeExternal(read, ownSession = () => false) {

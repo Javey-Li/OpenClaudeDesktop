@@ -58,7 +58,7 @@ test('MiMo: a turn/start flips the flag and re-PATCHes the rules; an absent flag
   const { thread, patches, bridge, home } = liveThread(FLAVORS.mimo)
   await thread.applyParams(start(true), { initial: true })
   assert.equal(disabled('workflow', patches.at(-1)), false)
-  // turn/start with dynamicWorkflows:false (Code Desktop's engine chosen): the tool is withheld at once.
+  // turn/start with dynamicWorkflows:false (OpenClaude Desktop's engine chosen): the tool is withheld at once.
   await thread.applyParams({ input: [], codeDesktop: { permissionMode: 'acceptEdits', dynamicWorkflows: false } })
   assert.equal(disabled('workflow', patches.at(-1)), true)
   // A turn without the hint changes nothing (no PATCH).

@@ -292,7 +292,7 @@ export function completeToolItem(item, rawCall, { failed, declined, durationMs, 
     case 'mcpToolCall': {
       if (failed) return { ...item, status: 'failed', durationMs, result: null, error: { message: text || mcpErrorText(raw) || 'The tool failed.' } }
       // An MCP App (Qwen's interactive connector view: rawOutput {type: 'mcp_app', serverName, resourceUri, html,
-      // toolResult, fallbackText}, core/src/tools/mcp-tool.ts): Code Desktop can't host its view yet, so the row keeps
+      // toolResult, fallbackText}, core/src/tools/mcp-tool.ts): OpenClaude Desktop can't host its view yet, so the row keeps
       // the tool's own result (else the App's fallback text) and says that the view exists. The HTML stays out.
       const app = object(raw)?.type === 'mcp_app' ? raw : null
       const result = app ? mcpAppResult(call.content, app) : mcpResultOf(call.content, raw)

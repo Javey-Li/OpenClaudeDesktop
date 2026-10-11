@@ -4,7 +4,7 @@
  * Codex identifies a model by one string; Harness by (provider, model). The
  * wire id is the bare model id when it is unique across providers, otherwise
  * `provider/model`. Reasoning efforts pass through verbatim (Harness ids such
- * as off/low/high/max); Code Desktop labels them by capitalizing the id.
+ * as off/low/high/max); OpenClaude Desktop labels them by capitalizing the id.
  * A description comes from the catalog only: a model without one has none
  * (the menu hides the empty line).
  */

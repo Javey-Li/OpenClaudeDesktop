@@ -8,7 +8,7 @@ import CodeDesktopFileSystem from '../packages/codex-app-server/src/sandbox-fs.j
 import CodeDesktopSandbox from '../packages/codex-app-server/src/sandbox-shell.js'
 import CodeDesktopApproval from '../packages/codex-app-server/src/sandbox-approval.js'
 
-test('Code Desktop fs enforces read-only and re-resolves symlinks before a workspace write', async () => {
+test('OpenClaude Desktop fs enforces read-only and re-resolves symlinks before a workspace write', async () => {
   // Outside platform temp: workspace-write intentionally allows temporary roots.
   const root = await mkdtemp(new URL('../../work/.cd-sandbox-', import.meta.url).pathname)
   try {
@@ -30,7 +30,7 @@ test('Code Desktop fs enforces read-only and re-resolves symlinks before a works
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('Code Desktop shell wraps the real command with a denying Seatbelt profile and fails closed', async () => {
+test('OpenClaude Desktop shell wraps the real command with a denying Seatbelt profile and fails closed', async () => {
   const sandbox = Object.create(CodeDesktopSandbox.prototype)
   sandbox.selectRunner = () => ({ runner: 'seatbelt', enforcement: 'full' })
   sandbox.seatbeltExec = () => '/usr/bin/sandbox-exec'
@@ -54,7 +54,7 @@ const approval = (outcome, policy = 'ask') => {
   return { service, events, req: { agent: { session }, callId: 'call', toolName: 'write', reason: 'escalate sandbox to danger-full-access: test' } }
 }
 
-test('Code Desktop approvals reject never, absent, throwing and invalid answerers even with Purge escalation', async () => {
+test('OpenClaude Desktop approvals reject never, absent, throwing and invalid answerers even with Purge escalation', async () => {
   for (const [outcome, policy, expected] of [['allowed-once', 'never', 'rejected'], ['unavailable', 'ask', 'unavailable'], ['invalid', 'ask', 'unavailable'], [() => { throw new Error('no UI') }, 'ask', 'unavailable'], ['rejected', 'ask', 'rejected']]) {
     const { service, events, req } = approval(outcome, policy)
     await assert.rejects(service.request(req), new RegExp(expected))
@@ -66,7 +66,7 @@ test('Code Desktop approvals reject never, absent, throwing and invalid answerer
   assert.equal(await service.request(req), 'allowed-once')
 })
 
-test('Code Desktop approvals retain ordinary denial and cancellation outcomes', async () => {
+test('OpenClaude Desktop approvals retain ordinary denial and cancellation outcomes', async () => {
   const { service, req } = approval('rejected')
   assert.equal(await service.request({ ...req, reason: 'Ask mode: confirm write' }), 'rejected')
   const controller = new AbortController()

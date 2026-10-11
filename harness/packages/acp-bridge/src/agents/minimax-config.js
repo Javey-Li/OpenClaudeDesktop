@@ -3,7 +3,7 @@
  * permission.json, derived from the user's at every launch so the user's real files are never written.
  *
  *   config.yaml      permissionMode forced to `default` (a mode saved in mcode, e.g. bypassPermissions or auto,
- *                    would otherwise decide before Code Desktop's mode does); `sandbox.enabled: false` while the
+ *                    would otherwise decide before OpenClaude Desktop's mode does); `sandbox.enabled: false` while the
  *                    bridge's Seatbelt profile wraps the agent (mcode's own sandbox-exec cannot nest in it); the
  *                    thread's tool switches merged into agents.default (tools, builtinTools, features)
  *   permission.json  mcode's v2 rule store ({version 2, allow, ask, deny} of {tool_name, matcher}): the user's
@@ -171,7 +171,7 @@ export function agentsWithSwitches(userAgents, disabled) {
 }
 
 /**
- * The thread's config.yaml: the user's, with permissionMode `default`, mcode's sandbox off while Code Desktop's Seatbelt
+ * The thread's config.yaml: the user's, with permissionMode `default`, mcode's sandbox off while OpenClaude Desktop's Seatbelt
  * profile runs (`nestedSandbox`), and the thread's switched-off tools in agents.default. `warnings` lists what could
  * not be applied.
  */

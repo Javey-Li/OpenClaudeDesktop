@@ -35,7 +35,7 @@ function createRelayProxy({ fetchImpl = (...args) => globalThis.fetch(...args) }
       upstream = await fetchImpl(`${target.origin}${req.url}`, { method: req.method, headers, body: body ?? undefined, signal: controller.signal, redirect: "manual" });
     } catch (error) {
       if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-      res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `Code Desktop couldn’t reach the relay: ${error?.message || error}` } }));
+      res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `OpenClaude Desktop couldn’t reach the relay: ${error?.message || error}` } }));
       return;
     }
     res.writeHead(upstream.status, Object.fromEntries([...upstream.headers].filter(([key]) => !RESPONSE_SKIP.has(key.toLowerCase()))));

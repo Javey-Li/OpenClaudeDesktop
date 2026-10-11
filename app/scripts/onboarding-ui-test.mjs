@@ -30,11 +30,11 @@ const readJson=file=>fs.readFile(path.join(profile,file),'utf8').then(JSON.parse
 async function launch(){app=await electron.launch({args:[root],executablePath:path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),env,timeout:20000});page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',e=>report.rendererErrors.push(e.message));await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(1324,820));await page.waitForFunction(()=>innerWidth===1324&&innerHeight===820);}
 try{
  await integrity();await launch();
- const setup=()=>page.getByRole('dialog',{name:'Set up Code Desktop',exact:true});
+ const setup=()=>page.getByRole('dialog',{name:'Set up OpenClaude Desktop',exact:true});
  // 1. Welcome opens by itself on a keyless DeepSeek core.
  await setup().waitFor();await page.getByRole('button',{name:'Get started',exact:true}).waitFor();
  report.metrics.welcome=await setup().evaluate(n=>{const r=s=>n.querySelector(s)?.getBoundingClientRect();const title=n.querySelector('.sob-title');return {title:title.textContent,titleFont:getComputedStyle(title).fontSize,titleFamily:getComputedStyle(title).fontFamily,spark:r('.sob-spark')?.width,bottomGap:innerHeight-r('.sob-bottom').bottom,buttonHeight:r('.sob-bottom button').height,bottomWidth:r('.sob-bottom').width};});
- assert.equal(report.metrics.welcome.title,'Code Desktop');assert.equal(report.metrics.welcome.titleFont,'30px');assert.equal(report.metrics.welcome.spark,64);assert.equal(Math.round(report.metrics.welcome.bottomGap),48);assert.ok(report.metrics.welcome.bottomWidth<=448);
+ assert.equal(report.metrics.welcome.title,'OpenClaude Desktop');assert.equal(report.metrics.welcome.titleFont,'30px');assert.equal(report.metrics.welcome.spark,64);assert.equal(Math.round(report.metrics.welcome.bottomGap),48);assert.ok(report.metrics.welcome.bottomWidth<=448);
  await page.screenshot({path:path.join(directory,'welcome-light.png')});
  report.checks.push('Setup opens by itself on a DeepSeek core with no key: 64px spark, 30px serif title, bottom-pinned 448px button stack 48px from the bottom');
 

@@ -1,5 +1,5 @@
 // MiMo actors (background sub-agents inside the parent session, kept as their own message slices), their usage, MiMo's
-// native side question (POST /session/:id/ask), and the per-agent tool switches Code Desktop's workflow engine uses.
+// native side question (POST /session/:id/ask), and the per-agent tool switches OpenClaude Desktop's workflow engine uses.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

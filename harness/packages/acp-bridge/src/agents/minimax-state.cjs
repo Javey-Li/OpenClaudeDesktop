@@ -1,7 +1,7 @@
 // MiniMax Code's on/off state for skills and local plugins lives in its v2 SQLite database
 // (<home>/v2/sqlite/runtime-state.sqlite): the 'standalone-skill-disabled-state' preference
 // (local-runtime-v2 skill/enabled-state.ts) and the local_runtime_plugin_local_disabled table
-// (plugin/runtime/repository.ts), and the official plugins' state (local_runtime_plugin_official_state). Every Code Desktop thread has a database of its own, so the bridge
+// (plugin/runtime/repository.ts), and the official plugins' state (local_runtime_plugin_official_state). Every OpenClaude Desktop thread has a database of its own, so the bridge
 // copies the user's state into it before the thread's process starts, and turns a skill on or off in
 // the user's database (and every thread database) for Customize › Skills.
 //

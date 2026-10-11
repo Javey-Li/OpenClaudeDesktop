@@ -12,7 +12,7 @@ test('Codex permission profiles: custom ones listed, config.toml followed unless
   assert.deepEqual(customProfiles(listed), [{ id: 'devbox', description: 'Workspace plus scratch, network on', allowed: true }, { id: 'locked', description: null, allowed: false }]);
   assert.equal(effectiveProfile(undefined, 'devbox'), 'devbox');
   assert.equal(effectiveProfile(null, 'devbox'), 'devbox');
-  assert.equal(effectiveProfile('', 'devbox'), null, 'Code Desktop sandbox chosen');
+  assert.equal(effectiveProfile('', 'devbox'), null, 'OpenClaude Desktop sandbox chosen');
   assert.equal(effectiveProfile('other', 'devbox'), 'other');
   assert.equal(effectiveProfile(undefined, ':workspace'), null, 'a built-in default keeps the mode sandbox');
   assert.equal(validateProfileChoice(null), null);

@@ -195,7 +195,7 @@ export function skillMenuItems(skills) {
 // false) and loads MCP servers from its own profile patch, which it does not
 // write (capabilities.mcpConfigWrite false). A bridge core writes the file it
 // reports as configPath in initialize: the agent's own config (ZCode, the ACP
-// agents) or Code Desktop's overlay next to it (OpenCode, MiMo), which leaves
+// agents) or OpenClaude Desktop's overlay next to it (OpenCode, MiMo), which leaves
 // the user's own file untouched. Servers without these capabilities (Codex, UI
 // fixtures) keep every control. Copy names the running core from its descriptor
 // (name, vendor), never a fixed vendor.
@@ -239,7 +239,7 @@ export function customizeCore(core) {
     : typeof core?.configPath === "string" && core.configPath ? core.configPath : null;
   // Under the core's own home where it reports one (Codex with CODEX_HOME: core-registry corePath).
   const userConfigFile = corePath(core, descriptor.mcpConfigFile || descriptor.configFile || null);
-  // Code Desktop's own overlay beside the agent's config: what the core reports writing is not the user's file.
+  // OpenClaude Desktop's own overlay beside the agent's config: what the core reports writing is not the user's file.
   const configOverlay = !!configPath && !!userConfigFile && !sameConfigFile(configPath, userConfigFile);
   const configFile = configOverlay ? configPath
     : userConfigFile || configPath || (deepseek ? t("the DeepSeek core profile") : t("the {core} configuration", { core: name }));
@@ -299,7 +299,7 @@ export function customizeCore(core) {
       : t("A connector named {name} is already in {file}. Remove it first or choose another name.", { name: server, file: configFile }),
     // The Remove toast: an overlay core drops the server from its overlay (or turns off one from the user's file there).
     connectorRemoved: (server) => configOverlay
-      ? t("Removed {name} from Code Desktop’s {core} config. Your own {userFile} isn’t changed.", { name: server, core: name, userFile: userConfigFile })
+      ? t("Removed {name} from OpenClaude Desktop’s {core} config. Your own {userFile} isn’t changed.", { name: server, core: name, userFile: userConfigFile })
       : t("Removed {name} from {file}.", { name: server, file: configFile }),
     // A core that does not write MCP config: the DeepSeek core loads @deepseek-ai/dsh-mcp-client entries from its
     // profile; any other core reads servers from its own config file.
@@ -667,9 +667,9 @@ export function pluginRows(response, skills = []) {
 // Use needs a browser the host provides); codex-app-server catalog.js needsHost (a service only the DeepSeek app's own
 // window provides, e.g. Schedule) and notSupported (Agent Team, Auto review).
 export function pluginUnavailableReason(code) {
-  if (code === "noBrowser") return t("Browser control isn’t available in Code Desktop yet, so this plugin can’t open or drive pages here.");
-  if (code === "needsHost") return t("This plugin needs the DeepSeek app’s own window and can’t run in Code Desktop.");
-  if (code === "notSupported") return t("Code Desktop can’t show or run what this plugin adds yet, so it stays off here.");
+  if (code === "noBrowser") return t("Browser control isn’t available in OpenClaude Desktop yet, so this plugin can’t open or drive pages here.");
+  if (code === "needsHost") return t("This plugin needs the DeepSeek app’s own window and can’t run in OpenClaude Desktop.");
+  if (code === "notSupported") return t("OpenClaude Desktop can’t show or run what this plugin adds yet, so it stays off here.");
   return null;
 }
 
@@ -814,8 +814,8 @@ const INSTALL_FAILURES = {
 };
 const MANAGEMENT_ERRORS = {
   "not-bundle": t("This package is not a DeepSeek Harness plugin."),
-  "not-removable": t("This plugin is part of Code Desktop and cannot be removed."),
-  "management-required": t("Code Desktop needs this plugin."),
+  "not-removable": t("This plugin is part of OpenClaude Desktop and cannot be removed."),
+  "management-required": t("OpenClaude Desktop needs this plugin."),
   "invalid-spec": t("Enter a package name, absolute path, git URL or tarball URL."),
   "incompatible-version": t("This plugin does not support this DeepSeek Harness version."),
   "bundle-in-use": t("This plugin is in use and cannot be removed now."),

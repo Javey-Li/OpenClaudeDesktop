@@ -33,7 +33,7 @@ export default Object.freeze({
     structuredOutput: false, sideQuestion: true, sandboxNetwork: "always",
   }),
   // Claude tiers in a workflow script (agent({model: 'opus'}), an agentType's `model: haiku`) on MiniMax's own models:
-  // case-insensitive patterns tried in order against the bridge's model ids (m:minimax:MiniMax-M3:v:, …). Code Desktop
+  // case-insensitive patterns tried in order against the bridge's model ids (m:minimax:MiniMax-M3:v:, …). OpenClaude Desktop
   // passes them to the workflow runner (CODE_DESKTOP_WORKFLOW_MODEL_TIERS, codexAgent.js modelResolution).
   workflowModelTiers: Object.freeze({
     opus: Object.freeze([":MiniMax-M3(?:[:/]|$)", "MiniMax-M3(?![.\\d])"]),

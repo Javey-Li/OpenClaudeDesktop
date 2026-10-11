@@ -33,7 +33,7 @@ const { createTerminalService } = require("./terminal-service.cjs");
 // Sessions with a running turn or workflow (quit-guard.cjs), fed from receive() and emit().
 const liveWork = createLiveWork({ getConfig: () => config });
 // The running core's own saved-workflow folders (descriptor workflowFolders: Qwen's .qwen/workflows), read and written
-// beside .claude/workflows by Code Desktop's workflow engine, so a script saved by either engine is found by both.
+// beside .claude/workflows by OpenClaude Desktop's workflow engine, so a script saved by either engine is found by both.
 const coreWorkflowFolders = () => { const folders = coreForEngine(client?.serverInfo?.engine).workflowFolders; return Array.isArray(folders) ? [...folders] : []; };
 // Sessions whose core goal is working (thread/goal/updated status active), so quitting can pause them first.
 const activeGoals = new Set();
@@ -96,7 +96,7 @@ function sessionBaseBranch(sessionId, cwd) {
 const { recordActivity, readableLedger, ledgerStats, statsShape, statsCoreKey, keptCodeStats } = require("./activity.cjs");
 const { workspaceGitStatus, workspaceGitDiff, workspaceGitComparison, workspaceGitCommits, workspaceGitBranches } = require("./git-status.cjs");
 const { porcelainEntries, wouldBranchSwitchConflict } = require("./branch-switch.cjs");
-app.setName("Code Desktop");
+app.setName("OpenClaude Desktop");
 if (process.env.CODE_DESKTOP_DATA)
   app.setPath("userData", process.env.CODE_DESKTOP_DATA);
 // Bridge cores read Settings › Models custom providers from here (codex.cjs resolveCore).
@@ -124,7 +124,7 @@ const {resolveWorkflowSettings,workflowRunnerEnv,workflowEngineFor}=require("./p
 let workflowToolService;
 // Managed settings (an administrator's hard limits): {disableWorkflows: true} turns Dynamic workflows off for good
 // (Claude Code's managed disableWorkflows). CODE_DESKTOP_MANAGED_SETTINGS names another file (tests).
-const MANAGED_SETTINGS = process.env.CODE_DESKTOP_MANAGED_SETTINGS || (process.platform === "darwin" ? "/Library/Application Support/Code Desktop/managed-settings.json" : process.platform === "win32" ? path.join(process.env.ProgramData || "C:\\ProgramData", "Code Desktop", "managed-settings.json") : "/etc/code-desktop/managed-settings.json");
+const MANAGED_SETTINGS = process.env.CODE_DESKTOP_MANAGED_SETTINGS || (process.platform === "darwin" ? "/Library/Application Support/OpenClaude Desktop/managed-settings.json" : process.platform === "win32" ? path.join(process.env.ProgramData || "C:\\ProgramData", "OpenClaude Desktop", "managed-settings.json") : "/etc/code-desktop/managed-settings.json");
 let managedCache = { at: 0, value: {} };
 function managedSettings() {
   if (Date.now() - managedCache.at < 5000) return managedCache.value;
@@ -143,7 +143,7 @@ const workflowSettings = () => {
   return resolveWorkflowSettings({ config: config || {}, env: process.env, managed: managedSettings(), parallelism: os.availableParallelism?.() ?? os.cpus().length, coreId, models });
 };
 /**
- * How Code Desktop's runner gets an agent's structured result from the running core: undefined — Codex's StructuredOutput
+ * How OpenClaude Desktop's runner gets an agent's structured result from the running core: undefined — Codex's StructuredOutput
  * dynamic tool (a native core); "outputSchema" — turn/start outputSchema only (the DeepSeek Harness, OpenCode/MiMo: no
  * dynamic tools); false — no structured output (ZCode, the ACP agents). Both of the latter ask for JSON in the prompt.
  */
@@ -190,7 +190,7 @@ const {createInstructionsService} = require("./instructions-service.cjs");
 const { createPersonaImage } = require("./persona-image.cjs");
 const { createModelSettings } = require("./model-settings.cjs");
 const { createCustomCommands } = require("./custom-commands.cjs");
-// Code Desktop's own MCP server for every core (agent-tools-host.cjs: tool modules in ./agent-tools, a private socket)
+// OpenClaude Desktop's own MCP server for every core (agent-tools-host.cjs: tool modules in ./agent-tools, a private socket)
 // and the Preview pane's browser and dev servers (preview-service.cjs). The tools act on the calling session only.
 const { createAgentToolsHost } = require("./agent-tools-host.cjs");
 const { createAgentToolApproval } = require("./agent-tool-approval.cjs");
@@ -218,7 +218,7 @@ const agentToolApproval = createAgentToolApproval({ dialog, t: (source, values) 
     return { title, folder, shown: window ? windowRegistry.windowsShowing(session?.id).includes(window) : null };
   } });
 // Settings › Code › Preview: "Let DeepSeek use the preview" (unset reads as on).
-// Code › Dynamic workflows: the Workflow tool only while workflows are on and the running core uses Code Desktop's engine.
+// Code › Dynamic workflows: the Workflow tool only while workflows are on and the running core uses OpenClaude Desktop's engine.
 const agentToolGroupEnabled = (group) => group === "workflow" ? (() => { try { return workflowSettings().enabled && currentWorkflowEngine() === "codeDesktop"; } catch { return false; } })() : group !== "preview" || config?.agentPreview !== false;
 // Bypass permissions runs everything without asking, the app's own tools included: a terminal command, an outside site
 // or a launch.json dev server the agent starts in a Bypass session needs no sheet (Workflow decides on its own, as
@@ -286,7 +286,7 @@ async function agentToolCard(session, request = {}, { signal, call } = {}) {
 }
 /**
  * Whether the running core's agents keep working after the turn that started them ends (background sub-agents and
- * workflow agents: DeepSeek, Kimi, Qwen, OpenCode, …) and make their Code Desktop tool calls as the session without
+ * workflow agents: DeepSeek, Kimi, Qwen, OpenCode, …) and make their OpenClaude Desktop tool calls as the session without
  * naming their own thread: capabilities.backgroundAgents, else every core but a native one. Codex names the calling
  * thread on every call instead (agent-tools-host.cjs cancelThread).
  */
@@ -295,7 +295,7 @@ function coreKeepsBackgroundAgents(owner = client) {
   try { reported = coreCapabilities(owner?.serverInfo ?? null).backgroundAgents; kind = coreForEngine(owner?.serverInfo?.engine).kind; } catch { reported = undefined; }
   return typeof reported === "boolean" ? reported : kind !== "native";
 }
-/** A Code Desktop tool call whose approval card must not expire with the session's turn: a sub-agent's, or any call
+/** An OpenClaude Desktop tool call whose approval card must not expire with the session's turn: a sub-agent's, or any call
  * on a core whose background agents outlive the turn (their calls are cancelled when the work they belong to stops). */
 function agentToolCallOutlivesTurn(call, owner = client) {
   return call?.subAgent === true || coreKeepsBackgroundAgents(owner);
@@ -317,7 +317,7 @@ function agentToolServedToCore(tool, owner = client, session = null) {
   if (tool.native === "WebFetch" && codexWebSearchOn(owner, session)) return false;
   return !(Array.isArray(native) && native.includes(tool.native));
 }
-// The web_search each Codex session runs with, by the identity its Code Desktop server names (a start token, then the
+// The web_search each Codex session runs with, by the identity its OpenClaude Desktop server names (a start token, then the
 // thread id too): Settings › Code › Web search's thread override, else config.toml's (config/read), recorded when the
 // thread/start|resume request is decorated, before Codex starts the thread's server and lists its tools.
 const codexWebSearchModes = new Map();
@@ -344,7 +344,7 @@ const agentTools = createAgentToolsHost({
   // Codex never reads the list again after a session starts (it ignores tools/list_changed, and config/mcpServer/reload
   // doesn't re-list either): it is offered every group that could apply, so turning Dynamic workflows or the preview
   // on reaches its open sessions; a call while one is off is refused with the setting's name. Its Workflow tool is
-  // listed only while Code Desktop's engine runs its workflows (always, for Codex). The bridges whose agents ignore
+  // listed only while OpenClaude Desktop's engine runs its workflows (always, for Codex). The bridges whose agents ignore
   // the notice reopen their sessions instead (codeDesktop/appTools/changed, sent below).
   isGroupListed: (group) => {
     let native = false;
@@ -360,7 +360,7 @@ const agentTools = createAgentToolsHost({
   deferredGroups: () => agentToolsDeferred(),
   requestApproval: (session, request, options) => agentToolAsk(session, request, options),
   // Codex's /review delegate keeps the session's MCP servers (codex-rs core/src/tasks/review.rs clones the config with
-  // approvals off and a read-only sandbox, which Code Desktop's own tools aren't under): while a session is reviewing,
+  // approvals off and a read-only sandbox, which OpenClaude Desktop's own tools aren't under): while a session is reviewing,
   // only the tools that read pass, and nothing asks (the Review dialog promises a read-only review without prompts).
   refuseCall: (session, tool) => sessionOperations.isReviewing(session?.id) && !REVIEW_APP_TOOLS.has(tool)
     ? `${tool} isn’t available during a review: a review only reads. Finish the review; the user can ask for changes afterwards.` : null,
@@ -927,13 +927,13 @@ const knownSavedWorkflowPaths = new Set();
 // Codex sends them at initialize, often before the window listens, so init/reconnect hand them to the renderer too.
 let connectionNotices = [];
 // /btw on a native core (native-side-chat.cjs): Codex's own ephemeral side-conversation fork.
-// The fork's Code Desktop server works for the parent session with that session's own credential (so it can name no
+// The fork's OpenClaude Desktop server works for the parent session with that session's own credential (so it can name no
 // other), and offers only the tools that read the session's terminal and preview: a side question never runs a
 // command, opens a card in the main thread or changes the session (Codex /side: non-mutating inspection only).
 // A review (Codex review/start) reads too: the side chat's tools, plus the session list and ReportFindings.
 const REVIEW_APP_TOOLS = new Set(["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList", "ReportFindings", "list_sessions", "get_session", "load_tools"]);
 const SIDE_CHAT_APP_TOOLS = ["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList"];
-const nativeSideChat = createNativeSideChat({ getClient: () => client, emit: (event) => emit(event),
+const nativeSideChat = createNativeSideChat({ getClient: () => client, emit: (event) => emit(event), customPrompt: () => instructionsService.customPromptActive(),
   settings: () => ({ model: config?.model ?? null, effort: config?.effort ?? null }),
   decorateFork: (params, parentId, owner) => {
     if (!agentTools.socketPath || coreForEngine(owner?.serverInfo?.engine).kind !== "native" || !coreTakesAgentTools(owner)) return params;
@@ -941,7 +941,7 @@ const nativeSideChat = createNativeSideChat({ getClient: () => client, emit: (ev
       [`mcp_servers.${agentTools.SERVER_NAME}.enabled_tools`]: SIDE_CHAT_APP_TOOLS } };
   } });
 // Codex's automatic session titles (native-thread-title.cjs): a hidden ephemeral thread per title, every MCP server
-// off (Code Desktop's own too: the launch flag adds it).
+// off (OpenClaude Desktop's own too: the launch flag adds it).
 const nativeThreadTitles = createNativeThreadTitles({ getClient: () => client,
   ownServers: (owner) => agentTools.socketPath && coreForEngine(owner?.serverInfo?.engine).kind === "native" && coreTakesAgentTools(owner) ? [agentTools.SERVER_NAME] : [],
   context: () => ({ chatgpt: accountOperations?.accountSnapshot?.()?.account?.type === "chatgpt", models: initial?.models || [], model: config?.model ?? null }) });
@@ -984,7 +984,7 @@ function receive(e) {
   observeGoal(e);
   observeUsage(e);
   workflowToolService?.observe(e);
-  // A turn that ended, however it ended, cancels the Code Desktop tool calls it left waiting (Codex tells its MCP
+  // A turn that ended, however it ended, cancels the OpenClaude Desktop tool calls it left waiting (Codex tells its MCP
   // servers neither about a stop nor about its own tool_timeout_sec giving up on a call): their approval cards close,
   // and Allow / Run can no longer start anything for a turn that is over and was told the call failed. Only the calls
   // of the thread whose turn it was: a Codex sub-agent (spawn_agent) names its own thread on its calls, and its own
@@ -1268,7 +1268,7 @@ async function openPopout({ sessionId, pane, position }, owner = win, restore = 
     minHeight: 240,
     x: Math.round(restored ? restored.x : wantsPosition ? position.x : parentBounds.x + (parentBounds.width - size.width) / 2),
     y: Math.round(restored ? restored.y : wantsPosition ? position.y : parentBounds.y + (parentBounds.height - size.height) / 2),
-    title: "Code Desktop",
+    title: "OpenClaude Desktop",
     titleBarStyle: "hiddenInset",
     // A new pane window opens at the main window's zoom (CNr gives every
     // window the same level), so its lights start scaled.
@@ -1413,7 +1413,7 @@ function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } 
     ...(deferShow ? { show: false } : {}),
     minWidth: 600,
     minHeight: 400,
-    title: "Code Desktop",
+    title: "OpenClaude Desktop",
     titleBarStyle: "hidden",
     trafficLightPosition: trafficLightPosition(1),
     backgroundColor: windowBackground(nativeTheme.shouldUseDarkColors),
@@ -1525,7 +1525,7 @@ app.whenReady().then(async () => {
   } catch {
     config = {};
   }
-  const workspace = path.join(app.getPath("documents"), "Code Desktop");
+  const workspace = path.join(app.getPath("documents"), "OpenClaude Desktop");
   fs.mkdirSync(workspace, { recursive: true });
   config = {
     cwd: workspace,
@@ -1578,6 +1578,8 @@ app.whenReady().then(async () => {
   if (coreModels) config.coreModels = coreModels; else delete config.coreModels;
   // Imported cores, then the chosen core (config.core), before the first spawn; the menus name its assistant.
   extensionPacks.load();
+  // A bundled pack added from an older OpenClaude Desktop is replaced by this app's newer copy (its pinned agent release).
+  await extensionPacks.upgradeBundled().catch((error) => console.warn("Bundled pack update failed:", error?.message ?? error));
   // Codex became a bundled Extension Pack: a choice of it made before (or of any bundled pack not added yet) adds that
   // pack now, so the choice holds instead of falling back to DeepSeek.
   const chosenId = process.env.CODE_DESKTOP_CORE || config.core;
@@ -1662,14 +1664,14 @@ app.whenReady().then(async () => {
     enabled:()=>workflowSettings().enabled,runnerEnv:()=>workflowRunnerEnv(workflowSettings()),onSettled:run=>{void workflowToolService?.settled(run);},workflowFolders:coreWorkflowFolders});
   // The model's Workflow tool: per-session scripts under the app's data (never ~/.claude/projects); its finished runs
   // reach the model as a new turn with the session's last turn options (workflow-tool-service.cjs).
-  workflowToolService=createWorkflowToolService({workflowService,getConfig:()=>config,settings:workflowSettings,dataRoot:path.join(app.getPath("userData"),"sessions"),home:os.homedir(),
+  workflowToolService=createWorkflowToolService({workflowService,getConfig:()=>config,settings:workflowSettings,customPrompt:()=>instructionsService.customPromptActive(),dataRoot:path.join(app.getPath("userData"),"sessions"),home:os.homedir(),
     updateConfig:patch=>{config={...config,...patch};save();emitConfig();},
     requestApproval:(session,request,options)=>agentToolAsk(session,request,options),
-    // A session's ultracode/size reminder state, kept with Code Desktop's own session metadata so a relaunch still sends
+    // A session's ultracode/size reminder state, kept with OpenClaude Desktop's own session metadata so a relaunch still sends
     // "Ultracode is off" when the core's history says it was on (thread metadata is replaced by the core's).
     reminderStore:{get:id=>config?.sessionMetadata?.[id]?.workflowReminders,set:(id,state)=>{if(!config?.threadIds?.includes(id))return;config.sessionMetadata??={};config.sessionMetadata[id]={...(config.sessionMetadata[id]??{}),workflowReminders:state};save();}},
     core:()=>({structuredOutput:runnerStructuredOutput(),workflowFolders:coreWorkflowFolders()}),
-    // The ultracode reminders name the tool that runs this session's workflows: Code Desktop's Workflow tool, or on the
+    // The ultracode reminders name the tool that runs this session's workflows: OpenClaude Desktop's Workflow tool, or on the
     // core's own engine its own tool (descriptor workflowTool, e.g. ZCode's CreateWorkflow after its skill).
     workflowTool:()=>{if(currentWorkflowEngine()!=="native")return {engine:"codeDesktop",...(agentToolsDeferred().includes("workflow")?{deferred:true}:{})};const tool=coreForEngine(client?.serverInfo?.engine).workflowTool;return {engine:"native",...(tool&&typeof tool==="object"?{name:tool.name,skill:tool.skill}:{})};},
     validateAccess:async()=>{const owner=client;const {validateBypassRequest}=await import("./permission-policy.mjs");await validateBypassRequest({sandbox:"danger-full-access"},()=>config,()=>owner.request("configRequirements/read",{}));},
@@ -1815,7 +1817,7 @@ app.whenReady().then(async () => {
       }
       case "interrupt": {
         const sent = interruptTurn(client, p);
-        // Stop closes the session's waiting Code Desktop tool sheets at once (the core's turn/completed follows): the
+        // Stop closes the session's waiting OpenClaude Desktop tool sheets at once (the core's turn/completed follows): the
         // calls of the turn it stops (a Codex sub-agent's go on, as Codex keeps the sub-agent running).
         if (typeof p?.threadId === "string" && config.threadIds.includes(p.threadId)) agentTools.cancelThread(p.threadId);
         return sent;
@@ -1902,7 +1904,7 @@ app.whenReady().then(async () => {
         if (["thread/start", "thread/resume", "turn/start", "codeDesktop/thread/permissions", "codeDesktop/commands/execute"].includes(p.method) && params.codeDesktop && typeof params.codeDesktop === "object") {
           // Settings › Code › Dynamic workflows › Workflow engine: the core's own workflow tool only while its own engine is chosen.
           const workflowsOn = workflowSettings().enabled;
-          // dynamicWorkflows false: the bridge withholds its own workflow tool (off, or Code Desktop's engine chosen).
+          // dynamicWorkflows false: the bridge withholds its own workflow tool (off, or OpenClaude Desktop's engine chosen).
           params.codeDesktop = { ...params.codeDesktop, dynamicWorkflows: workflowsOn && currentWorkflowEngine() === "native" };
         }
         if (["codeDesktop/workflow/stop", "codeDesktop/workflow/member", "codeDesktop/workflow/pause", "codeDesktop/workflow/resume", "codeDesktop/workflow/artifact", "codeDesktop/workflow/settings"].includes(p.method) && (typeof params.threadId !== "string" || !config.threadIds.includes(params.threadId))) throw new Error("Unknown session.");

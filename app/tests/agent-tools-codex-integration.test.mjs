@@ -1,4 +1,4 @@
-// Opt-in: the real Codex binary (0.155.1) runs Code Desktop's MCP server for the app's sessions, through the
+// Opt-in: the real Codex binary (0.155.1) runs OpenClaude Desktop's MCP server for the app's sessions, through the
 // main-process path (codex.cjs setAgentToolsLaunch → CodexClient; the per-session identity on thread/start as
 // main.cjs decorates it). Run with
 //   CODEX_INTEGRATION=1 [CODEX_INTEGRATION_BINARY=~/.local/bin/codex] node --test tests/agent-tools-codex-integration.test.mjs

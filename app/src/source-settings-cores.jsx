@@ -12,7 +12,7 @@ import './source-profile-setting.css';
 import './commands-settings.css';
 import './cores-settings.css';
 
-// Settings › Cores: Code Desktop is the frame, a core is the agent behind it (core-registry.mjs). Official
+// Settings › Cores: OpenClaude Desktop is the frame, a core is the agent behind it (core-registry.mjs). Official
 // open-source cores are downloaded on demand into the app's data folder, or used where the user installed them
 // (core-manager.cjs); choosing one restarts the connection.
 
@@ -69,13 +69,13 @@ function statusText(core) {
   }
   if (!core.installed) return core.kind === 'builtin' ? t('Not found') : core.missingBridge ? t('Adapter missing') : t('Not installed');
   if (core.source === 'built-in') return t('Built in');
-  const where = core.source === 'app' ? t('Downloaded by Code Desktop') : t('Your install');
+  const where = core.source === 'app' ? t('Downloaded by OpenClaude Desktop') : t('Your install');
   // updateAvailable (core-manager list()): the app's copy is older than the release this build pins.
   const update = core.appInstall && core.updateAvailable === true && core.release?.version ? t('Update available: {version}', { version: core.release.version }) : null;
   // Your own install of another version than the release this build pins (core-manager systemVsRelease): requests that
-  // changed between versions may fail, so say which version Code Desktop is tested with.
+  // changed between versions may fail, so say which version OpenClaude Desktop is tested with.
   const tested = core.source === 'system' && core.release?.version && (core.systemVsRelease === 1 || core.systemVsRelease === -1)
-    ? t('Code Desktop is tested with {version}', { version: core.release.version }) : null;
+    ? t('OpenClaude Desktop is tested with {version}', { version: core.release.version }) : null;
   return [where, core.version, core.source === 'app' && core.appInstall ? mb(core.appInstall.size) : null, update, tested].filter(Boolean).join(' · ');
 }
 
@@ -176,7 +176,7 @@ export function SourceCoresSettings({ boot, busy = false, coreBusy = busy, deskt
     if (!runningNow(core.id)) return go();
     setConfirming({ title: t('Remove the {core} download?', { core: core.name }), action: t('Remove download'), danger: true,
       description: (core.systemInstall ? t('{core} is running. It stops and restarts from your own install at {path}.', { core: core.name, path: tail(core.systemInstall) })
-        : t('{core} is running. It stops, and Code Desktop switches to {fallback}.', { core: core.name, fallback: fallbackName })) + busyNote(), run: go });
+        : t('{core} is running. It stops, and OpenClaude Desktop switches to {fallback}.', { core: core.name, fallback: fallbackName })) + busyNote(), run: go });
   };
   // Pack Remove: the running core's bridge goes with it, so it stops and the app switches to the core chosen next.
   const removePack = pack => {
@@ -190,7 +190,7 @@ export function SourceCoresSettings({ boot, busy = false, coreBusy = busy, deskt
     });
     if (!runningNow(pack.id)) return go();
     setConfirming({ title: t('Remove the {core} pack?', { core: pack.name }), action: t('Remove'), danger: true,
-      description: t('{core} is running from this pack. It stops, and Code Desktop switches to the core chosen next.', { core: pack.name }) + busyNote(), run: go });
+      description: t('{core} is running from this pack. It stops, and OpenClaude Desktop switches to the core chosen next.', { core: pack.name }) + busyNote(), run: go });
   };
 
   // The running core's own import of an older install (capabilities.legacyMigration: Kimi Code's `kimi migrate`, which
@@ -240,7 +240,7 @@ export function SourceCoresSettings({ boot, busy = false, coreBusy = busy, deskt
 
   return <div className="ccmd-page cores-page">
     <SettingsGroup title={t('Cores')} rowErrors={rowErrors} rows={[
-      settingRow('cores-intro', t('Agent cores'), t('Code Desktop is the frame; the core is the agent that runs your sessions. Download only the cores you use. Your instructions, tools and permission modes apply to whichever core is running.'), null),
+      settingRow('cores-intro', t('Agent cores'), t('OpenClaude Desktop is the frame; the core is the agent that runs your sessions. Download only the cores you use. Your instructions, tools and permission modes apply to whichever core is running.'), null),
       ...(state ? rows : [settingRow('cores-loading', t('Loading…'), '', null)]),
       ...migrationRow,
     ]}/>

@@ -1,5 +1,5 @@
 /**
- * Code Desktop's five permission modes on an ACP agent.
+ * OpenClaude Desktop's five permission modes on an ACP agent.
  *
  * The app sends approvalPolicy + sandbox / sandboxPolicy and, with
  * capabilities.permissionHints, codeDesktop.permissionMode / afterPlan

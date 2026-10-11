@@ -919,7 +919,7 @@ function mainRecords(env, sessionId, state) {
 // ------------------------------------------------------------ Kimi's own "ask" verdicts
 //
 // The bridge runs Kimi in its 'default' (Always Ask) mode and answers every request itself, so Kimi's special asks
-// look like routine ones (the ACP request carries no reason). Code Desktop's Auto and Accept Edits would then approve
+// look like routine ones (the ACP request carries no reason). OpenClaude Desktop's Auto and Accept Edits would then approve
 // what Kimi's own 'Ask When Needed' mode still asks about (agent-core-v2 permissionPolicyService order): a user rule
 // with decision 'ask', the dangerous-command guard, sensitive files and the project's .git folder. kimiMustAsk
 // restores those asks on the bridge side.
@@ -1507,7 +1507,7 @@ export default {
   configModels: true,
   // Kimi keeps its MCP servers in their own file (writeMcpServer), not in config.toml.
   mcpConfigFile: (env) => path.join(homeOf(env), 'mcp.json'),
-  // Kimi's MCP client never reads a server's initialize instructions: Code Desktop's (the preview verification workflow,
+  // Kimi's MCP client never reads a server's initialize instructions: OpenClaude Desktop's (the preview verification workflow,
   // "these act on this session only") join the session's appended prompt (server.js launchConfig → SYSTEM.md overlay).
   appToolsInstructions: true,
   // A workflow agent (the runner's bridge) runs without Kimi's own sub-agents (Agent, AgentSwarm: Claude's workflow
@@ -1520,7 +1520,7 @@ export default {
 
   launch(ctx, config) {
     const env = { KIMI_CODE_NO_AUTO_UPDATE: '1' }
-    // ACP session mcpServers carry no per-server timeout, so Code Desktop's own tools (an approval the user is reading,
+    // ACP session mcpServers carry no per-server timeout, so OpenClaude Desktop's own tools (an approval the user is reading,
     // a dev server's first compile) would fail at Kimi's 60 s default while the app goes on: 10 minutes, as Codex gets,
     // unless the user set a global MCP tool timeout themselves (config.toml [mcp] tool_timeout_ms, or the variable).
     if (!ctx.env.KIMI_MCP_TOOL_TIMEOUT_MS && !kimiHasToolTimeout(ctx.env)) env.KIMI_MCP_TOOL_TIMEOUT_MS = '600000'
@@ -1535,7 +1535,7 @@ export default {
       return server ? kimiQualifiedToolName(server, name.slice(`mcp__${server}__`.length)) : name
     }
     const disabled = [...new Set([...(config.disabledTools ?? []).map(toolName), ...(config.disabledServers ?? []).flatMap(kimiServerDisablePatterns)])]
-    // Code Desktop's own tools (preview, terminal, Workflow…) come as an ACP session server, so Kimi's [tools] policy
+    // OpenClaude Desktop's own tools (preview, terminal, Workflow…) come as an ACP session server, so Kimi's [tools] policy
     // applies to them: an `enabled` allowlist or a disabled 'mcp__*' would silently drop every one. The thread then
     // runs on an overlay whose config.toml lets them through (kimiAppToolsConfig); the user's own file is never written.
     let appToolsText = null
@@ -1544,7 +1544,7 @@ export default {
       let text = ''
       try { text = fs.readFileSync(path.join(homeOf(ctx.env), 'config.toml'), 'utf8') } catch {}
       appToolsText = kimiAppToolsConfig(text, appTools.name, () => kimiServerNames(ctx.env))
-      if (appToolsText !== null) ctx.log?.('kimi: config.toml [tools] would block Code Desktop’s tools; this session lets them through')
+      if (appToolsText !== null) ctx.log?.('kimi: config.toml [tools] would block OpenClaude Desktop’s tools; this session lets them through')
     }
     if (!config.systemPrompt && !config.appendPrompt && !disabled.length && appToolsText === null) return { args: ['acp'], env }
     const real = homeOf(ctx.env)
@@ -1639,7 +1639,7 @@ export default {
     return out
   },
 
-  /** What a rewind leaves alone (Code Desktop says so once it is done). */
+  /** What a rewind leaves alone (OpenClaude Desktop says so once it is done). */
   revertNotice: 'Kimi Code rewound the conversation, its todo list and plan. Files it changed are not restored.',
 
   /**
@@ -2117,7 +2117,7 @@ export default {
     return new Promise((resolve, reject) => {
       const region = kimiLoginRegion(codeDesktop?.provider)
       const { command, args } = ctx.commandLine(region ? ['login', '--region', region] : ['login'])
-      // `kimi login` opens the device page itself (utils/open-url.ts runs `open <url>`), and Code Desktop opens the
+      // `kimi login` opens the device page itself (utils/open-url.ts runs `open <url>`), and OpenClaude Desktop opens the
       // verificationUrl it returns: a no-op `open` first on PATH keeps the app the only opener (one tab, not two).
       const env = withoutBrowser({ ...ctx.env, NO_COLOR: '1' })
       const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -2413,7 +2413,7 @@ export function kimiToolOffReason(tools, name, source = 'builtin') {
 }
 
 /**
- * A config.toml text whose [tools] policy lets Code Desktop's tools server (`server`) through, or null when the policy
+ * A config.toml text whose [tools] policy lets OpenClaude Desktop's tools server (`server`) through, or null when the policy
  * already does (or the file can't be read for certain). A non-empty `enabled` gets `mcp__<server>__*`; a `disabled`
  * pattern matching the server's tools is dropped, and a broader one (e.g. 'mcp__*') is narrowed to the user's own
  * servers (`ownServers()`), so their switches still hold.

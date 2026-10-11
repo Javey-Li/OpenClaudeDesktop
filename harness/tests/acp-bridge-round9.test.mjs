@@ -1,5 +1,5 @@
 // ACP bridge, round 9 fixes:
-//  - Code Desktop's tools server instructions (the preview verification workflow) reach agents that never show the
+//  - OpenClaude Desktop's tools server instructions (the preview verification workflow) reach agents that never show the
 //    model an MCP server's initialize instructions (adapter.appToolsInstructions: Kimi, MiniMax), only while the
 //    session gets that server;
 //  - Kimi background sub-agents (their log appears after the launch, even after the turn) bind to their launch by the
@@ -7,7 +7,7 @@
 //  - Gemini: a key only exported as GEMINI_API_KEY is named in the thread's settings (session/load needs it), MCP tool
 //    errors read as what the tool said, failed turns carry the agent's name once;
 //  - a workflow runner's turn/completed goes out after the turn's thread/tokenUsage/updated for every adapter;
-//  - MiniMax sessions begun in the mcode terminal say that Code Desktop's tools time out after 2 minutes there.
+//  - MiniMax sessions begun in the mcode terminal say that OpenClaude Desktop's tools time out after 2 minutes there.
 // Runs against testing/fake-acp-agent.mjs.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -27,9 +27,9 @@ const made = []
 const tmp = () => { const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'acp-r9-'))); made.push(dir); return dir }
 test.after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }) })
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-const INSTRUCTIONS = 'Tools provided by Code Desktop, the app this session runs in. They act on this session only.\n\nVerifying changes in the preview: …'
+const INSTRUCTIONS = 'Tools provided by OpenClaude Desktop, the app this session runs in. They act on this session only.\n\nVerifying changes in the preview: …'
 const TOOLS = {
-  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' }, instructions: `  ${INSTRUCTIONS}\n` }),
+  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' }, instructions: `  ${INSTRUCTIONS}\n` }),
   CODE_DESKTOP_AGENT_TOOLS_SOCKET: '/tmp/cd-tools-r9/s',
   CODE_DESKTOP_AGENT_TOOLS_TOKEN: 'tok',
 }
@@ -96,14 +96,14 @@ test('app-tools.js keeps the server\'s instructions (trimmed), null without them
   assert.notEqual(adapterById('gemini').appToolsInstructions, true, 'Gemini shows MCP server instructions itself')
 })
 
-test('Kimi: Code Desktop\'s tools instructions join the session\'s SYSTEM.md while it gets that server, never once switched off', async () => {
+test('Kimi: OpenClaude Desktop\'s tools instructions join the session\'s SYSTEM.md while it gets that server, never once switched off', async () => {
   const b = bridge({ env: TOOLS })
   try {
     await b.call('initialize', {})
     const { thread } = await b.call('thread/start', { cwd: b.home, config: { [SESSION_CONFIG_KEY]: 'start-r9' }, ...mode('auto') })
     await b.turn(thread.id, 'hello')
     const prompts = findFiles(path.join(b.home, 'state'), 'SYSTEM.md').map((file) => fs.readFileSync(file, 'utf8'))
-    assert.ok(prompts.some((text) => text.includes('Tools provided by Code Desktop') && text.includes('${base_prompt}')), 'appended after Kimi\'s own prompt')
+    assert.ok(prompts.some((text) => text.includes('Tools provided by OpenClaude Desktop') && text.includes('${base_prompt}')), 'appended after Kimi\'s own prompt')
     const session = b.agentLog().find((entry) => entry.method === 'session/new')
     assert.ok(session.params.mcpServers.some((server) => server.name === 'code_desktop'), 'the session has the server the text describes')
   } finally { await b.close() }
@@ -113,11 +113,11 @@ test('Kimi: Code Desktop\'s tools instructions join the session\'s SYSTEM.md whi
     const { thread } = await off.call('thread/start', { cwd: off.home, config: { [SESSION_CONFIG_KEY]: 'start-r9b' }, codeDesktop: { permissionMode: 'auto', tools: { disabledServers: ['code_desktop'] } } })
     await off.turn(thread.id, 'hello')
     const prompts = findFiles(path.join(off.home, 'state'), 'SYSTEM.md').map((file) => fs.readFileSync(file, 'utf8'))
-    assert.ok(!prompts.some((text) => text.includes('Tools provided by Code Desktop')), 'switched off: no instructions for tools it lacks')
+    assert.ok(!prompts.some((text) => text.includes('Tools provided by OpenClaude Desktop')), 'switched off: no instructions for tools it lacks')
   } finally { await off.close() }
 })
 
-test('MiniMax: Code Desktop\'s tools instructions join the thread\'s AGENTS.md next to its code_desktop server', async () => {
+test('MiniMax: OpenClaude Desktop\'s tools instructions join the thread\'s AGENTS.md next to its code_desktop server', async () => {
   // The bridge's own copy of mcode's SQLite module (as the smoke test uses): without one, thread/start would npm-install it.
   const b = bridge({ adapter: adapterById('minimax'), env: { ...TOOLS, MAVIS_SQLITE3_MODULE_PATH: path.resolve(import.meta.dirname, '../../work/agents/acp-bridge/minimax-native') } })
   try {
@@ -125,7 +125,7 @@ test('MiniMax: Code Desktop\'s tools instructions join the thread\'s AGENTS.md n
     const { thread } = await b.call('thread/start', { cwd: b.home, config: { [SESSION_CONFIG_KEY]: 'start-mm' }, ...mode('auto') })
     await b.turn(thread.id, 'hello')
     const prompts = findFiles(path.join(b.home, 'state'), 'AGENTS.md').map((file) => fs.readFileSync(file, 'utf8'))
-    assert.ok(prompts.some((text) => text.includes('Tools provided by Code Desktop')))
+    assert.ok(prompts.some((text) => text.includes('Tools provided by OpenClaude Desktop')))
     const servers = findFiles(path.join(b.home, 'state'), 'mcp.json').map((file) => JSON.parse(fs.readFileSync(file, 'utf8')))
     assert.ok(servers.some((config) => config.mcpServers?.code_desktop), 'the server the text describes is in the thread\'s mcp.json')
     assert.equal(fs.existsSync(path.join(b.home, '.minimax', 'AGENTS.md')), false, 'the user\'s own AGENTS.md is not written')
@@ -249,7 +249,7 @@ test('workflow runner: turn/completed follows the turn\'s thread/tokenUsage/upda
 
 // ------------------------------------------------------------ MiniMax sessions from the mcode terminal
 
-test('MiniMax: a session begun in the mcode terminal says Code Desktop\'s tools stop waiting after 2 minutes', () => {
+test('MiniMax: a session begun in the mcode terminal says OpenClaude Desktop\'s tools stop waiting after 2 minutes', () => {
   const minimax = adapterById('minimax')
   assert.match(minimax.permissionWarning('auto', { agentHome: 'real', appTools: true }), /after 2 minutes/)
   assert.equal(minimax.permissionWarning('auto', { agentHome: 'real', appTools: false }), null)

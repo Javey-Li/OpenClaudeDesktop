@@ -97,7 +97,7 @@ test('codeDesktop/plugin/registries reads the plugin manager registry configurat
   await assert.rejects(pluginRequest('codeDesktop/plugin/registries', {}, undefined))
 })
 
-test('Official bundles that can\'t run in Code Desktop are marked unavailable and are never turned on here', async () => {
+test('Official bundles that can\'t run in OpenClaude Desktop are marked unavailable and are never turned on here', async () => {
   const { bundleUnavailable, pluginsInstalledResponse } = await import('../packages/codex-app-server/src/catalog.js')
   for (const name of ['@deepseek-ai/dsh-experimental-schedule-bundle', '@deepseek-ai/dsh-experimental-agent-team-profile', '@deepseek-ai/dsh-experimental-auto-review'])
     assert.ok(pluginSummary({ name, optional: true, rows: [] }).codeDesktop.unavailable, name)
@@ -109,7 +109,7 @@ test('Official bundles that can\'t run in Code Desktop are marked unavailable an
   assert.equal(bundleUnavailable({ name: 'x', enabled: true, rows: [{ rowId: 'r1' }] }, phases), null)
   assert.equal(pluginsInstalledResponse([{ name: 'x', enabled: true, rows: [{ rowId: 'r2' }] }], '/p', { phases }).marketplaces[0].plugins[0].codeDesktop.unavailable, 'needsHost')
   const manager = fakeManager()
-  await assert.rejects(pluginRequest('codeDesktop/plugin/setEnabled', { pluginName: '@deepseek-ai/dsh-experimental-agent-team-profile', enabled: true }, manager), /can’t run in Code Desktop/)
+  await assert.rejects(pluginRequest('codeDesktop/plugin/setEnabled', { pluginName: '@deepseek-ai/dsh-experimental-agent-team-profile', enabled: true }, manager), /can’t run in OpenClaude Desktop/)
   assert.equal(manager.calls.length, 0)
   await pluginRequest('codeDesktop/plugin/setEnabled', { pluginName: '@deepseek-ai/dsh-experimental-agent-team-profile', enabled: false }, manager)
   assert.deepEqual(manager.calls.at(-1), ['setBundleEnabled', '@deepseek-ai/dsh-experimental-agent-team-profile', false])

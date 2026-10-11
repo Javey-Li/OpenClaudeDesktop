@@ -97,7 +97,7 @@ test('LocalReleaseNotes is the bleed md SourceDialog with versioned entries', ()
   assert.match(html, /<p class="st-release-limits">Known limits: Some commands, such as \/fork, \/review and \/rewind, depend on the running core; the slash menu says when one isn’t available\./);
   assert.doesNotMatch(html, /aren’t available yet|Background jobs don’t appear/);
   // The notes are core-neutral: they describe the frame and name DeepSeek Harness only as the built-in core.
-  assert.match(html, /Code Desktop is now a frame for agent cores: choose one in Settings › Cores\./);
+  assert.match(html, /OpenClaude Desktop is now a frame for agent cores: choose one in Settings › Cores\./);
   assert.match(html, /DeepSeek Harness is built in; the others install on demand/);
   assert.doesNotMatch(html, /powered by DeepSeek|run on DeepSeek models/);
   assert.equal([...html.matchAll(/<li[ >]/g)].length, RELEASE_NOTES[0].items.length, 'one list item per bundled note');

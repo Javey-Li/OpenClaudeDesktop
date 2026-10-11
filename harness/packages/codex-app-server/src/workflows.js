@@ -1,6 +1,6 @@
 /**
  * Model-initiated dynamic workflows: the Harness `workflow` tool
- * (dsh-tool-workflow over dsh-workflow-ptc) → Code Desktop workflow runs.
+ * (dsh-tool-workflow over dsh-workflow-ptc) → OpenClaude Desktop workflow runs.
  *
  * The tool call stays a Codex dynamicToolCall item; the bridge adds
  * `workflowRun` (a bridge field) in the app's own run shape
@@ -100,7 +100,7 @@ export function workflowRunOf(args, callId, time) {
 }
 
 /**
- * The one card a model workflow asks for outside Bypass (index.js tools/pre-execute): Code Desktop's "Run a dynamic
+ * The one card a model workflow asks for outside Bypass (index.js tools/pre-execute): OpenClaude Desktop's "Run a dynamic
  * workflow?" (Claude Code 2.1.280 WorkflowPermissionDialog). Every mode but Bypass asks, Auto and Accept edits
  * included, since a run fans out many paid agents; declining it starts nothing.
  */

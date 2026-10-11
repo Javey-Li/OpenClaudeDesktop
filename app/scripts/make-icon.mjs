@@ -47,4 +47,4 @@ execFileSync("iconutil", [
   "-o",
   path.join(root, "icon.icns"),
 ]);
-console.log("Created Code Desktop app icon.");
+console.log("Created OpenClaude Desktop app icon.");

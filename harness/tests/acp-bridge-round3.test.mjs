@@ -191,7 +191,7 @@ test('Gemini: signing out clears the Google sign-in choice; a stale choice is si
   assert.ok(tools.includes('read_mcp_resource') && tools.includes('list_mcp_resources'))
 })
 
-test('Gemini /init: a turn that writes GEMINI.md (an empty one counts as missing); with one there, Code Desktop says so without a prompt', async () => {
+test('Gemini /init: a turn that writes GEMINI.md (an empty one counts as missing); with one there, OpenClaude Desktop says so without a prompt', async () => {
   const gemini = adapterById('gemini')
   const home = tmp()
   const workspace = path.join(home, 'ws')

@@ -1,7 +1,7 @@
 // Codex's /auto-review ('approve one retry of a recent auto-review denial', tui slash_command.rs; permission_popups.rs):
 // a denial Codex's reviewer made in 'Approve for me' can be approved once with thread/approveGuardianDeniedAction
 // {threadId, event}, where event is the core's GuardianAssessmentEvent (codex-rs/protocol approvals.rs; snake_case
-// fields, a snake_case `type`-tagged action). Code Desktop keeps the app-server's camelCase review
+// fields, a snake_case `type`-tagged action). OpenClaude Desktop keeps the app-server's camelCase review
 // (item/autoApprovalReview/completed, state.js autoReviews) and rebuilds the event from it, as the TUI does
 // (chatwidget/protocol_requests.rs on_guardian_review_notification). Pure.
 import { t } from "../electron/i18n/index.mjs";

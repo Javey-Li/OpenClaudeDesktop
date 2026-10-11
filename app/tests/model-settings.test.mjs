@@ -288,7 +288,7 @@ test('relay models replace the llm-deepseek catalog; connection-models reads the
   const settings = createModelSettings({ getConfig: () => ({}), getClient: () => deepseek(), getHarnessProfile: () => profile, safeStorage, dir, relayProxy: forwarder });
   const view = await settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'https://relay.test', relayModels: 'deepseek-v4.1-flash\nglm-5.2, glm-5.2' }, relayKey: 'sk-relay' });
   assert.deepEqual(view.relayModels, ['deepseek-v4.1-flash', 'glm-5.2']);
-  assert.deepEqual(rows.get('llm-deepseek'), { config: { models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }, { id: 'glm-5.2', name: 'glm-5.2' }] } });
+  assert.deepEqual(rows.get('llm-deepseek'), { config: { models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }, { id: 'glm-5.2', name: 'GLM 5.2' }] } });
   await settings.run({ op: 'connection-save', connection: { mode: 'official' } });
   assert.equal(rows.has('llm-deepseek'), false, 'the official API keeps the built-in catalog');
   await assert.rejects(settings.run({ op: 'connection-save', connection: { mode: 'relay', relayBaseURL: 'https://relay.test', relayModels: 'bad id!' } }), /Invalid model id/);

@@ -190,7 +190,7 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
   };
   return createPortal(<div className="ss-backdrop ss-storage-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="ss-storage-dialog" ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title} aria-describedby={description} onKeyDown={keyboard}>
-      <header className="ss-storage-header"><h2 id={title}>{t('Storage')}</h2><p id={description}>{runtimeName ? t('Space Code Desktop and local {name} data use on this computer.', { name: runtimeName }) : t('Space Code Desktop and its agent core use on this computer.')}</p><button className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button></header>
+      <header className="ss-storage-header"><h2 id={title}>{t('Storage')}</h2><p id={description}>{runtimeName ? t('Space OpenClaude Desktop and local {name} data use on this computer.', { name: runtimeName }) : t('Space OpenClaude Desktop and its agent core use on this computer.')}</p><button className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button></header>
       <div className="ss-storage-content" aria-busy={state.loading || undefined}>
         {state.error && <p role="alert" className="ss-error">{t('Couldn’t calculate storage. Try again.')} {state.error}</p>}
         {!value && state.loading ? <div className="ss-storage-skeleton" aria-label={t('Calculating storage')}><i/><i/><i/><i/></div> : value && <StorageRows value={value}/>}
@@ -215,7 +215,7 @@ export function StorageRows({ value }) {
   const code = area('code'), runtime = area('runtime'), app = area('app');
   const size = bytes => <span className="ss-storage-size">{formatStorage(bytes)}</span>;
   // The shared kind (all of a core's history in its own database, these sessions included) gets a tip of its own; any
-  // other kind kept outside Code Desktop the generic one.
+  // other kind kept outside OpenClaude Desktop the generic one.
   const kindsOf = (item, extra = {}) => item.kinds.map(kind => kind.shared && runtime?.name ? { ...kind, tip: t('Kept in {name}’s own database together with its other sessions; not counted above.', { name: runtime.name }) } : kind.outside ? { ...kind, ...extra } : kind);
   const outside = code ? code.kinds.filter(kind => kind.outside).reduce((sum, kind) => sum + kind.bytes, 0) : 0;
   return <div className="settings-group-dividers ss-storage-rows">
@@ -231,7 +231,7 @@ export function StorageRows({ value }) {
       // A core whose sessions share one database (historyUnmeasured: ZCode, MiniMax, OpenCode, MiMo) can't size them.
       control={code.historyUnmeasured && !(code.bytes > 0) ? <span className="ss-storage-size">{t('Not measured')}</span> : size(code.bytes)}
       below={(code.bytes > 0 || outside > 0 || code.historyUnmeasured) && <StorageDetails label={t('Code session details')}><StorageKinds label={t('Code storage by kind')} color={AREA_COLORS.code}
-        items={kindsOf(code, { tip: runtime?.name ? t('History from {name} outside Code Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime.name }) : t('History kept outside Code Desktop. Shown for completeness; not counted above and never removed from here.') })}/></StorageDetails>}/>}
+        items={kindsOf(code, { tip: runtime?.name ? t('History from {name} outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime.name }) : t('History kept outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.') })}/></StorageDetails>}/>}
     {runtime && <StorageRow label={runtime.label}
       description={runtime.versionCount === 0 ? t('{name} downloads.', { name: runtime.name }) : tn(runtime.versionCount, '{count} installed {name} version.', '{count} installed {name} versions.', { name: runtime.name })}
       control={size(runtime.bytes)}

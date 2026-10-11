@@ -219,7 +219,7 @@ export function SourceInstructionsSettings({ config = {}, boot = null, engine, d
             : <SourceSettingsButton size="sm" busy={fileBusy === 'create-file'} onClick={() => fileOp('create-file')}>{t('Create file')}</SourceSettingsButton>}
         </span>}
       </div> }),
-    settingRow('instructions-project-text', t('Project instructions'), t('Stored in Code Desktop only, after the file’s instructions.'), null,
+    settingRow('instructions-project-text', t('Project instructions'), t('Stored in OpenClaude Desktop only, after the file’s instructions.'), null,
       { below: <InstructionsEditor key={root} label={t('Project instructions')} value={savedEntry?.text ?? ''} placeholder={t('e.g. Use pnpm. Run the unit tests before finishing.')}
         onSave={text => persist(withProjectInstructions(saved, savedEntry?.root ?? project, { useFile: savedEntry?.useFile !== false, text }))} /> }),
   ] : [settingRow('instructions-project', t('Project'), t('Choose a folder for a session to add project instructions.'), null)];

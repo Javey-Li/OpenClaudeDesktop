@@ -4,7 +4,7 @@
  * The CLI/agent ships inside the official ZCode desktop release (github.com/zai-org/ZCode/releases, the DMG):
  * `ZCode.app/Contents/Resources/glm/zcode.cjs` (a Node bundle; `zcode app-server --stdio` is the agent process
  * the desktop app itself drives), with the provider catalog beside it in `Resources/config/provider/`.
- * Code Desktop hands the bridge the program it downloaded or found (CODE_DESKTOP_AGENT_BINARY, run under
+ * OpenClaude Desktop hands the bridge the program it downloaded or found (CODE_DESKTOP_AGENT_BINARY, run under
  * CODE_DESKTOP_NODE_BINARY when CODE_DESKTOP_AGENT_RUNNER is "node"); without one the bridge looks in the usual
  * install places and on PATH.
  */

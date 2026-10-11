@@ -71,7 +71,7 @@ function quarantine(file) {
   try { if (!fs.lstatSync(file).isFile()) return; } catch { return; }
   execFile("/usr/bin/xattr", ["-p", "com.apple.quarantine", file], { timeout: 5000 }, (missing) => {
     if (!missing) return;
-    execFile("/usr/bin/xattr", ["-w", "com.apple.quarantine", `0081;${Math.floor(Date.now() / 1000).toString(16)};Code Desktop;`, file], { timeout: 5000 }, () => {});
+    execFile("/usr/bin/xattr", ["-w", "com.apple.quarantine", `0081;${Math.floor(Date.now() / 1000).toString(16)};OpenClaude Desktop;`, file], { timeout: 5000 }, () => {});
   });
 }
 
@@ -150,7 +150,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
         event.preventDefault();
         if (owner) {
           owner.download = { file, state: "cancelled", reason: "not-shown", at: Date.now() };
-          push(owner.console, { level: "warn", text: `Code Desktop didn’t download ${file}: the preview isn’t on screen, so there was nowhere to ask where to save it. Show the Preview pane and try again.`, url: owner.url, line: null, time: Date.now() }, CONSOLE_LIMIT);
+          push(owner.console, { level: "warn", text: `OpenClaude Desktop didn’t download ${file}: the preview isn’t on screen, so there was nowhere to ask where to save it. Show the Preview pane and try again.`, url: owner.url, line: null, time: Date.now() }, CONSOLE_LIMIT);
           notify(owner);
         }
         return;
@@ -267,7 +267,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     let host = null;
     try { const parsed = new URL(url); host = /^(https?|wss?):$/.test(parsed.protocol) && !launch.isLocalHost(parsed.hostname) ? parsed.host : null; } catch { return false; }
     if (!host || entry.approvedHosts.has(host)) return false;
-    push(entry.console, { level: "warn", text: `Code Desktop blocked a request to ${host}: a local file page the agent drives reaches only localhost and sites allowed in this session.`, url: page, line: null, time: Date.now() }, CONSOLE_LIMIT);
+    push(entry.console, { level: "warn", text: `OpenClaude Desktop blocked a request to ${host}: a local file page the agent drives reaches only localhost and sites allowed in this session.`, url: page, line: null, time: Date.now() }, CONSOLE_LIMIT);
     return true;
   }
   /**
@@ -392,7 +392,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
         if (type === "alert" || type === "confirm" || type === "prompt") {
           const message = String(params.message ?? "").slice(0, 200);
           const returned = { confirm: "confirm() returned false to the page", prompt: "prompt() returned null to the page" }[type] ?? "the call returned immediately";
-          push(entry.console, { level: "warn", text: `[Code Desktop preview] Page dialog suppressed (${type}): ${JSON.stringify(message)} — native JavaScript dialogs are disabled in this browser; ${returned}.`,
+          push(entry.console, { level: "warn", text: `[OpenClaude Desktop preview] Page dialog suppressed (${type}): ${JSON.stringify(message)} — native JavaScript dialogs are disabled in this browser; ${returned}.`,
             url: String(params.url || "").slice(0, 2000), line: null, time: Date.now() }, CONSOLE_LIMIT);
           entry.dialog = { type, message, returned, at: Date.now() };
         }

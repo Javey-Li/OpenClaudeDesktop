@@ -1,6 +1,6 @@
 /**
  * The macOS sandbox (Seatbelt, /usr/bin/sandbox-exec) the bridge runs an agent
- * process in, so Code Desktop's Auto and read-only modes hold for everything
+ * process in, so OpenClaude Desktop's Auto and read-only modes hold for everything
  * the agent does, its shell commands and MCP servers included (they inherit it):
  *
  *   workspace-write  writes only under the thread's cwd and writable roots, the

@@ -1,4 +1,4 @@
-// The model's Workflow tool end to end on Code Desktop's engine: workflow-tool-service.cjs over the real
+// The model's Workflow tool end to end on OpenClaude Desktop's engine: workflow-tool-service.cjs over the real
 // workflow-service.cjs and workflow-child.mjs, with the isolated app-server fixture as the core. Covers launch
 // (inline script persisted 0600 under the session's data, Claude's launch text), approvals (ask / always allow /
 // Bypass / declined), the session's Mode for agents, the <task-notification> delivered back to the model once the
@@ -126,7 +126,7 @@ test('validation: determinism check on inline scripts, script errors, an unknown
     await assert.rejects(h.toolService.launch({ script: 'export const meta={name:"a",description:"b"};\nreturn Date.now()' }, { sessionId: 'thread-1' }), /must be deterministic/);
     await assert.rejects(h.toolService.launch({ script: 'return 1' }, { sessionId: 'thread-1' }), /Invalid workflow script: `export const meta/);
     await assert.rejects(h.toolService.launch({ script: 'export const meta={name:"a",description:"b"};\nreturn 1', resumeFromRunId: 'wf_aaaaaaaaaaaa' }, { sessionId: 'thread-1' }), /Unknown workflow run/);
-    await assert.rejects(h.toolService.launch({ script: 'export const meta={name:"a",description:"b"};\nreturn 1' }, { sessionId: 'other' }), /only in a Code Desktop session/);
+    await assert.rejects(h.toolService.launch({ script: 'export const meta={name:"a",description:"b"};\nreturn 1' }, { sessionId: 'other' }), /only in an OpenClaude Desktop session/);
     assert.equal(h.approvals.length, 0, 'nothing invalid reaches the approval');
     const keyword = { threadId: 'thread-1', input: [{ type: 'text', text: 'ultracode fix it' }], cwd: h.cwd };
     await h.toolService.turnStart(keyword, { permission: 'auto', mode: 'code', keyword: true, ultracode: true });

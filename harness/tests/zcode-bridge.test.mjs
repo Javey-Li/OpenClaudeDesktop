@@ -755,7 +755,7 @@ test('usage: account/usage/read and the home stats card from usage/stats', () =>
   assert.equal(stats.peakActivityHour, 14)
 })
 
-test('locate: the app layout and Code Desktop’s agent env', () => {
+test('locate: the app layout and OpenClaude Desktop’s agent env', () => {
   const dir = tmp()
   const glm = path.join(dir, 'Resources', 'glm')
   fs.mkdirSync(glm, { recursive: true })
@@ -1141,7 +1141,7 @@ test('ZCode goals: projection.target as Codex ThreadGoal (budget_limited → bud
   assert.equal(goalOf({ status: 'active' }, 'x'), null)
 })
 
-test('ZCode settings: Workspace Memory and search enhancements default to the ZCode app’s choices; Code Desktop’s value wins', async () => {
+test('ZCode settings: Workspace Memory and search enhancements default to the ZCode app’s choices; OpenClaude Desktop’s value wins', async () => {
   const { zcodeCoreSettingDefs, zcodeRuntimePreferences } = await import('../packages/zcode-bridge/src/server.js')
   const { RUNTIME_PREFERENCES } = await import('../packages/zcode-bridge/src/zcode.js')
   assert.deepEqual(zcodeRuntimePreferences(zcodeCoreSettingDefs({})), { memoryEnabled: false, nativeSearchEnhancementsEnabled: true })
@@ -1151,7 +1151,7 @@ test('ZCode settings: Workspace Memory and search enhancements default to the ZC
   assert.equal(RUNTIME_PREFERENCES.askUserQuestionAutoResolutionEnabled, false, 'questions always wait for the user')
 })
 
-test('session/requestRuntimePreferences: the host answer carries Code Desktop’s ZCode settings over the defaults', async () => {
+test('session/requestRuntimePreferences: the host answer carries OpenClaude Desktop’s ZCode settings over the defaults', async () => {
   const { ZCodeConnection, RUNTIME_PREFERENCES } = await import('../packages/zcode-bridge/src/zcode.js')
   const written = []
   const connection = new ZCodeConnection({ command: 'x', args: [], env: {}, cwd: '/', runtimePreferences: () => ({ memoryEnabled: true }) })

@@ -1,5 +1,5 @@
 /**
- * Code Desktop custom system prompt (Settings → Instructions → Global instructions).
+ * OpenClaude Desktop custom system prompt (Settings → Instructions → Global instructions).
  *
  * When the user's global instructions are set, they ARE the system prompt:
  * the app sends them as params.codeDesktop.customization.systemPrompt
@@ -13,15 +13,19 @@
  *   - tool:structured_output             a turn's outputSchema capture (structured.js)
  * The last two exist only for workflow agents / structured turns.
  *
- * Tools are still sent as API tool schemas (assembly.tools is untouched), and
- * runtime context snapshots (sandbox/approval policy) stay user-role
- * messages, not system prompt text.
+ * Tools are still sent as API tool schemas (assembly.tools is untouched). The
+ * runtime contexts the harness adds as user-role messages (approval:policy,
+ * sandbox:policy, subagent:delegation) are dropped too: with a custom prompt
+ * nothing the system wrote reaches the model. The policies are still enforced.
  *
  * {{name}} in the user's text is replaced by the assembly variable of that
  * name when it has a value (model, provider, cwd); anything else stays
  * literal, so a stray {{…}} never fails a turn. The listener reads the ref at
  * every assembly, so a change applies from the next model step. Subagent
- * children have their own scopes and keep the built-in prompt.
+ * children (their own scopes) get the root thread's custom prompt too
+ * (installSubagentSystemPrompt): no built-in prose reaches them either; they
+ * keep their definition's role text (deployment:persona-prefix, the agent
+ * file's body or a workflow agent's persona) and structured-output capture.
  *
  * codeDesktop/systemPrompt/preview runs the same assembly for a loaded
  * thread (its agent scope) or, without one, the global layer with the
@@ -34,6 +38,9 @@ export const SYSTEM_PROMPT_SECTION = 'code-desktop:system-prompt'
 /** Sections that survive a custom system prompt: the session's own input, never built-in prose. */
 export const KEPT_SECTIONS = Object.freeze([INSTRUCTIONS_SECTION, 'code-desktop:developer-instructions', 'tool:structured_output'])
 const KEPT = new Set(KEPT_SECTIONS)
+/** A subagent also keeps the role its definition gives it. */
+export const SUBAGENT_KEPT_SECTIONS = Object.freeze([...KEPT_SECTIONS, 'deployment:persona-prefix'])
+const SUBAGENT_KEPT = new Set(SUBAGENT_KEPT_SECTIONS)
 export { PREVIEW_CUSTOM }
 
 /**
@@ -62,13 +69,14 @@ export function interpolateLoose(text, variables = {}) {
  * @param {import('@deepseek-ai/dsh-system-prompt').PromptAssembly} assembly
  * @param {{ systemPrompt?: string | null } | undefined} custom
  */
-export function applySystemPrompt(assembly, custom) {
+export function applySystemPrompt(assembly, custom, keep = KEPT) {
   const systemPrompt = normalizeSystemPrompt(custom?.systemPrompt)
   if (!systemPrompt || !assembly) return assembly
-  const kept = (assembly.sections ?? []).filter((section) => KEPT.has(section.name))
+  const kept = (assembly.sections ?? []).filter((section) => keep.has(section.name))
   return {
     ...assembly,
     sections: [{ name: SYSTEM_PROMPT_SECTION, text: interpolateLoose(systemPrompt, assembly.variables), interpolate: false }, ...kept],
+    contexts: [],
   }
 }
 
@@ -86,6 +94,19 @@ export function installSystemPrompt(agentCtx, ref) {
     const assembly = await next()
     return applySystemPrompt(assembly, context?.[PREVIEW_CUSTOM] ?? ref)
   }, { prepend: true })
+  return typeof dispose === 'function' ? dispose : () => {}
+}
+
+/**
+ * A subagent's scope (any depth): the root thread's custom prompt replaces its built-in sections the same way, read
+ * from the root's ref at every assembly; its definition's role text stays (SUBAGENT_KEPT_SECTIONS).
+ * @param {import('@deepseek-ai/cordis').Context} childCtx
+ * @param {{ systemPrompt?: string | null }} rootRef
+ * @returns {() => void}
+ */
+export function installSubagentSystemPrompt(childCtx, rootRef) {
+  if (typeof childCtx?.on !== 'function') return () => {}
+  const dispose = childCtx.on('system-prompt/assemble', async (_assembly, _context, next) => applySystemPrompt(await next(), rootRef, SUBAGENT_KEPT), { prepend: true })
   return typeof dispose === 'function' ? dispose : () => {}
 }
 

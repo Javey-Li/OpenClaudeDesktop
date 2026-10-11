@@ -2,7 +2,7 @@
 //  - Kimi's home overlay settles what Kimi writes at its top level (its workspaces.json catalog, rewritten atomically;
 //    a first run's logs/) into the real home when the process stops, and a deleted thread's launch folder goes too;
 //  - /export's ZIP on Kimi (`kimi export`): capabilities.sessionLogExport and codeDesktop/sessionLog/export;
-//  - Qwen: Code Desktop's tools instructions reach the model (appToolsInstructions, with where the deferred tools are);
+//  - Qwen: OpenClaude Desktop's tools instructions reach the model (appToolsInstructions, with where the deferred tools are);
 //    a reopened session's first prompt waits for its code_desktop server (awaitSessionTools); an extension's skill runs
 //    as '/<extension>:<skill>' and is listed once;
 //  - Gemini: the history replay that goes on after session/load answers stays out of the next turn (replaysAfterLoad);
@@ -33,7 +33,7 @@ const tmp = () => { const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpd
 test.after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }) })
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const TOOLS = {
-  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' }, instructions: 'Tools provided by Code Desktop.' }),
+  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' }, instructions: 'Tools provided by OpenClaude Desktop.' }),
   CODE_DESKTOP_AGENT_TOOLS_SOCKET: '/tmp/cd-tools-r10/s',
   CODE_DESKTOP_AGENT_TOOLS_TOKEN: 'tok',
 }
@@ -167,11 +167,11 @@ test('Kimi: /export offers its own session ZIP (sessionLogExport) and codeDeskto
 
 // ------------------------------------------------------------ Qwen
 
-test('Qwen: Code Desktop\'s tools instructions are its prompt\'s, with the up-front and deferred tool names', () => {
+test('Qwen: OpenClaude Desktop\'s tools instructions are its prompt\'s, with the up-front and deferred tool names', () => {
   const qwen = adapterById('qwen')
   assert.equal(typeof qwen.appToolsInstructions, 'function')
-  const text = qwenAppToolsInstructions('Tools provided by Code Desktop.', 'code_desktop')
-  assert.ok(text.startsWith('Tools provided by Code Desktop.'))
+  const text = qwenAppToolsInstructions('Tools provided by OpenClaude Desktop.', 'code_desktop')
+  assert.ok(text.startsWith('Tools provided by OpenClaude Desktop.'))
   for (const tool of QWEN_VISIBLE_APP_TOOLS) assert.ok(text.includes(`mcp__code_desktop__${tool}`))
   assert.ok(text.includes('mcp__code_desktop__read_console_messages') && /tool_search/.test(text) && /tool_call/.test(text))
 })

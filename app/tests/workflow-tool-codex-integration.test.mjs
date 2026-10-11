@@ -1,5 +1,5 @@
-// Opt-in: the real Codex binary (0.155.1) lists Code Desktop's Workflow tool over the app's MCP server and a model call
-// round-trips: the tool launches a background run on Code Desktop's engine (workflow-tool-service.cjs over the real
+// Opt-in: the real Codex binary (0.155.1) lists OpenClaude Desktop's Workflow tool over the app's MCP server and a model call
+// round-trips: the tool launches a background run on OpenClaude Desktop's engine (workflow-tool-service.cjs over the real
 // workflow-service.cjs, the runner's core being the isolated app-server fixture), answers with Claude's launch text, and
 // the finished run's <task-notification> reaches the model as a new turn on the same Codex thread. Run with
 //   CODEX_INTEGRATION=1 [CODEX_INTEGRATION_BINARY=~/.local/bin/codex] node --test tests/workflow-tool-codex-integration.test.mjs
@@ -49,7 +49,7 @@ function dummyModel() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, requests, base: `http://127.0.0.1:${server.address().port}/v1` })));
 }
 
-test('Codex lists Code Desktop\'s Workflow tool; a model call launches a run and its notification comes back as a turn', { skip, timeout: 240000 }, async (t) => {
+test('Codex lists OpenClaude Desktop\'s Workflow tool; a model call launches a run and its notification comes back as a turn', { skip, timeout: 240000 }, async (t) => {
   const tmp = '/private/tmp/claude-501';
   fs.mkdirSync(tmp, { recursive: true });
   const root = fs.mkdtempSync(path.join(tmp, 'codex-workflow-tool-'));

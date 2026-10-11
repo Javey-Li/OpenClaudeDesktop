@@ -53,7 +53,7 @@ export const CONFIGURABLE_TOOLS = AGENT_TOOL_IDS
 const OWN_ENTRIES = ['v2', 'background-tasks', /\.sqlite(-wal|-shm)?$/, /^\.?local-runtime(?!\.auth)/]
 
 /**
- * The switches Code Desktop's tools menu offers: only ones mcode honours (minimax-config.js threadConfigYaml):
+ * The switches OpenClaude Desktop's tools menu offers: only ones mcode honours (minimax-config.js threadConfigYaml):
  * agents.default.tools, the sub-agent tool and web search (features.delegation / webSearch) and the media tools
  * (agents.default.builtinTools, MiniMax's paid generation and understanding tools).
  */
@@ -81,15 +81,15 @@ const homeOf = (env) => env.MINIMAX_DATA_DIR || env.MAVIS_DATA_DIR || path.join(
  */
 /** mcode reads its global AGENTS.md only up to this size; a larger file is ignored whole (global-instructions.ts:48-52). */
 export const MINIMAX_GLOBAL_MAX_BYTES = 32 * 1024
-// Code Desktop's tools may wait on the user (an approval sheet) or a dev server's first compile: the app's own relay
+// OpenClaude Desktop's tools may wait on the user (an approval sheet) or a dev server's first compile: the app's own relay
 // allows 10 minutes (agent-tools-server.mjs), as Codex's tool_timeout_sec=600.
 const APP_TOOLS_TIMEOUT_MS = 600000
-const TRUNCATED_NOTE = '[Code Desktop instructions truncated to fit MiniMax Code’s 32 KiB limit for global instructions.]'
+const TRUNCATED_NOTE = '[OpenClaude Desktop instructions truncated to fit MiniMax Code’s 32 KiB limit for global instructions.]'
 
 /**
- * The thread's global AGENTS.md: the user's own file, then Code Desktop's prompt and instructions, kept within mcode's
- * 32 KiB so neither is dropped. Past it, the user's file stays whole and Code Desktop's part is cut with a note; a
- * user file over the limit by itself (mcode ignores it anyway) gives way to Code Desktop's part.
+ * The thread's global AGENTS.md: the user's own file, then OpenClaude Desktop's prompt and instructions, kept within mcode's
+ * 32 KiB so neither is dropped. Past it, the user's file stays whole and OpenClaude Desktop's part is cut with a note; a
+ * user file over the limit by itself (mcode ignores it anyway) gives way to OpenClaude Desktop's part.
  * @returns {{text: string, truncated: boolean, ownDropped: boolean}}
  */
 export function minimaxGlobalInstructions(own, prompt, max = MINIMAX_GLOBAL_MAX_BYTES) {
@@ -729,7 +729,7 @@ export function minimaxMustAsk({ name, input, mode }) {
 
 /**
  * MiniMax Code's public issue form (its feedback channel besides /feedback, which needs its own signed-in client):
- * the bug form for bugs and bad results, the question form for anything else, prefilled with what Code Desktop knows.
+ * the bug form for bugs and bad results, the question form for anything else, prefilled with what OpenClaude Desktop knows.
  */
 export const MINIMAX_ISSUES_URL = 'https://github.com/MiniMax-AI/minimax-code/issues/new'
 export function minimaxFeedbackUrl({ classification = 'bug', reason = null, version = null, model = null, platform = process.platform, osVersion = os.release(), arch = process.arch } = {}) {
@@ -742,7 +742,7 @@ export function minimaxFeedbackUrl({ classification = 'bug', reason = null, vers
   params.set('title', `${bug ? '[Bug]: ' : '[Question]: '}${firstLine}`)
   params.set('product', 'CLI - ACP')
   params.set('platform', osName)
-  const context = `Sent from Code Desktop (MiniMax Code over ACP).${model ? ` Model: ${model}.` : ''}`
+  const context = `Sent from OpenClaude Desktop (MiniMax Code over ACP).${model ? ` Model: ${model}.` : ''}`
   if (bug) {
     params.set('version', version ? `mcode ${version}` : '')
     params.set('os-version', `${osName} ${osVersion} ${arch}`)
@@ -855,7 +855,7 @@ export function writeMinimaxSetting(file, key, value) {
   let text = ''
   try { text = fs.readFileSync(file, 'utf8') } catch {}
   let block
-  try { block = yamlBlock(text, top) } catch { throw new Error(`MiniMax Code’s config.yaml has a ${top} section Code Desktop can’t edit. Change it in config.yaml.`) }
+  try { block = yamlBlock(text, top) } catch { throw new Error(`MiniMax Code’s config.yaml has a ${top} section OpenClaude Desktop can’t edit. Change it in config.yaml.`) }
   const next = withSetting({ [top]: block }, key, value)[top] ?? {}
   const lines = next && Object.keys(next).length ? writeYamlBlock({ [top]: next }) : null
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -878,7 +878,7 @@ export default {
   // Claude tool names a workflow script's disallowedTools can remove here, through codeDesktop.tools.disabled.
   workflowToolSwitches: { WebFetch: ['web_fetch'], WebSearch: ['web_search'], Agent: ['task'], Task: ['task'] },
   // mcode runs its tools itself (no client fs/terminal); the extension notifications report its queue.
-  // elicitation.form: its questionnaires (plan review included) as Code Desktop question cards; plan: plan_update.
+  // elicitation.form: its questionnaires (plan review included) as OpenClaude Desktop question cards; plan: plan_update.
   clientCapabilities: { elicitation: { form: {} }, plan: {}, _meta: { 'minimax-code/extensions': { version: 1, notifications: true } } },
   // mcode's ACP prompt takes no image blocks (acp/agent.ts image: false) but its read tool attaches image files to the
   // model: an image goes as a resource_link to its file (a pasted one saved first), for the models that see images.
@@ -989,18 +989,18 @@ export default {
       let own = ''
       try { own = fs.readFileSync(path.join(real, 'AGENTS.md'), 'utf8') } catch {}
       const global = minimaxGlobalInstructions(own, prompt)
-      if (global.truncated || global.ownDropped) ctx.log?.(`minimax: the global instructions passed ${MINIMAX_GLOBAL_MAX_BYTES} bytes;${global.truncated ? ' Code Desktop\'s part was shortened' : ''}${global.ownDropped ? ' the user\'s own AGENTS.md (over the limit by itself, so mcode ignores it) was left out' : ''}`)
+      if (global.truncated || global.ownDropped) ctx.log?.(`minimax: the global instructions passed ${MINIMAX_GLOBAL_MAX_BYTES} bytes;${global.truncated ? ' OpenClaude Desktop\'s part was shortened' : ''}${global.ownDropped ? ' the user\'s own AGENTS.md (over the limit by itself, so mcode ignores it) was left out' : ''}`)
       files['AGENTS.md'] = global.text
     }
     // The thread's own config.yaml (never a link to the user's: mcode writes its model and permission choices there):
-    // permissionMode `default` so Code Desktop's mode decides, mcode's own sandbox off inside the bridge's Seatbelt
+    // permissionMode `default` so OpenClaude Desktop's mode decides, mcode's own sandbox off inside the bridge's Seatbelt
     // profile, and the thread's tool switches in agents.default. Read again at every launch.
     let userConfig = ''
     try { userConfig = fs.readFileSync(path.join(real, 'config.yaml'), 'utf8') } catch {}
     const threadConfig = threadConfigYaml(userConfig, { disabled: config.disabledTools ?? [], nestedSandbox: Boolean(config.sandbox) && config.sandbox !== 'none' })
     for (const warning of threadConfig.warnings) ctx.log?.(`minimax: ${warning}`)
     files['config.yaml'] = threadConfig.text
-    // Code Desktop's tools server (config.appToolsEntry, adapter.appToolsInLaunch): declared in the thread's own mcp.json
+    // OpenClaude Desktop's tools server (config.appToolsEntry, adapter.appToolsInLaunch): declared in the thread's own mcp.json
     // rather than as an ACP session server, because only mcode's config carries a tool-call timeout (ACP has no field,
     // so a session server gets MCP_DEFAULTS.timeout, 2 minutes: an approval sheet left open longer, or a dev server's
     // first compile, would fail the call while the app still acts on it). Its env holds this session's own credential.
@@ -1107,19 +1107,19 @@ export default {
     const strict = mode === 'ask' || mode === 'acceptEdits'
     const custom = Boolean(thread.tools?.disabled?.length || thread.tools?.disabledServers?.length || thread.custom?.systemPrompt || thread.custom?.instructions || thread.custom?.persona || thread.developerInstructions)
     const out = []
-    if (strict || custom) out.push(`This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: ${strict ? `${mode === 'ask' ? 'Ask' : 'Accept edits'} cannot stop edits inside the project, and ` : ''}Code Desktop's tool switches and instructions don't apply. Start a new session in Code Desktop to use them.`)
-    // Code Desktop's tools reach such a session only as an ACP session server, which mcode gives its 2-minute default
+    if (strict || custom) out.push(`This conversation was started in MiniMax Code's terminal, so it runs in your own MiniMax home as it is: ${strict ? `${mode === 'ask' ? 'Ask' : 'Accept edits'} cannot stop edits inside the project, and ` : ''}OpenClaude Desktop's tool switches and instructions don't apply. Start a new session in OpenClaude Desktop to use them.`)
+    // OpenClaude Desktop's tools reach such a session only as an ACP session server, which mcode gives its 2-minute default
     // tool timeout (the 10 minutes of a thread's own mcp.json need a thread home): said, so a card left open longer, or
     // a slow dev server start, is not a silent failure while the app still acts on it.
-    if (thread.appTools) out.push(`This conversation was started in MiniMax Code's terminal, so MiniMax Code stops waiting for Code Desktop's own tools (terminal, preview, Workflow) after 2 minutes. Answer their approval cards within that time, or start a new session in Code Desktop.`)
+    if (thread.appTools) out.push(`This conversation was started in MiniMax Code's terminal, so MiniMax Code stops waiting for OpenClaude Desktop's own tools (terminal, preview, Workflow) after 2 minutes. Answer their approval cards within that time, or start a new session in OpenClaude Desktop.`)
     return out.length > 1 ? out : out[0] ?? null
   },
   // The thread's permission.json depends on the mode: a mode change relaunches the agent (server.js keyOf).
   askAllInLaunch: true,
-  // Code Desktop's tools server goes in the thread's own mcp.json (launch config.appToolsEntry), with a 10-minute tool
+  // OpenClaude Desktop's tools server goes in the thread's own mcp.json (launch config.appToolsEntry), with a 10-minute tool
   // timeout; an ACP session server would time out after mcode's 2-minute default.
   appToolsInLaunch: true,
-  // mcode never shows the model an MCP server's initialize instructions: Code Desktop's (the preview verification
+  // mcode never shows the model an MCP server's initialize instructions: OpenClaude Desktop's (the preview verification
   // workflow, "these act on this session only") join the thread's prompt (server.js launchConfig → its AGENTS.md).
   appToolsInstructions: true,
 

@@ -90,7 +90,7 @@ export function SourceBypassDialog({ cwd, guide = null, onConfirm, onClose, open
     <p>{t("{name} will read, edit, and execute files without asking — including potentially destructive commands. Only use this in isolated or disposable environments.", { name: assistantName() })}</p>
     {cwd && <div className="source-bypass-workspace">{cwd}</div>}
     {/* wr: p.mt-3.text-footnote.text-muted ending 'Read our <securityLink>security guide</securityLink> for details.'
-        (a TextLink, external). Code Desktop keeps its own persistence sentence (it remembers Bypass as the mode). */}
+        (a TextLink, external). OpenClaude Desktop keeps its own persistence sentence (it remembers Bypass as the mode). */}
     <p className="source-bypass-note">{t("Stays on for new sessions until you change the mode. You can change it at any time.")}
       {guide && <>{" "}{t("Read {core}’s {link} for details.", { core: guide.name, link: "{link}" }).split(/\{link\}/).flatMap((piece, index) => index ? [<button key="link" type="button" data-cds="TextLink" className="source-bypass-link"
         onClick={() => void globalThis.desktop?.call?.("external", { url: guide.url })?.catch?.(() => {})}>{guide.label === "security guide" ? t("security guide") : t("documentation")}</button>, piece] : [piece])}</>}</p>

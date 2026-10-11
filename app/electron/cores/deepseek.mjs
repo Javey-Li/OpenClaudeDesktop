@@ -16,7 +16,7 @@ export default Object.freeze({
   models: "DeepSeek models, and any OpenAI- or Anthropic-compatible API added in Settings › Models",
   // Thread.cliVersion is "dsh <version>" (harness codex-app-server threadObject).
   sessionPrefix: "dsh ",
-  // The Harness's own dynamic-workflow tool (named by the ultracode reminders on its own engine). Code Desktop's
+  // The Harness's own dynamic-workflow tool (named by the ultracode reminders on its own engine). OpenClaude Desktop's
   // profile renames it (harness/packages/code-desktop-app/cordis.patch.yml tool-workflow toolName: Workflow).
   workflowTool: Object.freeze({ name: "Workflow" }),
   // What the bridge supports without listing it in initialize (older bridges and UI fixtures report only the engine).
@@ -29,10 +29,10 @@ export default Object.freeze({
     providerSettings: true, deleteHistory: true, unloadOnNavigate: true, perTokenBilling: true, sideQuestion: true,
     sandboxNetwork: "always",
     // /workflow's launcher script runs on the Harness's own workflow engine (codeDesktop/workflow/startScript,
-    // workflow-harness.mjs) instead of Code Desktop's runner (session-command-model workflowEngine).
+    // workflow-harness.mjs) instead of OpenClaude Desktop's runner (session-command-model workflowEngine).
     workflowScripts: true,
     // dsh-mcp-client sends every MCP tool with each model request (no tool search) and re-lists on tools/list_changed:
-    // Code Desktop's long, rarely used tool groups wait behind code_desktop load_tools (main.cjs agentToolsDeferred).
+    // OpenClaude Desktop's long, rarely used tool groups wait behind code_desktop load_tools (main.cjs agentToolsDeferred).
     deferAppTools: true,
   }),
   // Where deleteHistory removes a session's own files (codex-app-server deleteSessionFiles), named in the delete confirms.

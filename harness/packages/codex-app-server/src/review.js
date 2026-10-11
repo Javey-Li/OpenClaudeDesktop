@@ -63,7 +63,7 @@ export function reviewLabelOf(message) {
   return typeof label === 'string' && label ? label : null
 }
 
-/** Whether a turn's items hold a completed ReportFindings call (Code Desktop's agent tools): the review result itself. */
+/** Whether a turn's items hold a completed ReportFindings call (OpenClaude Desktop's agent tools): the review result itself. */
 export function reportedFindings(items) {
   return (items ?? []).some((item) => item?.type === 'mcpToolCall' && item.tool === 'ReportFindings' && item.status === 'completed')
 }

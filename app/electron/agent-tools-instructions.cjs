@@ -1,6 +1,6 @@
 // The code_desktop MCP server's instructions (agent-tools-server.mjs sends them in its initialize reply). The
 // verification workflow is Claude Desktop's auto-verify (2.2553.1 <preview_tools> <verification_workflow>, on while
-// .claude/launch.json leaves top-level "autoVerify" unset or true), in Code Desktop's tool names; the Preview pane's
+// .claude/launch.json leaves top-level "autoVerify" unset or true), in OpenClaude Desktop's tool names; the Preview pane's
 // Servers & settings › Enable / Disable auto verify writes that key.
 //
 // Not every core hands an MCP server's instructions to its model (ZCode's MCP adapter drops them), so the agent-tools
@@ -9,7 +9,7 @@
 "use strict";
 
 const INSTRUCTIONS = [
-  "Tools provided by Code Desktop, the app this session runs in. They act on this session only.",
+  "Tools provided by OpenClaude Desktop, the app this session runs in. They act on this session only.",
   "",
   "Verifying changes in the preview: when this session's folder has a .claude/launch.json whose top-level \"autoVerify\" is not false, and the preview tools are available, then after you edit code that changes what a running app shows or does, check the change before you finish your response:",
   "1. Make sure a dev server runs (preview_start with the configuration's name; preview_list shows what runs).",

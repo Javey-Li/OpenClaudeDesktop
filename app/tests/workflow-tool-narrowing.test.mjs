@@ -1,4 +1,4 @@
-// agent() opts.disallowedTools / bashCommandClamp on Code Desktop's workflow engine (runner toolNarrowing.js):
+// agent() opts.disallowedTools / bashCommandClamp on OpenClaude Desktop's workflow engine (runner toolNarrowing.js):
 // validated as Claude Code 2.1.280 validates them, mapped onto the core's real tool controls, refused otherwise.
 // Real fixture app-server only, with a fresh HOME/XDG/CODEX_HOME/TMPDIR sandbox.
 import test from 'node:test';

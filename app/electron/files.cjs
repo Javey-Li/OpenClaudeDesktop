@@ -134,11 +134,11 @@ async function openBlockReason(requested, resolved) {
   if (/[\u0000-\u001f\u007f‪-‮⁦-⁩]/.test(resolved)) return "This file can’t be opened from here because its name has unusual characters. Use Show in Finder instead.";
   if (path.extname(String(requested)).toLowerCase() !== path.extname(resolved).toLowerCase()) return "This link points to a different kind of file, so it can’t be opened from here. Use Show in Finder instead.";
   const type = fileType(resolved);
-  if (BLOCKED_TYPES.has(type) || BLOCKED_OPEN_TYPES.has(type)) return "Code Desktop doesn’t open apps, scripts or installers from a session. Use Show in Finder instead.";
+  if (BLOCKED_TYPES.has(type) || BLOCKED_OPEN_TYPES.has(type)) return "OpenClaude Desktop doesn’t open apps, scripts or installers from a session. Use Show in Finder instead.";
   let stat;
   try { stat = await fs.lstat(resolved); } catch { return "File not found."; }
   if (stat.isSymbolicLink() || !stat.isFile()) return "Only files can be opened from here. Use Show in Finder instead.";
-  if ((stat.mode & 0o111) && !DOCUMENT_TYPES.has(path.extname(resolved).toLowerCase())) return "Code Desktop doesn’t open apps, scripts or installers from a session. Use Show in Finder instead.";
+  if ((stat.mode & 0o111) && !DOCUMENT_TYPES.has(path.extname(resolved).toLowerCase())) return "OpenClaude Desktop doesn’t open apps, scripts or installers from a session. Use Show in Finder instead.";
   return null;
 }
 module.exports = { scopedPath, listFiles, readFile, openBlockReason };

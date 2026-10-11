@@ -106,7 +106,8 @@
 .msx-context-windows { display:flex;flex-direction:column;gap:6px;min-width:0; }
 .msx-context-list { display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:6px 10px;align-items:center; }
 .msx-context-row { display:contents; }
-.msx-context-id { min-width:0;color:var(--cds-text-secondary,var(--cds-text-muted));font:400 var(--cds-font-size-footnote,12px)/1.3 var(--cds-font-mono);overflow-wrap:anywhere; }
+.msx-context-id { min-width:0;color:var(--cds-text-primary);font:400 var(--cds-font-size-footnote,12px)/1.3 var(--cds-font-sans);overflow-wrap:anywhere; }
+.msx-context-raw { margin-left:4px;color:var(--cds-text-muted);font-family:var(--cds-font-mono); }
 .msx-context-input { width:100%;min-width:0;font-family:var(--cds-font-mono); }
 .msx-page .msx-context-windows { margin-top:var(--cds-gap-sm,8px); }
 @media (prefers-reduced-motion: reduce) { .msx-image-chip { transition:none; } }

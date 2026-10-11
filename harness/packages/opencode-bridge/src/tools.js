@@ -49,7 +49,7 @@ export function toolSelectionOf(params) {
 }
 
 /**
- * Per-thread connector overrides in thread/start `config`, as Codex takes them (what Code Desktop's workflow runner sends
+ * Per-thread connector overrides in thread/start `config`, as Codex takes them (what OpenClaude Desktop's workflow runner sends
  * for an agent() opts.disallowedTools `mcp__…` entry): `mcp_servers.<name>.enabled: false` turns a connector off for
  * the thread, `mcp_servers.<name>.disabled_tools: [...]` some of its tools (dotted keys, or the nested
  * `mcp_servers: {<name>: {...}}` form). A selection (normalizeToolSelection), or null when the config turns none off.

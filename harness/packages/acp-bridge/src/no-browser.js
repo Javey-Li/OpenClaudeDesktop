@@ -1,6 +1,6 @@
 // A folder holding a no-op `open` (and `xdg-open`), for agent CLI commands that open the default browser on their own
 // (`kimi login` opens the device page; `mcode logout` opens MiniMax's sign-out page): put first on PATH, it keeps
-// Code Desktop the only opener, so the user sees one tab or none instead of a surprise window. Made once per process;
+// OpenClaude Desktop the only opener, so the user sees one tab or none instead of a surprise window. Made once per process;
 // null if it can't be made (the command then opens the browser as it would anyway).
 import fs from 'node:fs'
 import os from 'node:os'

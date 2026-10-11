@@ -1,7 +1,7 @@
 /**
  * Which ACP agent this bridge drives, and how to start it.
  *
- * Code Desktop starts the same bridge script for Gemini CLI, Qwen Code, Kimi
+ * OpenClaude Desktop starts the same bridge script for Gemini CLI, Qwen Code, Kimi
  * Code and MiniMax Code and passes only the agent program
  * (CODE_DESKTOP_AGENT_BINARY, CODE_DESKTOP_AGENT_RUNNER …). The agent is told
  * apart, in order, by:

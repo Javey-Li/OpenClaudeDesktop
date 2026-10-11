@@ -12,6 +12,9 @@
 // top_p is not offered: no Harness LlmCallConfig field carries it.
 // i18n is loaded lazily: model-settings.cjs require()s this module while its own
 // import() of it may still be in flight, which any static dependency would break.
+// provider-presets.mjs is a leaf module (no imports), so loading it statically is safe.
+import { isReasoningPresetEndpoint } from './provider-presets.mjs';
+import { modelFamily, modelDisplayName } from './model-families.mjs';
 let translate = null;
 import('../i18n/index.mjs').then(module => { translate = module.t; }, () => {});
 const t = (source, values) => translate ? translate(source, values)
@@ -259,7 +262,7 @@ export function priceEdited(prices, official, modelId) {
 // ---- Custom OpenAI-compatible providers (DeepSeek core only)
 // The Harness already ships the dormant `llm-pi-ai` adapter row (dsh-base);
 // its config `providers: {[route]: {displayName, api, baseURL, apiKeyEnv, models}}`
-// turns routes on. Code Desktop writes that one row through Settings › Harness's
+// turns routes on. OpenClaude Desktop writes that one row through Settings › Harness's
 // managed overlay (harness-profile.cjs) and exports each key to the core
 // process as CODE_DESKTOP_PROVIDER_KEY_<ROUTE>; the key itself is stored
 // encrypted (Electron safeStorage), never in preferences.json or ~/.dsh.
@@ -337,8 +340,9 @@ export function validateProvider(value) {
   if (!models.length) throw new Error(t('List at least one model id.'));
   if (models.length > MAX_ENTRIES) throw new Error(t('Use {max} models or fewer.', { max: MAX_ENTRIES }));
   for (const id of models) if (!PROVIDER_MODEL.test(id)) throw new Error(t('Invalid model id: {id}', { id: id.slice(0, 40) }));
+  // imageModels: the user's marks (an empty list included, = none); absent until they choose, so the family decides.
   const unique = [...new Set(models)], imageModels = imageSubset(value.imageModels, unique);
-  return { route, ...(displayName ? { displayName } : {}), api, baseURL, models: unique, ...(imageModels.length ? { imageModels } : {}), ...withContextWindows(contextWindowsFor(value.contextWindows, unique)) };
+  return { route, ...(displayName ? { displayName } : {}), api, baseURL, models: unique, ...(imageModels.length || Array.isArray(value.imageModels) ? { imageModels } : {}), ...withContextWindows(contextWindowsFor(value.contextWindows, unique)) };
 }
 
 // Which of a model list accept image input. The cores only send images to a model whose catalog entry says so
@@ -364,6 +368,32 @@ export function normalizeProviders(value) {
   return out;
 }
 
+// A thinking model (GLM, Kimi, Qwen, Claude, GPT…, also through a relay) offers Low/Medium/High; without the declaration the core treats a
+// hand-declared route's models as non-reasoning and the composer's effort picker stays on "Model default".
+// Anthropic-protocol routes turn the level into a thinking budget, OpenAI-protocol ones send it as reasoning_effort.
+export const PRESET_REASONING_EFFORTS = Object.freeze({ off: null, low: 'low', medium: 'medium', high: 'high' });
+// A family's levels as the core's reasoningEfforts: each level sent under its own name; `off` sends nothing.
+const effortMap = (levels) => ({ off: null, ...Object.fromEntries(levels.map(level => [level, level])) });
+
+/**
+ * One overlay model entry. The id's family (model-families.mjs) supplies what a bare relay id lacks: the vendor's
+ * name ("GLM 5.3"), thinking levels and image input; the user's marks (images, context window) win.
+ */
+export function providerModelEntry(provider, id) {
+  // Also on the Claude and OpenAI presets' routes: the core's catalog there lags the vendors (no gpt-6.1-sol), and an
+  // entry it doesn't describe would otherwise be a nameless text-only model; the family's levels match the vendor's.
+  const family = modelFamily(id);
+  const images = provider.imageModels ? provider.imageModels.includes(id) : family?.image === true;
+  const reasoning = family ? family.reasoning : isReasoningPresetEndpoint(provider.baseURL);
+  return {
+    id,
+    ...(family?.name ? { name: family.name } : {}),
+    ...(images ? { input: [...IMAGE_MODALITIES] } : {}),
+    ...(provider.contextWindows?.[id] ? { contextWindow: provider.contextWindows[id] } : {}),
+    ...(reasoning ? { reasoningEfforts: family ? effortMap(family.efforts) : { ...PRESET_REASONING_EFFORTS } } : {}),
+  };
+}
+
 /** The managed `llm-pi-ai` overlay row for the providers, or null to remove it. */
 export function providerOverlayRow(providers) {
   const list = normalizeProviders(providers);
@@ -371,7 +401,7 @@ export function providerOverlayRow(providers) {
   return { config: { providers: Object.fromEntries(list.map(provider => [provider.route, {
     ...(provider.displayName ? { displayName: provider.displayName } : {}),
     api: provider.api, baseURL: provider.baseURL, apiKeyEnv: providerKeyEnv(provider.route),
-    models: provider.models.map(id => ({ id, ...(provider.imageModels?.includes(id) ? { input: [...IMAGE_MODALITIES] } : {}), ...(provider.contextWindows?.[id] ? { contextWindow: provider.contextWindows[id] } : {}) })),
+    models: provider.models.map(id => providerModelEntry(provider, id)),
   }])) } };
 }
 
@@ -413,7 +443,7 @@ export function parseRelayModels(value) {
 export function relayCatalogRow(connection) {
   if (connection?.mode !== 'relay' || !connection.relayModels?.length) return null;
   const images = new Set(connection.relayImageModels ?? defaultRelayImageModels(connection.relayModels));
-  return { config: { models: connection.relayModels.map(id => ({ id, name: id, ...(images.has(id) ? { inputModalities: [...IMAGE_MODALITIES] } : {}), ...(connection.relayContextWindows?.[id] ? { contextWindow: connection.relayContextWindows[id] } : {}) })) } };
+  return { config: { models: connection.relayModels.map(id => ({ id, name: modelDisplayName(id), ...(images.has(id) ? { inputModalities: [...IMAGE_MODALITIES] } : {}), ...(connection.relayContextWindows?.[id] ? { contextWindow: connection.relayContextWindows[id] } : {}) })) } };
 }
 export const DEEPSEEK_ROW_ID = 'llm-deepseek';
 

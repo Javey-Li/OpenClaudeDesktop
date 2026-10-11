@@ -421,7 +421,7 @@ test('childApproval puts the child call on the root card, by its own call id', (
   assert.equal(childApproval({ ...base, callId: 'cc5', toolName: 'bash', args: {}, item: undefined }).params.sessionGrantable, false)
 })
 
-// Code Desktop F05: Mode stays usable during a turn. codeDesktop/thread/permissions (index.js → livePermissions)
+// OpenClaude Desktop F05: Mode stays usable during a turn. codeDesktop/thread/permissions (index.js → livePermissions)
 // hands turn/start's permission params to applyPermissions for a loaded thread only; initialize advertises it.
 test('codeDesktop/thread/permissions applies a running Mode change to loaded threads only', async () => {
   // A live thread mid-turn as index.js holds it, with the planMode and permissionPresets services.

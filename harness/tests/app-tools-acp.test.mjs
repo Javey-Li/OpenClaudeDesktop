@@ -1,4 +1,4 @@
-// Code Desktop's own tools server ("code_desktop") on the ACP bridge (packages/acp-bridge/src/app-tools.js): every
+// OpenClaude Desktop's own tools server ("code_desktop") on the ACP bridge (packages/acp-bridge/src/app-tools.js): every
 // app session's ACP session/new | resume | load carries the stdio mcpServers entry from CODE_DESKTOP_AGENT_TOOLS_*,
 // its env naming the session (the app's start token on thread/start, the thread id once the thread exists, a fork's
 // own id); throwaway sessions (model discovery, side questions) never get one; without the variables nothing changes.
@@ -18,7 +18,7 @@ const FAKE_AGENT = path.resolve(import.meta.dirname, '../packages/acp-bridge/tes
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-acp-')))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const TOOLS = {
-  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
+  CODE_DESKTOP_AGENT_TOOLS_SERVER: JSON.stringify({ name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
   CODE_DESKTOP_AGENT_TOOLS_SOCKET: '/tmp/cd-tools-x/s',
   CODE_DESKTOP_AGENT_TOOLS_TOKEN: 'tok',
 }
@@ -70,7 +70,7 @@ const namedSession = (mcpServers) => {
 test('app-tools.js: the ACP entry carries the server env, the socket, the token and the session', () => {
   const server = appToolsServer(TOOLS)
   assert.deepEqual(acpAppToolsServer(server, 'thread-1'), {
-    name: 'code_desktop', command: '/Apps/Code Desktop', args: ['/Apps/agent-tools-server.mjs'],
+    name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'],
     env: [{ name: 'ELECTRON_RUN_AS_NODE', value: '1' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_SOCKET', value: '/tmp/cd-tools-x/s' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_TOKEN', value: sessionToken('tok', 'thread-1') }, { name: 'CODE_DESKTOP_AGENT_SESSION', value: 'thread-1' }],
   })
   assert.equal(acpAppToolsServer(server, null), null)
@@ -94,7 +94,7 @@ test('ACP: new threads use the app’s start token, reopened ones their id; disc
     assert.equal(created.length, 1)
     const entry = created[0].params.mcpServers[0]
     assert.equal(entry.name, 'code_desktop')
-    assert.equal(entry.command, '/Apps/Code Desktop')
+    assert.equal(entry.command, '/Apps/OpenClaude Desktop')
     assert.deepEqual(entry.args, ['/Apps/agent-tools-server.mjs'])
     assert.deepEqual(Object.fromEntries(entry.env.map((item) => [item.name, item.value])), { ELECTRON_RUN_AS_NODE: '1', CODE_DESKTOP_AGENT_TOOLS_SOCKET: '/tmp/cd-tools-x/s', CODE_DESKTOP_AGENT_TOOLS_TOKEN: sessionToken('tok', token), CODE_DESKTOP_AGENT_SESSION: token })
     // Without a start token a new thread's first process runs without it (the id comes with the agent's answer).
@@ -159,7 +159,7 @@ test('ACP: a code_desktop call needs no card, even in Ask mode; another server�
   } finally { await b.close() }
 })
 
-test('Gemini: Code Desktop’s server joins a user mcp.allowed list in the thread’s settings overlay (never the user’s file)', () => {
+test('Gemini: OpenClaude Desktop’s server joins a user mcp.allowed list in the thread’s settings overlay (never the user’s file)', () => {
   const gemini = adapterById('gemini')
   const home = tmp()
   fs.mkdirSync(path.join(home, '.gemini'), { recursive: true })
@@ -177,7 +177,7 @@ test('Gemini: Code Desktop’s server joins a user mcp.allowed list in the threa
   const plain = gemini.launch(ctx, { threadDir: path.join(home, 't2'), cwd: home, writable: [home], appTools: 'code_desktop' })
   const plainOverlay = JSON.parse(fs.readFileSync(path.join(plain.env.GEMINI_CLI_HOME, '.gemini', 'settings.json'), 'utf8'))
   assert.equal(plainOverlay.mcp?.allowed, undefined)
-  // The overlay home only carries the Plan Mode policy for Code Desktop's tools (see the Plan Mode test).
+  // The overlay home only carries the Plan Mode policy for OpenClaude Desktop's tools (see the Plan Mode test).
   assert.deepEqual(plainOverlay.policyPaths, [path.join(home, 't2', 'gemini-home', '.gemini', 'policies'), path.join(home, 't2', 'code-desktop-policy.toml')])
   // Its calls read as the code_desktop server's (an underscore in the server name).
   assert.deepEqual(gemini.classify({ toolCallId: 'mcp_code_desktop_preview_click__1' }, { mcpServerNames: () => ['code_desktop'] }), { type: 'mcp', server: 'code_desktop', tool: 'preview_click' })

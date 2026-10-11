@@ -1,7 +1,7 @@
 // Codex's request_user_input (Claude's AskUserQuestion; codex.mjs nativeTools) answers "request_user_input is
 // unavailable in Default mode" unless its default_mode_request_user_input flag is on (under development in 0.155.1,
 // off by default). Every thread of a Codex that knows the flag gets it as a thread config override, so a question
-// card can come in any mode, as in Claude Code, and Code Desktop never serves Codex a second question tool. The
+// card can come in any mode, as in Claude Code, and OpenClaude Desktop never serves Codex a second question tool. The
 // under-development warning Codex would print for it is suppressed only when no other unstable flag of the user's is
 // on (their own warning stays). A flag the user turned on themselves, or a request that sets it, is left alone.
 const FLAG = "default_mode_request_user_input";

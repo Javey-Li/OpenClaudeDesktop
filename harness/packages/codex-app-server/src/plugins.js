@@ -1,6 +1,6 @@
 /**
  * Plugin management: the profile's dsh-plugin-manager service (what the
- * DeepSeek app's Plugins page and `dsh plugin` use) behind Code Desktop
+ * DeepSeek app's Plugins page and `dsh plugin` use) behind OpenClaude Desktop
  * bridge methods. Codex's plugin/install installs from a marketplace by
  * name; a Harness plugin is an npm bundle named by a package spec, so these
  * are their own methods:
@@ -100,9 +100,9 @@ export async function pluginRequest(method, params, manager) {
     case 'codeDesktop/plugin/setEnabled': {
       if (typeof params?.enabled !== 'boolean') throw invalidParams('enabled must be true or false')
       const name = nameParam(params?.pluginName)
-      // A bundle that can't work in Code Desktop (catalog.js UNAVAILABLE_BUNDLES) is never turned on from here: Agent
+      // A bundle that can't work in OpenClaude Desktop (catalog.js UNAVAILABLE_BUNDLES) is never turned on from here: Agent
       // Team would take the sub-agents away, Schedule would never start. Turning one off still works.
-      if (params.enabled && Object.hasOwn(UNAVAILABLE_BUNDLES, name)) throw new RpcError(-32600, 'This plugin can’t run in Code Desktop, so it stays off.')
+      if (params.enabled && Object.hasOwn(UNAVAILABLE_BUNDLES, name)) throw new RpcError(-32600, 'This plugin can’t run in OpenClaude Desktop, so it stays off.')
       return requireManager(manager).setBundleEnabled(name, params.enabled)
     }
     case 'codeDesktop/plugin/remove':

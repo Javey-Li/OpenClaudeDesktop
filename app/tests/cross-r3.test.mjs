@@ -19,10 +19,10 @@ test('context windows: 131072, 128K, 1M parse; custom provider and relay rows ca
   assert.throws(() => contextWindowsFor({ a: '12' }, ['a']), /Invalid context window for a/);
   const provider = validateProvider({ route: 'gw', baseURL: 'https://gw.example.com/v1', models: 'glm-5\nqwen3', contextWindows: { 'glm-5': '128K' } });
   assert.deepEqual(provider.contextWindows, { 'glm-5': 128000 });
-  assert.deepEqual(providerOverlayRow([provider]).config.providers.gw.models, [{ id: 'glm-5', contextWindow: 128000 }, { id: 'qwen3' }]);
+  assert.deepEqual(providerOverlayRow([provider]).config.providers.gw.models, [{ id: 'glm-5', name: 'GLM 5', contextWindow: 128000, reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high' } }, { id: 'qwen3', name: 'Qwen 3', reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high' } }]);
   assert.equal('contextWindows' in validateProvider({ route: 'gw', baseURL: 'https://gw.example.com/v1', models: 'm' }), false, 'absent when none is set');
   const connection = validateConnection({ mode: 'relay', relayBaseURL: 'https://relay.test', relayModels: 'glm-5', relayContextWindows: { 'glm-5': 131072 } });
-  assert.deepEqual(relayCatalogRow(connection).config.models, [{ id: 'glm-5', name: 'glm-5', contextWindow: 131072 }]);
+  assert.deepEqual(relayCatalogRow(connection).config.models, [{ id: 'glm-5', name: 'GLM 5', contextWindow: 131072 }]);
   assert.deepEqual(listedContextWindows([{ id: 'a', context_length: 131072 }, { id: 'models/b', inputTokenLimit: 1048576 }, { id: 'c' }, { id: 'd', context_window: 5 }]), { a: 131072, b: 1048576 });
 });
 

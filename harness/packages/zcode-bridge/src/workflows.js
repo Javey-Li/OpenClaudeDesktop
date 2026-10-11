@@ -1,6 +1,6 @@
 /**
  * ZCode's own dynamic workflows (CreateWorkflow / AmendWorkflow / ResumeWorkflowRun, run by its dynamic-workflow engine:
- * packages/dynamic-workflow and bootstrap/src/app/dynamic-workflow-run-*.ts) → Code Desktop's model-workflow runs:
+ * packages/dynamic-workflow and bootstrap/src/app/dynamic-workflow-run-*.ts) → OpenClaude Desktop's model-workflow runs:
  * `workflowRun` on the tool item, in the app's run shape (app/src/workflow-progress-model.mjs: workflow_phase /
  * workflow_agent progress entries), so the transcript row and the Tasks card are the ones every workflow uses. ZCode runs
  * the workflow; the bridge only projects it.
@@ -582,7 +582,7 @@ export const WORKFLOW_SESSION_GRANT_TOOLS = Object.freeze(['CreateWorkflow', 'Am
 
 // ------------------------------------------------------------------ the finished run's notification turn
 
-// Code Desktop's system-notification preface (app/electron/workflow-reminders.mjs): the app shows a user message that
+// OpenClaude Desktop's system-notification preface (app/electron/workflow-reminders.mjs): the app shows a user message that
 // starts with it and holds a <task-notification> as the transcript's 'Background workflow …' row, not as user text
 // (app/electron/prefs/workflow-keyword.mjs workflowNotificationSummary).
 const NOTICE_PREFACE = '[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event, NOT a message from the user.\n\n'
@@ -598,7 +598,7 @@ const tagOf = (block, name) => {
 /**
  * The notices of a turn ZCode starts by itself to hand GLM a finished run's result (input source 'background_task',
  * inputPresentation task_notification; the turn has no prompt of the user's), each as the text of a userMessage in
- * Code Desktop's own notification form (app/electron/workflow-tool-model.mjs workflowTaskNotification), so the app shows
+ * OpenClaude Desktop's own notification form (app/electron/workflow-tool-model.mjs workflowTaskNotification), so the app shows
  * the 'Background workflow completed · {name} · took {elapsed}' row its own engine shows there.
  *
  *   input       the turn's input: one <task-notification> per finished task (ZCode batches several into one turn);

@@ -54,7 +54,7 @@ export const SESSION_STATE_TOOLS = new Set(['create_goal', 'update_goal'])
 // A sub-agent reporting to (or stopping) an adjacent agent changes no file;
 // a continuable child is told to send its result with send_message.
 const CHILD_QUIET_TOOLS = new Set(['send_message', 'interrupt_agent'])
-// Code Desktop's own tools (app-tools.js): no card in Ask mode, the app asks the user itself where it matters (as Codex
+// OpenClaude Desktop's own tools (app-tools.js): no card in Ask mode, the app asks the user itself where it matters (as Codex
 // runs them with default_tools_approval_mode "approve").
 const isAppTool = (toolName) => typeof toolName === 'string' && toolName.startsWith('mcp__code_desktop__')
 // Delegation levels rootThreadFor walks before giving up.
@@ -160,7 +160,7 @@ export async function canonicalTarget(path, resolveReal = realpath) {
 
 /**
  * The client's extra writable roots (Codex sandboxPolicy.writableRoots, which
- * Code Desktop fills with cwd + its added folders), canonical, without cwd.
+ * OpenClaude Desktop fills with cwd + its added folders), canonical, without cwd.
  * Harness workspace-write has the session cwd as its only root.
  */
 export async function extraRootsOf(writableRoots, cwd, resolveReal = realpath) {

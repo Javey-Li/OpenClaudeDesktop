@@ -1252,7 +1252,7 @@ try {
   // cc183b3ab help = support, not a command palette. Local support is the honest Codex adaptation.
   const commands = page.getByRole("dialog", { name: "Help and support", exact: true });
   await commands.waitFor();
-  await commands.getByText('Code Desktop runs local DeepSeek sessions. Slash commands open tools, settings and conversation actions.', {exact:true}).waitFor();
+  await commands.getByText('OpenClaude Desktop runs local DeepSeek sessions. Slash commands open tools, settings and conversation actions.', {exact:true}).waitFor();
   await page.keyboard.press("Escape");
   checks.push("/skills, /mcp and /plugins open the matching Customize page (aria-current); without a session the connector list has no threadId and no row reads Connected; /help opens local support");
 

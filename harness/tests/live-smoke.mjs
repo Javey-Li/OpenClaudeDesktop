@@ -1,4 +1,4 @@
-// Live end-to-end smoke: Code Desktop's own CodexClient → DeepSeek core.
+// Live end-to-end smoke: OpenClaude Desktop's own CodexClient → DeepSeek core.
 // Usage: node tests/live-smoke.mjs   (needs a DeepSeek key in ~/.dsh)
 import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
@@ -279,7 +279,7 @@ try {
     status: inputRead.thread.turns[0]?.status,
     textOnly: await client.request('turn/start', { threadId: pro.thread.id, input: [{ type: 'text', text: 'x', text_elements: [] }, { type: 'localImage', path: imagePath }] }).then(() => 'resolved', (error) => `${error.code} ${error.message}`),
   }))
-  // Live Mode change (codeDesktop/thread/permissions, capabilities.livePermissions; Code Desktop F05): a turn started
+  // Live Mode change (codeDesktop/thread/permissions, capabilities.livePermissions; OpenClaude Desktop F05): a turn started
   // in Auto runs a bash sleep; while it runs the app switches to Manual (approvalPolicy untrusted + permissionMode
   // 'ask'), so the write after it asks for approval (auto-accepted here). An unknown thread answers applied:false.
   await fs.rm(path.join(workspace, 'live-mode.txt'), { force: true })

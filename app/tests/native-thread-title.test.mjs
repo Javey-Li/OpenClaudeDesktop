@@ -31,7 +31,7 @@ test('Codex titles: a hidden read-only ephemeral thread, one structured turn, th
   assert.equal(start.approvalPolicy, 'never');
   assert.equal(start.cwd, '/repo');
   assert.equal(start.config['features.shell_tool'], false);
-  // temporary_structured_request.rs: every configured MCP server (and Code Desktop's own) off, no environments or roots.
+  // temporary_structured_request.rs: every configured MCP server (and OpenClaude Desktop's own) off, no environments or roots.
   assert.deepEqual(client.calls[0], { method: 'config/read', params: { includeLayers: false, cwd: '/repo' } });
   assert.equal(start.config['mcp_servers.code_desktop.enabled'], false);
   assert.equal(start.config['mcp_servers.github.enabled'], false);

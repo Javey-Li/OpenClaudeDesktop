@@ -1,4 +1,4 @@
-// The agent cores Code Desktop can run. Code Desktop is the frame; a core is the
+// The agent cores OpenClaude Desktop can run. OpenClaude Desktop is the frame; a core is the
 // agent behind it, speaking the Codex app-server protocol (`app-server --stdio`)
 // natively (Codex) or through an adapter: the built-in DeepSeek Harness bridge,
 // or a bridge script in harness/packages/<bridge> that drives an official
@@ -25,14 +25,14 @@
 //   permissionHints     thread/turn params carry codeDesktop.permissionMode / afterPlan, and an approved
 //                       plan switches the session to the chosen mode.
 //   collaborationModes  turn/start takes collaborationMode (Plan); undeclared, main.cjs asks collaborationMode/list once.
-//   structuredOutput    turn/start outputSchema is honored (Code Desktop's /workflow runner needs it).
+//   structuredOutput    turn/start outputSchema is honored (OpenClaude Desktop's /workflow runner needs it).
 //   modelWorkflows      the core has its own dynamic-workflow engine; its runs come back as item.workflowRun and
 //                       stop through codeDesktop/workflow/stop. /workflow and Settings' Dynamic workflows are never
 //                       hidden from such a core (session-command-model workflowsSupported / workflowEngine).
 //   workflowScripts     /workflow's launcher script runs on that engine (codeDesktop/workflow/startScript); without
 //                       it a core with modelWorkflows starts the run through its model.
 //   workflowsNeedBypass (retired) ZCode once ran its workflows only in Bypass; its bridge now asks once per run instead.
-//   sideQuestion      codeDesktop/sideQuestion serves /btw (a Code Desktop extension: Codex itself rejects it).
+//   sideQuestion      codeDesktop/sideQuestion serves /btw (an OpenClaude Desktop extension: Codex itself rejects it).
 //   fileMentions        a {type: "mention"} input item with a local file path reaches the model; undeclared,
 //                       builtin and bridge cores have it and native ones don't (composer-attachments-model.mjs).
 //   systemPromptPreview codeDesktop/systemPrompt/preview.
@@ -50,7 +50,7 @@
 //   compactInstructions /compact [instructions] reaches the core (thread/compact/start codeDesktop.instructions).
 //   generatesTitles     the agent names its sessions (thread/name/updated): a new session gets no first-message
 //                       thread/name/set, so the core's own title is not suppressed (the sidebar shows the preview meanwhile).
-//   coreSettingsInConfig false: the core's Settings › Code settings (coreSettings) are kept by Code Desktop, not in the
+//   coreSettingsInConfig false: the core's Settings › Code settings (coreSettings) are kept by OpenClaude Desktop, not in the
 //                       agent's config file (ZCode's host preferences), so Developer › Local engine doesn't say otherwise.
 //   titleRequest        codeDesktop/threadTitle titles a new session from its first message (Codex: main.cjs runs the
 //                       TUI's hidden structured title turn, native-thread-title.cjs); the first-message name stays the
@@ -78,18 +78,18 @@
 //   appsDirectory       app/list lists the account's ChatGPT Apps (Codex /apps): Customize › Connectors › Apps.
 //   shellCommands       thread/shellCommand runs a composer draft that starts with '!' as the user's own shell command
 //                       (Codex's bash mode), instead of a prompt.
-//   configOverlay       Code Desktop keeps its config changes in its own overlay beside the agent's config (OpenCode,
+//   configOverlay       OpenClaude Desktop keeps its config changes in its own overlay beside the agent's config (OpenCode,
 //                       MiMo), so the user's own configFile is never rewritten (Developer › Local engine says so).
 //   nativeTools         the Claude Code tools the agent already has under its own names (AskUserQuestion, SendUserFile,
-//                       CronCreate, Monitor, ReportFindings, NotebookEdit, …): Code Desktop's agent-tools server serves a
+//                       CronCreate, Monitor, ReportFindings, NotebookEdit, …): OpenClaude Desktop's agent-tools server serves a
 //                       tool standing in for one of them (its module's `native`) only to a core that lacks it, so no agent
 //                       sees two of the same (main.cjs agentToolServedToCore). A list; absent means none.
 //   deferAppTools       the core sends every MCP tool definition with each model request (no tool search of its own)
-//                       and reads the list again on tools/list_changed (DeepSeek, OpenCode, MiMo): Code Desktop's long,
+//                       and reads the list again on tools/list_changed (DeepSeek, OpenCode, MiMo): OpenClaude Desktop's long,
 //                       rarely used tool groups (Workflow, Monitor, CronCreate, ReportFindings, NotebookEdit) wait behind
 //                       its load_tools tool (main.cjs agentToolsDeferred).
 //   backgroundAgents    the agent's sub-agents and workflow agents can go on after the turn that started them ends, and
-//                       make their Code Desktop tool calls as the session without naming their own thread: a normal turn
+//                       make their OpenClaude Desktop tool calls as the session without naming their own thread: a normal turn
 //                       end then cancels none of the session's tool calls, only a stopped turn does. Undeclared: every
 //                       core but a native one (Codex names the calling thread on each call; main.cjs coreKeepsBackgroundAgents).
 //   workflowToolSwitches  {Claude tool → the agent's own tool ids}: a workflow agent's opts.disallowedTools / agentType

@@ -11,7 +11,7 @@ const project=path.resolve(import.meta.dirname,inAppScripts?'../..':'../../..'),
 const {_electron:electron}=await import(pathToFileURL(path.join(project,'tools/node_modules/playwright/index.mjs')).href);
 const sourceRoot=process.env.TEST_SOURCE_ROOT||root,buildFile=process.env.TEST_EXPECT_BUILD||path.join(root,'dist/build-info.json');
 const appPath=process.env.TEST_APP_PATH?path.resolve(process.env.TEST_APP_PATH):null;
-const executablePath=appPath?path.join(appPath,'Contents/MacOS/Code Desktop'):process.env.TEST_ELECTRON_BINARY||path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+const executablePath=appPath?path.join(appPath,'Contents/MacOS/OpenClaude Desktop'):process.env.TEST_ELECTRON_BINARY||path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
 const server=path.join(root,'tests/fixtures/codex-server.cjs'),evidenceRoot=process.env.HIGHLIGHT_COALESCING_EVIDENCE_DIR||path.join(project,'analysis/batch-20260920');
 await fs.mkdir(evidenceRoot,{recursive:true});
 const directory=await fs.mkdtemp(path.join(evidenceRoot,appPath?'highlight-coalescing-packaged-':'highlight-coalescing-local-'));

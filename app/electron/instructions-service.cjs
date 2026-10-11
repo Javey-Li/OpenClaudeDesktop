@@ -10,9 +10,15 @@
 // after a custom one, under a "# Project instructions" heading after the
 // built-in one. Both ride on thread/start, thread/resume and turn/start (the
 // bridge applies them from the next model step).
-// Codex core: Codex cannot replace its own prompt, so the global and project
-// text are appended to developerInstructions on thread/start and
-// thread/resume (both exist in the 0.155.1 protocol); nothing else is sent.
+// Codex core: with global instructions set they replace Codex's own prompt
+// (thread/start and thread/resume baseInstructions, 0.155.1+), the project
+// text alone is the developerInstructions (the app's default line goes), the
+// personality is none and every instruction block Codex adds on its own is
+// switched off for the thread (CUSTOM_PROMPT_CODEX_CONFIG): nothing the system
+// wrote reaches the model. Without them the project text is appended to
+// developerInstructions as before. Other cores can't replace their prompt; with
+// global instructions they get those (and the project text) instead of the
+// app's default line.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -31,9 +37,17 @@ const TRUNCATED = "[truncated]";
 // driver), so they carry the current instructions like turn/start: a change in Settings › Instructions reaches them.
 const DEEPSEEK_METHODS = new Set(["thread/start", "thread/resume", "turn/start", "thread/goal/set", "codeDesktop/commands/execute"]);
 const CODEX_METHODS = new Set(["thread/start", "thread/resume"]);
+// Codex config keys (codex debug prompt-input) for the blocks it writes itself: permissions, environment context,
+// collaboration-mode, apps, plugin and skills usage, and the skills list. Its multi-agent role (from the model catalog)
+// and recommended plugins (only without plugins altogether) have no switch.
+const CUSTOM_PROMPT_CODEX_CONFIG = Object.freeze({
+  include_permissions_instructions: false, include_environment_context: false, include_collaboration_mode_instructions: false,
+  include_apps_instructions: false, include_apps_usage_instructions: false, include_plugin_usage_instructions: false,
+  include_skills_usage_instructions: false, "skills.include_instructions": false,
+});
 const PREVIEW_TIMEOUT = 15000;
 const TEMPLATE = `<!--
-  Project instructions for Code Desktop.
+  Project instructions for OpenClaude Desktop.
   Everything outside this comment is appended to the agent's system prompt for
   sessions in this folder and its subfolders. HTML comments are ignored.
   Example:
@@ -131,7 +145,17 @@ function decorateCoreParams(method, params, { engine, cwd, read }) {
     return params;
   }
   if (!CODEX_METHODS.has(method)) return params;
-  const { text } = read(cwd);
+  const { text, systemPrompt = null, instructions = null } = read(cwd);
+  if (systemPrompt) {
+    // The user's prompt is the whole prompt: no default line, no built-in prose.
+    if ((engine?.engine ?? engine) === "codex") {
+      params.baseInstructions = systemPrompt;
+      params.developerInstructions = instructions || null;
+      params.personality = "none";
+      params.config = { ...(params.config && typeof params.config === "object" ? params.config : {}), ...CUSTOM_PROMPT_CODEX_CONFIG };
+    } else params.developerInstructions = text;
+    return params;
+  }
   if (!text) return params;
   params.developerInstructions = [typeof params.developerInstructions === "string" ? params.developerInstructions : "", text].filter(Boolean).join("\n\n");
   return params;
@@ -454,7 +478,9 @@ function createInstructionsService({ getConfig, getClient, shell, knownCwd, home
       return params;
     }
   }
-  return { run, decorate };
+  // The user's global instructions are on and non-empty: they are the whole prompt, nothing the system wrote is sent.
+  const customPromptActive = () => { const value = normalizeInstructions(prefs()); return value.enabled && !!value.global.trim(); };
+  return { run, decorate, customPromptActive };
 }
 
-module.exports = { createInstructionsService, findProjectFile, composeInstructions, composeFor, decorateCoreParams, readProjectFile, systemPromptResult, coreInstructionFiles, PROJECT_FILE, TOTAL_CAP };
+module.exports = { CUSTOM_PROMPT_CODEX_CONFIG, createInstructionsService, findProjectFile, composeInstructions, composeFor, decorateCoreParams, readProjectFile, systemPromptResult, coreInstructionFiles, PROJECT_FILE, TOTAL_CAP };

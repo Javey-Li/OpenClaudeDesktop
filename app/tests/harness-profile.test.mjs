@@ -102,7 +102,7 @@ test('hooks, managed rows (C5 seam), env lines and argument splitting', () => {
   assert.deepEqual(managed.rows['llm-pi-ai'], { config: { providers: {} } });
   managed = setManagedRow(managed, 'llm-pi-ai', null);
   assert.deepEqual(managed.rows, {});
-  assert.throws(() => setManagedRow({}, 'codex-app-server', { disabled: true }), /belongs to Code Desktop/);
+  assert.throws(() => setManagedRow({}, 'codex-app-server', { disabled: true }), /belongs to OpenClaude Desktop/);
   assert.deepEqual(parseEnvLines('A=1\n# note\n\n B = two=2 '), { A: '1', B: ' two=2' });
   assert.throws(() => parseEnvLines('nope'), /NAME=value/);
   assert.deepEqual(splitArgs(`-y "@scope/pkg name" '' x`), ['-y', '@scope/pkg name', '', 'x']);
@@ -166,7 +166,7 @@ test('main: writes overlay.json + overlay.patch.yml, keeps CODE_DESKTOP_CORE_PAT
   assert.equal(read.pending, true);
   const overlay = path.join(f.dir, 'overlay.patch.yml');
   const text = fs.readFileSync(overlay, 'utf8');
-  assert.match(text, /^# Managed by Code Desktop/);
+  assert.match(text, /^# Managed by OpenClaude Desktop/);
   assert.deepEqual(JSON.parse(text.replace(/^#.*\n/, '')), [{ id: 'tool-web', disabled: true }]);
   assert.deepEqual(f.env.CODE_DESKTOP_CORE_PATCHES.split(path.delimiter), ['/launch/extra.yml', overlay]);
   await assert.rejects(f.harness.run({ op: 'set-enabled', id: 'system-prompt', enabled: false }), /can’t be turned off/);
@@ -311,7 +311,7 @@ test('Settings › Harness page: Codex notice, unsupported notice, groups, Requi
       assert.ok(html.includes(label), label);
     assert.match(html, /Restart the core to apply your changes/);
     assert.match(html, /data-setting-id="harness-row-cd-mcp-gh"/);
-    assert.match(html, /Added in Code Desktop · Applies after restart/);
+    assert.match(html, /Added in OpenClaude Desktop · Applies after restart/);
     assert.match(html, /\/u\/hooks\.json · Failed to start/);
     assert.match(html, /aria-label="Use overlays"[^>]*aria-checked="true"/);
     // Recovery replaces the banner when the core is down with overlays in play.

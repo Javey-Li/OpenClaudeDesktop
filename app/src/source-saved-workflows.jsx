@@ -1,5 +1,5 @@
 // Settings › Dynamic workflows › Saved workflows: the workflows saved for this project and for every project, from the
-// library the running engine reads (main.cjs 'saved-workflows': .claude/workflows for Code Desktop's engine, a core's own
+// library the running engine reads (main.cjs 'saved-workflows': .claude/workflows for OpenClaude Desktop's engine, a core's own
 // library such as ZCode's .zcode/workflows for its engine). Each shows what it is for and the arguments it declares;
 // Show in Finder opens its file, and a core library's workflow can be deleted and its earlier runs listed
 // ('saved-workflow-delete' / 'saved-workflow-runs'). Running one is /<name> in a session.

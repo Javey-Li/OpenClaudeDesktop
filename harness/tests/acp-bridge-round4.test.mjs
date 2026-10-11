@@ -219,7 +219,7 @@ test('Qwen: Dynamic workflows turns on its own Workflow tool (system-scope tools
     return JSON.parse(fs.readFileSync(out.env.QWEN_CODE_SYSTEM_SETTINGS_PATH, 'utf8'))
   }
   assert.equal(overlay({ dynamicWorkflows: true }).tools.workflowsEnabled, true)
-  // Off, missing (Code Desktop's engine chosen) or the user's QWEN_CODE_DISABLE_WORKFLOWS: forced off at system scope,
+  // Off, missing (OpenClaude Desktop's engine chosen) or the user's QWEN_CODE_DISABLE_WORKFLOWS: forced off at system scope,
   // so a user's own settings.json (tools.workflowsEnabled: true) can't keep the native tool.
   fs.mkdirSync(path.join(home, '.qwen'), { recursive: true })
   fs.writeFileSync(path.join(home, '.qwen', 'settings.json'), JSON.stringify({ tools: { workflowsEnabled: true } }))
@@ -383,7 +383,7 @@ test('Gemini silent stops: no reply fails the turn with Gemini\'s explanation; a
 test('Gemini plan review: the plan path may hold spaces; a custom plans folder is found and writable in Plan mode', () => {
   const gemini = adapterById('gemini')
   const home = tmp()
-  const state = path.join(home, 'Application Support', 'Code Desktop', 'state')
+  const state = path.join(home, 'Application Support', 'OpenClaude Desktop', 'state')
   const plans = path.join(state, 'threads', 't1', 'gemini-home', '.gemini', 'tmp', 'proj', 't1', 'plans')
   fs.mkdirSync(plans, { recursive: true })
   fs.writeFileSync(path.join(plans, 'feature.md'), '# The plan')
@@ -519,7 +519,7 @@ test('MiniMax: a project connector switched off is denied in the thread permissi
   assert.equal(bypass.env.MAVIS_TRASH_FORCE_MV, undefined)
 })
 
-test('MiniMax: Code Desktop\'s tools server goes in the thread\'s own mcp.json with a 10-minute timeout, never the user\'s home', () => {
+test('MiniMax: OpenClaude Desktop\'s tools server goes in the thread\'s own mcp.json with a 10-minute timeout, never the user\'s home', () => {
   const minimax = adapterById('minimax')
   assert.equal(minimax.appToolsInLaunch, true)
   const home = tmp()
@@ -556,7 +556,7 @@ test('MiniMax questionnaires: the field title is the question (never cut), the m
   } finally { await b.close() }
 })
 
-test('MiniMax global instructions stay within mcode\'s 32 KiB: the user\'s file whole, Code Desktop\'s part cut with a note', () => {
+test('MiniMax global instructions stay within mcode\'s 32 KiB: the user\'s file whole, OpenClaude Desktop\'s part cut with a note', () => {
   const small = minimaxGlobalInstructions('mine', 'ours')
   assert.deepEqual(small, { text: 'mine\n\nours', truncated: false, ownDropped: false })
   const long = minimaxGlobalInstructions('MY RULES', '界'.repeat(20000))
@@ -569,7 +569,7 @@ test('MiniMax global instructions stay within mcode\'s 32 KiB: the user\'s file 
   assert.deepEqual(ownTooBig, { text: 'ours', truncated: false, ownDropped: true })
 })
 
-test('Qwen sign-out removes only the keys Code Desktop saved, with the models that read them', () => {
+test('Qwen sign-out removes only the keys OpenClaude Desktop saved, with the models that read them', () => {
   const home = tmp()
   const env = { HOME: home, CODE_DESKTOP_BRIDGE_STATE: path.join(home, 'state') }
   fs.mkdirSync(path.join(home, '.qwen'), { recursive: true })

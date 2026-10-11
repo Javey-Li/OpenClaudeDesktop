@@ -1,4 +1,4 @@
-// ACP bridge: agent features that reach Code Desktop (agent-started turns, plan approaches, rewinds, background
+// ACP bridge: agent features that reach OpenClaude Desktop (agent-started turns, plan approaches, rewinds, background
 // commands, per-thread config files). Server flows run against the scripted ACP agent
 // (packages/acp-bridge/testing/fake-acp-agent.mjs); adapter details against files laid out as each agent writes them.
 import { test } from 'node:test'
@@ -20,7 +20,7 @@ const FAKE_AGENT = path.resolve(import.meta.dirname, '../packages/acp-bridge/tes
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'acp-features-')))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** A bridge on the scripted agent, driven like Code Desktop's client. */
+/** A bridge on the scripted agent, driven like OpenClaude Desktop's client. */
 function bridge({ adapter = adapterById('kimi'), env = {}, answer } = {}) {
   const home = tmp()
   const kimiHome = path.join(home, '.kimi-code')
@@ -167,7 +167,7 @@ test('Kimi plan approaches: leaving Plan mode without implementing answers plan_
   } finally { await b.close() }
 })
 
-test('Kimi keeps the user\'s own SYSTEM.md when Code Desktop adds instructions', () => {
+test('Kimi keeps the user\'s own SYSTEM.md when OpenClaude Desktop adds instructions', () => {
   const kimi = adapterById('kimi')
   const home = tmp()
   const kimiHome = path.join(home, '.kimi-code')
@@ -278,7 +278,7 @@ test('MiniMax permission.json: valid v2 rules, the user\'s deny and ask rules ke
   assert.deepEqual(ruleFromString('bash'), { tool_name: 'bash', matcher: { kind: 'tool' } })
 })
 
-test('MiniMax: signed in only with a credential file; terminal sessions warn that Code Desktop settings do not apply', () => {
+test('MiniMax: signed in only with a credential file; terminal sessions warn that OpenClaude Desktop settings do not apply', () => {
   const minimax = adapterById('minimax')
   const home = tmp()
   const data = path.join(home, '.minimax')

@@ -217,9 +217,9 @@ export function importThemeFile(input) {
     try { file = JSON.parse(input); } catch { throw new Error(t('This file isn’t valid JSON.')); }
   }
   if (!file || typeof file !== 'object' || Array.isArray(file) || file.format !== THEME_FILE_FORMAT)
-    throw new Error(t('This isn’t a Code Desktop theme file.'));
+    throw new Error(t('This isn’t an OpenClaude Desktop theme file.'));
   if (file.version !== THEME_FILE_VERSION)
-    throw new Error(typeof file.version === 'number' && file.version > THEME_FILE_VERSION ? t('This theme file needs a newer version of Code Desktop.') : t('Unsupported theme file version.'));
+    throw new Error(typeof file.version === 'number' && file.version > THEME_FILE_VERSION ? t('This theme file needs a newer version of OpenClaude Desktop.') : t('Unsupported theme file version.'));
   const fields = {};
   for (const key of ['accent', 'uiFont', 'fontScale', 'density', 'radiusScale']) if (key in file) fields[key] = file[key];
   if (typeof fields.accent === 'string') fields.accent = fields.accent.trim();

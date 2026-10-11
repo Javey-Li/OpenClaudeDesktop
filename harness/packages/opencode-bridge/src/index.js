@@ -50,7 +50,7 @@ const SESSION_PAGE_MIN = 100
 const SESSION_PAGES_MAX = 1000
 // thread/list cursors that carry OpenCode's own cursor (other cursors are offsets into a full listing).
 const SESSION_CURSOR = 'oc:'
-/** The Code Desktop workflow runner's clientInfo.name (app/electron/workflow-child.mjs), and its agents' session title. */
+/** The OpenClaude Desktop workflow runner's clientInfo.name (app/electron/workflow-child.mjs), and its agents' session title. */
 const WORKFLOW_CLIENT = 'code-desktop-workflows'
 /** Removes workflow-runs/<pid> folders (a runner bridge's generated config) whose process is gone. */
 function sweepRunnerFolders(stateDir) {
@@ -157,7 +157,7 @@ export function capabilitiesFor(flavor) {
     ...(flavor.id === 'mimo' ? { mcpSampling: true } : {}),
     // codeDesktop/references/list: OpenCode's `references` (named repos and folders), offered in the app's @ menu.
     references: flavor.id === 'opencode',
-    // Code Desktop keeps its config changes in its own overlay (OPENCODE_CONFIG_DIR), never in the user's file.
+    // OpenClaude Desktop keeps its config changes in its own overlay (OPENCODE_CONFIG_DIR), never in the user's file.
     configOverlay: true,
     // codeDesktop/history/import: MiMo imports other tools' sessions on request (Settings › Code).
     ...(flavor.id === 'mimo' ? { historyImport: ['cc', 'codex', 'opencode'] } : {}),
@@ -179,7 +179,7 @@ export function capabilitiesFor(flavor) {
     agentsWrite: true,
     // Settings › Code › '{core} settings' (codeDesktop/coreSettings/read|write, core-settings.js).
     coreSettings: true,
-    // Dynamic workflows on Code Desktop's engine: an agent() opts.disallowedTools entry turns these tools off for that
+    // Dynamic workflows on OpenClaude Desktop's engine: an agent() opts.disallowedTools entry turns these tools off for that
     // agent through thread/start codeDesktop.tools.disabled (Claude tool name → this agent's own tool ids): web fetch,
     // web and code search, and sub-agents (OpenCode's `task`; MiMo's `actor`, since its `task` is the work-item list).
     workflowToolSwitches: flavor.id === 'mimo'
@@ -189,7 +189,7 @@ export function capabilitiesFor(flavor) {
     // .disabled_tools (as on Codex; tools.js mcpConfigSelection), against the servers config/read lists.
     workflowMcpSwitches: true,
     // The agent sends every MCP tool definition with each model request and reads the list again on tools/list_changed:
-    // Code Desktop's long, rarely used tool groups wait behind its load_tools tool (core-registry.mjs deferAppTools).
+    // OpenClaude Desktop's long, rarely used tool groups wait behind its load_tools tool (core-registry.mjs deferAppTools).
     deferAppTools: true,
     unsupportedMethods: ['thread/rollback', 'thread/backgroundTerminals/terminate'],
     agent: flavor.id,
@@ -244,7 +244,7 @@ export function samplingSummary(metadata = {}, patterns = []) {
 /** Why account/logout can't remove a credential, and where the user removes it instead. */
 export function signOutElsewhere(flavor, providers) {
   const where = (provider) => ({
-    env: `${provider.name} reads its key from an environment variable; unset it and restart Code Desktop`,
+    env: `${provider.name} reads its key from an environment variable; unset it and restart OpenClaude Desktop`,
     settings: `${provider.name} is a provider in Settings › Models; remove it there`,
     config: `${provider.name}'s key is in your ${flavor.name} config file; remove it there`,
     none: `${provider.name} needs no sign-in`,
@@ -271,7 +271,7 @@ export class Bridge {
     this.config = new BridgeConfig({ flavor, stateDir, env })
     // Generated-config folders of workflow runners that are gone (config.js runnerDir).
     if (!this.config.runnerDir) sweepRunnerFolders(stateDir)
-    // Code Desktop's own tools server (app-tools.js; registered by the config overlay), or null.
+    // OpenClaude Desktop's own tools server (app-tools.js; registered by the config overlay), or null.
     this.appTools = appToolsServer(env)
     this.store = new ThreadStore(stateDir)
     this.settingsFile = path.join(stateDir, 'settings.json')
@@ -363,7 +363,7 @@ export class Bridge {
     }
   }
 
-  /** codeDesktop/coreSettings/read: the flavor's settings and where Code Desktop keeps them. */
+  /** codeDesktop/coreSettings/read: the flavor's settings and where OpenClaude Desktop keeps them. */
   coreSettingsRead() {
     return { file: this.settingsFile, settings: coreSettingsView(coreSettingDefs(this.flavor), storedCoreSettings(this.settings(), this.flavor)) }
   }
@@ -484,7 +484,7 @@ export class Bridge {
 
   /**
    * MiMo's bash {interactive:true} (tool/bash-interactive.ts) waits, with no timeout, for a client to run the command
-   * in a terminal and POST /bash-interactive/:id/reply. Code Desktop has no terminal for it, so the bridge answers at
+   * in a terminal and POST /bash-interactive/:id/reply. OpenClaude Desktop has no terminal for it, so the bridge answers at
    * once with a failure the model can act on (rerun it non-interactively, or ask the user to run it), instead of the
    * turn hanging on '(waiting for user interaction...)' until it is stopped.
    */
@@ -494,12 +494,12 @@ export class Bridge {
     const owners = [...this.threads.values()].map((thread) => this.store.get(thread.id)?.cwd).filter((root) => typeof root === 'string' && cwd && (cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)))
     const instance = typeof directory === 'string' && directory ? directory : owners.sort((a, b) => b.length - a.length)[0] ?? cwd ?? this.homeDir()
     const command = typeof props.command === 'string' ? props.command : ''
-    // With Code Desktop's tools the session has the app's Terminal panel: the command can run there, where the user
+    // With OpenClaude Desktop's tools the session has the app's Terminal panel: the command can run there, where the user
     // types the answers (a password, a y/N prompt) and the model reads the result back.
     const prefix = this.appTools ? appToolsPrefix(this.appTools) : null
     const output = prefix
       ? `\`${command}\` needs someone at a terminal, so it was not run here. Run it in the Terminal panel beside this conversation instead: call ${prefix}run_in_terminal with this command (the user approves it, then answers its prompts there), tell the user what to type, and check the result with ${prefix}read_terminal. If it can run non-interactively (for example with --yes / -y or input piped in), rerun it that way instead.`
-      : `Code Desktop can't run interactive commands, so \`${command}\` was not run. Rerun it non-interactively (for example with --yes / -y, a non-interactive flag, or input piped in), or ask the user to run it in their own terminal and tell you the result.`
+      : `OpenClaude Desktop can't run interactive commands, so \`${command}\` was not run. Rerun it non-interactively (for example with --yes / -y, a non-interactive flag, or input piped in), or ask the user to run it in their own terminal and tell you the result.`
     await this.api('POST', `/bash-interactive/${encodeURIComponent(props.id)}/reply`, { directory: instance, body: { output, exitCode: 1 } })
   }
 
@@ -636,7 +636,7 @@ export class Bridge {
 
   async createThread(params) {
     const cwd = await this.normalizeCwd(params.cwd)
-    // A workflow agent's session (the Code Desktop workflow runner's own connection, workflow-child.mjs) is named up
+    // A workflow agent's session (the OpenClaude Desktop workflow runner's own connection, workflow-child.mjs) is named up
     // front: nobody sees its title, and OpenCode and MiMo would spend a model request generating one per agent
     // (SessionPrompt.ensureTitle skips a session created with a title).
     const workflowAgent = this.clientName === WORKFLOW_CLIENT
@@ -674,7 +674,7 @@ export class Bridge {
       cliVersion: `${this.flavor.id} ${this.agentVersion()}`, originator: null,
       source: parent ? { subAgent: { thread_spawn: { parent_thread_id: parent, depth: 1, agent_path: null, agent_nickname: meta.agentLabel ?? null, agent_role: null } } } : 'appServer',
       threadSource: null, agentNickname: parent ? meta.agentLabel ?? null : null, agentRole: null, gitInfo: null, name, turns: [],
-      // A session MiMo imported from Claude Code, Codex or OpenCode (Code Desktop extension: the app labels it).
+      // A session MiMo imported from Claude Code, Codex or OpenCode (OpenClaude Desktop extension: the app labels it).
       ...(this.importedFrom()?.get(info.id) || typeof info.share?.url === 'string' ? { codeDesktop: {
         ...(this.importedFrom()?.get(info.id) ? { importedFrom: this.importedFrom().get(info.id) } : {}),
         ...(typeof info.share?.url === 'string' ? { shareUrl: info.share.url } : {}),
@@ -853,7 +853,7 @@ export class Bridge {
 
   /**
    * Server names for mcpToolCall attribution: a folder's own list once read (refreshMcpNames), else the last one read
-   * anywhere. Code Desktop's own server (app-tools.js) is always one, cache or not.
+   * anywhere. OpenClaude Desktop's own server (app-tools.js) is always one, cache or not.
    */
   knownMcpNames(directory) {
     const names = (directory && this.mcpNamesByDir?.get(directory)) || this.cachedMcpNames || []
@@ -862,7 +862,7 @@ export class Bridge {
 
   /**
    * Whether a permission ask names a connector tool its server annotates read-only (tools/list annotations, cached per
-   * server config): such a tool needs no card in any mode, as for Codex. Code Desktop's own server is answered elsewhere.
+   * server config): such a tool needs no card in any mode, as for Codex. OpenClaude Desktop's own server is answered elsewhere.
    */
   async readOnlyMcpTool(directory, permission) {
     if (typeof permission !== 'string' || !permission || BUILTIN_ASKS.has(permission)) return false
@@ -1161,7 +1161,7 @@ export class Bridge {
   // ------------------------------------------------------------------ dispatcher
 
   async handle(method, params = {}) {
-    if (this.closed) throw new RpcError(-32000, 'Code Desktop core is shutting down.')
+    if (this.closed) throw new RpcError(-32000, 'OpenClaude Desktop core is shutting down.')
     params = params ?? {}
     switch (method) {
       case 'initialize': {
@@ -2124,7 +2124,7 @@ export class Bridge {
     let file = null
     try { file = spec.startsWith('file:') ? fileURLToPath(spec) : path.isAbsolute(spec) ? spec : null } catch {}
     const parent = file ? path.dirname(file) : ''
-    // The bridge's own overlay folder: its session plugin, and paths a Code Desktop entry resolved to (that row is listed
+    // The bridge's own overlay folder: its session plugin, and paths an OpenClaude Desktop entry resolved to (that row is listed
     // from the bridge's settings instead).
     if (file && file.startsWith(`${this.config.configDir}${path.sep}`)) return { kind: 'bridge' }
     if (file && /\.(ts|js)$/.test(file) && /^plugins?$/.test(path.basename(parent))) {
@@ -2146,7 +2146,7 @@ export class Bridge {
     let readOnly
     switch (origin.kind) {
       case 'codeDesktop':
-        en = `Added in Code Desktop: ${spec}`; zh = `在 Code Desktop 中添加：${spec}`; readOnly = null
+        en = `Added in OpenClaude Desktop: ${spec}`; zh = `在 OpenClaude Desktop 中添加：${spec}`; readOnly = null
         break
       case 'globalFolder':
         en = `Loaded automatically from your ${agent} plugins folder: ${shown}`; zh = `从你的 ${agent} 插件文件夹自动加载：${shown}`
@@ -2269,14 +2269,14 @@ export class Bridge {
       case 'codeDesktop/plugin/cancelInstall': return { cancelled: false }
       case 'codeDesktop/plugin/setEnabled': {
         const spec = own.installed.find((candidate) => candidate === params.pluginName || pluginName(candidate) === params.pluginName)
-        if (!spec) throw invalidParams('Only plugins added in Code Desktop can be switched here.')
+        if (!spec) throw invalidParams('Only plugins added in OpenClaude Desktop can be switched here.')
         own.disabled = params.enabled === false ? [...new Set([...own.disabled, spec])] : own.disabled.filter((other) => other !== spec)
         await save()
         return { enabled: params.enabled !== false }
       }
       case 'codeDesktop/plugin/remove': {
         const spec = own.installed.find((candidate) => candidate === params.pluginName || pluginName(candidate) === params.pluginName)
-        if (!spec) throw invalidParams('Only plugins added in Code Desktop can be removed here.')
+        if (!spec) throw invalidParams('Only plugins added in OpenClaude Desktop can be removed here.')
         own.installed = own.installed.filter((other) => other !== spec)
         own.disabled = own.disabled.filter((other) => other !== spec)
         await save()
@@ -2330,7 +2330,7 @@ export class Bridge {
     const sentText = Array.isArray(captured?.sent) ? captured.sent.join('\n\n') : null
     const transformed = Array.isArray(captured?.final) ? captured.final.join('\n\n') : null
     const tail = sentText && transformed && sentText.startsWith(transformed) ? sentText.slice(transformed.length) : ''
-    const parts = [systemPrompt ? [fill(systemPrompt), ...keptCatalogs(defaultText)].join('\n\n') : defaultText, instructions, thread?.custom?.developer].filter(Boolean)
+    const parts = [systemPrompt ? fill(systemPrompt) : defaultText, instructions, thread?.custom?.developer].filter(Boolean)
     const text = parts.join('\n') + tail
     const template = defaultText.split(cwd).join('{{cwd}}').split(parsed.modelID || '\u0000').join('{{model}}')
     let tools = []
@@ -2443,7 +2443,7 @@ export class Bridge {
       if (type === 'session.error') done('error')
     })
     try { for (const entry of await this.api('GET', `/session/${encodeURIComponent(fork.id)}/message`, { directory: source.cwd })) copied.add(entry.info.id) } catch {}
-    const runtime = { root: fork.id, cwd: source.cwd, systemPrompt: SIDE_PROMPT, instructions: null, modelParams: source.custom?.modelParams ?? null, sandbox: { mode: 'read-only', roots: [], network: false } }
+    const runtime = { root: fork.id, cwd: source.cwd, systemPrompt: source.custom?.systemPrompt || SIDE_PROMPT, instructions: null, modelParams: source.custom?.modelParams ?? null, sandbox: { mode: 'read-only', roots: [], network: false } }
     writeAtomic(path.join(this.config.runtimeDir, 'sessions', `${safeId(fork.id)}.json`), JSON.stringify(runtime))
     let cancelled = false
     const cleanup = async () => {
@@ -2555,7 +2555,7 @@ export class Bridge {
     this.closed = true
     this.oauthCallbacks.close()
     this.stopEvents?.()
-    for (const thread of this.threads.values()) thread.close('Code Desktop core stopped.')
+    for (const thread of this.threads.values()) thread.close('OpenClaude Desktop core stopped.')
     // A workflow runner's bridge takes its agents' sessions with it (the runner never deletes them itself).
     // (Only while the agent server still runs: a dead one is not restarted for it; the app's next sweep gets them.)
     if (this.server?.child && this.server.url && (this.config.runnerDir || this.clientName === WORKFLOW_CLIENT)) await this.removeWorkflowSessions({ own: true, timeoutMs: 800 }).catch(() => {})
@@ -3031,9 +3031,10 @@ export class LiveThread {
   writeRuntime() {
     if (this.actor) return
     const root = this.rootThread
-    // MiMo's MCP client never hands a server's instructions to the model: Code Desktop's (the preview auto-verify
+    // MiMo's MCP client never hands a server's instructions to the model: OpenClaude Desktop's (the preview auto-verify
     // workflow) go with the session's own.
-    const appToolsText = this.bridge.flavor.id === 'mimo' ? this.bridge.appTools?.instructions ?? null : null
+    // With the user's own system prompt nothing the system wrote goes with it (root.custom.systemPrompt).
+    const appToolsText = this.bridge.flavor.id === 'mimo' && !root.custom?.systemPrompt ? this.bridge.appTools?.instructions ?? null : null
     const instructions = [root.custom?.instructions, root.custom?.developer, appToolsText].filter(Boolean).join('\n\n') || null
     // An agent whose ruleset grants the mode (flavor.modeRules) keeps the rules of the mode a prompt loop
     // started in: in a read-only mode the plugin cancels file edits outside the plan folders at once.
@@ -3041,9 +3042,10 @@ export class LiveThread {
       ? { cwd: root.cwd, planDirs: this.bridge.planDirs(root.cwd), planSegment: `${path.sep}.${this.bridge.flavor.dataDir}${path.sep}plans${path.sep}` }
       : null
     const runtime = {
-      root: root.id, cwd: this.cwd, systemPrompt: this.root ? null : root.custom?.systemPrompt ?? null, instructions: this.root ? null : instructions,
+      // A sub-agent gets the root's custom prompt too, so no built-in prose reaches it either.
+      root: root.id, cwd: this.cwd, systemPrompt: root.custom?.systemPrompt ?? null, instructions: this.root ? null : instructions,
       modelParams: root.custom?.modelParams ?? null, sandbox: sandboxPolicy(root.permission, { cwd: root.cwd, tmp: this.bridge.tmpRoots }), editGuard,
-      // Code Desktop's tools: the plugin names the app thread (the root, for a sub-agent) on each call of one of them.
+      // OpenClaude Desktop's tools: the plugin names the app thread (the root, for a sub-agent) on each call of one of them.
       ...(this.bridge.appTools ? { appTools: { prefix: appToolsPrefix(this.bridge.appTools), session: root.id } } : {}),
     }
     writeAtomic(path.join(this.bridge.config.runtimeDir, 'sessions', `${safeId(this.id)}.json`), JSON.stringify(runtime))
@@ -3169,7 +3171,7 @@ export class LiveThread {
     await this.bridge.loadCompaction(this.cwd).catch(() => {})
     const { parts, command } = await this.parts(params.input)
     // A command that runs MiMo's workflow tool (deep-research) while the thread withholds the tool (Dynamic workflows off,
-    // or Code Desktop's engine chosen): refused before the model starts a turn it cannot finish.
+    // or OpenClaude Desktop's engine chosen): refused before the model starts a turn it cannot finish.
     if (command && this.bridge.flavor.id === 'mimo' && this.rootThread.dynamicWorkflows !== true) {
       const entry = await this.bridge.api('GET', '/command', { directory: this.cwd }).then((list) => (Array.isArray(list) ? list : []).find((candidate) => candidate?.name === command), () => null)
       if (this.bridge.commandNeedsWorkflowTool(entry)) throw new RpcError(INVALID_PARAMS, `/${command} runs a MiMo workflow. Turn on Dynamic workflows in Settings › Dynamic workflows, with MiMo's own workflow engine, to use it.`)
@@ -3652,7 +3654,7 @@ export class LiveThread {
 
   /**
    * MiMo's workflow events (workflow/events.ts) for this session's top-level runs. A run that starts again after the call
-   * that started it ended was resumed (Code Desktop's Resume, the model's resume call, another client): its card follows
+   * that started it ended was resumed (OpenClaude Desktop's Resume, the model's resume call, another client): its card follows
    * it. A phase or the run's end re-reads it at once.
    */
   onWorkflowEvent(type, props) {
@@ -3882,7 +3884,7 @@ export class LiveThread {
 
   /**
    * OpenCode saves a call's input while the call runs (session/processor.ts, a copy taken before the plugin's
-   * tool.execute.before added the session argument, or after), so a finished call of Code Desktop's own tools can keep
+   * tool.execute.before added the session argument, or after), so a finished call of OpenClaude Desktop's own tools can keep
    * the argument in its stored part. The model never sees it (the plugin's experimental.chat.messages.transform drops
    * it from every step's history); the stored part is saved back without it once the call ended (PATCH part.update),
    * for exports, shares and other clients. MiMo runs the hook's copy and stores none.
@@ -3946,7 +3948,7 @@ export class LiveThread {
     const decision = decide(root.permission, request, { tool, readTools: this.bridge.readTools(), cwd: root.cwd, grants: root.sessionGrants, planDirs: this.bridge.planDirs(root.cwd), agentDirs, readOnlyTool, noUser: root.noUser() })
     const reply = (value, message) => this.bridge.api('POST', `/permission/${encodeURIComponent(request.id)}/reply`, { directory: this.cwd, body: { reply: value, ...(message ? { message } : {}) } })
       .catch((error) => this.bridge.log(`permission reply ${request.id}: ${error?.message}`))
-    // Code Desktop's own tools need no card here: the app asks the user itself where it matters (as for Codex).
+    // OpenClaude Desktop's own tools need no card here: the app asks the user itself where it matters (as for Codex).
     if (this.bridge.appTools && typeof request.permission === 'string' && request.permission.startsWith(appToolsPrefix(this.bridge.appTools))) return reply('once')
     if (decision.action === 'allow') return reply('once')
     if (decision.action === 'reject') return reply('reject', decision.reason)

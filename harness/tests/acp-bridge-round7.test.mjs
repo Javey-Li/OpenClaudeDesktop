@@ -79,7 +79,7 @@ test('Gemini API key: checked, saved in the bridge state, given to Gemini at lau
   await gemini.connectProvider(ctx(200), { template: 'gemini-api-key', apiKey: 'AIza-test' })
   assert.equal(savedGeminiKey(ctx(200)), 'AIza-test')
   assert.equal(fs.statSync(path.join(state, 'gemini-api-key.json')).mode & 0o777, 0o600)
-  assert.deepEqual({ kind: gemini.account(ctx(200)).kind, detail: gemini.account(ctx(200)).detail }, { kind: 'apiKey', detail: 'Saved in Code Desktop' })
+  assert.deepEqual({ kind: gemini.account(ctx(200)).kind, detail: gemini.account(ctx(200)).detail }, { kind: 'apiKey', detail: 'Saved in OpenClaude Desktop' })
   const launch = gemini.launch(ctx(200), { threadDir: path.join(home, 'thread'), cwd: home, writable: [home] })
   assert.equal(launch.env.GEMINI_API_KEY, 'AIza-test')
   const overlayHome = launch.env.GEMINI_CLI_HOME

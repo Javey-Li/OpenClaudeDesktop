@@ -25,7 +25,7 @@ function createThemeFiles({ dialog, getWindow, fsImpl = fs }) {
     const text = await fsImpl.readFile(file, "utf8");
     let theme;
     try { theme = JSON.parse(text.replace(/^﻿/, "")); } catch { throw new Error("This file isn’t valid JSON."); }
-    if (!theme || typeof theme !== "object" || Array.isArray(theme)) throw new Error("This isn’t a Code Desktop theme file.");
+    if (!theme || typeof theme !== "object" || Array.isArray(theme)) throw new Error("This isn’t an OpenClaude Desktop theme file.");
     return { theme, name: path.basename(file) };
   }
   async function exportTheme({ theme, name }) {

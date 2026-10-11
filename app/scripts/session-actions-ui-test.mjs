@@ -37,7 +37,7 @@ async function dialogPaint(name){const dialog=page.getByRole('dialog',{name,exac
  assert.equal(paint.background,paint.surface,name+' popup is --cds-surface-3');assert.equal(paint.backdrop,paint.backdropToken,name+' backdrop is --cds-backdrop');assert.equal(paint.blur,'blur(2px)');assert.equal(paint.modal,'true');assert.equal(paint.rootInert,true,'#root is inert behind '+name);
  assert.ok(paint.starts.length&&paint.starts.at(-1).starting&&paint.starts.at(-1).opacity==='0',name+' mounted with a data-starting-style (opacity 0) frame');return paint;}
 try{
- app=await electron.launch({executablePath:appPath?path.join(appPath,'Contents/MacOS/Code Desktop'):path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),args:appPath?[]:[root],env});
+ app=await electron.launch({executablePath:appPath?path.join(appPath,'Contents/MacOS/OpenClaude Desktop'):path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),args:appPath?[]:[root],env});
  page=await app.firstWindow();page.setDefaultTimeout(12000);page.on('pageerror',error=>errors.push(error.message));await page.getByRole('button',{name:'Model',exact:true}).filter({hasText:'Action test model'}).waitFor();
  const runtimeBuild=await page.evaluate(async()=>await(await fetch('./build-info.json')).json());assert.equal(runtimeBuild.sourceSha256,build.sourceSha256);
  const editor=page.getByRole('textbox',{name:'Message DeepSeek'});

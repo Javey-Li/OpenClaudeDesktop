@@ -1,5 +1,5 @@
 /**
- * Code Desktop's permission modes on OpenCode / MiMo Code.
+ * OpenClaude Desktop's permission modes on OpenCode / MiMo Code.
  *
  * The app sends approvalPolicy + sandbox/sandboxPolicy, plus
  * codeDesktop.permissionMode / afterPlan (permissionHints). The bridge keeps
@@ -203,7 +203,7 @@ export function userOverrides(userRules, base) {
  *   userRules?: Array<{permission: string, pattern: string, action: string}> }} options
  *   modeRules: also grant what the mode allows (MiMo, see the header); roots: the thread's extra writable roots;
  *   grants: the root's session grants; hiddenSkills: skills the thread's agent must not see (MiMo's compose:*);
- *   userRules: the user's own config rules (configRules); appToolsPrefix: the tool-name prefix of Code Desktop's own
+ *   userRules: the user's own config rules (configRules); appToolsPrefix: the tool-name prefix of OpenClaude Desktop's own
  *   tools server (app-tools.js appToolsPrefix), allowed in every mode
  */
 export function sessionRules(permission, { readTools, planPaths = [], planDirs = [], deny = [], modeRules = false, roots = [], grants = [], hiddenSkills = [], userRules = [], appToolsPrefix = '' }) {
@@ -214,7 +214,7 @@ export function sessionRules(permission, { readTools, planPaths = [], planDirs =
   for (const tool of readTools) rules.push(rule(tool, 'allow'))
   rules.push(...secretRules())
   if (modeRules) rules.push(...modeGrantRules(permission, roots))
-  // Code Desktop's own tools (app-tools.js) in every mode: the bridge answers a root's ask for one `once` anyway, and the
+  // OpenClaude Desktop's own tools (app-tools.js) in every mode: the bridge answers a root's ask for one `once` anyway, and the
   // app asks the user itself where it matters (run_in_terminal, outside sites, workflows). As a rule it also reaches
   // MiMo's background actors, which never ask and would otherwise fail closed. Before the user's own denies and the tool
   // selection's (a profile that turns the server off still wins).
@@ -284,7 +284,7 @@ export function decide(permission, request, { tool, readTools, cwd, grants = [],
   // An "Allow for this session" grant answers what would otherwise ask, only in a mode that
   // may act at all (never Plan / chat / review), and never a repeated-call (doom loop) warning.
   if (decision.action === 'ask' && !READ_ONLY_MODES.has(permission.mode) && request?.permission !== 'doom_loop' && request?.permission !== 'bash_delete' && grantCovers(grants, request)) return { action: 'allow', reason: 'Allowed for this session.' }
-  // approvalPolicy "never" (Codex: never ask; a Codex-style client such as the Code Desktop workflow runner, whose agents
+  // approvalPolicy "never" (Codex: never ask; a Codex-style client such as the OpenClaude Desktop workflow runner, whose agents
   // run unattended and turn every approval down): what would ask is refused with a reason instead of a card. A reject with
   // a message is OpenCode's CorrectedError, which the agent reads and continues from (a bare reject would end its turn).
   if (decision.action === 'ask' && (neverAsks(permission) || (noUser === true && permission?.mode !== 'bypass'))) return { action: 'reject', reason: `Not allowed here: ${decision.reason ?? 'this needs the user’s approval.'} This agent runs without approvals and can’t ask the user, so continue without it.` }

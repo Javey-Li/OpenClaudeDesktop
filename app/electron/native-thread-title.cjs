@@ -70,7 +70,7 @@ function titleModel({ chatgpt = false, models = [], model = null } = {}) {
  * temporary_structured_request.rs: config overrides (`mcp_servers.<name>.enabled = false`, one dotted key per server:
  * a whole `mcp_servers` table replaces the configured one and fails thread/start with "invalid transport", checked
  * against codex 0.155.1) turning off every server the effective config for `cwd` names, and
- * `extra` (Code Desktop's own code_desktop, which a launch flag adds); null when config/read fails (fail closed). A name
+ * `extra` (OpenClaude Desktop's own code_desktop, which a launch flag adds); null when config/read fails (fail closed). A name
  * the core doesn't define is never added (a session override naming an unknown server fails thread/start).
  */
 async function mcpServersOff(owner, cwd, extra = []) {
@@ -108,13 +108,14 @@ function createNativeThreadTitles({ getClient, context = () => ({}), ownServers 
   /** codeDesktop/threadTitle {text, cwd?, model?} → {title: string|null}; never throws for a model that won't answer. */
   async function generate(params) {
     const owner = getClient();
-    const text = typeof params?.text === "string" ? params.text.trim() : "";
+    // Only what the user typed names the session, never the app's hidden <system-reminder> blocks.
+    const text = typeof params?.text === "string" ? params.text.replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/g, "").trim() : "";
     if (!owner || !text) return { title: null };
     const settings = context() || {};
     const model = titleModel({ chatgpt: settings.chatgpt, models: settings.models, model: typeof params?.model === "string" && params.model ? params.model : settings.model });
     const cwd = typeof params?.cwd === "string" && params.cwd ? params.cwd : null;
     // The prompt is the user's first message (a pasted log, page or issue): untrusted text. As the TUI does, every MCP
-    // server the effective config names (Code Desktop's own included) is turned off for the hidden thread, and no
+    // server the effective config names (OpenClaude Desktop's own included) is turned off for the hidden thread, and no
     // environment, capability root or workspace root is given to it; a config that can't be read means no title.
     let extra = [];
     try { extra = (ownServers(owner) ?? []).filter((name) => typeof name === "string" && name); } catch { extra = []; }

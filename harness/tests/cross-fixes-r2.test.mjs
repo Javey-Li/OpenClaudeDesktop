@@ -1,7 +1,7 @@
 // Cross-area fixes (round 2): steers that echo the client's id (ZCode, OpenCode), MiMo actors that can't be stopped on
 // their own, OpenCode's /move (codeDesktop/thread/move), its background sub-agents switch and the deferred-tools
-// friendly interactive fallback, Kimi's [tools] policy letting Code Desktop's tools through, Qwen's workflow approval
-// card, and Gemini's untrusted-folder notice when only connectors (Code Desktop's tools included) are affected.
+// friendly interactive fallback, Kimi's [tools] policy letting OpenClaude Desktop's tools through, Qwen's workflow approval
+// card, and Gemini's untrusted-folder notice when only connectors (OpenClaude Desktop's tools included) are affected.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -87,7 +87,7 @@ test('OpenCode background sub-agents: an opt-in core setting turns on OpenCode\'
   assert.equal(coreSettingsEnv({}, FLAVORS.opencode).OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, undefined)
 })
 
-test('Kimi [tools] policy: an allowlist or a disabled mcp__* no longer removes Code Desktop\'s tools', () => {
+test('Kimi [tools] policy: an allowlist or a disabled mcp__* no longer removes OpenClaude Desktop\'s tools', () => {
   assert.equal(kimiAppToolsConfig('[tools]\nenabled = ["Read", "Bash"]\n', 'code_desktop'), '[tools]\nenabled = ["Read", "Bash", "mcp__code_desktop__*"]\n')
   assert.equal(kimiAppToolsConfig('[tools]\ndisabled = ["mcp__*", "Bash"]\n', 'code_desktop', () => ['github', 'docs.x']), '[tools]\ndisabled = ["mcp__github__*", "mcp__docs_x__*", "Bash"]\n', 'narrowed to the user\'s own servers')
   assert.equal(kimiAppToolsConfig('[tools]\ndisabled = ["mcp__code_desktop__*"]\n', 'code_desktop'), '[tools]\ndisabled = []\n')
@@ -96,7 +96,7 @@ test('Kimi [tools] policy: an allowlist or a disabled mcp__* no longer removes C
   assert.equal(kimiAppToolsConfig('tools = { enabled = ["Read"] }\n', 'code_desktop'), 'tools = { enabled = ["Read", "mcp__code_desktop__*"] }\n')
 })
 
-test('Qwen workflow: asked about outside Bypass, with Code Desktop\'s workflow card (name, description, phases)', () => {
+test('Qwen workflow: asked about outside Bypass, with OpenClaude Desktop\'s workflow card (name, description, phases)', () => {
   const qwen = adapterById('qwen')
   const call = { toolCallId: 't1', title: 'Run workflow: probe-wf', _meta: { toolName: 'workflow' }, rawInput: { script: 'export const meta = { name: \'probe-wf\', description: "Review every module", phases: [{ title: \'Find\' }, { title: \'Verify\', detail: \'votes\' }] };\nreturn await agent("x")' } }
   assert.deepEqual(workflowApprovalTool(call), { kind: 'workflow', name: 'probe-wf', description: 'Review every module', phases: [{ title: 'Find' }, { title: 'Verify' }] })
@@ -107,7 +107,7 @@ test('Qwen workflow: asked about outside Bypass, with Code Desktop\'s workflow c
   assert.equal(qwen.approvalTool({ toolCallId: 't2', _meta: { toolName: 'read_file' }, rawInput: {} }), null)
 })
 
-test('Gemini: an untrusted folder without Gemini files still says its connectors (Code Desktop\'s tools included) are off', () => {
+test('Gemini: an untrusted folder without Gemini files still says its connectors (OpenClaude Desktop\'s tools included) are off', () => {
   const gemini = adapterById('gemini')
   const home = tmp('xfix-gh-'), project = tmp('xfix-gp-')
   const base = { HOME: home, GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(home, 'none.json') }

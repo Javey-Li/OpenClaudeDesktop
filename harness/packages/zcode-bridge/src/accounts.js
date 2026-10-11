@@ -222,7 +222,7 @@ export function saveApiKeyProvider({ personalFile, builtin, apiKey, templateId =
   return { providerId }
 }
 
-/** Remove the API-key providers Code Desktop added (other providers the user configured in ZCode stay). */
+/** Remove the API-key providers OpenClaude Desktop added (other providers the user configured in ZCode stay). */
 export function removeApiKeyProviders(personalFile) {
   const document = readJson(personalFile)
   const rules = document?.config?.providerConfigRules?.providerRules

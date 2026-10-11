@@ -1,6 +1,6 @@
 /**
  * Qwen Code's own dynamic workflows (its `workflow` tool, core/src/tools/workflow/workflow.ts, and the session's
- * workflow run registry) → Code Desktop's model-workflow runs (item.workflowRun, app/src/model-workflow-model.mjs), in
+ * workflow run registry) → OpenClaude Desktop's model-workflow runs (item.workflowRun, app/src/model-workflow-model.mjs), in
  * the app's run shape (app/src/workflow-progress-model.mjs: workflow_phase / workflow_agent progress entries), so the
  * transcript row and the Tasks card are the ones every workflow uses. Qwen runs the workflow; the bridge only projects:
  *
@@ -119,7 +119,7 @@ export function qwenWorkflowRun(call, time) {
 }
 
 /**
- * What a workflow call's approval card shows (Code Desktop's "Run a dynamic workflow?" card, approval-card-model
+ * What a workflow call's approval card shows (OpenClaude Desktop's "Run a dynamic workflow?" card, approval-card-model
  * agentTool kind 'workflow'): {name, description, phases, args} from the call's input and its script's
  * `export const meta = { … }` literal (read leniently: string values only).
  */

@@ -49,9 +49,9 @@ function setup({ release, systemCodex = false, onEvent = () => {} } = {}) {
 
 test("the registry pins Codex to this app's protocol release and maps engines to cores", () => {
   const codex = coreById("codex");
-  assert.equal(codex.agent.release.version, "0.155.1");
+  assert.equal(codex.agent.release.version, "0.162.1");
   const asset = releaseAsset(codex, "arm64");
-  assert.equal(asset.url, "https://github.com/openai/codex/releases/download/rust-v0.155.1/codex-aarch64-apple-darwin.tar.gz");
+  assert.equal(asset.url, "https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-aarch64-apple-darwin.tar.gz");
   assert.match(asset.sha256, /^[0-9a-f]{64}$/);
   assert.equal(coreForEngine(undefined).id, "codex");
   assert.equal(coreForEngine("deepseek-harness").id, "deepseek");
@@ -70,7 +70,7 @@ test("list reports the built-in bridge, the user's own Codex and the release to 
   const deepseek = cores[0], codex = cores.find((core) => core.id === "codex");
   assert.deepEqual([deepseek.installed, deepseek.source, deepseek.selected], [true, "built-in", true]);
   assert.deepEqual([codex.installed, codex.source, codex.version, codex.appInstall], [true, "system", "codex-cli 0.150.0", null]);
-  assert.equal(codex.release.version, "0.155.1");
+  assert.equal(codex.release.version, "0.162.1");
 });
 
 test("install downloads, checks the checksum, extracts the binary and records it; remove deletes only the app copy", async () => {

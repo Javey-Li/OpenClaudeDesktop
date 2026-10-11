@@ -30,8 +30,8 @@ test('job reads, notices and kills report how a job ended', () => {
   assert.equal(jobReadOutput('(no new output)\n[status: running]'), '')
   assert.deepEqual(noticeJobOf('background job bash-1 (bash: sleep 1; echo [x]) finished [status: completed, exit code: 0]. Read its output with job_output.'),
     { jobId: 'bash-1', status: 'completed', detail: 'exit code: 0' })
-  assert.deepEqual(noticeJobOf('background job bash-4 (bash: yes) finished [status: killed, signal: SIGTERM; Stopped from Code Desktop]. Read its output with job_output.'),
-    { jobId: 'bash-4', status: 'killed', detail: 'signal: SIGTERM; Stopped from Code Desktop' })
+  assert.deepEqual(noticeJobOf('background job bash-4 (bash: yes) finished [status: killed, signal: SIGTERM; Stopped from OpenClaude Desktop]. Read its output with job_output.'),
+    { jobId: 'bash-4', status: 'killed', detail: 'signal: SIGTERM; Stopped from OpenClaude Desktop' })
   assert.deepEqual(noticeJobOf('background job bash-9\n[notice truncated]\nDone; job_output.'), { jobId: 'bash-9', status: 'completed', detail: null })
   assert.equal(noticeJobOf('something else'), null)
   assert.deepEqual(killJobOf('requested cancellation of job bash-3'), { jobId: 'bash-3', status: 'killed', detail: null })

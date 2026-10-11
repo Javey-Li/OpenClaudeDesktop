@@ -1,5 +1,5 @@
 // Dynamic-workflow smoke of the ZCode core against the real ZCode agent (`zcode app-server --stdio` from the pinned
-// release) behind harness/packages/zcode-bridge, driven through Code Desktop's own client (app/electron/codex.cjs) with
+// release) behind harness/packages/zcode-bridge, driven through OpenClaude Desktop's own client (app/electron/codex.cjs) with
 // a local scripted Anthropic-Messages model standing in for GLM and for the workflow's agents. Checks the run GLM starts
 // with CreateWorkflow reaches the app as item.workflowRun (phases, agents, end) live and after a restart, that Stop
 // cancels only that run, that outside Bypass a run asks once on the workflow card (Deny starts nothing), and that

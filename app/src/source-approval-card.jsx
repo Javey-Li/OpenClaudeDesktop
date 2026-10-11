@@ -268,7 +268,7 @@ export function SourceApprovalCardView({ request, item, busy = false, busyAction
   const [feedbackOpen, setFeedbackOpen] = useState(false), [feedback, setFeedback] = useState("");
   const feedbackRef = useRef(null), feedbackId = useId();
   useLayoutEffect(() => { setFeedbackOpen(false); setFeedback(""); }, [identity]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A card that appears inside an existing tool row (Code Desktop's own approvals: preview_start, an outside site,
+  // A card that appears inside an existing tool row (OpenClaude Desktop's own approvals: preview_start, an outside site,
   // run_in_terminal, a workflow) grows that row instead of adding tail content: while the transcript follows the
   // end, it is brought fully into view as a new item would be (the scroller's scroll-padding keeps it above the composer).
   useEffect(() => {

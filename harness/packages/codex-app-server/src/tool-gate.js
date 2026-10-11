@@ -19,7 +19,7 @@
 
 const RESERVED = new Set(['run_code'])
 const MAX_NAMES = 512
-const DENIED_REASON = 'This tool is turned off for this session in Code Desktop.'
+const DENIED_REASON = 'This tool is turned off for this session in OpenClaude Desktop.'
 
 const names = (value) => Array.isArray(value)
   ? [...new Set(value.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim()))].slice(0, MAX_NAMES)

@@ -1,4 +1,4 @@
-// Code Desktop's process boundary, composed only by its own profile. Keep the
+// OpenClaude Desktop's process boundary, composed only by its own profile. Keep the
 // upstream runner selection/probes and platform launchers; supply confinement
 // even when the shared DSH Purge provider deliberately runs argv unchanged.
 import LocalSandboxProvider from '@deepseek-ai/dsh-sandbox-local'

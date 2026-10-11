@@ -1,6 +1,6 @@
 import { registerCodexPack } from './codex-pack.mjs';
 registerCodexPack();
-// Claude Code's background tools that Code Desktop serves to a core without them: Monitor / MonitorStop
+// Claude Code's background tools that OpenClaude Desktop serves to a core without them: Monitor / MonitorStop
 // (electron/monitor-service.cjs, agent-tools/monitor.mjs), CronCreate / CronList / CronDelete (schedule-service.cjs,
 // agent-tools/schedule.mjs) and WebFetch (agent-tools/web.mjs); how they reach the session (workflow-tool-service.cjs
 // notice / idle), which cores get them (nativeTools), and how the app shows them (rows, approval cards, the
@@ -273,7 +273,7 @@ test('CronCreate asks before scheduling and answers with Claude Code’s text; C
   assert.equal(service.list('s').length, 0);
   const made = await create.handler({ cron: '7 * * * *', prompt: 'Check the deploy' }, ctx(true));
   const id = /job ([0-9a-f]{8})/.exec(made)[1];
-  assert.equal(made, `Scheduled recurring job ${id} (hourly at :07). Session-only (not written to disk, gone when Code Desktop quits). Auto-expires after 7 days. Use CronDelete to cancel sooner.`);
+  assert.equal(made, `Scheduled recurring job ${id} (hourly at :07). Session-only (not written to disk, gone when OpenClaude Desktop quits). Auto-expires after 7 days. Use CronDelete to cancel sooner.`);
   const one = await create.handler({ cron: '30 14 28 2 *', prompt: 'Renew the cert', recurring: false, durable: true }, ctx(true));
   assert.match(one, /^Scheduled one-shot task [0-9a-f]{8} \(Feb 28 at 14:30\)\. Session-only .*It will fire once then auto-delete\.$/);
   const listed = await list.handler({}, ctx(true));
@@ -364,7 +364,7 @@ test('only cores without their own get Monitor, the cron tools and WebFetch; the
   assert.ok(!natives.codex.includes('WebFetch'), 'Codex: only with web search off (main.cjs)');
   assert.ok(natives.qwen.includes('Monitor') && natives.kimi.includes('CronCreate') && natives.mimo.includes('CronCreate'));
   // ZCode's own Cron* need a host automation service the bridge withholds, so ZCode gets the app's scheduler.
-  assert.ok(!natives.zcode.includes('CronCreate'), 'ZCode gets Code Desktop CronCreate');
+  assert.ok(!natives.zcode.includes('CronCreate'), 'ZCode gets OpenClaude Desktop CronCreate');
   let core = 'codex';
   const sessions = { 'thread-b': tmp() };
   const host = createAgentToolsHost({ toolsDir: TOOLS_DIR, tmpRoot: tmp(), logger: { warn() {}, log() {} },

@@ -27,14 +27,14 @@ export default Object.freeze({
   bridge: Object.freeze({ script: "harness/packages/zcode-bridge/bin/app-server.mjs" }),
   // Thread.cliVersion the bridge reports: "zcode <version>".
   sessionPrefix: "zcode ",
-  // Its own dynamic-workflow tool (on its own engine the ultracode reminders name it; Code Desktop's Workflow tool
+  // Its own dynamic-workflow tool (on its own engine the ultracode reminders name it; OpenClaude Desktop's Workflow tool
   // isn't there): GLM loads the dynamic-workflows skill, then calls CreateWorkflow.
   workflowTool: Object.freeze({ name: "CreateWorkflow", skill: "dynamic-workflows" }),
   // What the bridge reports in initialize (it always reports them; listed here for the pack summary).
   implies: Object.freeze({
     // Claude Code tools the agent has itself: AskUserQuestion and WebFetch. ZCode's own Cron* tools need a host-side
-    // automation service Code Desktop doesn't provide (zcode-bridge UNAVAILABLE_TOOLS keeps them off every session), so
-    // GLM gets Code Desktop's session scheduler (agent-tools/schedule.mjs CronCreate/CronList/CronDelete) instead.
+    // automation service OpenClaude Desktop doesn't provide (zcode-bridge UNAVAILABLE_TOOLS keeps them off every session), so
+    // GLM gets OpenClaude Desktop's session scheduler (agent-tools/schedule.mjs CronCreate/CronList/CronDelete) instead.
     nativeTools: Object.freeze(["AskUserQuestion", "WebFetch"]),
     generatesTitles: true, compactInstructions: true, customization: true, permissionHints: true, systemPromptPreview: true, livePermissions: true, toolSelection: true,
     deleteHistory: true, unloadOnNavigate: true, codeStats: true, skillToggle: true, mcpConfigWrite: true, pluginManage: true,
@@ -51,7 +51,7 @@ export default Object.freeze({
     // ZCode's own dynamic workflows (CreateWorkflow / AmendWorkflow / ResumeWorkflowRun) run /workflow; zcode-bridge
     // src/workflows.js projects each run as item.workflowRun and codeDesktop/workflow/stop stops one. ZCode runs a
     // workflow's agents unasked, so outside Bypass the bridge asks once before each run starts (an approval card that
-    // covers that run's agents); Settings › Code › Dynamic workflows can run ZCode's workflows on Code Desktop's engine.
+    // covers that run's agents); Settings › Code › Dynamic workflows can run ZCode's workflows on OpenClaude Desktop's engine.
     modelWorkflows: true,
   }),
   // The agent's own session database, which deleteHistory removes a session from (zcode-bridge locate.js sessionDb).

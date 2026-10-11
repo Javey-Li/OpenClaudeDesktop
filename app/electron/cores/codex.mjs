@@ -11,7 +11,7 @@
 // it as an ephemeral thread/fork (native-side-chat.cjs). '!' runs the user's own shell command (thread/shellCommand,
 // shellCommands); Customize › Hooks lists hooks/list (hooksList). A new session is titled the way the Codex TUI titles
 // it (titleRequest: native-thread-title.cjs). nativeTools: request_user_input (AskUserQuestion; main.cjs turns on its
-// Default-mode feature). Its hosted web search reads pages too, so it gets Code Desktop's WebFetch only when launched
+// Default-mode feature). Its hosted web search reads pages too, so it gets OpenClaude Desktop's WebFetch only when launched
 // with web search off (main.cjs). agentsList: Customize › Agents lists its sub-agent roles (customize-operations.cjs
 // codexAgentRoles). login.store: account/logout signs out every tool on this Mac that shares ~/.codex. home: CODEX_HOME
 // moves it, and boot.core.home (initialize codexHome) says where (core-registry corePath).

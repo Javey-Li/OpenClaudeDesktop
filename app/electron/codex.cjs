@@ -51,7 +51,7 @@ function setCoreChoice(choice = {}) {
 // env value removes an inherited variable (the DeepSeek keys never reach Codex). CODEX_BINARY bypasses it.
 let codexLaunch = { args: [], env: {} };
 function setCodexLaunch(launch) { codexLaunch = typeof launch === "function" || (launch && typeof launch === "object") ? launch : { args: [], env: {} }; }
-// Code Desktop's own MCP server (agent-tools-host.cjs) for the app's sessions: its `-c mcp_servers.code_desktop.*`
+// OpenClaude Desktop's own MCP server (agent-tools-host.cjs) for the app's sessions: its `-c mcp_servers.code_desktop.*`
 // overrides for a Codex child, and the variables every core gets (the bridges and the DeepSeek core start the server
 // per session from CODE_DESKTOP_AGENT_TOOLS_SERVER). Never written to ~/.codex/config.toml.
 let agentToolsLaunch = null;
@@ -74,7 +74,7 @@ function currentCodexLaunch() {
   return { args: Array.isArray(launch?.args) ? launch.args.filter((arg) => typeof arg === "string") : [], env: launch?.env && typeof launch.env === "object" ? launch.env : {} };
 }
 /**
- * The environment a core that isn't Code Desktop's own adapter must not inherit (a native Extension Pack's agent,
+ * The environment a core that isn't OpenClaude Desktop's own adapter must not inherit (a native Extension Pack's agent,
  * and its workflow runs): the DeepSeek connection (DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL, an official or relay key),
  * every custom provider's key (CODE_DESKTOP_PROVIDER_KEY_*, prefs/model-settings.mjs providerKeyEnv) and the Codex
  * endpoint key, plus every variable the Codex launch sets or removes (model-settings.cjs codexBlankEnv: all
@@ -97,7 +97,7 @@ function chosenCore() {
 function coreKind() {
   return chosenCore().id;
 }
-/** A bridge core's adapter script: in the packaged resources or the Code Desktop repository. */
+/** A bridge core's adapter script: in the packaged resources or the OpenClaude Desktop repository. */
 function bridgeScript(core) {
   // An Extension Pack's bridge: an absolute path inside the installed pack (extension-packs.cjs).
   if (typeof core?.bridge?.path === "string") return fs.existsSync(core.bridge.path) ? core.bridge.path : null;
@@ -309,7 +309,7 @@ class CodexClient extends EventEmitter {
       const result = await this.request("initialize", {
         clientInfo: {
           name: "code_desktop_local",
-          title: "Code Desktop",
+          title: "OpenClaude Desktop",
           version: require("../package.json").version,
         },
         capabilities: { experimentalApi: true },
@@ -395,7 +395,7 @@ class CodexClient extends EventEmitter {
   }
 
   /**
-   * An approval of the app's own (Code Desktop's agent tools: a terminal command, an outside site, a dev server, a
+   * An approval of the app's own (OpenClaude Desktop's agent tools: a terminal command, an outside site, a dev server, a
    * workflow): shown and answered like the core's own requests — the in-transcript card of the session that asks, in
    * every window and split side that shows it, the sidebar marking it — but answered here, never on the wire.
    * Resolves with the card's result ({decision, …}), or null when it ended otherwise (the signal, the connection);

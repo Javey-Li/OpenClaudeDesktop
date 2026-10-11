@@ -233,6 +233,6 @@ test('Gemini: a project or system mcp.allowed list without code_desktop is named
   assert.equal(geminiAppToolsBlock(env, project, 'code_desktop'), null)
   fsm.writeFileSync(env.GEMINI_CLI_SYSTEM_SETTINGS_PATH, JSON.stringify({ admin: { mcp: { enabled: false } } }))
   assert.equal(geminiAppToolsBlock(env, project, 'code_desktop'), 'admin settings')
-  assert.match(GEMINI_APP_TOOLS_BLOCKED('admin settings'), /^Gemini CLI’s admin settings don’t allow Code Desktop’s tools server/)
+  assert.match(GEMINI_APP_TOOLS_BLOCKED('admin settings'), /^Gemini CLI’s admin settings don’t allow OpenClaude Desktop’s tools server/)
   assert.equal(geminiAppToolsBlock(env, project, null), null)
 })

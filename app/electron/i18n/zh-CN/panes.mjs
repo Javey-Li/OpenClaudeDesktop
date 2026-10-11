@@ -244,7 +244,7 @@ export default {
   "Message {position}": "消息 {position}",
   "You said: {summary}": "你说：{summary}",
   "{name} responded: {summary}": "{name} 回复：{summary}",
-  "Open Code Desktop to search local filenames.": "请打开 Code Desktop 以搜索本地文件名。",
+  "Open OpenClaude Desktop to search local filenames.": "请打开 OpenClaude Desktop 以搜索本地文件名。",
   "Searching files": "正在搜索文件",
   "Filter files": "筛选文件",
   "Filter files…": "筛选文件…",

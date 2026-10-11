@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Code Desktop's local MCP server (stdio). Every agent core starts it for the app's own sessions only (codex.cjs
+// OpenClaude Desktop's local MCP server (stdio). Every agent core starts it for the app's own sessions only (codex.cjs
 // `-c mcp_servers.code_desktop.*` overrides, the DeepSeek harness and the bridges through CODE_DESKTOP_AGENT_TOOLS_SERVER,
 // see agent-tools-host.cjs). It is a thin relay: the tools themselves (app/electron/agent-tools/*.mjs) run in the
 // app's main process, which owns the preview, the terminals and the windows; this process only speaks MCP to the
@@ -19,7 +19,7 @@ import readline from "node:readline";
 import instructionsModule from "./agent-tools-instructions.cjs";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "code-desktop", title: "Code Desktop", version: "1.0.0" };
+const SERVER_INFO = { name: "code-desktop", title: "OpenClaude Desktop", version: "1.0.0" };
 const CALL_TIMEOUT_MS = Number(process.env.CODE_DESKTOP_AGENT_TOOLS_TIMEOUT_MS) > 0 ? Number(process.env.CODE_DESKTOP_AGENT_TOOLS_TIMEOUT_MS) : 10 * 60 * 1000;
 const socketPath = process.env.CODE_DESKTOP_AGENT_TOOLS_SOCKET || "";
 const token = process.env.CODE_DESKTOP_AGENT_TOOLS_TOKEN || "";
@@ -35,7 +35,7 @@ let channel = null; // { socket, ready: Promise, pending: Map }
 let seq = 0;
 function connect() {
   if (channel && !channel.closed) return channel.ready;
-  if (!socketPath || !token) return Promise.reject(new Error("Code Desktop isn't running this session."));
+  if (!socketPath || !token) return Promise.reject(new Error("OpenClaude Desktop isn't running this session."));
   const state = { socket: null, closed: false, pending: new Map(), ready: null };
   channel = state;
   state.ready = new Promise((resolve, reject) => {
@@ -73,8 +73,8 @@ function connect() {
         else entry.resolve(message.result);
       }
     });
-    socket.on("error", (error) => close(new Error(`Code Desktop isn't reachable (${error.code || error.message}).`)));
-    socket.on("close", () => close(new Error("Code Desktop closed the connection.")));
+    socket.on("error", (error) => close(new Error(`OpenClaude Desktop isn't reachable (${error.code || error.message}).`)));
+    socket.on("close", () => close(new Error("OpenClaude Desktop closed the connection.")));
   });
   state.ready.catch(() => {});
   return state.ready;

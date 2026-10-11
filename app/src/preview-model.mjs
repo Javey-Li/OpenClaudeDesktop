@@ -101,7 +101,7 @@ export function pageError(state) {
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"]);
 /**
  * The dev server of this folder the page comes from (its origin is the server's: same port, same or loopback host),
- * else null. records: only servers Code Desktop started (state.servers); configs: also launch.json configurations
+ * else null. records: only servers OpenClaude Desktop started (state.servers); configs: also launch.json configurations
  * that aren't running here (status "stopped"), for a Restart on a page that no longer answers.
  */
 export function pageServer(state, { configs = false } = {}) {

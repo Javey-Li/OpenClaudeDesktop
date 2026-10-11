@@ -33,7 +33,7 @@ const SINGLE = {
 };
 const normalStatus = (status) => status === "killed" ? "stopped" : STATUS[status] ? status : "completed";
 
-/** A Code Desktop workflow notification (workflow-keyword.mjs workflowNotificationSummary) as a task event. */
+/** An OpenClaude Desktop workflow notification (workflow-keyword.mjs workflowNotificationSummary) as a task event. */
 export function workflowTaskEvent(notification) {
   if (!notification) return null;
   const summary = String(notification.summary ?? "");

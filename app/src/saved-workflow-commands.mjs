@@ -1,6 +1,6 @@
 // Saved workflows as '/' commands (Claude Code 2.1.280 getWorkflowCommands: kind "workflow", "running dynamic
 // workflow"): each saved workflow (main.cjs saved-workflows) becomes /<name>, whose message asks the model to run it
-// with Code Desktop's Workflow tool. Custom commands and built-ins with the same name win (session-command-model).
+// with OpenClaude Desktop's Workflow tool. Custom commands and built-ins with the same name win (session-command-model).
 import { COMMAND_NAME } from "./custom-commands-model.mjs";
 
 /** A core library's declared args ({pr: {type, required, description}}) as one line for the model and a hint for the menu. */

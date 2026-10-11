@@ -146,7 +146,7 @@ test('a stopped turn closes the Workflow approval and starts nothing', async () 
   } finally { await h.cleanup(); }
 });
 
-test('ultracode reminders name the engine\'s own workflow tool; Code Desktop\'s point at the Workflow tool description', async () => {
+test('ultracode reminders name the engine\'s own workflow tool; OpenClaude Desktop\'s point at the Workflow tool description', async () => {
   const own = reminders.reminderTexts(null);
   assert.match(own.full, /Ultracode\*\* section and quality patterns in the Workflow tool description/);
   assert.doesNotMatch(Object.values(own).join('\n'), /authoring reference/);

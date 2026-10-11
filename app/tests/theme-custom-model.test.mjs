@@ -183,7 +183,7 @@ test('import: unknown code themes fall back with warnings; invalid files are use
   assert.match(warnings[1], /Unknown light code theme “nord”; using Claude Light/);
   assert.equal('codeThemeLight' in importThemeFile({ format: 'code-desktop-theme', version: 1 }).patch, false, 'absent keys are left alone');
   assert.throws(() => importThemeFile('{'), /valid JSON/);
-  assert.throws(() => importThemeFile({ format: 'vscode-theme', version: 1 }), /Code Desktop theme file/);
+  assert.throws(() => importThemeFile({ format: 'vscode-theme', version: 1 }), /OpenClaude Desktop theme file/);
   assert.throws(() => importThemeFile({ format: 'code-desktop-theme', version: 2 }), /newer version/);
   assert.throws(() => importThemeFile({ format: 'code-desktop-theme', version: 1, fontScale: 3 }), /Font size/);
   assert.throws(() => importThemeFile('x'.repeat(300 * 1024)), /too large/);

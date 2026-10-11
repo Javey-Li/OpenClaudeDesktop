@@ -91,6 +91,13 @@ export function settingsPatch(config, patch, models = []) {
     if (!isTheme(patch[key], mode)) throw new Error(`Invalid ${key} setting.`);
     next[key] = patch[key];
   }
+  // A model without reasoning levels (GLM, Kimi… through DeepSeek Harness) has no default effort: null clears the
+  // saved one, which every reader already treats as "model default".
+  if ('effort' in patch && (patch.effort === null || patch.effort === undefined || patch.effort === '')) {
+    delete next.effort;
+    patch = { ...patch };
+    delete patch.effort;
+  }
   for (const key of ['model','effort','displayName','codeFont']) {
     if (!(key in patch)) continue;
     if (typeof patch[key] !== 'string' || patch[key].length > (key === 'codeFont' ? 120 : 200) || /[\x00-\x1f]/.test(patch[key]))
