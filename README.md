@@ -2,7 +2,7 @@
 
 # OpenClaude Desktop
 
-### 装在 Mac 上的 AI 编程助手 · 模型由你来选
+### 开源的 “Claude Desktop”
 
 用大白话说需求，它帮你读代码、改代码、跑命令，每一步都看得见。
 
