@@ -1,7 +1,7 @@
 {
   "version": "0.2.186",
-  "builtAt": "2026-10-14T18:03:40.078Z",
-  "sourceSha256": "ea24e054a3fd55cbe5aac44d978def44236ebb52be2ab5455a3ea61f3a51ec65",
+  "builtAt": "2026-10-15T10:58:49.325Z",
+  "sourceSha256": "cd8e9b91deb3c7ff89b530defdc729f7969b6db9f126e7797d7e3e3c017f6d91",
   "sources": [
     {
       "path": "build/editor-notices/manifest.json",
@@ -789,7 +789,7 @@
     },
     {
       "path": "electron/i18n/zh-CN/surfaces.mjs",
-      "sha256": "6624765784229007742031f0b23a6c1b82b194e60af021b82ae71ac3d5308dbe"
+      "sha256": "8d5dd12ae094eaeb9c8dae887562aa73443dea6c4a74b35f5bc5ce7dfa7980cb"
     },
     {
       "path": "electron/i18n/zh-CN/terminal.mjs",
@@ -829,7 +829,7 @@
     },
     {
       "path": "electron/main.cjs",
-      "sha256": "d51844c238cfb2575e4c1c5abe7dd9104295089309530d9ab7fc95a4e941552b"
+      "sha256": "a763e889937585b362e7065d36f00d17351235cb6c2c9d615eec2c78a3da40ba"
     },
     {
       "path": "electron/menu-bar.cjs",
@@ -1105,7 +1105,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "c5805e6f2809961ec20d582ea8f2c38abe3039473b8e05a092db1045a6fa11e2"
+      "sha256": "d8c1269c9488c8949944a875c7afde4594ff40152e0deff5be2eb3d4c6f00d35"
     },
     {
       "path": "scripts/build-workflow-parser.mjs",
@@ -2509,7 +2509,7 @@
     },
     {
       "path": "src/main.jsx",
-      "sha256": "01710e83b644113ce5683c232dd3e06e8a25e7fdf8711268b6bfa4e7c15f125b"
+      "sha256": "aeda39e31bc0bf363311977a26869ff891fbf89d8225fb0b1bbce10fe5bf41cc"
     },
     {
       "path": "src/manual-text-save.mjs",
@@ -3849,11 +3849,11 @@
     },
     {
       "path": "src/source-surfaces.css",
-      "sha256": "e7f13d3b517f6f64a656da7abf8c6f25500e53b46ce3dcb9ae4612b55b71c2c2"
+      "sha256": "aed8589c2f91527c1137fa90e7af48314ad5be4ecc8417823f86846aede96cd3"
     },
     {
       "path": "src/source-surfaces.jsx",
-      "sha256": "5e936f8e12ab931ac69454b83783dc27d2bce0ba839745e65d2d25c7354c33f4"
+      "sha256": "d5939d47cc2cc60f0b025be9fa20bab53ada4638b4a20d1832debffdaadf26c6"
     },
     {
       "path": "src/source-switch.css",
