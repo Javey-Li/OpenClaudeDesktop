@@ -27,7 +27,7 @@ const clean = { ...dirty, hasChanges: false, workingTreeDirty: false, added: 0, 
 const noop = () => {};
 const band = (props) => renderToStaticMarkup(React.createElement(SourceGitStatus, {
   prMode: 'commit', onOpenFolder: noop, onCopyPath: noop, onCopyBranch: noop, onOpenChanges: noop,
-  onAction: noop, actionLabel: 'Commit', ...props }));
+  onAction: noop, actionLabel: 'Commit changes', ...props }));
 const rail = (props) => renderToStaticMarkup(React.createElement(SourceGitRail, { onOpenChanges: noop, onAction: noop, onDismiss: noop, ...props }));
 const noTitles = (html, label) => assert.doesNotMatch(html, /\stitle="/, `${label}: no native title attribute`);
 // Pu: wrapper span `aria-describedby=id` + hidden `[data-cds-disabled-reason]` span with that id.
@@ -56,7 +56,7 @@ test('band: dirty idle, dirty running and clean render no native titles; disable
   // F12 (git-status-card 1081-1122, 1287-1305): counts and Commit are CDS secondary Buttons; the counts have no
   // aria-label (their name is the OV sr-only unit list), the tooltip stays 'View changes'.
   assert.match(idle, /<button type="button" data-cds="Button" data-variant="secondary" class="source-settings-button sg-diff">/);
-  assert.match(idle, /<button type="button" data-cds="Button" data-variant="secondary" class="source-settings-button sg-action">.*<span class="ssb-content">Commit<\/span><\/button>/, 'enabled Commit is not wrapped and carries no reason');
+  assert.match(idle, /<button type="button" data-cds="Button" data-variant="secondary" class="source-settings-button sg-action">.*<span class="ssb-content">Commit changes<\/span><\/button>/, 'enabled Commit is not wrapped and carries no reason');
   assert.doesNotMatch(idle, /sg-diff"? aria-label/);
   assert.doesNotMatch(idle, /data-cds-disabled-reason/);
   assert.match(idle, /class="sg-button sg-repo" data-repo-chip="unbounded" aria-label="repo"/);
@@ -131,7 +131,7 @@ test('band stale: the held snapshot is inert, aria-hidden, data-prbar-stale, wit
   assert.match(html, /<div class="sg-row sg-row-stale" data-source-component="GitStatusCard" data-prbar-stale="" aria-hidden="true" inert="">/);
   assert.doesNotMatch(html, /<button/);
   assert.doesNotMatch(html, /source-tooltip|aria-haspopup|data-git-counts/);
-  assert.match(html, /<span class="sg-stale-fill sg-diff"><span class="sg-added">\+3<\/span><span class="sg-removed">−1<\/span><\/span><span class="sg-stale-fill sg-stale-action">Commit<\/span>/);
+  assert.match(html, /<span class="sg-stale-fill sg-diff"><span class="sg-added">\+3<\/span><span class="sg-removed">−1<\/span><\/span><span class="sg-stale-fill sg-stale-action">Commit changes<\/span>/);
   assert.match(html, /style="min-height:52px"/);
   assert.equal(band({ status: clean, stale: true }), '', 'a clean snapshot holds nothing');
   assert.equal(band({ status: { isRepo: false }, stale: true }), '');
@@ -144,4 +144,73 @@ test('rail: the Changes fact and collapsed signal use GitCounts; Commit is the s
   assert.match(html, /<span class="sr-only">3 additions, 1 deletion<\/span>/);
   assert.match(html, /<button type="button" data-cds="Button" data-variant="secondary" class="source-settings-button sg-action sgr-action">/);
   assert.doesNotMatch(html, /sg-spinner/);
+});
+
+test('B08 band: an existing PR leads with its state glyph and #number link (FB), CI is a static role=img, no Create PR', () => {
+  const prView = { number: 42, url: 'https://github.com/acme/widget/pull/42', state: 'open', ci: 'failed', onOpen: noop };
+  const html = band({ status: { ...dirty, workingTreeDirty: false }, prMode: 'view', prView, onAction: undefined });
+  noTitles(html, 'pr view');
+  assert.match(html, /<span role="img" aria-label="Open" class="sg-pr-state" data-tint="opened"><span aria-hidden="true" data-cds="Icon"/);
+  assert.match(html, /<a href="https:\/\/github.com\/acme\/widget\/pull\/42" target="_blank" rel="noopener" class="sg-pr-number" data-tint="opened"><bdi>#42<\/bdi><\/a>/);
+  assert.match(html, /<span aria-hidden="true" class="sg-pr-gap"><\/span>/, 'the 12px gap precedes the chips');
+  assert.match(html, /data-repo-chip="bounded"/, 'view mode bounds the repo chip at 160px');
+  assert.match(html, /<span role="img" aria-label="CI: checks failing" class="sg-ci" data-ci="failed">.*<span>CI<\/span><\/span>/);
+  assert.doesNotMatch(html, /sg-action|data-pr-action/, 'cd5a31703 Te is null in view mode');
+  // pze: the PR keeps the row without any branch changes.
+  assert.match(band({ status: clean, prMode: 'view', prView: { ...prView, ci: undefined }, onAction: undefined }), /sg-pr-number/);
+  assert.doesNotMatch(band({ status: clean, prMode: 'view', prView: { ...prView, ci: undefined }, onAction: undefined }), /sg-ci/);
+});
+
+test('B08 band: a merged PR tints the row (xLe purple) and replaces the trailing controls with "Merged"', () => {
+  const prView = { number: 7, url: 'https://github.com/acme/widget/pull/7', state: 'merged', ci: 'passed', onOpen: noop };
+  const html = band({ status: dirty, prMode: 'merged', prView });
+  assert.match(html, /<div class="sg-row" data-source-component="GitStatusCard" data-pr-accent="purple">/);
+  assert.match(html, /<span role="img" aria-label="Merged" class="sg-pr-state" data-tint="merged">/);
+  assert.match(html, /class="sg-pr-number" data-tint="merged" data-accent="">/);
+  assert.match(html, /<span class="sg-pr-mode-label" data-accent="purple">Merged<\/span>/);
+  assert.doesNotMatch(html, /sg-diff|sg-ci|sg-action/, 'counts, CI and actions drop on an accent row');
+});
+
+test('B08 band: Create PR split button reads the remembered mode, busy carries the sr-only Creating PR… status', () => {
+  const pr = { mode: 'draft', label: 'Create draft PR', busyLabel: 'Creating PR…', busy: false, manualUrl: null, onPrimary: noop, onSelectMode: noop };
+  const html = band({ status: { ...dirty, workingTreeDirty: false }, prMode: 'draft', pr });
+  assert.match(html, /<span class="sg-pr" data-pr-action="" data-cds="SplitDropdownButton" aria-label="Create draft PR">/);
+  assert.match(html, /class="source-settings-button sg-action sg-pr-main">.*<span class="ssb-content">Create draft PR<\/span>/);
+  assert.match(html, /aria-label="More PR options"/);
+  assert.match(html, /<span role="status" class="sr-only"><\/span>/);
+  const busy = band({ status: { ...dirty, workingTreeDirty: false }, prMode: 'draft', pr: { ...pr, busy: true } });
+  assert.match(busy, /<span role="status" class="sr-only">Creating PR…<\/span>/);
+  const pending = band({ status: { ...dirty, workingTreeDirty: false }, prMode: 'create', pr: { ...pr, mode: 'create', label: 'Create PR', disabledReason: 'Checking for an existing pull request' } });
+  assert.equal(describedReason(pending), 'Checking for an existing pull request');
+  assert.match(pending, /<button aria-label="More PR options" disabled="" aria-haspopup="menu"[^>]*class="source-settings-button sg-pr-more"/, 'jO disables the caret with the primary');
+});
+
+test('B08 band: the gh hint trigger (c219730b0 fn) and the split menu source (radio items, side top / align end)', async () => {
+  const pr = { mode: 'create', label: 'Create PR', busy: false, manualUrl: null, onPrimary: noop, onSelectMode: noop };
+  const html = band({ status: { ...dirty, workingTreeDirty: false }, prMode: 'create', pr, prHint: { cause: 'gh_signed_out', onRunInTerminal: noop } });
+  assert.match(html, /<button aria-haspopup="dialog" aria-expanded="false"[^>]*class="source-settings-button sg-gh-hint">.*GitHub CLI signed out/);
+  assert.match(band({ status: { ...dirty, workingTreeDirty: false }, prMode: 'create', pr, prHint: { cause: 'gh_unavailable' } }), /GitHub CLI unavailable/);
+  const source = await fs.readFile(path.resolve(import.meta.dirname, '../src/source-git-status.jsx'), 'utf8');
+  assert.match(source, /menu\?\.kind === "pr" && pr && <SourceMenu\.Popup anchor=\{menu\.anchor\} side="top" align="end"/);
+  assert.match(source, /checked=\{pr\.mode === mode\} checkedRole="radio" onClick=\{\(\) => run\(pr\.onSelectMode, mode\)\}/);
+  // c0a531389 T: Copy branch name, Open branch on GitHub; xt: Open in terminal after a separator. Hle: the repo menu ends with it.
+  assert.match(source, /t\("Open branch on GitHub"\)/);
+  assert.match(source, /key: "terminal", label: t\("Open in terminal"\), separatorBefore: true/);
+  assert.match(source, /gitRepoMenuItems\(\{ openFolder: !!onOpenFolder, copyPath: !!onCopyPath, openTerminal: !!onOpenTerminal \}\)/);
+});
+
+test('B08 review: the gh lookup warning (cd5a31703 FB H) shows in every mode; a PR title is the branch chip tooltip', async () => {
+  const { prStatusWarning } = await import('../src/git-rail-model.mjs');
+  assert.equal(prStatusWarning({ status: 'error', kind: 'network' }), 'GitHub is unreachable. Pull request status may be out of date.');
+  assert.equal(prStatusWarning({ status: 'auth', kind: 'auth' }), 'GitHub CLI authentication expired. Run gh auth login to refresh pull request status.');
+  assert.equal(prStatusWarning({ status: 'error' }), 'Pull request status couldn’t be checked and may be out of date.');
+  assert.equal(prStatusWarning({ status: 'error', kind: 'notFound' }), undefined, 'gO keeps no warning for notFound');
+  assert.equal(prStatusWarning({ status: 'missing' }), undefined);
+  assert.equal(prStatusWarning({ status: 'none' }), undefined);
+  const warning = 'GitHub is unreachable. Pull request status may be out of date.';
+  const prView = { number: 7, url: 'https://github.com/acme/widget/pull/7', state: 'merged', ci: 'passed', title: 'Add widget', onOpen: noop };
+  const html = band({ status: dirty, prMode: 'merged', prView, prWarning: warning });
+  noTitles(html, 'warning');
+  assert.match(html, new RegExp(`<span role="img" aria-label="${warning}" class="sg-pr-warning">`), 'the accent row keeps the warning');
+  assert.doesNotMatch(band({ status: dirty }), /sg-pr-warning/);
 });

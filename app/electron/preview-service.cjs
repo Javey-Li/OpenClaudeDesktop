@@ -1,6 +1,6 @@
 // The Preview pane's browser and dev servers, per session (main process).
 //
-// Each session that previews something owns one WebContentsView (2.2553.1 PreviewContext: a WebContentsView, never
+// Each session owns a tab group, with one WebContentsView per live tab (PreviewContext: a WebContentsView, never
 // a <webview>) in the "persist:preview" partition: no Node, context isolation, sandbox, no dialogs, every
 // permission denied (clipboard writes on localhost aside), downloads through the system Save dialog of the window
 // showing the page (refused for a page nobody sees), http(s) pages anywhere and file://
@@ -40,8 +40,16 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn, execFile } = require("node:child_process");
+const { previewTabKeyCommand } = require("./preview-tab-shortcuts.mjs");
+const { closedTabsPerSession, closedTabSessions, beginSyntheticInput, endSyntheticInput } = require("./generated/preview-tab-shortcuts.mjs");
 const scripts = require("./preview-page-scripts.cjs");
+const { PREVIEW_STORAGE_MODES, previewStorageMode, previewStoragePartition, previewStorageRebindTabs } = require("./preview-storage.mjs");
 const launch = require("./preview-launch.mjs");
+const { previewAddressTarget } = require("./preview-address.mjs");
+const { previewLinkOrigin, externalOnlyLink } = require("./generated/preview-link-origin.mjs");
+const { createPreviewElementInspector } = require("./generated/preview-element-inspector.mjs");
+const { createPreviewSelection } = require("./preview-selection.mjs");
+const allowedOrigins = require("./preview-allowed-origins.mjs");
 
 // Cookies and local storage of previewed pages (2.2553.1 legacy preview "Keep cookies"): by default an in-memory session
 // for this app run (EPHEMERAL_PARTITION); with Servers & settings › Keep cookies, the on-disk one, kept across restarts.
@@ -86,8 +94,10 @@ function previewShortcut(input) {
   if (!command) return null;
   const key = String(input.key ?? "").toLowerCase();
   if (key === "x" && input.shift) return "sketch";
+  if (key === "s" && input.shift && !input.isComposing && input.keyCode !== 229) return "selection";
   if (key === "w" && !input.shift) return "close";
   if (key === "l" && !input.shift) return "address";
+  if (key === "t" && !input.shift) return "new-tab";
   return null;
 }
 
@@ -115,23 +125,43 @@ function freePort() {
  * @param {(id: string) => ({id: string, cwd: string}|null)} options.getSession   a known session and its folder
  * @param {() => Promise<object>} [options.spawnEnv]   the environment dev servers get
  * @param {(event: object) => void} [options.broadcast] an app-wide event (every window)
+ * @param {string|null} [options.frameDir]   where each session's last dev-server page frame is kept across a restart
  */
 function createPreviewService({ electron, getSession, spawnEnv = async () => ({ ...process.env }), broadcast = () => {}, logger = console, home = process.env.HOME || "", hostWindow = null, reapHiddenMs = REAP_HIDDEN_MS,
-  keepCookies = () => false, setKeepCookies = () => {} }) {
+  keepCookies = () => false, setKeepCookies = () => {}, getStorageMode = () => undefined, setStorageMode = () => {}, isCoworkSession = () => false, getStoredPartitions = () => [], setStoredPartitions = () => {},
+  frameDir = null, getAllowedOrigins = () => [], setAllowedOrigins = () => {} }) {
   const { WebContentsView, BrowserWindow, session: electronSession, shell, nativeTheme } = electron;
   // The window a renderer request came from (main.cjs: window-registry hostWindow(sender), which knows every main
   // window and pane popout); both split sides of a window are one webContents, so a side's pane rect is a region of it.
   const windowOf = typeof hostWindow === "function" ? hostWindow : (sender) => BrowserWindow.fromWebContents(sender);
-  const previews = new Map(); // session id → preview
+  const previews = new Map(); // session id → active tab
+  const subscriberCleanup = new Map(); // one destruction hook per renderer, across its sessions
+  const closedTabs = new Map(); // current-source WZ: at most 25 URLs per session / 50 sessions
+  const allPreviews = () => [...previews.values()].flatMap(entry => [...entry.group.tabs.values()]);
   const servers = new Map(); // cwd \0 name → server
   const launchCache = new Map(); // cwd → { mtime, parsed }
   const listening = new WeakSet(); // page contents whose debugger events are wired
   let parking = null;
   const partitionsReady = new Set();
-  const keeping = () => { try { return keepCookies() === true; } catch { return false; } };
+  let selectedStorageMode = previewStorageMode(getStorageMode(), keepCookies());
+  const storageMode = () => selectedStorageMode;
+  const keeping = () => storageMode() !== "none";
+  const storageFor = entry => previewStoragePartition({ mode: storageMode(), sessionId: entry.id, cwd: entry.cwd, cowork: isCoworkSession(entry.id) });
+  const storedPartitions = new Set((getStoredPartitions() ?? []).filter(name => /^persist:preview-session-[a-f0-9]{64}$/.test(name)));
+  // Original hri/Iei startup policy: Until quit clears prior Code session jars;
+  // the Cowork/shared jar is explicitly preserved.
+  const storageReady = selectedStorageMode === 'none' ? Promise.all([...storedPartitions].map(async name => {
+    try {
+      const ses = electronSession.fromPartition(name);
+      if (ses.clearData) await ses.clearData();
+      else { await ses.clearStorageData(); await ses.clearCache?.(); }
+      await ses.clearAuthCache?.();
+      storedPartitions.delete(name);
+    } catch (error) { logger.warn?.('preview: startup session-data clear failed', error); }
+  })).then(() => setStoredPartitions([...storedPartitions])) : Promise.resolve();
 
   // ------------------------------------------------------------------ partition
-  function partition(name = keeping() ? PARTITION : EPHEMERAL_PARTITION) {
+  function partition(name) {
     const ses = electronSession.fromPartition(name);
     if (partitionsReady.has(name)) return ses;
     partitionsReady.add(name);
@@ -143,7 +173,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     // (parked, or the agent's unseen page) can't put a dialog in front of anyone: the download is cancelled, and the
     // page's console and the agent's next result say why.
     ses.on("will-download", (event, item, contents) => {
-      const owner = [...previews.values()].find((preview) => alive(preview) && preview.view.webContents.id === contents?.id) ?? null;
+      const owner = allPreviews().find((preview) => alive(preview) && preview.view.webContents.id === contents?.id) ?? null;
       let file = "download";
       try { file = path.basename(String(item?.getFilename?.() || "")) || "download"; } catch { /* keep the fallback */ }
       if (!owner || !holder(owner)) {
@@ -175,7 +205,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     // host the user hasn't allowed in this session, so a page can't carry the workspace out where the agent's own
     // sandbox couldn't (its top-level navigations and popups are held the same way: holdOutside).
     ses.webRequest.onBeforeRequest({ urls: ["file://*/*", "http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (details, callback) => {
-      const owner = [...previews.values()].find((preview) => preview.view && !preview.view.webContents.isDestroyed() && preview.view.webContents.id === details.webContentsId);
+      const owner = allPreviews().find((preview) => preview.view && !preview.view.webContents.isDestroyed() && preview.view.webContents.id === details.webContentsId);
       if (/^file:/i.test(details.url)) {
         let file = "";
         try { file = decodeURIComponent(new URL(details.url).pathname); } catch { /* invalid */ }
@@ -195,13 +225,15 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   }
 
   // ------------------------------------------------------------------ previews
-  function preview(sessionId) {
-    let entry = previews.get(sessionId);
-    if (entry) return entry;
+  function preview(sessionId, createTab = false) {
+    const active = previews.get(sessionId);
+    if (active && !createTab) return active;
+    let entry;
+    const group = active?.group ?? { tabs: new Map(), subscribers: new Set(), approvedHosts: new Set(), declinedHosts: new Set(), asking: new Set(), approvedServers: new Set(), recentFiles: [] };
     const known = getSession(sessionId);
     if (!known?.cwd) throw new Error("Unknown session.");
     entry = {
-      id: sessionId, cwd: known.cwd, view: null, host: null, paneBounds: null, visible: false, occluded: false, subscribers: new Set(),
+      id: sessionId, tabId: crypto.randomUUID(), group, placeholder: !createTab, faviconUrl: null, cwd: known.cwd, view: null, host: null, paneBounds: null, visible: false, occluded: false, subscribers: new Set(),
       url: "", title: "", loading: false, error: null, crashed: false,
       viewport: { preset: "responsive", width: null, height: null, colorScheme: "system", setByAgent: false },
       console: [], network: [], requests: new Map(), approvedHosts: new Set(), debugger: false, notifyTimer: null, lastServer: null,
@@ -217,7 +249,10 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
       // The page's latest download: { file, state: "saving"|"completed"|"failed"|"cancelled", reason?, at }.
       download: null,
     };
-    previews.set(sessionId, entry);
+    for (const key of ['subscribers', 'approvedHosts', 'declinedHosts', 'asking', 'approvedServers', 'recentFiles'])
+      Object.defineProperty(entry, key, { get: () => group[key], set: value => { group[key] = value; }, enumerable: true, configurable: true });
+    group.tabs.set(entry.tabId, entry);
+    if (!active) previews.set(sessionId, entry);
     return entry;
   }
   const alive = (entry) => entry?.view && !entry.view.webContents.isDestroyed();
@@ -241,9 +276,10 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   }
   function reap(entry) {
     entry.reapTimer = null;
-    if (previews.get(entry.id) !== entry || !alive(entry) || holder(entry)) return;
+    if (entry.group.tabs.get(entry.tabId) !== entry || !alive(entry) || holder(entry)) return;
     const view = entry.view;
     if (!reclaimable(view.webContents.getURL() || entry.url)) return;
+    stopSelection(entry, true);
     try { if (entry.parent && !entry.parent.isDestroyed()) entry.parent.contentView.removeChildView(view); } catch { /* already gone */ }
     Object.assign(entry, { view: null, parent: null, debugger: false, loading: false, crashed: false, reclaimed: true, console: [], network: [], requests: new Map() });
     try { view.webContents.close(); } catch { /* gone */ }
@@ -251,9 +287,116 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     notify(entry);
   }
   // A reaped page reopens at its address (2.2553.1 xX recreates the context from the server).
-  const revive = (entry) => (!alive(entry) && entry.reclaimed && entry.url ? navigate(entry.id, entry.url) : Promise.resolve(null));
+  const revive = (entry) => (!alive(entry) && entry.reclaimed && entry.url ? navigate(entry.id, entry.url, { tabId: entry.tabId }) : Promise.resolve(null));
+
+  function tabEntry(sessionId, tabId) {
+    const entry = preview(sessionId).group.tabs.get(tabId);
+    if (!entry) throw new Error("Unknown preview tab.");
+    return entry;
+  }
+  function activateTab(sessionId, tabId) {
+    const previous = preview(sessionId), next = tabEntry(sessionId, tabId);
+    if (previous === next) return snapshot(next);
+    stopSelection(previous);
+    const placement = { host: previous.host, paneBounds: previous.paneBounds, visible: previous.visible, occluded: previous.occluded };
+    previous.host = null; previous.visible = false; place(previous);
+    previews.set(sessionId, next);
+    Object.assign(next, placement);
+    place(next); applyEmulation(next).catch(() => {}); revive(next).catch(() => {});
+    notify(next, true);
+    return snapshot(next);
+  }
+  function newTab(sessionId) {
+    const active = preview(sessionId);
+    active.group.lastTabClosed = false;
+    if (active.placeholder && active.group.tabs.size === 1) { active.placeholder = false; notify(active, true); return snapshot(active); }
+    // Current c224804cc U: the create button is disabled when count > 8.
+    if (active.group.tabs.size > 8) throw new Error("Close a preview tab before opening another.");
+    const next = preview(sessionId, true);
+    return activateTab(sessionId, next.tabId);
+  }
+  function rememberClosedTab(entry) {
+    // Original rememberClosedTab stores web URLs only; blank/file tabs are not reopenable.
+    if (!/^https?:\/\//i.test(entry.url)) return;
+    const previous = closedTabs.get(entry.id);
+    const urls = previous?.cwd === entry.cwd ? previous.urls : [];
+    urls.push(entry.url); if (urls.length > closedTabsPerSession) urls.shift();
+    closedTabs.delete(entry.id);closedTabs.set(entry.id, { cwd: entry.cwd, urls });
+    if (closedTabs.size > closedTabSessions) closedTabs.delete(closedTabs.keys().next().value);
+  }
+  function reopenTab(sessionId) {
+    const entry = preview(sessionId), history = closedTabs.get(sessionId);
+    if (history && (history.cwd !== entry.cwd || getSession(sessionId)?.cwd !== history.cwd)) { closedTabs.delete(sessionId);return { ...snapshot(entry), reopened: false }; }
+    if (!history?.urls.length || [...entry.group.tabs.values()].filter(tab => !tab.placeholder).length > 8) return { ...snapshot(entry), reopened: false };
+    const url = history.urls.pop();if (!history.urls.length) closedTabs.delete(sessionId);
+    const state = newTab(sessionId), next = tabEntry(sessionId, state.activeTabId);
+    next.agentDriven = false;
+    // A user-requested reopen creates a fresh page at the saved URL, not a persisted browser history.
+    void navigate(sessionId, url, { tabId: next.tabId }).catch(error => { if (next.group.tabs.has(next.tabId)) { next.error = { code: 'reopen', description: error.message, url }; notify(next); } });
+    notify(next, true);return { ...snapshot(next), reopened: true };
+  }
+  function selectTabIndex(sessionId, index) {
+    if (!Number.isInteger(index) || index < -1 || index > 7) throw new Error("Unknown preview tab position.");
+    const entry = preview(sessionId), tabs = [...entry.group.tabs.values()].filter(tab => !tab.placeholder);
+    const tab = tabs.at(index);return tab ? activateTab(sessionId, tab.tabId) : snapshot(entry);
+  }
+  function cycleTab(sessionId, direction) {
+    if (direction !== 1 && direction !== -1) throw new Error("Unknown operation.");
+    const entry = preview(sessionId), tabs = [...entry.group.tabs.values()].filter(tab => !tab.placeholder);
+    const now = Date.now();
+    if (tabs.length < 2 || now - (entry.group.lastCycleAt ?? 0) < 60) return snapshot(entry);
+    entry.group.lastCycleAt = now;
+    return activateTab(sessionId, tabs[(tabs.indexOf(entry) + direction + tabs.length) % tabs.length].tabId);
+  }
+  function closePlan(sessionId, tabId, others = false) {
+    const entry = tabEntry(sessionId, tabId), tabs = [...entry.group.tabs.values()];
+    const closing = tabs.filter(tab => others ? tab.tabId !== tabId : tab.tabId === tabId);
+    const remaining = tabs.filter(tab => !closing.includes(tab));
+    const uses = (tab, server) => { try { const url = new URL(tab.url); return launch.isLocalHost(url.hostname) && Number(url.port) === server.port; } catch { return false; } };
+    const processes = [...servers.values()].filter(server => server.cwd === entry.cwd && ['running', 'starting'].includes(server.status)
+      && closing.some(tab => uses(tab, server)) && !remaining.some(tab => uses(tab, server)));
+    return { entry, tabs, closing, remaining, processes };
+  }
+  async function closeTab(sessionId, tabId, { others = false, decision = null } = {}) {
+    if (decision !== null && decision !== 'keep' && decision !== 'stop') throw new Error("Unknown operation.");
+    let plan = closePlan(sessionId, tabId, others);
+    if (plan.processes.length && decision === null) return { confirmation: { tabId, others, processes: plan.processes.map(serverView) } };
+    if (decision === 'stop') {
+      for (const server of plan.processes) await stopServer(sessionId, server.name);
+      // Another pane can change tabs while the child process exits. Close only the original
+      // targets still present; never include a newly created tab in a pending Close others.
+      const current = preview(sessionId), tabs = [...current.group.tabs.values()];
+      const closing = tabs.filter(tab => plan.closing.includes(tab));
+      plan = { ...plan, tabs, closing, remaining: tabs.filter(tab => !closing.includes(tab)) };
+    }
+    const active = preview(sessionId), wasActive = plan.closing.includes(active);
+    const lastTabClosed = plan.remaining.length === 0;
+    let selected = plan.remaining.includes(active) ? active : plan.remaining[Math.min(plan.tabs.indexOf(plan.entry), plan.remaining.length - 1)];
+    if (!selected) { selected = preview(sessionId, true); selected.placeholder = true; }
+    if (wasActive) activateTab(sessionId, selected.tabId);
+    for (const tab of plan.closing) {
+      stopSelection(tab, true);
+      rememberClosedTab(tab);
+      tab.group.tabs.delete(tab.tabId);clearTimeout(tab.notifyTimer);clearTimeout(tab.reapTimer);
+      if (alive(tab)) { try { tab.parent?.contentView.removeChildView(tab.view); tab.view.webContents.close(); } catch {} }
+      tab.view = null;tab.host = null;
+    }
+    preview(sessionId).group.lastTabClosed = lastTabClosed;
+    notify(preview(sessionId), true);
+    return { ...snapshot(preview(sessionId)), lastTabClosed };
+  }
+  function reorderTab(sessionId, tabId, toIndex) {
+    const entry = tabEntry(sessionId, tabId), tabs = [...entry.group.tabs.values()];
+    if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= tabs.length) throw new Error("Unknown preview tab position.");
+    tabs.splice(tabs.indexOf(entry), 1);tabs.splice(toIndex, 0, entry);
+    entry.group.tabs = new Map(tabs.map(tab => [tab.tabId, tab]));notify(preview(sessionId), true);return snapshot(preview(sessionId));
+  }
 
   // ------------------------------------------------------------------ outside sites
+  // B39 Allowed sites (preview-allowed-origins.mjs): an outside site on the saved list needs no approval, in any
+  // session; the session's own approvals (approvedHosts) still count as before.
+  const savedAllows = (url) => { try { return allowedOrigins.originAllowed(getAllowedOrigins(), url); } catch { return false; } };
+  const siteAllowed = (entry, host, url) => entry.approvedHosts.has(host) || savedAllows(url);
   const outsideHost = (url) => {
     try { const parsed = new URL(url); return /^https?:$/.test(parsed.protocol) && !launch.isLocalHost(parsed.hostname) ? parsed.host : null; } catch { return null; }
   };
@@ -266,7 +409,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     if (!/^file:/i.test(page)) return false;
     let host = null;
     try { const parsed = new URL(url); host = /^(https?|wss?):$/.test(parsed.protocol) && !launch.isLocalHost(parsed.hostname) ? parsed.host : null; } catch { return false; }
-    if (!host || entry.approvedHosts.has(host)) return false;
+    if (!host || siteAllowed(entry, host, url)) return false;
     push(entry.console, { level: "warn", text: `OpenClaude Desktop blocked a request to ${host}: a local file page the agent drives reaches only localhost and sites allowed in this session.`, url: page, line: null, time: Date.now() }, CONSOLE_LIMIT);
     return true;
   }
@@ -277,7 +420,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   function holdOutside(entry, url) {
     if (!entry.agentDriven) return false;
     const host = outsideHost(url);
-    if (!host || entry.approvedHosts.has(host)) return false;
+    if (!host || siteAllowed(entry, host, url)) return false;
     entry.blocked = { host, url, at: Date.now(), declined: entry.declinedHosts.has(host) };
     if (!entry.declinedHosts.has(host)) void askOutside(entry, host, url);
     else blockedFor(entry, host);
@@ -285,7 +428,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   }
   // A navigation call waiting on a page the user kept from an outside site ends at once instead of timing out.
   const blockedFor = (entry, host) => { for (const waiter of [...entry.blockWaiters]) { try { waiter(host); } catch { /* best effort */ } } };
-  async function askOutside(entry, host, url) {
+  async function askOutside(entry, host, url, load = true) {
     if (entry.asking.has(host)) return;
     if (typeof entry.siteApproval !== "function") { entry.declinedHosts.add(host); return; }
     entry.asking.add(host);
@@ -296,14 +439,19 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     entry.approvedHosts.add(host);
     entry.declinedHosts.delete(host);
     if (entry.blocked?.host === host) entry.blocked = null;
-    if (alive(entry)) entry.view.webContents.loadURL(url).catch(() => {});
+    if (load && alive(entry)) entry.view.webContents.loadURL(url).catch(() => {});
+    return true;
   }
 
   function ensureView(entry) {
     if (alive(entry)) return entry.view;
+    entry.storagePartition = storageFor(entry);
+    if (entry.storagePartition.startsWith('persist:preview-session-') && !storedPartitions.has(entry.storagePartition)) {
+      storedPartitions.add(entry.storagePartition);setStoredPartitions([...storedPartitions]);
+    }
     const view = new WebContentsView({
       webPreferences: {
-        session: partition(), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
+        session: partition(entry.storagePartition), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
         backgroundThrottling: false, disableDialogs: true, plugins: false, spellcheck: false, navigateOnDragDrop: false, safeDialogs: true,
       },
     });
@@ -323,16 +471,29 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     contents.on("will-navigate", guard);
     contents.on("will-redirect", guard);
     contents.on("will-frame-navigate", (event) => { if (!event.isMainFrame) { const allowed = launch.navigationAllowed(event.url, entry.cwd); if (!allowed.ok && !/^(data|blob|about):/.test(event.url)) event.preventDefault(); } });
-    // New windows load in the same view (the preview is one page); never a new window.
+    // A page popup becomes a new preview tab, retaining its originator’s approval boundary.
     contents.setWindowOpenHandler(({ url }) => {
       const allowed = launch.navigationAllowed(url, entry.cwd);
-      if (allowed.ok && !holdOutside(entry, allowed.url)) setImmediate(() => { if (alive(entry)) contents.loadURL(url).catch(() => {}); });
+      if (allowed.ok) setImmediate(async () => {
+        try {
+          const host = outsideHost(allowed.url);
+          if (entry.agentDriven && host && !siteAllowed(entry, host, allowed.url)) {
+            if (entry.declinedHosts.has(host) || !(await askOutside(entry, host, allowed.url, false))) return;
+          }
+          if (!alive(entry) || entry.group.tabs.get(entry.tabId) !== entry) return;
+          const state = newTab(entry.id), next = tabEntry(entry.id, state.activeTabId);
+          next.popup = true;
+          next.agentDriven = entry.agentDriven; next.siteApproval = entry.siteApproval;
+          await navigate(entry.id, allowed.url, { tabId: next.tabId });
+        } catch (error) { logger.warn?.(`preview: could not open a tab: ${error.message}`); }
+      });
       return { action: "deny" };
     });
-    contents.on("did-start-loading", mine(() => { entry.loading = true; entry.error = null; notify(entry); }));
+    contents.on("did-start-loading", mine(() => { stopSelection(entry);entry.loading = true; entry.error = null; notify(entry); }));
     contents.on("did-stop-loading", mine(() => { entry.loading = false; notify(entry); }));
     contents.on("did-navigate", mine((_event, url) => { entry.url = url; entry.title = contents.getTitle(); notify(entry); }));
-    contents.on("did-navigate-in-page", mine((_event, url, isMainFrame) => { if (isMainFrame) { entry.url = url; notify(entry); } }));
+    contents.on("did-navigate-in-page", mine((_event, url, isMainFrame) => { if (isMainFrame) { stopSelection(entry);entry.url = url; notify(entry); } }));
+    contents.on("page-favicon-updated", mine((_event, urls) => { entry.faviconUrl = (urls || []).find(url => /^https?:/i.test(url)) ?? null; notify(entry); }));
     contents.on("page-title-updated", mine((_event, title) => { entry.title = title; notify(entry); }));
     contents.on("did-fail-load", mine((_event, code, description, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return; // -3: aborted by a newer navigation
@@ -340,7 +501,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
       entry.url = url || entry.url;
       notify(entry);
     }));
-    contents.on("render-process-gone", mine((_event, details) => { entry.crashed = true; entry.error = { code: "crashed", description: details?.reason || "crashed", url: entry.url }; notify(entry); }));
+    contents.on("render-process-gone", mine((_event, details) => { stopSelection(entry, true);entry.crashed = true; entry.error = { code: "crashed", description: details?.reason || "crashed", url: entry.url }; notify(entry); }));
     contents.on("devtools-opened", () => notify(entry));
     contents.on("devtools-closed", () => notify(entry));
     // F6 / Ctrl+F6 leave the page for the app (the pane's skip link explains it). The pane's own chords also work
@@ -348,10 +509,21 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     // previewSketchShortcut ⇧⌘X, previewCloseShortcut ⌘W, previewAddressBarShortcut ⌘L): the host pane acts on them.
     contents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown") return;
+      if (input.key === 'Escape' && !input.isComposing && input.keyCode !== 229 && entry.selection?.enabled) {
+        event.preventDefault();stopSelection(entry);return;
+      }
       const sender = entry.host?.sender;
       if (input.key === "F6") {
         event.preventDefault();
         if (sender && !sender.isDestroyed()) { sender.focus(); sender.send("desktop:event", { kind: "preview-focus-out", sessionId: entry.id, instanceId: entry.host.instanceId }); }
+        return;
+      }
+      const tabCommand = previewTabKeyCommand({ ...input, syntheticSuppressed: Date.now() < (entry.group.syntheticInputUntil ?? 0) }, process.platform === "darwin");
+      if (tabCommand) {
+        event.preventDefault();
+        if (tabCommand.action === 'select-tab') selectTabIndex(entry.id, tabCommand.index);
+        else if (tabCommand.action === 'cycle-tab') cycleTab(entry.id, tabCommand.direction);
+        else if (tabCommand.action === 'reopen-tab') reopenTab(entry.id);
         return;
       }
       const action = previewShortcut(input);
@@ -376,6 +548,10 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     contents.debugger.on("detach", () => { if (entry.view?.webContents === contents) entry.debugger = false; });
     contents.debugger.on("message", (_event, method, params) => {
       if (entry.view?.webContents !== contents) return;
+      if (method === 'Overlay.inspectNodeRequested') {
+        if (params.backendNodeId) entry.elementInspector?.inspectModeCallback?.(params.backendNodeId);
+        return;
+      }
       if (method === "Runtime.consoleAPICalled") {
         const text = (params.args || []).map((arg) => arg.value !== undefined ? (typeof arg.value === "string" ? arg.value : JSON.stringify(arg.value)) : arg.description ?? arg.type).join(" ");
         if (/^%cElectron Security Warning/.test(text)) return;
@@ -422,6 +598,41 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     if (!entry.view.webContents.debugger.isAttached()) return Promise.reject(new Error("The page can’t be inspected while its developer tools hold it. Close them and try again."));
     return entry.view.webContents.debugger.sendCommand(method, params);
   }
+  function stopSelection(entry, dispose = false) {
+    const picker = entry.picker;
+    if (!picker) return;
+    if (dispose) {
+      entry.picker = null;entry.elementInspector = null;
+      picker.dispose().catch(() => {});
+    } else if (entry.selection?.enabled || entry.selection?.busy) picker.setEnabled(false).catch(() => {});
+  }
+  async function selectElement(sender, { sessionId, instanceId, enabled } = {}) {
+    const entry = preview(sessionId), owner = entry.host;
+    if (!owner || owner.sender !== sender || owner.instanceId !== instanceId || (enabled === true && !entry.visible) || !alive(entry)) throw new Error('This pane does not own the preview.');
+    entry.selectionOwner = owner;
+    if (!entry.picker) {
+      const contents = entry.view.webContents;
+      const valid = () => alive(entry) && !entry.crashed && entry.view.webContents === contents && previews.get(entry.id) === entry && entry.host?.sender === entry.selectionOwner?.sender && entry.host?.instanceId === entry.selectionOwner?.instanceId && entry.visible && !entry.host?.sender.isDestroyed();
+      entry.elementInspector = createPreviewElementInspector({
+        webContents: contents,
+        ensureAttached() { if (!alive(entry) || entry.view.webContents !== contents) throw new Error('The preview tab was closed.');attachDebugger(entry); },
+        sendCommand: (method, params) => { if (!alive(entry) || entry.view.webContents !== contents) return Promise.reject(new Error('The preview tab was closed.'));return cdp(entry, method, params); },
+        emulationScale: () => viewRect(entry)?.scale ?? 1,
+        logger: { debug() {}, error: (_message, data) => logger.warn?.(`preview element: ${data?.error?.message || 'capture failed'}`) },
+      });
+      entry.picker = createPreviewSelection({
+        inspector: entry.elementInspector, isCurrent: valid,
+        onState(state) { entry.selection = state;notify(entry); },
+        onError: error => logger.warn?.(`preview element: ${error.message}`),
+        onSelected(context) {
+          if (!valid()) return;
+          entry.selectionOwner.sender.send('desktop:event', { kind: 'preview-element-selected', sessionId: entry.id, instanceId: entry.selectionOwner.instanceId, tabId: entry.tabId, url: entry.url, context });
+        },
+      });
+    }
+    await entry.picker.setEnabled(enabled === true);
+    return snapshot(entry);
+  }
 
   // The view's rectangle inside the pane: the whole pane, or a preset device size scaled to fit and centred.
   function viewRect(entry) {
@@ -456,6 +667,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   // Put the view where it belongs: over its pane in the host window, else parked.
   function place(entry) {
     armReap(entry);
+    if (!entry.host || !entry.visible) stopSelection(entry);
     if (!alive(entry)) return;
     const view = entry.view;
     const hostWindow = entry.host?.window && !entry.host.window.isDestroyed() ? entry.host.window : null;
@@ -492,20 +704,118 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     return parsed;
   }
   const serverKey = (cwd, name) => `${cwd}\u0000${name.toLowerCase()}`;
+
+  // ------------------------------------------------------------------ the last frame across a restart
+  // cf580efe9 Pi / ri (readable 2521-2547, 3812-3857): after a relaunch the pane shows a dimmed screenshot of the page
+  // the session's preview had before the app closed, with its dev server's name, Restart and Show start page. A frame
+  // is kept per session for a page of one of the folder's launch.json servers: taken while a pane still shows the page
+  // (it leaves the pane, its window closes) and again at quit, written at quit, offered on the next run only, and
+  // discarded once the session shows a page again or the user dismisses it.
+  const runStartedAt = Date.now();
+  const FRAME_LIMIT = 50;
+  const FRAME_TIMEOUT_MS = 800;
+  const recentFrames = new Map(); // session id → { configName, url, data } taken this run
+  const restoredFrames = new Map(); // session id → { configName, savedAt } from before this run, or null
+  const frameBase = (sessionId) => path.join(frameDir, crypto.createHash("sha256").update(String(sessionId)).digest("hex").slice(0, 32));
+  function restoredFrame(sessionId) {
+    if (!frameDir || typeof sessionId !== "string" || !sessionId) return null;
+    if (!restoredFrames.has(sessionId)) {
+      let meta = null;
+      try {
+        const saved = JSON.parse(fs.readFileSync(`${frameBase(sessionId)}.json`, "utf8"));
+        if (saved?.sessionId === sessionId && typeof saved.configName === "string" && saved.configName && Number(saved.savedAt) < runStartedAt && fs.statSync(`${frameBase(sessionId)}.jpg`).isFile())
+          meta = { configName: saved.configName, savedAt: Number(saved.savedAt) };
+      } catch { meta = null; }
+      restoredFrames.set(sessionId, meta);
+    }
+    return restoredFrames.get(sessionId);
+  }
+  function readFrame(sessionId) {
+    const meta = restoredFrame(sessionId);
+    if (!meta) return null;
+    try { return { jpegBase64: fs.readFileSync(`${frameBase(sessionId)}.jpg`).toString("base64"), configName: meta.configName, savedAt: meta.savedAt }; } catch { return null; }
+  }
+  function discardFrame(sessionId) {
+    if (!frameDir || !restoredFrame(sessionId)) return false;
+    restoredFrames.set(sessionId, null);
+    for (const ext of [".json", ".jpg"]) { try { fs.rmSync(`${frameBase(sessionId)}${ext}`, { force: true }); } catch { /* gone */ } }
+    const entry = previews.get(sessionId);
+    if (entry) notify(entry);
+    return true;
+  }
+  // The launch.json server a page belongs to: same port on a loopback host, a server of the folder or a configuration.
+  function frameConfig(entry) {
+    let url;
+    try { url = new URL((alive(entry) ? entry.view.webContents.getURL() : "") || entry.url); } catch { return null; }
+    if (!/^https?:$/.test(url.protocol) || !launch.isLocalHost(url.hostname)) return null;
+    const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+    const server = [...servers.values()].find((other) => other.cwd === entry.cwd && !other.attach && Number(other.port) === port);
+    if (server) return server.name;
+    return launchInfo(entry.cwd).configs.find((config) => !config.attach && Number(config.port) === port)?.name ?? null;
+  }
+  async function captureFrame(entry) {
+    if (!frameDir || !alive(entry) || entry.crashed) return null;
+    const configName = frameConfig(entry);
+    if (!configName) return null;
+    const url = entry.view.webContents.getURL();
+    try {
+      const shot = await Promise.race([cdp(entry, "Page.captureScreenshot", { format: "jpeg", quality: 60 }), sleep(FRAME_TIMEOUT_MS).then(() => null)]);
+      return shot?.data ? { configName, url, data: shot.data } : null;
+    } catch { return null; }
+  }
+  // A page about to leave the pane that shows it: its frame is kept in memory for the quit.
+  function rememberFrame(entry) {
+    if (!frameDir || !holder(entry)) return;
+    const sessionId = entry.id, recent = recentFrames.get(sessionId);
+    if (recent && recent.url === entry.url && Date.now() - recent.at < 5000) return;
+    captureFrame(entry).then((frame) => { if (frame && previews.get(sessionId) === entry) recentFrames.set(sessionId, { ...frame, at: Date.now() }); }, () => {});
+  }
+  function writeFrame(sessionId, frame) {
+    fs.mkdirSync(frameDir, { recursive: true });
+    fs.writeFileSync(`${frameBase(sessionId)}.jpg`, Buffer.from(frame.data, "base64"));
+    fs.writeFileSync(`${frameBase(sessionId)}.json`, JSON.stringify({ sessionId, configName: frame.configName, url: frame.url, savedAt: Date.now() }));
+  }
+  function pruneFrames() {
+    let files;
+    try { files = fs.readdirSync(frameDir).filter((name) => name.endsWith(".json")).map((name) => ({ name, at: fs.statSync(path.join(frameDir, name)).mtimeMs })); } catch { return; }
+    for (const { name } of files.sort((a, b) => b.at - a.at).slice(FRAME_LIMIT)) {
+      for (const file of [name, name.replace(/\.json$/, ".jpg")]) { try { fs.rmSync(path.join(frameDir, file), { force: true }); } catch { /* gone */ } }
+    }
+  }
+  /** At quit: each session's dev-server page (a live capture, else the one taken when it left its pane) goes to disk. */
+  async function saveFrames() {
+    if (!frameDir) return;
+    const sessions = [...previews.values()];
+    await Promise.all(sessions.map(async (entry) => {
+      const configName = alive(entry) ? frameConfig(entry) : null;
+      const recent = recentFrames.get(entry.id);
+      const url = alive(entry) ? entry.view.webContents.getURL() : null;
+      const frame = (configName ? await captureFrame(entry) : null) ?? (configName && recent?.configName === configName && recent.url === url ? recent : null);
+      if (!frame) return;
+      try { writeFrame(entry.id, frame); } catch (error) { logger.warn?.(`preview: couldn’t keep the last frame of ${entry.id}: ${error.message}`); }
+    }));
+    pruneFrames();
+  }
   function serverView(server) {
     return { name: server.name, port: server.port, url: server.url, status: server.status, error: server.error, attach: server.attach === true, startedAt: server.startedAt };
   }
   function snapshot(entry) {
+    entry = previews.get(entry.id) ?? entry;
     const info = launchInfo(entry.cwd);
     const folderServers = [...servers.values()].filter((server) => server.cwd === entry.cwd);
     const configs = info.configs.map((config) => ({ name: config.name, port: config.port, url: launch.configUrl(config), attach: config.attach }));
     const contents = alive(entry) ? entry.view.webContents : null;
     return {
       sessionId: entry.id,
+      activeTabId: entry.tabId,
+      canReopenTab: !!closedTabs.get(entry.id)?.urls.length && [...entry.group.tabs.values()].filter(tab => !tab.placeholder).length < 9,
+      lastTabClosed: entry.group.lastTabClosed === true,
+      tabs: [...entry.group.tabs.values()].filter(tab => !tab.placeholder).map(tab => ({ id: tab.tabId, url: tab.url, title: tab.title, loading: tab.loading, faviconUrl: tab.faviconUrl })),
       cwd: entry.cwd,
       url: entry.url,
       title: entry.title,
       loading: entry.loading,
+      selection: entry.selection ?? { enabled: false, busy: false },
       error: entry.error,
       // A reaped page still counts: showing the pane reopens it.
       hasPage: (!!contents || entry.reclaimed) && !!entry.url && entry.url !== "about:blank",
@@ -517,7 +827,10 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
       hostId: holder(entry)?.instanceId ?? null,
       launch: { exists: info.exists, error: info.exists ? info.error : null, problems: info.problems, configs, autoVerify: info.autoVerify },
       keepCookies: keeping(),
+      previewStorage: isCoworkSession(entry.id) ? "shared" : storageMode(),
       servers: folderServers.map(serverView),
+      // cf580efe9 Pi: the page this session showed before the app closed (its frame is read with preview-last-frame).
+      lastFrame: restoredFrame(entry.id),
       consoleErrors: entry.console.filter((line) => line.level === "error").length,
       // The page's latest download (the saved file's path stays here: "preview-download-reveal" shows it in Finder).
       recentFiles: entry.recentFiles.map((file) => ({ path: file, name: path.relative(entry.cwd, file) || path.basename(file), url: require("node:url").pathToFileURL(file).href })),
@@ -526,6 +839,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     };
   }
   function notify(entry, now = false) {
+    entry = previews.get(entry.id) ?? entry;
     clearTimeout(entry.notifyTimer);
     const send = () => {
       entry.notifyTimer = null;
@@ -539,6 +853,15 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   }
   function notifyFolder(cwd) {
     for (const entry of previews.values()) if (entry.cwd === cwd) notify(entry);
+  }
+  // The project files dev-server detection reads (preview-launch.mjs detectServerCandidates): regular files of at most
+  // 1 MiB inside the session folder, links leading out of it refused.
+  function projectFiles(root) {
+    const inside = (name) => { const file = path.resolve(root, name); return launch.insideFolderReal(root, file) ? file : null; };
+    return {
+      read: (name) => { const file = inside(name); if (!file) return null; try { const stat = fs.statSync(file); return stat.isFile() && stat.size <= 1 << 20 ? fs.readFileSync(file, "utf8") : null; } catch { return null; } },
+      exists: (name) => { const file = inside(name); try { return !!file && fs.statSync(file).isFile(); } catch { return false; } },
+    };
   }
   // .claude/launch.json edited by hand (or by the agent) reaches an open pane at once: the folder and its .claude
   // folder are watched (a new .claude folder too) while the pane shows that folder, debounced, for the life of the app.
@@ -569,7 +892,16 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     watchLaunch(entry.cwd);
     if (entry.subscribers.has(sender)) return;
     entry.subscribers.add(sender);
-    sender.once("destroyed", () => { entry.subscribers.delete(sender); if (entry.host?.sender === sender) { entry.host = null; place(entry); } });
+    if (!subscriberCleanup.has(sender)) {
+      const cleanup = () => {
+        subscriberCleanup.delete(sender);
+        for (const active of previews.values()) {
+          active.subscribers.delete(sender);
+          for (const tab of active.group.tabs.values()) if (tab.host?.sender === sender) { tab.host = null; place(tab); }
+        }
+      };
+      subscriberCleanup.set(sender, cleanup);sender.once("destroyed", cleanup);
+    }
   }
   function state(sender, sessionId) {
     const entry = preview(sessionId);
@@ -593,6 +925,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     const zoom = sender.getZoomFactor?.() || 1;
     entry.paneBounds = valid ? { x: Math.round(bounds.x * zoom), y: Math.round(bounds.y * zoom), width: Math.max(1, Math.round(bounds.width * zoom)), height: Math.max(1, Math.round(bounds.height * zoom)) } : entry.paneBounds;
     const changedHost = owner?.instanceId !== instanceId;
+    if (changedHost) stopSelection(entry);
     const wasShown = !!holder(entry);
     entry.visible = shows;
     entry.host = { sender, window, instanceId };
@@ -610,9 +943,9 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   }
   /** A window that closes (or closed) hands every page it showed to the parking window; the pages keep running. */
   function windowClosed(window) {
-    for (const item of previews.values()) {
+    for (const item of allPreviews()) {
       if (item.host?.window !== window && item.parent !== window) continue;
-      if (item.host?.window === window) item.host = null;
+      if (item.host?.window === window) { rememberFrame(item); item.host = null; }
       if (item.parent === window) item.parent = null;
       place(item);
       notify(item);
@@ -622,6 +955,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     const entry = previews.get(sessionId);
     if (!entry) return false;
     if (entry.host?.instanceId === instanceId && entry.host.sender === sender) {
+      rememberFrame(entry);
       entry.host = null;
       place(entry);
       notify(entry);
@@ -652,18 +986,23 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
   }
 
   // Navigation: `agent` asks before an outside site (once per site and session).
-  async function navigate(sessionId, value, { agent = null } = {}) {
-    const entry = preview(sessionId);
+  async function navigate(sessionId, value, { agent = null, tabId = null } = {}) {
+    const active = preview(sessionId), entry = tabId ? active.group.tabs.get(tabId) : active;
+    if (!entry) throw new Error("Unknown preview tab.");
     const allowed = launch.navigationAllowed(value, entry.cwd);
     if (!allowed.ok) throw new Error(allowed.reason);
     if (agent) await agent.ensureSite(allowed.url);
+    if (previews.get(sessionId)?.group.tabs.get(entry.tabId) !== entry) throw new Error("The preview tab was closed.");
+    entry.placeholder = false;
+    entry.group.lastTabClosed = false;
     ensureView(entry);
     entry.error = null;
     const contents = entry.view.webContents;
     const done = new Promise((resolve) => {
       let settled = false;
-      const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); contents.off("did-finish-load", ok); contents.off("did-fail-load", failed); entry.blockWaiters.delete(blocked); resolve(result); };
+      const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); contents.off("did-finish-load", ok); contents.off("did-fail-load", failed); contents.off("destroyed", closed); entry.blockWaiters.delete(blocked); resolve(result); };
       const ok = () => finish({ ok: true });
+      const closed = () => finish({ ok: false, code: "closed", description: "The preview tab was closed." });
       // A redirect to an outside site the user declined (holdOutside): the load ends there.
       const blocked = (host) => finish({ ok: false, code: "blocked", description: declinedText(host) });
       entry.blockWaiters.add(blocked);
@@ -671,13 +1010,15 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
       const timer = setTimeout(() => finish({ ok: true, slow: true }), 30000);
       contents.on("did-finish-load", ok);
       contents.on("did-fail-load", failed);
+      contents.on("destroyed", closed);
     });
     contents.loadURL(allowed.url).catch(() => {});
     rememberFile(entry, allowed.url);
     const result = await done;
-    armReap(entry, true);
-    notify(entry);
-    return { ...result, url: contents.getURL(), title: contents.getTitle() };
+    // cf580efe9 fa He: once the session shows a page again, the frame from before the restart is discarded.
+    if (result.ok) discardFrame(entry.id);
+    if (previews.get(entry.id)?.group.tabs.get(entry.tabId) === entry) { armReap(entry, true); notify(entry); }
+    return { ...result, url: contents.isDestroyed() ? entry.url : contents.getURL(), title: contents.isDestroyed() ? entry.title : contents.getTitle() };
   }
   // An HTML file of the session folder the preview opened (file://), for Servers & settings › Files.
   function rememberFile(entry, url) {
@@ -700,6 +1041,39 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     if (!url) throw new Error("Enter a URL.");
     entry.agentDriven = false;
     return navigate(sessionId, url);
+  }
+  function openTranscriptLink(sessionId, url) {
+    const active = preview(sessionId);
+    const origin = typeof url === 'string' ? previewLinkOrigin(url) : null;
+    if (!origin || externalOnlyLink(url) || !launch.navigationAllowed(url, active.cwd).ok) return { opened: false };
+    // Native xQ reuses a non-popup tab by its normalized origin. A new site
+    // preserves the current page; a full strip falls back to the system browser.
+    let next = [...active.group.tabs.values()].find(tab => !tab.popup && previewLinkOrigin(tab.url) === origin);
+    if (!next) {
+      if (!active.placeholder && active.group.tabs.size > 8) return { opened: false };
+      const state = newTab(sessionId); next = tabEntry(sessionId, state.activeTabId);
+    } else activateTab(sessionId, next.tabId);
+    // A user gesture does not grant the agent site access. Later tool use still
+    // passes through ensureSite and the existing site approval path.
+    next.agentDriven = false;
+    const tabId = next.tabId;
+    void navigate(sessionId, url, { tabId }).catch(error => {
+      if (previews.get(sessionId)?.group.tabs.get(tabId) === next) {
+        next.error = { code: 'navigation', description: error.message, url }; notify(next);
+      }
+    });
+    return { opened: true, tabId };
+  }
+  function addressNavigate(sessionId, text) {
+    const entry = preview(sessionId);
+    const target = previewAddressTarget(text, entry.url, { cwd: entry.cwd, home });
+    // The source address caller consumes invalid input without sending it to a
+    // website or creating another page. Existing native navigation validates
+    // credentials and resolved file boundaries for every accepted destination.
+    if (!target) return { ok: false, invalid: true };
+    entry.agentDriven = false;
+    if (target.kind === 'reload') return { ok: history(sessionId, 'reload'), url: target.url, reloaded: true };
+    return navigate(sessionId, target.url);
   }
   function history(sessionId, action) {
     const entry = previews.get(sessionId);
@@ -777,7 +1151,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     notifyFolder(entry.cwd);
     const ready = await server.ready;
     notifyFolder(entry.cwd);
-    if (!ready.ok) throw Object.assign(new Error(ready.message), { code: ready.code, logs: server.logs.slice(-40).map(stripAnsi) });
+    if (!ready.ok) throw Object.assign(new Error(ready.message), { code: ready.code, logs: server.logs.slice(-40).map(stripAnsi), ...(ready.heldPort ? { heldPort: ready.heldPort } : {}) });
     let page = null;
     if (open) page = await navigate(sessionId, server.url, { agent });
     return { server: serverView(server), reused, page, assignedPort: server.assignedPort ?? null, configuredPort: config.port };
@@ -786,13 +1160,17 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     const server = { key, cwd, name: config.name, config, child: null, status: "starting", port: config.port, url: launch.configUrl(config), logs: [], error: null, attach: config.attach, startedAt: Date.now(), exitCode: null, ready: null };
     servers.set(key, server);
     const log = (text) => { for (const line of String(text).split(/\r?\n/)) if (line.length) push(server.logs, line.slice(0, 4000), LOG_LIMIT); };
-    const fail = (code, message) => { server.status = "failed"; server.error = { code, message }; notifyFolder(cwd); return { ok: false, code, message }; };
+    const fail = (code, message, extra = {}) => { server.status = "failed"; server.error = { code, message, ...extra }; notifyFolder(cwd); return { ok: false, code, message, ...extra }; };
     server.ready = (async () => {
       if (config.attach) {
         server.status = "running";
         return { ok: true };
       }
       if (config.port && await portOpen(config.port)) {
+        // ca80fca8d xq: the port is one another session's dev server holds (another folder's server of this app); the
+        // card then names it instead of sending the error to the agent.
+        const holder = [...servers.values()].find((other) => other !== server && other.cwd !== cwd && !other.attach && other.port === config.port && (other.status === "running" || other.status === "starting"));
+        if (holder && !config.autoPort) return fail("port-held", `Port ${config.port} is in use by another chat's dev server ("${holder.name}" in ${holder.cwd}). Stop that server, then try again.`, { heldPort: config.port });
         if (!config.autoPort) return fail("port-in-use", `Port ${config.port} is already in use. Stop whatever is using it, or set "autoPort": true for "${config.name}" in .claude/launch.json.`);
         server.port = await freePort();
         server.assignedPort = server.port;
@@ -906,7 +1284,7 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
       try { parsed = new URL(url); } catch { return; }
       if (!/^https?:$/.test(parsed.protocol) || launch.isLocalHost(parsed.hostname)) return;
       const item = entry();
-      if (item.approvedHosts.has(parsed.host)) return;
+      if (siteAllowed(item, parsed.host, parsed.href)) return;
       // Asked once: a host the user declined in this session is refused without asking again.
       if (item.declinedHosts.has(parsed.host)) throw new Error(declinedText(parsed.host));
       const ok = await ask({ kind: "preview-site", host: parsed.host, url: parsed.href });
@@ -1050,8 +1428,12 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
           if (!key) throw new Error(`Unknown key: ${combo}`);
           if (onScreen(item)) {
             const base = { key: key.key, code: key.code, windowsVirtualKeyCode: key.keyCode, nativeVirtualKeyCode: key.keyCode, modifiers: key.modifiers };
-            await cdp(item, "Input.dispatchKeyEvent", { type: key.text ? "keyDown" : "rawKeyDown", ...base, ...(key.text ? { text: key.text, unmodifiedText: key.text } : {}), ...(key.commands.length ? { commands: key.commands } : {}) });
-            await cdp(item, "Input.dispatchKeyEvent", { type: "keyUp", ...base });
+            const token = Symbol('preview-agent-key'), pending = item.group.inputBegins ??= new Map();
+            item.group.syntheticInputUntil = beginSyntheticInput(pending, token);
+            try {
+              await cdp(item, "Input.dispatchKeyEvent", { type: key.text ? "keyDown" : "rawKeyDown", ...base, ...(key.text ? { text: key.text, unmodifiedText: key.text } : {}), ...(key.commands.length ? { commands: key.commands } : {}) });
+              await cdp(item, "Input.dispatchKeyEvent", { type: "keyUp", ...base });
+            } finally { item.group.syntheticInputUntil = endSyntheticInput(pending, token, item.group.syntheticInputUntil); }
           } else if (key.text && key.text.length === 1 && key.key !== "Enter" && key.text !== "\r") {
             await cdp(item, "Input.insertText", { text: key.text });
           } else {
@@ -1149,42 +1531,104 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
     };
   }
 
+  function rebindStorage() {
+    for (const old of [...previews.values()]) {
+      if (isCoworkSession(old.id)) continue;
+      const tabs = [...old.group.tabs.values()];
+      if (!tabs.some(tab => tab.storagePartition && tab.storagePartition !== storageFor(tab))) continue;
+      const replay = previewStorageRebindTabs(tabs, old.tabId, storageMode());
+      const host = { host: old.host, paneBounds: old.paneBounds, visible: old.visible, occluded: old.occluded };
+      for (const tab of tabs) {
+        stopSelection(tab, true);clearTimeout(tab.notifyTimer);clearTimeout(tab.reapTimer);
+        const view = tab.view;tab.view = null;tab.host = null;
+        try { if (view) { tab.parent?.contentView.removeChildView(view); view.webContents.close(); } } catch { /* closed */ }
+      }
+      old.group.tabs.clear();previews.delete(old.id);closedTabs.delete(old.id);
+      const first = preview(old.id);
+      for (const key of ['subscribers', 'approvedHosts', 'declinedHosts', 'approvedServers', 'recentFiles']) first.group[key] = old.group[key];
+      let selected = first;
+      replay.forEach((item, index) => {
+        const next = index === 0 ? first : preview(old.id, true);
+        next.placeholder = false;
+        if (item.active) selected = next;
+        void navigate(old.id, item.url, { tabId: next.tabId }).catch(error => logger.warn?.('preview: storage rebind failed', error));
+      });
+      previews.set(old.id, selected);Object.assign(selected, host);place(selected);notify(selected, true);
+    }
+  }
+
+  async function clearBrowsingData(entry) {
+    const name = entry.storagePartition ?? storageFor(entry);
+    const ses = electronSession.fromPartition(name);
+    // Current VM reports failures instead of silently claiming the data is gone.
+    if (ses.clearData) await ses.clearData();
+    else { await ses.clearStorageData(); await ses.clearCache?.(); }
+    await ses.clearAuthCache?.();
+    return snapshot(entry);
+  }
+
   /**
    * The app is quitting (or the service goes away): every dev server gets SIGTERM, up to graceMs to exit, then SIGKILL
    * for whatever is left of its process group, before this resolves (main.cjs awaits it): a server that ignores TERM
    * or shuts down slowly never outlives the app holding its port. The pages close at once.
    */
   function dispose({ graceMs = 2000 } = {}) {
+    // The pages' last frames are taken first (bounded; the pages stay open until then), the servers stop meanwhile.
+    const framesSaved = frameDir ? Promise.race([saveFrames().catch(() => {}), sleep(FRAME_TIMEOUT_MS + 400)]) : null;
     const running = [...servers.values()].filter((server) => server.child?.pid);
     for (const server of servers.values()) stopProcess(server);
     servers.clear();
-    for (const entry of previews.values()) {
+    const pagesClosed = framesSaved ? framesSaved.then(() => closePages()) : (closePages(), Promise.resolve());
+    if (!running.length) return pagesClosed;
+    const exits = running.map(({ child }) => child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise((resolve) => child.once("exit", resolve)));
+    return Promise.all([pagesClosed, Promise.race([Promise.all(exits), sleep(graceMs)]).then(() => { for (const { child } of running) signalGroup(child, "SIGKILL"); })]).then(() => {});
+  }
+  function closePages() {
+    for (const entry of allPreviews()) {
+      stopSelection(entry, true);
       clearTimeout(entry.notifyTimer);
       clearTimeout(entry.reapTimer);
       if (alive(entry)) { try { entry.view.webContents.close(); } catch { /* gone */ } }
     }
-    previews.clear();
+    previews.clear();closedTabs.clear();
+    for (const [sender, cleanup] of subscriberCleanup) sender.off("destroyed", cleanup);
+    subscriberCleanup.clear();
     for (const record of launchWatchers.values()) { clearTimeout(record.timer); for (const watcher of [record.folder, record.claude]) { try { watcher?.close(); } catch { /* closed */ } } }
     launchWatchers.clear();
     if (parking && !parking.isDestroyed()) parking.destroy();
     parking = null;
-    if (!running.length) return Promise.resolve();
-    const exits = running.map(({ child }) => child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise((resolve) => child.once("exit", resolve)));
-    return Promise.race([Promise.all(exits), sleep(graceMs)]).then(() => { for (const { child } of running) signalGroup(child, "SIGKILL"); });
   }
   /** The renderer's desktop:call actions (validated here; `sender` is the calling webContents). */
   async function call(sender, action, p = {}) {
     const id = typeof p.sessionId === "string" ? p.sessionId : "";
+    await storageReady;
     switch (action) {
       case "preview-state": return state(sender, id);
+      case "preview-tab-reopen": subscribe(preview(id), sender); return reopenTab(id);
+      case "preview-tab-select-index": return selectTabIndex(id, p.index);
+      case "preview-tab-cycle": return cycleTab(id, p.direction);
+      case "preview-tab-new": subscribe(preview(id), sender); return newTab(id);
+      case "preview-tab-activate": return activateTab(id, p.tabId);
+      case "preview-tab-close": return closeTab(id, p.tabId, { others: p.others === true, decision: p.decision ?? null });
+      case "preview-tab-reorder": return reorderTab(id, p.tabId, p.toIndex);
+      case "preview-tab-external": { const tab = tabEntry(id, p.tabId); if (!/^https?:/i.test(tab.url)) throw new Error("This only works for websites."); await shell.openExternal(tab.url); return true; }
       case "preview-attach": return attach(sender, p);
       case "preview-detach": return detach(sender, p);
       case "preview-occlude": return occlude(sender, p);
       case "preview-focus": return focusPage(sender, p);
       case "preview-navigate": subscribe(preview(id), sender); return userNavigate(id, p.url);
+      case "preview-link-open": subscribe(preview(id), sender); return openTranscriptLink(id, p.url);
+      case "preview-address-navigate": subscribe(preview(id), sender); return addressNavigate(id, p.text);
+      case "preview-selection": return selectElement(sender, p);
       case "preview-history": return history(id, p.action);
       case "preview-emulate": return emulate(id, { preset: p.preset, width: p.width, height: p.height, colorScheme: p.colorScheme });
-      case "preview-capture": return { bytes: new Uint8Array(await capture(id, { format: "png" })), name: "preview.png", type: "image/png" };
+      case "preview-capture": {
+        const entry = preview(id), bytes = new Uint8Array(await capture(id, { format: 'png' }));
+        // CDP captures the child page's pixel density, which can differ from the
+        // renderer (emulated devices and offscreen hosts). Preserve its displayed scale.
+        const displayWidth = (viewRect(entry)?.width ?? 0) / (sender.getZoomFactor?.() || 1);
+        return { bytes, name: 'preview.png', type: 'image/png', displayWidth };
+      }
       case "preview-devtools": return openDevTools(id);
       case "preview-external": return openExternal(id);
       case "preview-download-reveal": {
@@ -1197,52 +1641,89 @@ function createPreviewService({ electron, getSession, spawnEnv = async () => ({ 
         subscribe(preview(id), sender);
         preview(id).agentDriven = false; // the user's own Start: the page is theirs
         try { const result = await startServer(id, p.name); return { ok: true, server: result.server }; }
-        catch (error) { return { ok: false, code: error.code || "error", message: error.message }; }
+        catch (error) { return { ok: false, code: error.code || "error", message: error.message, ...(error.heldPort ? { heldPort: error.heldPort } : {}) }; }
       }
+      case "preview-last-frame": return readFrame(id);
+      case "preview-last-frame-discard": discardFrame(id); return snapshot(preview(id));
       case "preview-server-stop": return stopServer(id, p.name);
       case "preview-server-logs": return serverLogs(id, p.name, { lines: Number(p.lines) || 500 });
       case "preview-server-clear-logs": return clearLogs(id, p.name);
+      // B39 Allowed sites (c25b1be4a PreviewAllowedSitesModal over getPreviewAllowedOrigins / addPreviewAllowedOrigin /
+      // removePreviewAllowedOrigin / clearPreviewAllowedOrigins): app-wide, no session. Removing a site (or clearing
+      // the list) also drops the sessions' own approvals for it, so the agent asks again (TNn/ENn clear the grants).
+      case "preview-allowed-origins": return allowedOrigins.allowedOriginEntries(getAllowedOrigins());
+      case "preview-allowed-origin-add": {
+        const outcome = allowedOrigins.addAllowedOrigin(getAllowedOrigins(), p.origin, { schemeless: p.schemeless === true });
+        if (outcome.result === allowedOrigins.ALLOWED_ORIGIN_RESULTS.Ok) {
+          try { await setAllowedOrigins(outcome.list); } catch { return allowedOrigins.ALLOWED_ORIGIN_RESULTS.Unavailable; }
+        }
+        return outcome.result;
+      }
+      case "preview-allowed-origin-remove": {
+        const outcome = allowedOrigins.removeAllowedOrigin(getAllowedOrigins(), p.origin);
+        if (!outcome.removed) return false;
+        await setAllowedOrigins(outcome.list);
+        for (const entry of previews.values())
+          for (const host of [...entry.group.approvedHosts]) if (allowedOrigins.hostMatchesOrigin(host, outcome.origin)) entry.group.approvedHosts.delete(host);
+        return true;
+      }
+      case "preview-allowed-origins-clear": {
+        await setAllowedOrigins([]);
+        for (const entry of previews.values()) entry.group.approvedHosts.clear();
+        return true;
+      }
+      // Settings › Code › Browser › Keep cookies (c71860c77-DzP8HoeV Kr) reads and sets the same mode without a session.
+      case "preview-storage-read": return { previewStorage: storageMode() };
+      case "preview-storage": {
+        if (id) preview(id);
+        if (!PREVIEW_STORAGE_MODES.includes(p.mode)) throw new Error("Unknown storage mode.");
+        await setStorageMode(p.mode);
+        selectedStorageMode = p.mode;
+        setKeepCookies(p.mode !== 'none');
+        rebindStorage();
+        for (const entry of previews.values()) notify(entry, true);
+        return id ? snapshot(preview(id)) : { previewStorage: storageMode() };
+      }
       case "preview-keep-cookies": {
-        // Pages opened from now on use the chosen session data; an open page keeps its own until it is reopened.
         if (typeof p.enabled !== "boolean") throw new Error("Unknown operation.");
-        setKeepCookies(p.enabled);
-        for (const entry of previews.values()) notify(entry);
-        return snapshot(preview(id));
+        return call(sender, 'preview-storage', { sessionId: id, mode: p.enabled ? 'shared' : 'none' });
       }
-      case "preview-clear-data": {
-        // Every saved cookie, local storage and cache of previewed pages, in all workspaces (both session stores).
-        await Promise.all([PARTITION, EPHEMERAL_PARTITION].map((name) => {
-          const ses = electronSession.fromPartition(name);
-          return Promise.all([ses.clearStorageData(), ses.clearCache?.()].filter(Boolean)).catch(() => {});
-        }));
-        return snapshot(preview(id));
-      }
+      case "preview-clear-data": return clearBrowsingData(preview(id));
       case "preview-detect": {
-        // The pane's "Detect dev server": the session folder's own scripts (package.json, manage.py) and an HTML entry.
-        const entry = preview(id);
-        const root = entry.cwd;
-        const inside = (name) => { const file = path.resolve(root, name); return launch.insideFolderReal(root, file) ? file : null; };
-        return launch.detectServerCandidates({
-          read: (name) => { const file = inside(name); if (!file) return null; try { const stat = fs.statSync(file); return stat.isFile() && stat.size <= 1 << 20 ? fs.readFileSync(file, "utf8") : null; } catch { return null; } },
-          exists: (name) => { const file = inside(name); try { return !!file && fs.statSync(file).isFile(); } catch { return false; } },
-        });
+        // The start page's dev-server detection (2.31226.0 detectServerCandidates → rUi): the session folder's
+        // package.json scripts, each with its framework and validation.
+        return launch.detectServerCandidates(projectFiles(preview(id).cwd));
       }
       case "preview-use-server": {
-        // A detected server the user chose (Use): written as the project's .claude/launch.json (never over an existing
-        // one), then started like the pane's own Run.
+        // A detected server the user chose (start page "Use this", 2.31226.0 addServerFromCandidate): validated again,
+        // its script still in package.json, then appended to .claude/launch.json (created when missing, an existing
+        // one edited in place) — {ok} or {ok: false, reason: "name-exists" | "write-failed" | a validation reason}.
+        // The pane then runs it as its own Run (Si onServerAdded).
         const entry = preview(id);
         const candidate = p.candidate;
-        if (!candidate || typeof candidate !== "object" || typeof candidate.name !== "string" || typeof candidate.runtimeExecutable !== "string" || !Array.isArray(candidate.runtimeArgs)) throw new Error("Unknown operation.");
-        const file = path.join(entry.cwd, launch.LAUNCH_FILE);
-        if (fs.existsSync(file)) throw new Error("This project already has a .claude/launch.json.");
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, launch.launchConfigText(candidate), { flag: "wx" });
+        if (!candidate || typeof candidate !== "object" || typeof candidate.runtimeExecutable !== "string" || !Array.isArray(candidate.runtimeArgs)) return { ok: false, reason: "write-failed" };
+        try {
+          const problem = launch.serverCandidateProblem(candidate, projectFiles(entry.cwd));
+          if (problem) return { ok: false, reason: problem };
+          const config = launch.candidateConfiguration(candidate);
+          const file = path.join(entry.cwd, launch.LAUNCH_FILE);
+          let text = null;
+          try { text = fs.readFileSync(file, "utf8"); } catch (error) { if (error?.code !== "ENOENT") return { ok: false, reason: "write-failed" }; }
+          if (text === null) {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            if (!launch.insideFolderReal(entry.cwd, path.dirname(file))) return { ok: false, reason: "write-failed" };
+            fs.writeFileSync(file, launch.launchConfigText(config), { flag: "wx" });
+          } else {
+            // A launch.json that resolves outside the project (a link) is never written through.
+            if (!launch.insideFolderReal(entry.cwd, file)) return { ok: false, reason: "write-failed" };
+            const next = launch.withServerConfiguration(text, config);
+            if (next.status !== "ok") return { ok: false, reason: next.status === "name-exists" ? "name-exists" : "write-failed" };
+            fs.writeFileSync(file, next.text);
+          }
+        } catch { return { ok: false, reason: "write-failed" }; }
         launchCache.delete(entry.cwd);
         notifyFolder(entry.cwd);
-        subscribe(entry, sender);
-        entry.agentDriven = false;
-        try { const result = await startServer(id, candidate.name); return { ok: true, server: result.server }; }
-        catch (error) { return { ok: false, code: error.code || "error", message: error.message }; }
+        return { ok: true, name: launch.candidateConfiguration(candidate).name };
       }
       case "preview-auto-verify": {
         // Servers & settings › Enable/Disable auto verify (2.2553.1 U_): top-level autoVerify in .claude/launch.json,

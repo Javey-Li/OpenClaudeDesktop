@@ -104,6 +104,35 @@ export function autoCompactPercent(core, usage) {
   const engine = typeof core === "string" ? core : core?.engine;
   return engine === "codex" || (!engine && core?.id === "codex") ? 90 : null;
 }
+// The usage popover's compact hint (ca80fca8d aH/oH :21799-21842, shown by dH in the compact row): the tokens left
+// before the core compacts on its own. nH's limit is the core's reported auto-compact token limit
+// (codeDesktop.autoCompactTokens), else Codex's rule (90% of the window), else none. Below rH (30,000 tokens) the
+// hint is 'Auto-compacts soon'; otherwise iH keeps two significant digits (floor) and fd/compactTokens formats them.
+export const AUTO_COMPACT_SOON_TOKENS = 3e4;
+export function autoCompactLimit(core, usage) {
+  const window = usage?.modelContextWindow;
+  if (!(Number.isFinite(window) && window > 0)) return null;
+  const limit = usage?.codeDesktop?.autoCompactTokens;
+  if (Number.isFinite(limit) && limit > 0) return limit < window ? limit : null;
+  const engine = typeof core === "string" ? core : core?.engine;
+  return engine === "codex" || (!engine && core?.id === "codex") ? Math.floor(window * 0.9) : null;
+}
+export function roundAutoCompactTokens(value) {
+  const whole = Math.floor(value), unit = 10 ** (String(whole).length - 2);
+  return Math.floor(whole / unit) * unit;
+}
+export function autoCompactHint(core, usage) {
+  const limit = autoCompactLimit(core, usage), used = usage?.last?.totalTokens;
+  if (limit === null || !Number.isFinite(used)) return { kind: "none" };
+  const left = limit - used;
+  if (!Number.isFinite(left)) return { kind: "none" };
+  return left < AUTO_COMPACT_SOON_TOKENS ? { kind: "soon" } : { kind: "left", tokens: roundAutoCompactTokens(left) };
+}
+export function autoCompactHintText(hint) {
+  if (hint?.kind === "left") return t("{tokens} until auto-compact", { tokens: compactTokens(hint.tokens) });
+  if (hint?.kind === "soon") return t("Auto-compacts soon");
+  return undefined;
+}
 // Names the running core's assistant (OpenCode, Codex, Kimi…), read when the reason is shown.
 export const compactReplyingReason = (assistant = getAssistantName()) => t("Available when {assistant} finishes this turn", { assistant });
 export const COMPACT_RECONNECT_REASON = t("Available when reconnected");

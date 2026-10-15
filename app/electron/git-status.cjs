@@ -27,7 +27,7 @@ function context(cwd, trace) {
     config: ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'core.hooksPath=/dev/null', '-c', 'log.showSignature=false'] };
 }
 
-async function git(ctx, args, { allowed = [0], input, paths = false } = {}) {
+async function git(ctx, args, { allowed = [0], input, paths = false, bytes = false } = {}) {
   const remaining = ctx.deadline - Date.now();
   if (remaining <= 0) throw failure('Git workspace query timed out.', 'GIT_TIMEOUT');
   // Test observation only: every spawned argv and the environment keys it ran with.
@@ -50,7 +50,8 @@ async function git(ctx, args, { allowed = [0], input, paths = false } = {}) {
       try {
         // A lossy filename could query the wrong file. Reject invalid UTF-8 in
         // path-bearing protocols; human-readable patches remain ordinary text.
-        const output = paths ? new TextDecoder('utf-8', { fatal: true }).decode(stdout) : stdout.toString('utf8');
+        // bytes: the raw blob (B34 image viewer), never decoded.
+        const output = bytes ? stdout : paths ? new TextDecoder('utf-8', { fatal: true }).decode(stdout) : stdout.toString('utf8');
         resolve({ output, code: error?.code || 0, stderr: stderr.toString('utf8') });
       } catch { reject(failure('Git returned a path that cannot be represented as UTF-8.', 'GIT_PATH_ENCODING')); }
     });
@@ -455,6 +456,62 @@ async function workspaceGitDiff(cwd, { completeContext = false, scope = 'branch'
   return { patch: diff, completeContext: true };
 }
 
+// B34 "View image" (heavyWorkWorker j_/M_/N_, k_ MIME map, A_ 10 MiB cap, Bg path guard): one side of a changed
+// image as a data URL, or null (not an image, unsafe path, missing at that revision, over the cap, a symlink).
+const IMAGE_TYPES = new Map([['png', 'image/png'], ['jpg', 'image/jpeg'], ['jpeg', 'image/jpeg'], ['gif', 'image/gif'],
+  ['webp', 'image/webp'], ['bmp', 'image/bmp'], ['avif', 'image/avif']]);
+const IMAGE_LIMIT = 10 * 1024 * 1024;
+function unsafeImagePath(value) {
+  return typeof value !== 'string' || !value || value.includes('\0') || value.startsWith('/') || value.startsWith('\\')
+    || /^[a-zA-Z]:/.test(value) || value.split(/[/\\]/).some((part) => part === '..');
+}
+/** The revision a side of the shown diff reads, matching workspaceGitDiff: 'branch' compares the merge base (or an
+ * explicit base) with the working tree, 'uncommitted' HEAD with the working tree, 'commit:<sha>' its first parent
+ * with the commit. undefined = the working tree, null = no such side (a root commit's before, an unborn HEAD). */
+async function imageRevision(ctx, side, { scope = 'branch', base, preferredBase } = {}) {
+  const commit = typeof scope === 'string' ? COMMIT_SCOPE.exec(scope)?.[1] : undefined;
+  if (typeof scope === 'string' && scope.startsWith('commit:') && !commit) throw failure('Invalid commit scope.', 'GIT_SCOPE_INVALID');
+  if (commit) {
+    const known = await git(ctx, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`], { allowed: [0, 1] });
+    if (known.code !== 0) return null;
+    const sha = known.output.trim();
+    if (side === 'after') return sha;
+    const parent = await git(ctx, ['rev-parse', '--verify', '--quiet', `${sha}^`], { allowed: [0, 1] });
+    return parent.code === 0 && parent.output.trim() ? parent.output.trim() : null;
+  }
+  if (side === 'after') return undefined;
+  if (!ctx.head) return null;
+  return scope === 'uncommitted' ? ctx.head : (await scopeBase(ctx, await currentBranch(ctx), { preferredBase, base })).diffBase;
+}
+async function workspaceGitImage(cwd, { filePath, side, scope = 'branch', base, preferredBase } = {}) {
+  if (side !== 'before' && side !== 'after') throw new TypeError('An image side is required.');
+  const dot = typeof filePath === 'string' ? filePath.lastIndexOf('.') : -1;
+  const type = dot < 0 ? undefined : IMAGE_TYPES.get(filePath.slice(dot + 1).toLowerCase());
+  if (!type || unsafeImagePath(filePath)) return null;
+  const ctx = await repository(cwd);
+  if (!ctx) return null;
+  const rev = await imageRevision(ctx, side, { scope, base, preferredBase });
+  if (rev === null) return null;
+  let data;
+  if (rev === undefined) {
+    // M_: the working-tree file under the repository root; never through a symlink.
+    const file = await safeFile(ctx, filePath).catch(() => false);
+    if (!file || file.kind !== 'file') return null;
+    const absolute = path.join(ctx.cwd, filePath);
+    if ((await fs.stat(absolute)).size > IMAGE_LIMIT) return null;
+    data = await fs.readFile(absolute);
+  } else {
+    // N_: `show --no-textconv --no-ext-diff <rev>:<path> --`; a path missing at that revision is null.
+    if (/^-/.test(rev)) return null;
+    const shown = await git(ctx, ['show', '--no-textconv', '--no-ext-diff', `${rev}:${filePath}`, '--'], { allowed: [0, 128], bytes: true })
+      .catch((error) => (error.code === 'GIT_OUTPUT_LIMIT' ? null : Promise.reject(error)));
+    if (!shown || shown.code !== 0) return null;
+    data = shown.output;
+  }
+  if (!data?.length || data.length > IMAGE_LIMIT) return null;
+  return `data:${type};base64,${data.toString('base64')}`;
+}
+
 /** zm Commits submenu data: `log <baseRef>..HEAD`, newest first, at most `limit`
  * (51 = the 50 rows plus one to know that older ones exist), and `total` =
  * `rev-list --count <baseRef>..HEAD` (Oa lists them all; zm counts m.length − 50
@@ -467,11 +524,13 @@ async function workspaceGitCommits(cwd, { preferredBase, base, limit = 51, trace
   if (!ctx.head || !scope.baseRef) return { base: scope.baseRef ? scope.base : null, commits: [], total: 0 };
   const count = Math.max(1, Math.min(Number.isSafeInteger(limit) ? limit : 51, 500));
   // heavyWorkWorker Oa: `log --no-show-signature` (the config above also pins log.showSignature=false).
-  const log = await git(ctx, ['log', '--no-show-signature', '-z', `--max-count=${count}`, '--format=%H%x1f%h%x1f%s', `${scope.baseRef}..HEAD`, '--']);
+  // B15: the Commits section row (c44d00c7f Wr) also shows the author and the committer date (Unix seconds, cb61be3a2 Be).
+  const log = await git(ctx, ['log', '--no-show-signature', '-z', `--max-count=${count}`, '--format=%H%x1f%h%x1f%an%x1f%ct%x1f%s', `${scope.baseRef}..HEAD`, '--']);
   const counted = await git(ctx, ['rev-list', '--count', `${scope.baseRef}..HEAD`, '--']);
   const commits = log.output.split('\0').map((entry) => entry.replace(/^\n/, '')).filter(Boolean).map((entry) => {
-    const [sha, shortSha, subject = ''] = entry.split('\x1f');
-    return { sha, shortSha, subject };
+    const [sha, shortSha, authorName = '', date = '', ...subject] = entry.split('\x1f');
+    const seconds = Number(date);
+    return { sha, shortSha, subject: subject.join('\x1f'), authorName, date: Number.isSafeInteger(seconds) && seconds > 0 ? seconds : 0 };
   }).filter((commit) => /^[0-9a-f]{7,64}$/i.test(commit.sha || ''));
   const total = Number(counted.output.trim());
   return { base: scope.base, commits, total: Number.isSafeInteger(total) && total >= commits.length ? total : commits.length };
@@ -485,7 +544,7 @@ async function workspaceGitBranches(cwd, { trace } = {}) {
   return listed.output.split('\n').map((line) => line.trim()).filter(validBranchName);
 }
 
-module.exports = { workspaceGitStatus, workspaceGitDiff, workspaceGitComparison, workspaceGitCommits, workspaceGitBranches };
+module.exports = { workspaceGitStatus, workspaceGitDiff, workspaceGitComparison, workspaceGitCommits, workspaceGitBranches, workspaceGitImage };
 
 // Fidelity F08: the sidebar's Folder grouping keys on repo identity (sidebar-session.js:20892-20903 IJ:
 // owner/name when the origin names an owner, the cwd for a repo without one, else no project). Only

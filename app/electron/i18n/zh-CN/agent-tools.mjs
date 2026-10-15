@@ -126,4 +126,7 @@ export default {
   "At line {line}": "第 {line} 行",
   "Let {assistant} open {file} in {editor}?": "允许 {assistant} 用 {editor} 打开 {file}？",
   "Let {assistant} show {file} in Finder?": "允许 {assistant} 在访达中显示 {file}？",
+  "Reading session": "正在读取会话",
+  "Read session": "已读取会话",
+  "Failed to read session": "读取会话失败",
 };

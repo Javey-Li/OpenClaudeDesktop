@@ -50,7 +50,8 @@ const trigger = (html, className) => {
 // before cmd, so the source tooltip reads ⇧⌘M (an earlier revision pinned the unsorted ⌘⇧M). Fidelity F02: the
 // tooltip takes the raw key spec (Ud triggerKey) and SourceTooltip draws the text variant; MODE_MENU_SHORTCUT is its caps.
 test('Mode tooltip carries the cmd+shift+m spec (caps ⇧⌘M, io modifier order); the Bypass copy differs from Mode; closed while a chin menu is open', () => {
-  assert.deepEqual(C.modeTooltip({ permission: 'ask' }), { content: 'Mode', shortcut: 'cmd+shift+m', open: undefined });
+  // B30 (ca80fca8d Kt/N$): Manual with Auto on offer reads the warning tooltip instead of the header.
+  assert.deepEqual(C.modeTooltip({ permission: 'ask' }), { content: 'DeepSeek asks before making changes. Auto is recommended.', shortcut: 'cmd+shift+m', open: undefined });
   assert.deepEqual(C.modeTooltip({ permission: 'plan' }), { content: 'Mode', shortcut: 'cmd+shift+m', open: undefined });
   const bypass = C.modeTooltip({ permission: 'bypass' });
   assert.equal(bypass.content, 'DeepSeek can modify or delete files without asking');

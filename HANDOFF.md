@@ -1,5 +1,39 @@
 # 接手说明：Code UI 源码优先还原
 
+## 2026-10-15 Code UI 新版资源与源码索引：2.37337.1
+
+本机官方 Claude Desktop 已为 **2.37337.1**。新版完整快照保存在 `reference/installed-2.37337.1-20261015/`；旧版 2.31226.0、根 `readable/` 与产品构建引用保持原样。本轮只重新提取与研究，没有将新版 UI 移植到产品。
+
+- 报告：`docs/code-ui-unpack-20261015.md`；分区导航：`analysis/code-ui-unpack-20261015/CODE-INDEX.md`。
+- 完整校验：500 个 ASAR 文件、3,847 个前端文件及 1 个运行时镜像与安装源逐字节一致。10 个 unpacked native 文件的原 ASAR integrity 差异单独记录，不是副本损坏。
+- 分析：解析 3,426 个 JS 模块，格式化 270 份重点源码 / CSS / Electron 壳；已识别本地 ESM 导入无缺失，解析无错误。依赖闭包包含非 Code 的共享内容，不是 Code 独立运行包。
+- 已确认变化样例：侧栏分组与 compact 置顶行间距、逻辑方向样式、Files Auto save 菜单项、编辑器 active indent guide、Diff 范围按 session 持久化、更早消息入口变体。功能开关与实际运行态仍需另外确认。
+- 可重跑脚本：`scripts/analyze-code-snapshot.mjs`、`scripts/verify-code-snapshot.py`，参数见报告。旧 `scripts/analyze.mjs` 固定最早版本文件名，不能用于这次新版。
+- 用户要求给 Claude Code 一段并行研究 Prompt，已保存为 `docs/claude-code-parallel-ui-prompt-20261015.md`。约定对方只写 `analysis/code-ui-audit-20261015-claude/` 与自己的审计文档；本任务未启动或发消息给 Claude Code。
+
+## 2026-10-13 Code UI 全量同步：39 批
+
+对照官方前端 2.31226.0（`reference/installed-2.31226.0-20261012/ion-dist/assets/v1`）把 Code 模式逐项移植。审计清单 `docs/code-ui-inventory-20261013.md` 的 39 批（B01–B39）都已经做完：每批先实现，再做对抗式复审，然后分 10 波集成（build、单元测试、离屏套件）。照原版代码复用组件、CSS、字体、图标和交互逻辑，接入本地已有服务；本地特有功能（多内核、DeepSeek Harness、中转、简体中文）都保留。工作流相关代码（`source-workflow.jsx`、`workflow-progress-model.mjs`、runner）由用户手改，只做了最小改动，没有改样式。全部改动**未提交**。
+
+- **总结文档**：`docs/code-ui-sync-20261013.md`。按批列出移植了哪个参考 chunk／符号、改了哪些本地文件、验证结果、剩余差异，并汇总所有剩余差异和 deferred 清单。审计清单的状态列已更新为 done／partial／skipped。
+- **逐批记录**：`analysis/code-ui-sync-20261013/batches/Bxx.md`，含 Done、Tests、Skipped、Review、Integration 各节和参考行号。套件日志在 `analysis/code-ui-sync-20261013/suites/`，最终一轮在 `final/`。
+- **版本与打包**：版本 0.2.185 → **0.2.186**，`src/release-notes.mjs` 已加 0.2.186 条目（`verify-release-notes` 要求每个版本都有）。`npm run package` 生成 `releases/OpenClaude Desktop-darwin-arm64/OpenClaude Desktop.app`，本地 ad-hoc 签名通过；`verify-build` 也通过。未启动、未安装。
+- **最终验证**：
+  - 单元测试 3486 项：3458 通过、6 跳过、22 失败。其中 14 项是负载下的超时，单独重跑全部通过；另外 8 项是此前就有的失败：`bypass-carry`、`cross-fixer-r3`、`i18n`（`surfaces.mjs` 的 ICU 占位符）、`offscreen-suite-registry` ×2、`source-field-render` ×3。
+  - 离屏套件 77 个：64 PASS、3 LOAD、10 FAIL。这 10 个在本次同步之前就失败：
+    - edit-read、session、pane、scrollbar-mode、user-markdown：仍按只读预览断言，但 10-12 文件编辑器移植后，文本标签改为在编辑器中打开。
+    - file-search：会话 B 新建时 cwd 被重置。
+    - skills-mcp：`/new` 等同 `/clear`。
+    - workflow-config：多了 workflowSaved 一行。
+    - workflows：属于用户手改的工作流代码，没有动。
+    - onboarding：设置卡片内边距不符。
+- **主要未做／差异**：
+  - SSH 环境子菜单：本地内核没有 SSH 传输。
+  - 云端／账号功能：PR 合并控制、Discover、claude.ai 标题生成等。
+  - 原版自身开关关闭的功能：Mermaid、Preview 弹窗、palette 行操作。
+  - 需要内核支持：Rewind「仅代码」、基于 agent 的 dev server 探测、Plan「Open in」。
+  - 各种评论（diff、文件、计划）仍以 composer 片段发送，不是会话批注。
+
 ## 2026-10 API 中转、简体中文、历史删除、/btw 与只读沙箱修复
 
 本节接续上一位 agent 的未提交成果，在 `ui-next` 上先原样保存为 `0503394`（Relay connection, i18n zh-CN, delete Harness history, /btw side chat），之后逐项提交。没有 push，没有重启用户正在运行的 app；内核验证使用隔离的 `DSH_HOME`，不访问真实 `~/.dsh`。按用户补充要求，**共享 DSH Purge 文件保持原样**，沙箱修复只在 OpenClaude Desktop 自有桥接层与 bundle/profile 生效。

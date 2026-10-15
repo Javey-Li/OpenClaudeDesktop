@@ -8,6 +8,7 @@ import { SourceSkillFile } from './source-skill-file.jsx';
 import { SourceSwitch as Switch } from './source-switch.jsx';
 import { SourceSettingsButton as Button } from './source-settings-button.jsx';
 import { SourceTooltip } from './source-tooltip.jsx';
+import { SourceInfoTip } from './source-infotip.jsx';
 import { localizeBridgeText } from './bridge-text-model.mjs';
 import { cleanErrorReason } from './action-error-model.mjs';
 import { SourceMenu, menuTriggerProps } from './source-menu.jsx';
@@ -19,10 +20,15 @@ import { SourceConfirmationDialog, SourceDialog, SourceDialogFooter } from './so
 import { useSourceToasts } from './source-toast.jsx';
 import { appsView, connectorPairs, connectorApprovalItems, connectorToolRows, pluginAppsNeedingAuth,
   CONNECTOR_TOASTS, MCP_STATUS_FILTERS, MCP_STATUS_LABELS, connectorDetailMessage, connectorDetailState, connectorsListView, customizeCore,
-  filterErrors, filterMcp, filterMcpByStatus, filterPlugins, filterSkills, mcpServerConfigValue, nativePluginActions, officialSubtitleFor, pluginChangeOutcome, pluginDisplayNames, pluginInstallStatus,
-  shortDate, skillAuthor, skillGroupOptions, skillInvocable, skillTrigger, splitArguments, joinArguments, validateServerName,
+  filterMcp, filterMcpByStatus, filterPlugins, mcpServerConfigValue, nativePluginActions, officialSubtitleFor, pluginChangeOutcome, pluginInstallStatus,
+  shortDate, skillAuthor, skillInvocable, skillTrigger, splitArguments, joinArguments, validateServerName,
 } from "./customize-model.mjs";
 import { getAssistantName, t, tn } from '../electron/i18n/index.mjs';
+import { DEFAULT_SKILL_FILTER, DEFAULT_SORT, createdByLabel, createdByOptions, marketplaceInstalledPlugins, marketplaceLabel, marketplaceLastUpdated,
+  marketplaceRemovalDescription, marketplaceUpgradeToast, pluginListView, pluginRowFacts, recentReason, sectionLabel, skillCredit,
+  skillListView } from './customize-list-model.mjs';
+import { ListBadge, ListContainer, ListRow, ListToolbar, MenuEntries, NewBadge, NoMatches, OffBadge, PluginShowFilter, RowCredit, RowMeta,
+  SectionHeader, SkillFilterMenu, SortMenu } from './source-customize-list.jsx';
 import "./source-customize.css";
 
 // Fills {placeholders} of a translated template with React nodes, so a
@@ -106,10 +112,12 @@ function PageSearch({ label, value, onChange }) {
   );
 }
 
-export function PageHeader({ title, searchLabel, searchValue, onSearch, actions }) {
+// ccefd43d9 b (inDialog): a list page's toolbar (its tabs, filter and sort; c3c330885 D) sits beside the title.
+export function PageHeader({ title, searchLabel, searchValue, onSearch, actions, toolbar = null }) {
   return (
     <header className="cz-header">
-      <h2 className="cz-title text-heading-medium">{title}</h2>
+      {toolbar ? <div className="cz-title-row flex min-w-0 flex-1 items-center gap-md"><h2 className="cz-title text-heading-medium">{title}</h2><div className="shrink-0">{toolbar}</div></div>
+        : <h2 className="cz-title text-heading-medium">{title}</h2>}
       <div className="cz-header-controls"><PageSearch label={searchLabel} value={searchValue} onChange={onSearch} />
         {actions && <div className="cz-actions">{actions}</div>}</div>
     </header>
@@ -245,18 +253,15 @@ function MenuButton({ label, children, items, variant = "primary", size }) {
   </>;
 }
 
-// AS (shared-frame :13915-13960) InfoTip: a muted Info sm button labelled
-// "More info" that opens the content on hover after 300ms, side top, offset 6.
-// Locally the popover is the CDS tooltip.
+// pw (2.31226.0 shared-frame-DVFSKIcx :13467-13521) InfoTip: a muted Info sm button labelled "More info" whose
+// Popover opens on hover after 300ms and stays open on a click (source-infotip.jsx), side top, offset 6.
 function InfoTip({ content }) {
-  return <SourceTooltip content={content} side="top" sideOffset={6} delay={300} multiline>
-    <button type="button" data-cds="InfoTip" aria-label={t("More info")} className="cz-infotip"><Icon name="Info" size={16} /></button>
-  </SourceTooltip>;
+  return <SourceInfoTip content={content} className="cz-infotip" />;
 }
 
 // Catalog loading skeleton (2.2553.1 readable/shared-22-Cz3C_T8d.js). Every
 // class string is the source string; each utility exists in the loaded
-// original /assets/v1/c6a992d55-Vcbdv79k.css.
+// original /assets/v1/c6a992d55-C0zTICcS.css.
 // TC/OC/kC/AC :3389-3396 → row bar widths (128/160/112/144/96/128px), header
 // cell, h-7 + py-sm row cell with an alpha-1 rule, and the 3 column boxes.
 export const SKELETON_WIDTHS = ["w-32", "w-40", "w-28", "w-36", "w-24", "w-32"];
@@ -379,12 +384,6 @@ export function PluginPageSkeleton() {
 
 // ---------------------------------------------------------------------------
 // Skills
-
-const SKILL_COLUMNS = [
-  { key: "name", header: t("Skill") },
-  { key: "updated", header: t("Last updated"), width: "32" },
-  { key: "author", header: t("Author"), width: "40" },
-];
 
 // Skill detail = the official page-shell drill-in (customize-skills
 // :2822-2852 -> W :432-517): the list is replaced, the header becomes a ghost
@@ -544,9 +543,10 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
     : { skills: [], errors: [], status: "loading", error: "" };
   const plugins = snapshot.plugins.cwd === cwd ? snapshot.plugins.rows : [];
   const {query,setQuery,selected,setSelected}=useCatalogNavigation(focus,"skillPath");
-  const [group,setGroup]=useState("all");
-  useEffect(()=>{if(focus)setGroup("all");},[focus]);
-  const [toggleError, setToggleError] = useState(""), [toggling, setToggling] = useState(false);
+  // c5e558aae Mr :1640-1641: the list's sort (default "updated", Last edited) and filter ({plugin, createdBy}).
+  const [filter,setFilter]=useState(DEFAULT_SKILL_FILTER), [sort,setSort]=useState(DEFAULT_SORT);
+  useEffect(()=>{if(focus)setFilter(DEFAULT_SKILL_FILTER);},[focus]);
+  const [toggleError, setToggleError] = useState(""), [toggling, setToggling] = useState(false), [rowBusy, setRowBusy] = useState("");
   // Add skill from URL / Delete (copy.skillInstall).
   const [adding, setAdding] = useState(false), [skillBusy, setSkillBusy] = useState(false), [deleting, setDeleting] = useState(null);
   // Create a skill (CreateSkillDialog) in the first of your own skill folders.
@@ -555,14 +555,15 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
   const callRef = useRef(call);
   callRef.current = call;
   useEffect(() => { store.loadSkills({ cwd }); store.loadPlugins({ cwd }); }, [store, cwd]);
-  const groups = useMemo(() => skillGroupOptions(skills), [skills]);
-  const effectiveGroup = groups.show && groups.options.some((option) => option.value === group) ? group : "all";
-  const rows = useMemo(() => filterSkills(skills, { query, group: effectiveGroup }), [skills, query, effectiveGroup]);
-  const errorRows = useMemo(() => (effectiveGroup === "all" ? filterErrors(errors, { query }) : []), [errors, query, effectiveGroup]);
+  const view = useMemo(() => skillListView({ skills, errors, plugins, query, filter, sort }), [skills, errors, plugins, query, filter, sort]);
   const current = selected ? skills.find((row) => row.path === selected) : null;
   useEffect(() => { if (status === "ready" && selected && !current) setSelected(null); }, [selected, current, status]);
   const file = useSkillFile(callRef, current?.path || null);
-  const empty = status === "ready" && rows.length === 0 && errorRows.length === 0;
+  // Ht (no skill at all) → the page's empty state; a search without a hit → its no-match line; Gt (the filters hide
+  // every hit) → on, the "Nothing matches these filters." reset.
+  const empty = status === "ready" && view.total === 0;
+  const unmatched = status === "ready" && !empty && view.searched === 0;
+  const filteredOut = status === "ready" && view.searched > 0 && view.matched === 0;
   // Ie keeps the failure on screen with a busy Retry while ut.retry runs; the
   // store reports that forced reload as "loading" until it settles.
   const [retrying, setRetrying] = useState(false);
@@ -576,20 +577,28 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
   }
   // detailPresenting (page shell :118, :288): the header and the list are not
   // drawn while a drill-in is open.
+  // The skill's Delete (copy.skillInstall: a skill the core installed), from its page or its list row's Remove.
+  // ccea1f474 Js: a list row's Remove asks "Remove skill?" (confirm "Remove"); the skill page keeps its Delete.
+  const deleteDialog = <SourceConfirmationDialog open={!!deleting} title={deleting?.fromList ? t("Remove skill?") : t("Delete {name}?", { name: deleting?.name ?? "" })}
+    confirmLabel={deleting?.fromList ? t("Remove") : t("Delete")} confirmVariant="danger" pending={skillBusy}
+    body={t("The skill’s folder is removed from your skills. Sessions stop offering it.")}
+    onCancel={() => setDeleting(null)} onConfirm={async () => {
+      setSkillBusy(true); setToggleError("");
+      try { await call({ operation: "skill-delete", slug: managedSkillSlug(deleting, copy) }); setDeleting(null); setSelected(null); await store.loadSkills({ cwd, force: true }); }
+      catch (reason) {
+        setDeleting(null);
+        const message = reason?.message || t("The skill could not be deleted.");
+        if (current) setToggleError(message); else toasts?.add?.(message, { variant: "danger" });
+      }
+      finally { setSkillBusy(false); }
+    }} />;
   if (current) {
     return (
       <div className="cz-page" data-cz-page="skills" data-detail="">
         <SkillDetail skill={current} author={skillAuthor(current, plugins, copy)} file={file} toggling={toggling} toggleError={toggleError}
           onToggle={toggle} onBack={() => { setToggleError(""); setSelected(null); }} onRevealPath={onRevealPath} onUseSkill={onUseSkill} copy={copy}
           onDelete={managedSkillSlug(current, copy) ? (skill) => setDeleting(skill) : null} />
-        <SourceConfirmationDialog open={!!deleting} title={t("Delete {name}?", { name: deleting?.name ?? "" })} confirmLabel={t("Delete")} confirmVariant="danger" pending={skillBusy}
-          body={t("The skill’s folder is removed from your skills. Sessions stop offering it.")}
-          onCancel={() => setDeleting(null)} onConfirm={async () => {
-            setSkillBusy(true); setToggleError("");
-            try { await call({ operation: "skill-delete", slug: managedSkillSlug(deleting, copy) }); setDeleting(null); setSelected(null); await store.loadSkills({ cwd, force: true }); }
-            catch (reason) { setDeleting(null); setToggleError(reason?.message || t("The skill could not be deleted.")); }
-            finally { setSkillBusy(false); }
-          }} />
+        {deleteDialog}
       </div>
     );
   }
@@ -609,7 +618,63 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
   const addMenu = addItems.length ? <MenuButton label={t("Add skill")} items={addItems}>{t("Add")}</MenuButton> : null;
   const createDialog = creating && ownRoot && call ? <CreateSkillDialog root={ownRoot} call={call} cwd={cwd} onClose={() => setCreating(false)}
     onCreated={() => void store.loadSkills?.({ cwd, force: true })} /> : null;
-  const header = <PageHeader title={t("Skills")} searchLabel={t("Search skills")} searchValue={query} onSearch={setQuery} actions={addMenu || undefined} />;
+  // c5e558aae bn: the toolbar's Filter (K) and Sort (dn) controls, drawn once there is any skill; zt resets both,
+  // Lt (the no-match state's button) the filter only. Classic layout: the filter menu has no reset item (O false).
+  const resetBoth = { label: t("Reset filters and sort"), onClear: () => { setFilter(DEFAULT_SKILL_FILTER); setSort(DEFAULT_SORT); } };
+  // c5e558aae :1320-1343: the toolbar (and its "Your skills" tab) is always drawn; bn (Filter and Sort) only once
+  // there is a row (!Ht).
+  const toolbar = <ListToolbar label={t("Skills")} tab={t("Your skills")} tabTestId="skills-tabbed-list-tab-mine" controls={status === "ready" && view.total > 0 ? <>
+    <SkillFilterMenu filter={view.filter} onChange={setFilter} pluginOptions={view.pluginOptions} count={view.filterCount}
+      createdBy={createdByOptions(view.showPartners).map((value) => ({ value, label: createdByLabel(value, copy) }))} />
+    <SortMenu value={view.sort} options={view.sortOptions} onChange={setSort} held={view.held} clear={view.resettable ? resetBoth : null} />
+  </> : null} />;
+  const header = <PageHeader title={t("Skills")} searchLabel={t("Search skills")} searchValue={query} onSearch={setQuery} actions={addMenu || undefined} toolbar={toolbar} />;
+  // ccea1f474 Ws row: a skill's ⋮ menu (Ze): Turn on / off where the core switches it, Show in Folder, then Remove,
+  // which only a skill the core installed (Delete) can do.
+  async function toggleRow(row, enabled) {
+    setRowBusy(row.path);
+    try { await store.setSkillEnabled(row.path, enabled); }
+    catch { toasts?.add?.(t("Couldn’t update that skill. Try again."), { variant: "danger" }); }
+    finally { setRowBusy(""); }
+  }
+  const rowMenu = (row) => {
+    const items = [
+      ...(copy.skillToggle && row.toggleable !== false ? [{ key: "toggle", label: row.enabled ? t("Turn off") : t("Turn on"), disabled: rowBusy === row.path, onClick: () => void toggleRow(row, !row.enabled) }] : []),
+      ...(onRevealPath && !row.path.startsWith("command:") ? [{ key: "reveal", label: t("Show in Folder"), icon: "Folder", onClick: () => onRevealPath(row.path) }] : []),
+    ];
+    const removable = !!managedSkillSlug(row, copy);
+    return [...items, ...(items.length ? [{ separator: true }] : []),
+      { key: "remove", label: t("Remove"), icon: "Trash", variant: "danger", disabled: !removable, onClick: removable ? () => setDeleting({ ...row, fromList: true }) : undefined }];
+  };
+  const openRow = (row) => { setToggleError(""); setSelected(row.path); };
+  const skillRow = (row) => {
+    if (row.kind === "error") return <ListRow key={row.id} testId="skills-tabbed-list-row" icon="Warning" reserveMenuColumn data-row-id={row.id} data-skill-error="">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-body-medium text-primary" title={row.path}>{row.name}</span>
+        <RowCredit plain segments={[row.message]} />
+      </div>
+    </ListRow>;
+    const off = copy.skillToggle && !row.enabled;
+    const pluginName = row.pluginId ? skillAuthor(row, plugins, copy) : null;
+    // ccea1f474 ec: a plugin's skill names its plugin (Ra chip → the plugin's page) and has no menu of its own.
+    return <ListRow key={row.id} testId="skills-tabbed-list-row" icon="Scroll" drillLabel={t("View {name}", { name: row.name })} onDrill={() => openRow(row)}
+      data-row-id={row.id} data-skill-scope={row.scope} data-skill-enabled={row.enabled ? "true" : "false"}
+      trailing={<RowMeta updatedAt={row.updatedAt} />} menu={row.pluginId ? null : { itemLabel: row.name, items: rowMenu(row) }} reserveMenuColumn={!!row.pluginId}>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-xs">
+          <span className="truncate text-body-medium text-primary">{row.name}</span>
+          {row.pluginId && <button type="button" className="cds-reset rounded-chip focus-visible:shadow-focus" aria-label={t("View {name}", { name: pluginName })} data-cz-plugin-chip=""
+            onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onNavigate?.("customize-plugins", { pluginId: row.pluginId }); }}>
+            <ListBadge variant="neutral" className="whitespace-nowrap">{pluginName}</ListBadge></button>}
+          {/* ccea1f474 Ws: New unless the skill was turned off for a reason (none locally); ec (a plugin's skill) has none. */}
+          {!row.pluginId && <NewBadge reason={recentReason(row)} onClick={() => openRow(row)} />}
+          {/* customize-skills :3130-3131: the off badge needs the toggle capability. */}
+          {off && <OffBadge />}
+        </div>
+        <RowCredit plain credit={skillCredit(row, plugins, copy)} segments={[row.description]} />
+      </div>
+    </ListRow>;
+  };
   if (status === "error" || (retrying && status === "loading"))
     return <div className="cz-page" data-cz-page="skills">{header}<CatalogLoadError section="skills" busy={retrying} onRetry={retry} /></div>;
   // customize-connectors :3136-3147 (the shared page-shell pattern): G "loading"
@@ -620,53 +685,27 @@ function SkillsPage({ store, cwd, call, onUseSkill, onRevealPath, onNavigate, fo
     <div className="cz-page" data-cz-page="skills">
       {header}
       {createDialog}
-      {/* customize-skills :3075-3127: [code-execution banner (none locally)], De
-          owner segments, the q table (mt-sm), else Ee as the flex-1 body child. */}
-      <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, effectiveGroup, query])}>
+      {deleteDialog}
+      {/* c5e558aae :1260-1330 xn: the sections of the "Your skills" list (ae "skills-tabbed-list-mine"), each a
+          titled run with its count, or one untitled run while a sort is held; Gt → on (filters hide every row). */}
+      <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, view.filter, view.sort, query])}>
       {adding && <AddSkillForm busy={skillBusy} onCancel={() => setAdding(false)} onSubmit={async ({ slug, url }) => {
         setSkillBusy(true);
         try { await call({ operation: "skill-install", slug, url }); setAdding(false); await store.loadSkills({ cwd, force: true }); }
         finally { setSkillBusy(false); }
       }} />}
-      {groups.show && <FilterSegments label={t("Filter by owner")} value={effectiveGroup} options={groups.options} onChange={setGroup} />}
-          {!empty && (
-            <ListTable columns={SKILL_COLUMNS} label={t("Skills")}>
-              {rows.map((row) => (
-                <Row key={row.id} id={row.id} name={row.name} onSelect={() => { setToggleError(""); setSelected(row.path); }}
-                  data-skill-scope={row.scope} data-skill-enabled={row.enabled ? "true" : "false"}>
-                  <td className="cz-cell-primary">
-                    <div className="cz-name">
-                      <span className="cz-truncate">{row.name}</span>
-                      {row.pluginId && <button type="button" className="cz-chip" onClick={(event) => { event.stopPropagation(); onNavigate?.("customize-plugins", { pluginId: row.pluginId }); }}
-                        title={t("Open plugin")}>{skillAuthor(row, plugins, copy)}</button>}
-                      {/* customize-skills :3130-3131: the badge needs the toggle capability. */}
-                      {copy.skillToggle && !row.enabled && <Badge>{t("Disabled")}</Badge>}
-                    </div>
-                  </td>
-                  <td className="cz-cell-secondary">{row.updatedAt ? <time dateTime={new Date(row.updatedAt * 1000).toISOString()}>{shortDate(row.updatedAt)}</time> : <Dash />}</td>
-                  <td className="cz-cell-secondary"><span className="cz-truncate cz-block">{skillAuthor(row, plugins, copy)}</span></td>
-                </Row>
-              ))}
-              {errorRows.map((row) => (
-                <tr key={row.id} data-row-id={row.id} data-skill-error="" className="cz-row-error">
-                  <td className="cz-cell-primary">
-                    <div className="cz-name">
-                      <Icon name="Warning" size={16} className="cz-warning" />
-                      <span className="cz-truncate">{row.name}</span>
-                      <span className="cz-muted cz-truncate" title={row.message}>{row.message}</span>
-                    </div>
-                  </td>
-                  <td className="cz-cell-secondary"><Dash /></td>
-                  <td className="cz-cell-secondary"><span className="cz-truncate cz-block cz-mono" title={row.path}>{row.path}</span></td>
-                </tr>
-              ))}
-            </ListTable>
-          )}
+          {view.matched > 0 && <ListContainer testId="skills-tabbed-list-mine">
+            {view.sections.map(({ section, rows }) => <section key={section ?? "flat"} className="flex flex-col" data-cz-list-section={section ?? "flat"}>
+              {section !== null && <SectionHeader section={section} label={sectionLabel(section, copy)} count={rows.length} />}
+              {rows.map(skillRow)}
+            </section>)}
+          </ListContainer>}
+          {filteredOut && <NoMatches onReset={() => setFilter(DEFAULT_SKILL_FILTER)} />}
           {/* A list that is never empty (Codex's bundled skills) still says where your own skills go: a muted footnote. */}
           {!empty && !query.trim() && copy.skillRoots.length > 0 && <SkillFoldersNote roots={copy.skillRoots} call={call} cwd={cwd} />}
           {/* ObjectBulb (customize-skills :1440-1462): the actions repeat the header's Add skill menu; the core's skill
               folders follow as the muted footnote, so a beginner also sees where a skill made by hand goes. */}
-          {empty && <EmptyState searchValue={query.trim() || (effectiveGroup !== "all" ? effectiveGroup : "")} noMatchMessage={t("No skills match your search")}
+          {(empty || unmatched) && <EmptyState searchValue={unmatched ? query.trim() : ""} noMatchMessage={t("No skills match your search")}
             pictogram="ObjectBulb" emptyMessage={copy.skillsEmpty}
             actions={addMenu || copy.skillRoots.length > 0 ? <div className="flex flex-col items-center gap-3">
               {addMenu}
@@ -1505,13 +1544,6 @@ export function AppsSection({ call, onOpenExternal, initial = null }) {
 // ---------------------------------------------------------------------------
 // Plugins (installed only)
 
-const PLUGIN_COLUMNS = [
-  { key: "name", header: t("Plugin") },
-  { key: "author", header: t("Author"), width: "40" },
-  { key: "skills", header: t("Skills"), width: "20" },
-  { key: "updated", header: t("Last updated"), width: "32" },
-];
-
 // c36b3644c fe → c26958849 nav row: the 24/16 connector tile in a size-6 slot
 // (opacity-50 unless enabled), the server title, its status as the font-small
 // muted description, text-muted unless connected; selecting it opens the
@@ -1664,7 +1696,9 @@ export function PluginDetail({ plugin, detail, error, skills, view, onView, onBa
               <p className="cz-plugin-tab-description">{tab.description}</p>
               {tab.id === 'connectors' ? <PluginConnectors tab={tab} items={items} loading={!!mcp?.loading} onSelect={onConnector} onToggle={onServerToggle} busy={serverBusy} /> : items.length ? <ul className="cz-plugin-items" {...{ [`data-plugin-${tab.id}`]: '' }}>
                 {items.map(item => <li key={item.key}>{item.path ? <button type="button" className="cz-plugin-item" onClick={() => onSkill(item.path)}><span>{item.label}</span>{item.description.trim().length > 1 && <small title={item.description}>{item.description}</small>}{item.disabled && <Badge>{t("Disabled")}</Badge>}</button> :
-                  <div className="cz-plugin-item"><span>{item.label}</span>{item.description.trim().length > 1 && <small title={item.description}>{item.description}</small>}{item.disabled && <Badge>{t("Disabled")}</Badge>}</div>}</li>)}
+                  <div className="cz-plugin-item"><span>{item.label}</span>{item.description.trim().length > 1 && <small title={item.description}>{item.description}</small>}{item.disabled && <Badge>{t("Disabled")}</Badge>}
+                    {/* cd0c65b43 f: a monitor's command under when it runs. */}
+                    {item.command && <code className="block overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere] rounded bg-surface-1 px-1.5 py-0.5 font-mono text-caption" data-plugin-monitor-command="">{item.command}</code>}</div>}</li>)}
               </ul> : <p className="cz-plugin-no-match">{t(`No ${tab.id} match your search`)}</p>}
             </div> : <div className="flex flex-col items-center gap-2 px-6 py-10 text-center" data-plugin-empty="">
               {/* c36b3644c _e D: "This plugin doesn’t have any skills or agents." */}
@@ -1755,10 +1789,15 @@ export function AddPluginForm({ store, install, onClose, copy = DEFAULT_COPY }) 
 // Detail-page controls: on/off and Remove for a bundle the manager may change. `actions`
 // = {canToggle, canRemove, toggle(enabled), remove()} (the codeDesktop/plugin/* manager by
 // default; PluginsPage passes the native protocol ones on a native core).
-export function PluginManageControls({ plugin, store, onRemoved, copy = DEFAULT_COPY, actions = null }) {
-  const manager = actions ?? { canToggle: plugin.manageable && (!plugin.unavailable || plugin.enabled), canRemove: plugin.removable, toggle: (value) => store.setPluginEnabled(plugin.pluginName, value), remove: () => store.removePlugin(plugin.pluginName),
+export function pluginManager({ plugin, store, copy = DEFAULT_COPY, native = false }) {
+  // A native core's own plugin actions (Codex plugin/uninstall, config/value/write plugins.<id>).
+  if (native) return { ...nativePluginActions(plugin), toggle: (value) => store.setNativePluginEnabled(plugin.id, value), remove: () => store.uninstallPlugin(plugin.id) };
+  return { canToggle: plugin.manageable && (!plugin.unavailable || plugin.enabled), canRemove: plugin.removable, toggle: (value) => store.setPluginEnabled(plugin.pluginName, value), remove: () => store.removePlugin(plugin.pluginName),
     // A core that updates an installed plugin from its source (copy.pluginUpdate: Qwen's `extensions update`).
     ...(copy.pluginUpdate && plugin.removable ? { canUpdate: true, update: () => store.updatePlugin(plugin.pluginName) } : {}) };
+}
+export function PluginManageControls({ plugin, store, onRemoved, copy = DEFAULT_COPY, actions = null }) {
+  const manager = actions ?? pluginManager({ plugin, store, copy });
   // c26e90ba3 :1380-1490 header actions ("flex items-center gap-md shrink-0"): a ⋯ "More options for {label}" menu
   // holding the update and uninstall items, then the on/off Switch; the plugin name truncates before these shrink.
   // Outcomes are toasts, so nothing else is drawn in the title row.
@@ -1963,56 +2002,130 @@ export function AvailablePlugins({ rows, store, onOpenExternal = null, coreName 
   </section>;
 }
 
-// Native core: the marketplaces the user added (customize marketplaces), with Update for a git one
-// (marketplace/upgrade) and Remove (marketplace/remove, confirmed: its plugins go with it), and the marketplaces
-// that failed to load (plugin/list marketplaceLoadErrors) as a warning.
-export function MarketplacesSection({ store, rows, loadErrors = [] }) {
-  const [busy, setBusy] = useState(""), [message, setMessage] = useState(null), [confirm, setConfirm] = useState(null);
-  if (!rows.length && !loadErrors.length) return null;
-  async function upgrade(row) {
-    if (busy) return;
-    setBusy(`upgrade:${row.name}`); setMessage(null);
-    const outcome = await store.upgradeMarketplace(row.name);
-    setBusy("");
-    if (!outcome.ok) { setMessage({ error: true, text: outcome.message }); return; }
-    const errors = Array.isArray(outcome.result?.errors) ? outcome.result.errors : [];
-    if (errors.length) setMessage({ error: true, text: errors.map((entry) => entry?.message).filter(Boolean).join(" ") || t("{name} couldn’t be updated.", { name: row.name }) });
-    else setMessage({ error: false, text: outcome.result?.upgradedRoots?.length ? t("Updated {name}.", { name: row.name }) : t("{name} is up to date.", { name: row.name }) });
-  }
-  async function remove(row) {
-    setBusy(`remove:${row.name}`); setMessage(null);
-    const outcome = await store.removeMarketplace(row.name);
-    setBusy(""); setConfirm(null);
-    setMessage(outcome.ok ? { error: false, text: t("Removed {name}.", { name: row.name }) } : { error: true, text: outcome.message });
-  }
+// Native core: the marketplaces that failed to load (plugin/list marketplaceLoadErrors), as a warning above the
+// list. The marketplaces the user added are managed in the Add plugin menu's Manage marketplaces dialog.
+export function MarketplacesSection({ loadErrors = [] }) {
+  if (!loadErrors.length) return null;
   return <section className="cz-builtin" aria-label={t("Marketplaces")} data-cz-marketplaces="">
-    {loadErrors.length > 0 && <div className="cz-marketplace-errors" role="alert" data-marketplace-errors="">
+    <div className="cz-marketplace-errors" role="alert" data-marketplace-errors="">
       <Icon name="Warning" size={16} />
       <div className="flex flex-col gap-1 min-w-0">
         <span className="text-sm text-primary">{tn(loadErrors.length, "A marketplace couldn’t be loaded, so its plugins aren’t listed.", "{count} marketplaces couldn’t be loaded, so their plugins aren’t listed.", { count: loadErrors.length })}</span>
         {loadErrors.map((entry) => <span key={entry.key} className="text-xs text-muted [overflow-wrap:anywhere]">{entry.path ? `${entry.path}: ` : ""}{entry.message}</span>)}
       </div>
-    </div>}
-    {rows.length > 0 && <>
-      <div className="cz-builtin-head"><h3>{t("Marketplaces")}</h3></div>
-      <ul className="cz-builtin-list" role="list">
-        {rows.map((row) => <li key={row.name} className="cz-builtin-row" data-marketplace={row.name}>
-          <div className="cz-builtin-text">
-            <span className="cz-builtin-name"><span className="cz-truncate">{row.name}</span></span>
-            {row.source && <span className="cz-builtin-source" title={row.source}>{row.source}</span>}
-          </div>
-          <div className="cz-builtin-action">
-            {row.sourceType === "git" && <Button variant="secondary" size="sm" busy={busy === `upgrade:${row.name}`} disabled={!!busy} onClick={() => upgrade(row)}>{t("Update")}</Button>}
-            <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => setConfirm(row)}>{t("Remove")}</Button>
-          </div>
-        </li>)}
-      </ul>
-    </>}
-    {message && <p className={message.error ? "cz-error" : "cz-muted"} role={message.error ? "alert" : "status"} data-marketplace-message="">{message.text}</p>}
-    {confirm && <SourceConfirmationDialog title={t("Remove {name}?", { name: confirm.name })} confirmLabel={t("Remove")} confirmVariant="danger" layer={SETTINGS_CONFIRM_LAYER}
-      pending={busy === `remove:${confirm.name}`} onCancel={() => setConfirm(null)} onConfirm={() => remove(confirm)}
-      body={t("Its plugins are no longer offered, and plugins you installed from it are removed from {core}.", { core: getAssistantName() })} />}
+    </div>
   </section>;
+}
+
+// c6a2a31c4 ys (:2463-2508): "Remove marketplace?" naming the installed plugins its removal uninstalls.
+export function RemoveMarketplaceDialog({ open, plugins, pending = false, onCancel, onConfirm }) {
+  return <SourceConfirmationDialog open={open} title={t("Remove marketplace?")} body={marketplaceRemovalDescription(plugins.length)} confirmLabel={t("Remove")} confirmVariant="danger"
+    pending={pending} layer={SETTINGS_CONFIRM_LAYER} onCancel={onCancel} onConfirm={onConfirm}>
+    {plugins.length > 0 && <ul className="mt-sm max-h-32 list-inside list-disc overflow-y-auto text-body text-secondary" data-marketplace-uninstalls="">
+      {plugins.map((plugin) => <li key={plugin.id} className="truncate">{plugin.label}</li>)}
+    </ul>}
+  </SourceConfirmationDialog>;
+}
+
+// c6a2a31c4 Us + bs + xs (:2509-2610, :3151-3189): one marketplace you added: its name and source, and a ⋮ menu with
+// Check for updates (marketplace/upgrade, a git marketplace only) and Remove (marketplace/remove, confirmed).
+export function MarketplaceRow({ marketplace, plugins, store }) {
+  const toasts = useSourceToasts();
+  const trigger = useRef(null);
+  const [menu, setMenu] = useState(null), [busy, setBusy] = useState(""), [confirm, setConfirm] = useState(false);
+  const label = marketplaceLabel(marketplace, plugins);
+  const installed = marketplaceInstalledPlugins(plugins, marketplace.name);
+  const updated = marketplaceLastUpdated(marketplace);
+  async function refresh() {
+    setBusy("refresh");
+    try { const toast = marketplaceUpgradeToast(await store.upgradeMarketplace(marketplace.name)); toasts?.add?.(toast.text, { variant: toast.variant }); }
+    catch { toasts?.add?.(t("Couldn’t check for updates. Try again."), { variant: "danger" }); }
+    finally { setBusy(""); }
+  }
+  async function remove() {
+    setConfirm(false); setBusy("remove");
+    try {
+      const outcome = await store.removeMarketplace(marketplace.name);
+      toasts?.add?.(outcome?.ok ? t("Marketplace “{marketplaceName}” removed.", { marketplaceName: label }) : t("Marketplace couldn’t be removed. Try again."), { variant: outcome?.ok ? "neutral" : "danger" });
+    } catch { toasts?.add?.(t("Marketplace couldn’t be removed. Try again."), { variant: "danger" }); }
+    finally { setBusy(""); }
+  }
+  const items = [
+    ...(marketplace.sourceType === "git" ? [{ key: "refresh", label: t("Check for updates"), icon: "ArrowClockwise", disabled: busy === "refresh", onClick: () => void refresh() }, { separator: true }] : []),
+    { key: "remove", label: t("Remove"), icon: "Trash", variant: "danger", onClick: () => setConfirm(true) },
+  ];
+  const menuLabel = t("More actions for {name}", { name: label });
+  return <li className="flex items-start gap-sm rounded-lg border border-strong px-md py-sm" data-testid="manage-marketplace-row" data-marketplace={marketplace.name}>
+    <div className="flex min-w-0 flex-1 flex-col gap-xs">
+      <span className="min-w-0 truncate text-body font-medium text-primary">{label}</span>
+      {marketplace.source && <p className="break-all text-caption text-secondary">{marketplace.source}</p>}
+      {updated && <p className="text-caption text-muted" data-marketplace-updated="">{updated}</p>}
+    </div>
+    <Button ref={trigger} iconOnly icon="DotsVertical" iconSize="auto" size="sm" variant="ghost" busy={!!busy} aria-label={menuLabel}
+      {...menuTriggerProps({ open: !!menu, onOpen: (entry) => setMenu({ entry }) })} onClick={() => setMenu(menu ? null : { entry: undefined })} />
+    {menu && <SourceMenu.Popup anchor={trigger.current} side="bottom" align="end" label={menuLabel} className="min-w-60" initialHighlight={menu.entry}
+      layerBase={Number.parseInt(getComputedStyle(trigger.current).getPropertyValue("--cds-layer-base"), 10) || 0} onClose={() => setMenu(null)}>
+      <MenuEntries items={items} />
+    </SourceMenu.Popup>}
+    <RemoveMarketplaceDialog open={confirm} plugins={installed} onCancel={() => setConfirm(false)} onConfirm={() => void remove()} />
+  </li>;
+}
+
+// c6a2a31c4 Fs → Is / Ls (:2943-3086): "Manage marketplaces", the marketplaces added with the core on this computer,
+// and Done. `marketplaces` = the customize "marketplaces" listing; `plugins` = the installed rows (what removal uninstalls).
+export function ManageMarketplacesDialog({ marketplaces, plugins, store, copy = DEFAULT_COPY, onClose }) {
+  return <SourceDialog title={t("Manage marketplaces")} size="md" layer={SETTINGS_CONFIRM_LAYER} className="cz-dialog" onClose={onClose}
+    description={t("Marketplaces added with {core} on this computer. Removing one also uninstalls its plugins.", { core: copy.name })}
+    footer={<Button variant="primary" onClick={onClose}>{t("Done")}</Button>}>
+    {marketplaces.length === 0 ? <p className="py-lg text-caption text-muted">{t("No marketplaces added yet.")}</p>
+      : <ul role="list" className="mt-md flex flex-col gap-sm" data-manage-marketplaces="">
+        {marketplaces.map((marketplace) => <MarketplaceRow key={marketplace.name} marketplace={marketplace} plugins={plugins} store={store} />)}
+      </ul>}
+  </SourceDialog>;
+}
+
+// ccea1f474 Ul (:4668-4750) + Kl: an installed plugin in "Your plugins": its tile, name (with the collision suffix),
+// badges, "by {author}" and its description (or skill count); the ⋮ / context menu turns it on or off, updates it
+// where the core can, and removes it ("Remove plugin?"). `manager` = pluginManager(...) or null (nothing to manage).
+function PluginListRow({ row, display, manager, copy, onOpen }) {
+  const toasts = useSourceToasts();
+  const [busy, setBusy] = useState(""), [confirm, setConfirm] = useState(false);
+  async function run(kind, action) {
+    setBusy(kind);
+    try { const outcome = await action(); return outcome; }
+    catch (reason) { return { ok: false, message: reason?.message }; }
+    finally { setBusy(""); }
+  }
+  const items = [];
+  if (manager?.canToggle) items.push({ key: "toggle", label: row.enabled ? t("Turn off") : t("Turn on"), disabled: !!busy,
+    onClick: async () => { const outcome = await run("toggle", () => manager.toggle(!row.enabled)); if (outcome && !outcome.ok) toasts?.add?.(outcome.message || t("The plugin change failed."), { variant: "danger" }); } });
+  if (manager?.canUpdate) items.push({ key: "update", label: t("Check for updates"), disabled: !!busy,
+    onClick: async () => { const outcome = await run("update", () => manager.update()); toasts?.add?.(outcome?.ok ? t("Updated. New sessions use the new version.") : outcome?.message || t("The plugin change failed."), { variant: outcome?.ok ? "neutral" : "danger" }); } });
+  if (items.length) items.push({ separator: true });
+  items.push({ key: "remove", label: t("Remove"), icon: "Trash", variant: "danger", disabled: !manager?.canRemove || !!busy, onClick: manager?.canRemove ? () => setConfirm(true) : undefined });
+  const facts = pluginRowFacts(row);
+  const open = () => onOpen(row.id);
+  return <ListRow testId="plugins-tabbed-list-row" icon="Plugin" logo={row.icon ? <img src={row.icon} alt="" draggable={false} className="size-full" /> : null}
+    drillLabel={t("View {name}", { name: display.name })} onDrill={open} menu={{ itemLabel: display.name, items }}
+    trailing={<RowMeta updatedAt={row.updatedAt} />} data-plugin-id={row.id} data-plugin-enabled={row.enabled ? "true" : "false"}>
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 items-center gap-xs">
+        <span className="truncate text-body-medium text-primary">{display.name}</span>
+        {display.suffix && <span className="truncate text-footnote text-muted" data-plugin-suffix="">{display.suffix}</span>}
+        <NewBadge reason={recentReason(row)} onClick={open} />
+        {row.experimental && <Badge>{t("Experimental")}</Badge>}
+        {row.unavailable && <Badge title={row.unavailable}>{t("Unavailable here")}</Badge>}
+        {row.loadError && <Badge variant="danger">{t("Failed to load")}</Badge>}
+        {!row.enabled && <OffBadge />}
+      </div>
+      <RowCredit plain credit={facts.credit} segments={[facts.detail]} />
+    </div>
+    <SourceConfirmationDialog open={confirm} title={t("Remove plugin?")} body={t("This plugin’s commands and skills will no longer be available. You can add it back later.")} confirmLabel={t("Remove")} confirmVariant="danger" pending={busy === "remove"} layer={SETTINGS_CONFIRM_LAYER}
+      onCancel={() => setConfirm(false)} onConfirm={async () => {
+        const outcome = await run("remove", () => manager.remove()); setConfirm(false);
+        toasts?.add?.(outcome?.ok ? t("Plugin removed.") : t("Plugin couldn’t be removed. Try again."), { variant: outcome?.ok ? "neutral" : "danger" });
+      }} />
+  </ListRow>;
 }
 
 function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPath, onNavigate, copy, onRestartCore, onOpenExternal }) {
@@ -2022,7 +2135,9 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
   const { rows, status, error } = snapshot.plugins.cwd === cwd ? snapshot.plugins
     : { rows: [], status: "loading", error: "" };
   const {query,setQuery,selected,setSelected}=useCatalogNavigation(focus,"pluginId");
-  const [adding,setAdding]=useState(false);
+  const [adding,setAdding]=useState(false),[managing,setManaging]=useState(false);
+  // c6a2a31c4 :5850-5934: the "Your plugins" Show filter (Yi: all / enabled / disabled) and sort (Oa).
+  const [show,setShow]=useState("all"),[sort,setSort]=useState(DEFAULT_SORT);
   const pluginOps=snapshot.pluginOps||{install:null,restartRequired:false};
   const banner=copy.pluginManage&&pluginOps.restartRequired?<PluginRestartBanner onRestartCore={onRestartCore}/>:null;
   const [ownedDetail,setOwnedDetail]=useState(null),[ownedError,setOwnedError]=useState(null);
@@ -2080,7 +2195,7 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
   // Detail controls: the codeDesktop/plugin/* manager's, or a native core's uninstall and on/off.
   const manageControls=!current?null:copy.pluginManage?((current.manageable||current.removable)?<PluginManageControls plugin={current} store={store} copy={copy} onRemoved={closeRemoved}/>:null)
     :copy.nativePlugins?<PluginManageControls plugin={current} store={store} copy={copy} onRemoved={closeRemoved}
-      actions={{...nativePluginActions(current),toggle:(value)=>store.setNativePluginEnabled(current.id,value),remove:()=>store.uninstallPlugin(current.id)}}/>:null;
+      actions={pluginManager({plugin:current,store,copy,native:true})}/>:null;
   // Workspace sharing (a native core's local plugin) is a notice row below the header, never in the title row.
   const pluginNotices=current&&copy.nativePlugins&&(current.sourcePath||current.share)&&store.sharePlugin?<PluginShareControls plugin={current} store={store}/>:null;
   if(current)return <div className="cz-page" data-cz-page="plugins" data-detail="">
@@ -2099,57 +2214,60 @@ function PluginsPage({ store, threadId, cwd, call, focus, onUseSkill, onRevealPa
   const catalog = snapshot.catalog;
   const available = (copy.nativePlugins || copy.pluginCatalog) && catalog?.cwd === cwd && catalog.status === "ready" ? filterPlugins(catalog.rows, { query }) : [];
   // dsh-client-ui-plugin-manager: Official bundles get their own group, and the profile's fixed core layers are hidden.
-  const official = shown.filter((row) => row.official), listed = shown.filter((row) => !row.official && !row.core);
-  const empty = status === "ready" && official.length === 0 && listed.length === 0 && builtin.length === 0 && available.length === 0;
-  const names = pluginDisplayNames(rows);
-  // A native core's header action is the official Add plugin menu (cf0e8a0d3 Ya: addLabel "Add plugin", items
-  // "Add marketplace" …); its marketplaces' plugins are installed from the Available list.
-  const header = <PageHeader title={t("Plugins")} searchLabel={t("Search plugins")} searchValue={query} onSearch={setQuery}
+  // The rest is "Your plugins" (c6a2a31c4 Nt): grouped by section, filtered by Show, sorted; Show also applies to the
+  // Official cards, which are installed plugins too.
+  const installed = rows.filter((row) => !row.core);
+  const listView = pluginListView({ rows: installed.filter((row) => !row.official), query, show, sort });
+  const officialView = pluginListView({ rows: installed.filter((row) => row.official), query, show: listView.show, sort: DEFAULT_SORT });
+  const official = officialView.sections.flatMap((run) => run.rows).sort((a, b) => a.name.localeCompare(b.name));
+  // Kt: no plugin installed → no list controls; qt: the Show filter hides every row the search found → ba.
+  const filteredOut = status === "ready" && listView.searched + officialView.searched > 0 && listView.matched + official.length === 0;
+  const empty = status === "ready" && !filteredOut && official.length === 0 && listView.matched === 0 && builtin.length === 0 && available.length === 0;
+  const resetBoth = { label: t("Reset filters and sort"), onClear: () => { setShow("all"); setSort(DEFAULT_SORT); } };
+  // c6a2a31c4 :6266-6300: the toolbar and its "Your plugins" tab are always drawn; tn (Show and Sort) only while a
+  // plugin is installed (!Kt).
+  const toolbar = <ListToolbar label={t("Plugins")} tab={t("Your plugins")} tabTestId="plugins-tabbed-list-tab-mine" controls={status === "ready" && installed.length > 0 ? <>
+    <PluginShowFilter value={listView.show} onChange={setShow} />
+    <SortMenu value={listView.sort} options={listView.sortOptions} onChange={setSort} held={listView.held} clear={listView.resettable ? resetBoth : null} />
+  </> : null} />;
+  // A native core's header action is the official Add plugin menu (c6a2a31c4 Gs createItems: "Add marketplace", then
+  // "Manage marketplaces" once you added one); its marketplaces' plugins are installed from the Available list.
+  const marketplaces = snapshot.marketplaces?.rows ?? [];
+  const addItems = [{ label: t("Add marketplace"), icon: "Globe", onClick: () => setAdding(true) },
+    ...(marketplaces.length > 0 ? [{ label: t("Manage marketplaces"), icon: "Settings", onClick: () => setManaging(true) }] : [])];
+  const header = <PageHeader title={t("Plugins")} searchLabel={t("Search plugins")} searchValue={query} onSearch={setQuery} toolbar={toolbar}
     actions={copy.pluginManage ? <Button variant="primary" onClick={() => setAdding(true)} disabled={adding || !!pluginOps.install}>{t("Add plugin")}</Button>
-      : copy.nativePlugins ? <MenuButton label={t("Add plugin")} items={[{ label: t("Add marketplace"), icon: "Globe", onClick: () => setAdding(true) }]}>{t("Add")}</MenuButton> : null} />;
+      : copy.nativePlugins ? <MenuButton label={t("Add plugin")} items={addItems}>{t("Add")}</MenuButton> : null} />;
   const addForm = copy.pluginManage && (adding || pluginOps.install) ? <AddPluginForm store={store} install={pluginOps.install} copy={copy} onClose={() => setAdding(false)} />
     : copy.nativePlugins && adding ? <AddMarketplaceDialog store={store} copy={copy} onClose={() => setAdding(false)} /> : null;
+  const manageDialog = copy.nativePlugins && managing ? <ManageMarketplacesDialog marketplaces={marketplaces} plugins={rows} store={store} copy={copy} onClose={() => setManaging(false)} /> : null;
   if (status === "error")
     return <div className="cz-page" data-cz-page="plugins">{header}<CatalogLoadError section="plugins" onRetry={() => { store.loadPlugins({ cwd, force: true }); }} /></div>;
   if (status === "loading")
     return <div className="cz-page" data-cz-page="plugins">{header}<PageBody><CatalogSkeleton section="plugins" /></PageBody></div>;
+  const openRow = (id) => { setSelected(id); setSkillPath(null); };
+  const managerFor = (row) => copy.pluginManage ? ((row.manageable || row.removable) ? pluginManager({ plugin: row, store, copy }) : null)
+    : copy.nativePlugins ? pluginManager({ plugin: row, store, copy, native: true }) : null;
   return (
     <div className="cz-page" data-cz-page="plugins">
       {header}
-      <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, query])}>
+      {manageDialog}
+      <PageBody memory={scrollMemory.current} scrollKey={JSON.stringify([cwd, query, listView.show, listView.sort])}>
           {banner}
           {addForm}
-          <OfficialPlugins rows={official} store={store} manage={!!copy.pluginManage} copy={copy} onOpen={(id) => { setSelected(id); setSkillPath(null); }} />
+          <OfficialPlugins rows={official} store={store} manage={!!copy.pluginManage} copy={copy} onOpen={openRow} />
           {builtin.length > 0 && <BuiltinPlugins entries={builtin} rows={rows} store={store} copy={copy} />}
           <AvailablePlugins rows={available} store={store} onOpenExternal={onOpenExternal} coreName={copy.vendor} />
-          {copy.nativePlugins && <MarketplacesSection store={store} rows={snapshot.marketplaces?.rows ?? []} loadErrors={catalog?.cwd === cwd ? catalog.loadErrors ?? [] : []} />}
-          {listed.length > 0 && (official.length > 0 || builtin.length > 0 || available.length > 0) && <div className="cz-section-head cz-section-head-table"><h3>{t("Installed")}</h3></div>}
-          {listed.length > 0 && (
-            <ListTable columns={PLUGIN_COLUMNS} label={t("Plugins")}>
-              {listed.map((row) => {
-                // sn :1499-1505: the muted "(marketplace)" suffix only on a display-name collision (_L).
-                const display = names.get(row.id) ?? { name: row.name };
-                return (
-                <Row key={row.id} id={row.id} name={row.name} selected={current?.id === row.id} onSelect={() => {setSelected(row.id);setSkillPath(null);}} data-plugin-id={row.id} data-plugin-enabled={row.enabled ? "true" : "false"}>
-                  <td className="cz-cell-primary">
-                    <div className="cz-name">
-                      {row.icon && <PluginIcon icon={row.icon} size="sm" />}
-                      <span className="cz-truncate">{display.name}</span>
-                      {display.suffix && <span className="cz-muted cz-truncate" data-plugin-suffix="">{display.suffix}</span>}
-                      {row.experimental && <Badge>{t("Experimental")}</Badge>}
-                      {!row.enabled && <Badge>{t("Disabled")}</Badge>}
-                      {row.unavailable && <Badge title={row.unavailable}>{t("Unavailable here")}</Badge>}
-                      {row.loadError && <Badge variant="danger">{t("Failed to load")}</Badge>}
-                    </div>
-                  </td>
-                  <td className="cz-cell-secondary"><span className="cz-truncate cz-block">{row.author || <Dash />}</span></td>
-                  <td className="cz-cell-secondary cz-tabular">{row.skillCount}</td>
-                  <td className="cz-cell-secondary"><Dash /></td>
-                </Row>
-                );
-              })}
-            </ListTable>
-          )}
+          {copy.nativePlugins && <MarketplacesSection loadErrors={catalog?.cwd === cwd ? catalog.loadErrors ?? [] : []} />}
+          {/* c6a2a31c4 :6110-6200 oe "plugins-tabbed-list-mine": one titled run per section (ma, with its count), or
+              one untitled run while a sort is held. */}
+          {listView.matched > 0 && <ListContainer testId="plugins-tabbed-list-mine">
+            {listView.sections.map(({ section, rows: runRows }) => <section key={section ?? "flat"} className="flex flex-col" data-cz-list-section={section ?? "flat"}>
+              {section !== null && <SectionHeader section={section} label={sectionLabel(section, copy)} count={runRows.length} />}
+              {runRows.map((row) => <PluginListRow key={row.id} row={row} display={listView.names.get(row.id) ?? { name: row.name }} manager={managerFor(row)} copy={copy} onOpen={openRow} />)}
+            </section>)}
+          </ListContainer>}
+          {filteredOut && <NoMatches onReset={() => setShow("all")} />}
           {/* customize-plugins :1409-1430: Ee with ObjectPuzzle (no Directory actions locally). */}
           {empty && <EmptyState searchValue={query.trim()} noMatchMessage={t("No plugins match your search")} pictogram="ObjectPuzzle" emptyMessage={copy.pluginsEmpty} />}
       </PageBody>

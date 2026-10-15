@@ -90,6 +90,8 @@ function createMonitorService({ deliver, emit = () => {}, env = () => process.en
   if (typeof deliver !== "function") throw new Error("deliver is required.");
   const monitors = new Map(); // id → record
   const view = (record) => ({ id: record.id, description: record.description, command: record.command, cwd: record.cwd, status: record.status, startedAt: record.startedAt,
+    // OC "Stops in {duration}": when a running monitor's deadline ends it.
+    ...(record.status === "running" && Number.isFinite(record.stopsAt) ? { stopsAt: record.stopsAt } : {}),
     ...(record.endedAt ? { durationMs: record.endedAt - record.startedAt } : {}), events: record.events, output: record.tail, ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}) });
   const sessionList = (sessionId) => [...monitors.values()].filter((record) => record.sessionId === sessionId);
   const changed = (sessionId) => { try { emit({ kind: "monitors", sessionId, monitors: list(sessionId) }); } catch { /* best effort */ } };
@@ -138,6 +140,7 @@ function createMonitorService({ deliver, emit = () => {}, env = () => process.en
         event(record, `[Monitor stopped — too much output (${suppressed} events suppressed over ${Math.round((now() - record.floodSince) / 1000)}s). Restart with a more selective source.]`);
       }
     }, schedule ? { schedule } : {});
+    record.stopsAt = record.startedAt + deadline;
     record.batcher = batcher;
     let child;
     try {

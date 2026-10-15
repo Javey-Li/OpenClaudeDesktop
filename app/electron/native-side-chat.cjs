@@ -1,5 +1,6 @@
 "use strict";
 const i18n = require("./i18n/index.mjs");
+const { sideChatRecoveryQuestion } = require("./side-chat-recovery.cjs");
 // The /btw side chat (⌘;) on a core that speaks only the upstream Codex protocol (Codex itself, native packs). Codex
 // 0.155.1 has the same feature as /side and /btw (tui/src/slash_command.rs: 'start a side conversation in an ephemeral
 // fork'), built from upstream calls only (tui/src/app/side.rs): thread/fork {ephemeral:true} with the parent's model,
@@ -45,10 +46,22 @@ Do not modify files, source, git state, permissions, configuration, or any other
 // side.rs side_boundary_prompt_item: a user message ResponseItem.
 const boundaryItem = () => ({ type: "message", role: "user", content: [{ type: "input_text", text: SIDE_BOUNDARY_PROMPT }] });
 
+// Use reported structured actions only; never guess tool activity from shell text.
+function sideToolActivity(item) {
+  if (!item || !["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "fileChange"].includes(item.type)) return null;
+  const action = item.commandActions?.find(action => ["read", "search", "listFiles"].includes(action.type));
+  if (action?.type === "read") return { tool: "Read", detail: action.name || action.path || null };
+  if (action?.type === "search") return { tool: "Grep", detail: action.query || null };
+  if (action?.type === "listFiles") return { tool: "Glob", detail: null };
+  const tool = typeof item.tool === "string" ? item.tool : item.type;
+  const args = item.arguments && typeof item.arguments === "object" ? item.arguments : {};
+  return { tool, detail: tool === "Read" ? args.file_path ?? null : tool === "Grep" ? args.pattern ?? null : null };
+}
+
 /**
  * @param {{getClient: () => any, emit: (event: object) => void, settings?: () => {model?: string|null, effort?: string|null, serviceTier?: string|null},
  *   decorateFork?: (params: object, parentId: string, owner: any) => object, customPrompt?: () => boolean}} options
- *   customPrompt: the user's global instructions are the whole prompt; the side chat then sends no text of its own
+ *   customPrompt: the user's global instructions are the whole prompt; add no side-chat or recovery instructions
  *   decorateFork: the thread/fork params as the app sends them (main.cjs: OpenClaude Desktop's own tools act for the parent
  *   session, its read-only ones only, with that session's own credential).
  */
@@ -75,20 +88,31 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     request.done = true;
     for (const [id, value] of requests) if (value === request) requests.delete(id);
     if (outcome.error) request.reject(outcome.error);
-    else request.resolve({ text: request.text });
+    else request.resolve({ text: request.text, ...(outcome.closed ? { closed: true } : {}) });
+  }
+  function progress(request, stage, activity = null) {
+    if (request.done) return;
+    const snapshot = JSON.stringify([stage, activity]);
+    if (request.progress === snapshot) return;
+    request.progress = snapshot;
+    emit({ method: "codeDesktop/sideQuestion/progress", params: { threadId: request.parentId, requestId: request.requestId, stage, activity } });
+  }
+  function toolProgress(request) {
+    const activity = [...request.tools.values()].at(-1);
+    progress(request, activity ? "tools" : "waiting", activity ?? null);
   }
   const requestFor = (forkId, turnId) => [...requests.values()].find((request) => request.forkId === forkId && (!request.turnId || !turnId || request.turnId === turnId));
 
-  async function fork(owner, parentId) {
+  async function fork(owner, parentId, request) {
     const known = forks.get(parentId);
-    if (known && known.owner === owner) return known.forkId;
+    if (known && known.owner === owner) { request.forkId = known.forkId; return known.forkId; }
     if (known) forks.delete(parentId);
     const { model = null, effort = null, serviceTier = null } = settings() || {};
     forking.set(parentId, (forking.get(parentId) ?? 0) + 1);
     let params = {
       threadId: parentId, ephemeral: true, excludeTurns: true,
       // The user's own prompt is the whole prompt (Settings › Instructions): no side-chat instructions of ours.
-      ...(customPrompt() ? {} : { developerInstructions: SIDE_DEVELOPER_INSTRUCTIONS }),
+      ...(request.customPrompt ? {} : { developerInstructions: SIDE_DEVELOPER_INSTRUCTIONS }),
       approvalPolicy: "never", sandbox: "read-only",
       ...(typeof model === "string" && model ? { model } : {}),
       ...(typeof serviceTier === "string" && serviceTier ? { serviceTier } : {}),
@@ -100,11 +124,15 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     if (typeof forkId !== "string" || !forkId) throw new Error(i18n.t("The side conversation couldn’t start."));
     forks.set(parentId, { forkId, owner });
     forkParents.set(forkId, parentId);
+    request.forkId = forkId;
+    request.freshFork = true;
+    if (request.done || request.customPrompt) return forkId;
     // The boundary goes into the fork's history before the first question (side.rs thread_inject_items); a core
     // without the method gets it at the start of the first question instead.
     let injected = true;
     try { await owner.request("thread/inject_items", { threadId: forkId, items: [boundaryItem()] }); } catch { injected = false; }
-    forks.get(parentId).boundaryPending = !injected;
+    const active = forks.get(parentId);
+    if (active?.forkId === forkId) active.boundaryPending = !injected;
     return forkId;
   }
 
@@ -116,22 +144,36 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     if (typeof parentId !== "string" || !parentId || !question) throw new Error(i18n.t("Ask a question first."));
     // A chat that starts over (no earlier answers) gets a fresh fork, so it sees the session as it is now.
     if (!Array.isArray(params.history) || params.history.length === 0) drop(parentId);
-    const forkId = await fork(owner, parentId);
-    const fresh = forks.get(parentId);
-    const text = fresh?.boundaryPending && !customPrompt() ? `${SIDE_BOUNDARY_PROMPT}\n\n${question}` : question;
-    if (fresh) fresh.boundaryPending = false;
+    // Register before forking: Stop can arrive while thread/fork or turn/start is still pending.
     return await new Promise((resolve, reject) => {
-      const request = { parentId, forkId, owner, turnId: null, text: "", done: false, resolve, reject };
-      requests.set(requestId ?? `side-${Date.now()}-${Math.random()}`, request);
-      owner.request("turn/start", {
-        threadId: forkId, input: [{ type: "text", text, text_elements: [] }],
-        approvalPolicy: "never", sandboxPolicy: { type: "readOnly", networkAccess: false },
-      }).then((result) => {
+      const request = { parentId, requestId: requestId ?? `side-${Date.now()}-${Math.random()}`, forkId: null, freshFork: false, customPrompt: customPrompt() === true, owner, turnId: null, text: "", tools: new Map(), done: false, cancelled: false, resolve, reject };
+      requests.set(request.requestId, request);
+      void (async () => {
+        if (!forks.has(parentId) || forks.get(parentId).owner !== owner) progress(request, "forking");
+        const forkId = await fork(owner, parentId, request);
+        request.forkId = forkId;
+        if (request.done) {
+          if (forks.get(parentId)?.forkId === forkId) drop(parentId);
+          return;
+        }
+        progress(request, "waiting");
+        const fresh = forks.get(parentId);
+        // A healthy fork already owns these exchanges. Replaying only on a new
+        // fork restores what the panel still shows after close/disconnect/error.
+        const outgoing = request.freshFork ? sideChatRecoveryQuestion(params.history, question, { customPrompt: request.customPrompt }) : question;
+        const text = fresh?.boundaryPending ? `${SIDE_BOUNDARY_PROMPT}\n\n${outgoing}` : outgoing;
+        if (fresh) fresh.boundaryPending = false;
+        const result = await owner.request("turn/start", {
+          threadId: forkId, input: [{ type: "text", text, text_elements: [] }],
+          approvalPolicy: "never", sandboxPolicy: { type: "readOnly", networkAccess: false },
+        });
         if (typeof result?.turn?.id === "string") request.turnId = result.turn.id;
+        // A cancelled start can acknowledge later. Interrupt that exact turn, never its parent's turn.
+        if (request.cancelled && request.turnId && owner === getClient())
+          await owner.request("turn/interrupt", { threadId: forkId, turnId: request.turnId }).catch(() => {});
         if (result?.turn?.status && result.turn.status !== "inProgress") settle(request, {});
-      }, (error) => {
-        // A fork the core already dropped (a reconnect, a restart): the next question starts a new one.
-        forget(forkId);
+      })().catch(error => {
+        if (request.forkId) forget(request.forkId);
         settle(request, { error });
       });
     });
@@ -142,6 +184,7 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     const request = requests.get(params?.requestId);
     if (!request) return {};
     const { forkId, owner, turnId } = request;
+    request.cancelled = true;
     settle(request, {});
     if (turnId && owner === getClient()) await owner.request("turn/interrupt", { threadId: forkId, turnId }).catch(() => {});
     return {};
@@ -161,7 +204,14 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
     if (typeof forkId !== "string" || !forkParents.has(forkId)) return false;
     const parentId = forkParents.get(forkId);
     const request = requestFor(forkId, params.turnId ?? params.turn?.id);
+    if (event.method === "turn/started" && request && typeof params.turn?.id === "string") request.turnId = params.turn.id;
+    if (event.method === "item/started" && request && typeof params.item?.id === "string") {
+      const activity = sideToolActivity(params.item);
+      if (activity) { request.tools.set(params.item.id, activity); toolProgress(request); }
+    }
+    if (event.method === "item/completed" && request && request.tools.delete(params.item?.id)) toolProgress(request);
     if (event.method === "item/agentMessage/delta" && request && typeof params.delta === "string" && params.delta) {
+      if (!request.tools.size) progress(request, "responding");
       request.text += params.delta;
       const requestId = [...requests.entries()].find(([, value]) => value === request)?.[0];
       if (requestId) emit({ method: "codeDesktop/sideQuestion/delta", params: { threadId: parentId, requestId, text: params.delta } });
@@ -175,11 +225,14 @@ function createNativeSideChat({ getClient, emit, settings = () => ({}), decorate
       else settle(request, {});
     }
     if (event.method === "error" && request && params.willRetry !== true) settle(request, { error: new Error(params.error?.message || i18n.t("The side question failed.")) });
-    if (event.method === "thread/closed") forget(forkId);
+    if (event.method === "thread/closed") {
+      if (request) settle(request, { closed: true });
+      forget(forkId);
+    }
     return true;
   }
 
   return { ask, cancel, observe, drop, isFork: (id) => forkParents.has(id) };
 }
 
-module.exports = { createNativeSideChat, SIDE_BOUNDARY_PROMPT, SIDE_DEVELOPER_INSTRUCTIONS };
+module.exports = { createNativeSideChat, sideToolActivity, SIDE_BOUNDARY_PROMPT, SIDE_DEVELOPER_INSTRUCTIONS };

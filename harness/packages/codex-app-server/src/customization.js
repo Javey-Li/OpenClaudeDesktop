@@ -9,7 +9,7 @@
  * keeps it. The agent-scoped hooks read the ref at every assembly/request.
  */
 import { installInstructions, normalizeInstructions } from './instructions.js'
-import { installModelParams, normalizeModelParams } from './model-params.js'
+import { installModelParams, normalizeModelParams, rememberContextWindows } from './model-params.js'
 import { installSystemPrompt, normalizeSystemPrompt } from './system-prompt.js'
 
 export function createCustomRef() {
@@ -27,6 +27,7 @@ export function applyCustomization(ref, params) {
   if (Object.hasOwn(custom, 'systemPrompt')) ref.systemPrompt = normalizeSystemPrompt(custom.systemPrompt)
   if (Object.hasOwn(custom, 'instructions')) ref.instructions = normalizeInstructions(custom.instructions)
   if (Object.hasOwn(custom, 'modelParams')) ref.modelParams = custom.modelParams === null ? null : normalizeModelParams(custom.modelParams)
+  if (Object.hasOwn(custom, 'modelParams')) rememberContextWindows(ref.modelParams)
   return ref
 }
 

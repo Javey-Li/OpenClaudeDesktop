@@ -28,7 +28,7 @@ try{
  await row('race-a').waitFor();await row('race-a').click();await row('race-b').click();await row('race-a').click();
  await page.getByText('CURRENT_SNAPSHOT',{exact:true}).waitFor();await page.waitForTimeout(1600);assert.equal(await page.getByText('STALE_SNAPSHOT',{exact:true}).count(),0);
  checks.push('A→B→A out-of-order resume cannot replace current transcript with stale history');
- const input=page.getByRole('textbox',{name:'Message DeepSeek'});await input.fill('fixture:complete delayed send');await page.getByRole('button',{name:'Send message',exact:true}).click();
+ const input=page.getByRole('textbox',{name:'Message DeepSeek'});await input.fill('fixture:complete delayed send');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
  await page.locator('.sc-spinner').waitFor();await input.fill('A new draft typed during the pending send');await page.waitForFunction(()=>!document.querySelector('.sc-spinner'));
  // HANDOFF 0.2.81/0.2.124: the composer is a contenteditable ProseMirror editor exposing its serialized draft as
  // node.value (src/source-composer-editor.jsx:61); Playwright inputValue only reads input/textarea/select.

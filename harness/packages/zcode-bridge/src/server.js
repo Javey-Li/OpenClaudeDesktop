@@ -1773,11 +1773,11 @@ export async function main() {
         supportedReasoningEfforts: levels.map((level) => ({ reasoningEffort: level.value, description: level.label ?? level.value })),
         defaultReasoningEffort: (isDefault ? current?.options?.reasoningLevel : null) ?? entry.reasoning?.defaultLevel ?? levels[0]?.value ?? null,
         inputModalities: entry.properties?.inputFormat?.supportsImage ? ['text', 'image'] : ['text'], supportsPersonality: false, multiAgentVersion: null,
-        additionalSpeedTiers: [], serviceTiers: [], defaultServiceTier: null, isDefault, ...(isDefault ? { badge: { message: 'Default' } } : {}),
+        additionalSpeedTiers: [], serviceTiers: [], defaultServiceTier: null, isDefault,
         provider: entry.ref.providerId, contextWindow: entry.contextWindow ?? null, maxOutputTokens: entry.maxOutputTokens ?? null,
       }
     })
-    if (data.length && !data.some((entry) => entry.isDefault)) { data[0].isDefault = true; data[0].badge = { message: 'Default' } }
+    if (data.length && !data.some((entry) => entry.isDefault)) { data[0].isDefault = true }
     return { data, nextCursor: null }
   }
 

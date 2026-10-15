@@ -115,3 +115,9 @@ html[data-reduce-motion="true"] .source-transcript-jump { transition: none; }
 .source-transcript-content > .stf-footer { margin-top: 8px; margin-bottom: 10px; }
 .source-transcript-content > .stf-footer + .source-message { margin-top: 10px; }
 .source-transcript-content > .stf-footer + .source-message:is(.source-user-message,[data-turn-start]) { margin-top: 15px; }
+
+/* Current ceb49ada3 split selection toolbar; cd5a31703 Eot positions its first line. */
+.source-selection-toolbar { position:fixed;left:0;top:0;z-index:455;display:flex;width:max-content;max-width:calc(100vw - 24px);isolation:isolate;will-change:transform;pointer-events:auto;-webkit-app-region:no-drag;border-radius:4px;background:var(--cds-surface-3);box-shadow:var(--cds-shadow-popover);color:var(--cds-text-primary); }
+.source-selection-divider { width:1px;flex-shrink:0;margin:7px 0;background:var(--cds-alpha-2);transition:opacity .15s; }
+.source-selection-toolbar:hover .source-selection-divider,.source-selection-toolbar:focus-within .source-selection-divider { opacity:0; }
+@media (prefers-reduced-motion:reduce) { .source-selection-divider { transition:none; } }

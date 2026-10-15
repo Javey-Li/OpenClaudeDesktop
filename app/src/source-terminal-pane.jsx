@@ -1,3 +1,13 @@
+import {installTerminalCommands} from "./generated/code-editor/terminal-commands.mjs";
+import {attachVisibleTerminalOutput} from "./generated/code-editor/terminal-output.mjs";
+import {terminalOwnsContextMenu} from "./generated/code-editor/terminal-mouse.mjs";
+import {installTerminalColorPolicy} from "./generated/code-editor/terminal-colors.mjs";
+import {routeTerminalKey,installTerminalCopyEvent} from "./terminal-event-routing.mjs";
+import {handleTerminalNavigation} from "./terminal-navigation.mjs";
+import {terminalViewSettings, terminalViewMenu, terminalViewOptions} from './terminal-view-settings.mjs';
+import {TerminalSelectionAction} from './source-terminal-selection.jsx';
+import {observeTerminalSelection} from './terminal-selection-controller.mjs';
+import {installTerminalCopyOnSelect,terminalSelectionText} from './terminal-copy-selection.mjs';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Icon } from "./icons";
 import { SourceMenu } from "./source-menu";
@@ -6,10 +16,17 @@ import { SourceConfirmationDialog } from "./source-dialog";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { useCodeThemes } from "./code-theme-store.mjs";
 import { useReducedMotion } from "./use-reduced-motion.js";
-import { FIND_LABELS, findInputKey, findStatusText } from "./transcript-find-model.mjs";
+import {SourceTerminalFind} from "./source-terminal-find.jsx";
+import { SourceEmptyState } from "./source-transcript-states.jsx";
+import { SourcePreviewTabOverflow } from "./source-preview-tab-overflow.jsx";
+import { menuTriggerProps } from "./source-menu.jsx";
+import { useSourceToasts } from "./source-toast.jsx";
+import { acceptsFileContextDrag } from "./file-context-drag.mjs";
+import { draggedFilePaths } from "./generated/code-editor/file-context-drag.mjs";
+import { terminalTitles } from "./terminal-titles.mjs";
 import {
-  KEY_SEQUENCES, MINIMUM_CONTRAST_RATIO, SCROLLBACK_LINES, findLinks, relativeToFolder, safeWebUrl, shouldAutoClose, tabLabel,
-  terminalError, terminalFont, terminalFontSize, terminalKeyAction, terminalTheme,
+  DROP_ERRORS, KEY_SEQUENCES, MINIMUM_CONTRAST_RATIO, findLinks, hiddenTerminalTabs, relativeToFolder, renameDraft, safeWebUrl, shouldAutoClose, tabLabel,
+  terminalDropText, terminalError, terminalFont, terminalFontSize, terminalKeyAction, terminalTheme,
 } from "./terminal-pane-model.mjs";
 import { ownerKeyOf, terminalStore } from "./terminal-store.mjs";
 import { useTabDragReorder } from "./use-tab-drag-reorder.mjs";
@@ -89,20 +106,29 @@ let handledFocusRequest = null;
 
 export function SourceTerminalPane({
   sessionId = null, homeWorkspace = null, cwd = null, headerCenter = null, controls = null, onClosePane, onOpenFile, onOpenExternal,
-  focusRequest = null, onAttachSelection = null,
+  focusRequest = null, onAttachSelection = null, fileDragOwner = null,
 }) {
   const terminals = store();
+  const titles = terminalTitles();
+  const titleState = useSyncExternalStore(titles.subscribe, titles.snapshot, titles.snapshot);
+  const toasts = useSourceToasts();
+  const viewSettingsStore = terminalViewSettings();
+  const viewSettings = useSyncExternalStore(viewSettingsStore.subscribe, viewSettingsStore.getSnapshot, viewSettingsStore.getSnapshot);
   const owner = ownerKeyOf(sessionId, homeWorkspace);
   const version = useSyncExternalStore(terminals.subscribe, terminals.version, () => 0);
   const state = terminals.get(owner);
   const tabs = state?.tabs ?? [];
   const active = tabs.find((tab) => tab.id === state?.active) ?? tabs[0] ?? null;
-  const [error, setError] = useState(terminals.available ? null : t("Couldn’t load the terminal. Reload the page to try again."));
+  const [error, setError] = useState(null);
+  // cccc2cf0a Rg/Bg: the terminal module (or the preload bridge) is missing; only a reload can bring it back.
+  const [loadFailed, setLoadFailed] = useState(!terminals.available);
   const [confirm, setConfirm] = useState(null); // { kind: "close"|"close-others", id, count }
   const [renaming, setRenaming] = useState(null); // id
   const [findOpen, setFindOpen] = useState(false);
   const [bell, setBell] = useState(null);
   const [backend, setBackend] = useState(null);
+  const [selectionAnchor,setSelectionAnchor]=useState(null);
+  const searchSelecting=useRef(false);
   const [bodyMenu, setBodyMenu] = useState(null); // {x, y, selection}: the terminal body's context menu
   const [attached, setAttached] = useState(0); // announces "Terminal output attached to chat"
   const hadTabs = useRef(null); // the owner whose tabs were seen (a session switch can reuse this pane)
@@ -145,7 +171,12 @@ export function SourceTerminalPane({
     if (hadTabs.current === owner && state?.loaded) { hadTabs.current = null; onClosePane?.(); }
   }, [tabs.length, state?.loaded, owner]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    for (const tab of tabs) if (shouldAutoClose(tab, terminals.lastEnter(tab.id))) void terminals.close(owner, sessionId, homeWorkspace, tab.id);
+    for (const tab of tabs) {
+      // c6bf19e8f shell_pty_close → Ce(ptyKey): an exited shell drops its running command / title (a command cut off
+      // by the exit never sends its D mark). The view's tracker stays installed for a restart.
+      if (tab.status === "exited") titles.forget(tab.id);
+      if (shouldAutoClose(tab, terminals.lastEnter(tab.id))) void terminals.close(owner, sessionId, homeWorkspace, tab.id);
+    }
   }, [version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Appearance → xterm options.
@@ -166,7 +197,7 @@ export function SourceTerminalPane({
   const theme = useMemo(() => terminalTheme({ themeId, mode: appearance.mode, colors: themeColors, surface }),
     [themeId, appearance.mode, themeColors, surface]);
   const options = useMemo(() => ({ theme, fontFamily: terminalFont(appearance.codeFont), fontSize: terminalFontSize(appearance.rootPx),
-    cursorBlink: !reducedMotion }), [theme, appearance.codeFont, appearance.rootPx, reducedMotion]);
+    ...terminalViewOptions(viewSettings,reducedMotion) }), [theme, appearance.codeFont, appearance.rootPx, reducedMotion, viewSettings]);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -179,12 +210,17 @@ export function SourceTerminalPane({
     paths: (list, id) => terminals.paths(sessionId, homeWorkspace, list, id),
     clear: (id) => terminals.clear(sessionId, homeWorkspace, id),
     folder: cwd,
+    selectionSuppressed: () => searchSelecting.current,
     key: null,
     bell: (id) => setBell({ id, at: Date.now() }),
-    // ⇧⌘L / the body menu's "Attach selection as context": the selected output joins this session's draft.
+    attachVisible: term => {
+      if (!attachVisibleTerminalOutput(term,onAttachSelection?handlers.current.attach:null) && term.hasSelection()) setSelectionAnchor(null);
+    },
+    // Keyboard, selection action and body menu share the terminal's label and context identity.
     attach: (text) => {
       if (!onAttachSelection || typeof text !== "string" || !text.trim()) return false;
-      onAttachSelection(text);
+      onAttachSelection(terminalSelectionText(text).trim(),{label:tabLabel(active,tabs.length),terminalTabId:sessionId?active?.id:undefined});
+      viewRef.current?.term.clearSelection(); setSelectionAnchor(null);
       setAttached(Date.now());
       return true;
     },
@@ -198,9 +234,13 @@ export function SourceTerminalPane({
     element.className = "stp-xterm";
     const { Terminal, FitAddon, SearchAddon, Unicode11Addon, WebLinksAddon } = modules;
     const term = new Terminal({
-      ...optionsRef.current, scrollback: SCROLLBACK_LINES, minimumContrastRatio: MINIMUM_CONTRAST_RATIO, allowProposedApi: true,
+      ...optionsRef.current, minimumContrastRatio: MINIMUM_CONTRAST_RATIO, allowProposedApi: true,
       macOptionIsMeta: false, rightClickSelectsWord: false, drawBoldTextInBrightColors: true,
     });
+    const commands=installTerminalCommands(term);
+    const colorPolicy=installTerminalColorPolicy(term);
+    // cf718f694 ge: the running command (OSC 133 C cmdline_url) or the shell's title, shown on this tab.
+    if (id) terminalTitles().install(term, id);
     const fit = new FitAddon(), search = new SearchAddon({ highlightLimit: 1000 });
     term.loadAddon(fit);
     term.loadAddon(search);
@@ -244,14 +284,17 @@ export function SourceTerminalPane({
     term.onData((data) => terminals.input(id, data));
     term.onBell(() => bound.handlers.current.bell?.(id));
     term.attachCustomKeyEventHandler((event) => {
-      const action = terminalKeyAction(event);
+      const mac=/Mac/.test(navigator.platform);
+      if(routeTerminalKey(event,term,text=>navigator.clipboard.writeText(text)))return false;
+      if(handleTerminalNavigation(event,term,data=>terminals.input(id,data),{mac,linux:/Linux/.test(navigator.platform),shell:info.shell,commands}))return false;
+      const action = terminalKeyAction(event,{bufferType:term.buffer.active.type,mac});
       if (!action) return true;
       if (action === "toggle") return false; // the window handler toggles the pane
       event.preventDefault();
       event.stopPropagation();
-      if (action === "clear") { term.clear(); bound.handlers.current.clear?.(id); }
+      if (action === "clear") { term.clearSelection(); term.clear(); bound.handlers.current.clear?.(id); }
       else if (action === "select-all") term.selectAll();
-      else if (action === "attach-selection") bound.handlers.current.attach?.(term.getSelection());
+      else if (action === "attach-selection") { if (!event.repeat) bound.handlers.current.attachVisible?.(term); }
       else if (action === "find") bound.handlers.current.key?.("find");
       else if (action === "find-next" || action === "find-previous") bound.handlers.current.key?.(action);
       else if (KEY_SEQUENCES[action]) terminals.input(id, KEY_SEQUENCES[action]);
@@ -259,6 +302,10 @@ export function SourceTerminalPane({
     });
     // The buffer as plain text on the view's own element (the WebGL renderer leaves no DOM rows to read): the offscreen
     // UI suite reads it; nothing in the app depends on it.
+    element.stpReadViewport = () => ({type:term.buffer.active.type,viewportY:term.buffer.active.viewportY,baseY:term.buffer.active.baseY,rows:term.rows,markers:term.markers.map(marker=>marker.line)});
+    element.stpReadSelection = () => term.getSelection();
+    element.stpReadSelectionPosition = () => term.getSelectionPosition();
+    element.stpReadOptions = () => ({cursorStyle:term.options.cursorStyle,cursorBlink:term.options.cursorBlink,scrollback:term.options.scrollback});
     element.stpReadText = () => {
       const buffer = term.buffer.active, lines = [];
       // A soft-wrapped row continues the previous logical line (xterm marks it isWrapped).
@@ -270,10 +317,12 @@ export function SourceTerminalPane({
     };
     host.current?.replaceChildren(element);
     term.open(element);
+    const disposeCopyEvent=installTerminalCopyEvent(term,element);
+    const disposeCopy=installTerminalCopyOnSelect(term,element,{enabled:()=>viewSettingsStore.getSnapshot().copyOnSelect,writeText:text=>navigator.clipboard.writeText(text),mac:/Mac/.test(navigator.platform)});
     const view = {
       id, element, term, fit, search, webgl: null, bind: (next) => { bound.handlers = next; },
-      write: (data) => term.write(data), reset: () => term.reset(), clear: () => term.clear(),
-      dispose: () => { try { view.webgl?.dispose(); } catch {} term.dispose(); element.remove(); },
+      write: (data) => term.write(data), reset: () => term.reset(), clear: () => {term.clearSelection();term.clear();},
+      dispose: () => { if (id) terminalTitles().forget(id); colorPolicy.dispose(); disposeCopyEvent(); disposeCopy(); try { view.webgl?.dispose(); } catch {} term.dispose(); element.remove(); },
     };
     loadWebgl().then((WebglAddon) => {
       if (!WebglAddon || !element.isConnected || view.webgl) return;
@@ -292,7 +341,7 @@ export function SourceTerminalPane({
   const [modulesReady, setModulesReady] = useState(null);
   useEffect(() => {
     let alive = true;
-    loadXterm().then((modules) => { if (alive) setModulesReady(() => modules); }, () => { if (alive) setError(t("Couldn’t load the terminal. Reload the page to try again.")); });
+    loadXterm().then((modules) => { if (alive) setModulesReady(() => modules); }, () => { if (alive) setLoadFailed(true); });
     return () => { alive = false; };
   }, []);
   const fitNow = useCallback(() => {
@@ -311,6 +360,7 @@ export function SourceTerminalPane({
     if (!modulesReady || !activeId || !host.current) return undefined;
     const view = terminals.view(activeId, sessionId, homeWorkspace, factory(modulesReady));
     viewRef.current = view;
+    const stopSelection=observeTerminalSelection(view.term,host.current.parentElement,{onChange:setSelectionAnchor,suppressed:()=>handlers.current.selectionSuppressed()});
     view.bind?.(handlers);
     if (view.element.parentNode !== host.current) host.current.replaceChildren(view.element);
     for (const [key, value] of Object.entries(optionsRef.current)) if (view.term.options[key] !== value) view.term.options[key] = value;
@@ -318,6 +368,7 @@ export function SourceTerminalPane({
     fitNow();
     if (pendingFocus.current) { pendingFocus.current = false; requestAnimationFrame(focusTerminal); }
     return () => {
+      stopSelection();
       if (viewRef.current === view) viewRef.current = null;
       if (view.element.parentNode === host.current) view.element.remove();
       // No longer shown here: this window's size stops limiting the PTY (another window may show it wider).
@@ -325,6 +376,7 @@ export function SourceTerminalPane({
     };
   }, [modulesReady, activeId, owner]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    terminals.updateViewOptions(terminalViewOptions(viewSettings,reducedMotion));
     const view = viewRef.current;
     if (!view) return;
     for (const [key, value] of Object.entries(options)) if (view.term.options[key] !== value) view.term.options[key] = value;
@@ -337,8 +389,12 @@ export function SourceTerminalPane({
     observer.observe(host.current);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [fitNow]);
-  // Focus requests (toggle shortcut, pane opened, tab switched by the user).
-  const focusTerminal = useCallback(() => { viewRef.current?.term.focus(); }, []);
+  // Focus requests (toggle shortcut, pane opened, tab switched by the user). c6bf19e8f: while the shell has exited
+  // (or failed to restart) the hidden xterm can't take focus; the overlay's Restart shell / Try again button does.
+  const focusTerminal = useCallback(() => {
+    const button = restartButton.current;
+    if (button?.isConnected) button.focus({ preventScroll: true }); else viewRef.current?.term.focus();
+  }, []);
   const pendingFocus = useRef(false);
   useEffect(() => {
     if (focusRequest === null || focusRequest === undefined || focusRequest === handledFocusRequest) return;
@@ -395,19 +451,118 @@ export function SourceTerminalPane({
     if (pending.kind === "close") void terminals.close(owner, sessionId, homeWorkspace, pending.id);
     else for (const tab of tabs) if (tab.id !== pending.id) void terminals.close(owner, sessionId, homeWorkspace, tab.id);
   };
-  const clear = (id) => { if (viewRef.current?.id === id) { viewRef.current.term.clear(); focusTerminal(); } };
+  const clear = (id) => {
+    if (!terminals.hasView(id)) return;
+    // The source registry permits clearing any cached view, including hidden tabs.
+    // The service broadcasts the clear to that view and drops replayed output too.
+    void handlers.current.clear(id);
+    if (viewRef.current?.id === id) { viewRef.current.clear(); focusTerminal(); }
+  };
   const restart = async () => {
     if (!active) return;
-    try { await terminals.restart(sessionId, homeWorkspace, active.id); setError(null); focusTerminal(); }
-    catch (failure) { setError(terminalError(failure, t("Failed to open terminal tab"))); }
+    // Focus after the overlay is gone (the xterm host is hidden until the running state renders).
+    try { await terminals.restart(sessionId, homeWorkspace, active.id); setError(null); setRestartError(null); requestAnimationFrame(focusTerminal); }
+    catch (failure) { setRestartError({ id: active.id, message: terminalError(failure, t("Failed to open terminal tab")) }); }
   };
   const newTab = async () => { const info = await create(); if (info) requestAnimationFrame(focusTerminal); };
 
+  // Drop files or folders on the terminal (cccc2cf0a lg on cc63499d2 Zm): files from Finder give their paths through
+  // webUtils (sg), the Files pane's in-app drag its absolute paths (Tm). Each is quoted for the tab's shell (og/cg) and
+  // pasted at the prompt with a trailing space, then the terminal takes focus; a refused drop says why. Qm rings the
+  // terminal while an accepted drag is over it.
+  const [dropOver, setDropOver] = useState(false);
+  const dropTargets = useRef(new Set());
+  const dropDoc = useRef(null);
+  const dropDisabled = !active || active.status !== "running" || !modulesReady;
+  const dropAccepts = (event) => {
+    if (event.dataTransfer?.types?.includes?.("Files")) return typeof globalThis.desktop?.pathForFile === "function";
+    return acceptsFileContextDrag(event, fileDragOwner);
+  };
+  const dropReset = useCallback(() => { dropTargets.current.clear(); setDropOver(false); }, []);
+  useEffect(() => {
+    const doc = dropDoc.current;
+    if (!dropOver || !doc) return undefined;
+    doc.addEventListener("dragend", dropReset, true);
+    doc.addEventListener("drop", dropReset, true);
+    return () => { doc.removeEventListener("dragend", dropReset, true); doc.removeEventListener("drop", dropReset, true); };
+  }, [dropOver, dropReset]);
+  const dropFailed = (message) => { if (toasts) toasts.add(message, { variant: "danger" }); else setError(message); };
+  const dropPaths = (event) => {
+    const files = event.dataTransfer?.types?.includes?.("Files");
+    let paths;
+    if (files) {
+      paths = [];
+      for (const file of Array.from(event.dataTransfer.files ?? [])) {
+        const value = globalThis.desktop?.pathForFile?.(file) ?? "";
+        if (!value) { paths = null; break; }
+        paths.push(value);
+      }
+    } else paths = draggedFilePaths(fileDragOwner) ?? [];
+    if (paths === null) { dropFailed(t(DROP_ERRORS.noPath)); return; }
+    if (!paths.length) return;
+    // The shell is always reported here (terminal-service info.shell), so in-app drags get the shell check too.
+    const text = terminalDropText(paths, active?.shell ?? null, { skipShellCheck: !files && !active?.shell, windows: /Win/.test(navigator.platform) });
+    if (text === null) { dropFailed(t(DROP_ERRORS.refused)); return; }
+    const term = viewRef.current?.term;
+    if (!term) return;
+    term.paste(text);
+    focusTerminal();
+  };
+  const dropHandlers = {
+    onDragEnter: (event) => {
+      if (!dropAccepts(event)) return;
+      event.preventDefault(); event.stopPropagation();
+      if (event.target) dropTargets.current.add(event.target);
+      dropDoc.current = event.currentTarget.ownerDocument;
+      setDropOver(true);
+    },
+    onDragLeave: (event) => {
+      if (!dropAccepts(event)) return;
+      event.preventDefault(); event.stopPropagation();
+      const targets = dropTargets.current;
+      if (event.target) targets.delete(event.target);
+      for (const node of targets) if (!event.currentTarget.contains(node)) targets.delete(node);
+      if (targets.size === 0) setDropOver(false);
+    },
+    onDragOver: (event) => {
+      if (!dropAccepts(event)) return;
+      event.preventDefault(); event.stopPropagation();
+      event.dataTransfer.dropEffect = dropDisabled ? "none" : "copy";
+    },
+    onDrop: (event) => {
+      if (!dropAccepts(event)) return;
+      const handled = event.isDefaultPrevented();
+      event.preventDefault(); event.stopPropagation();
+      dropReset();
+      if (!dropDisabled && !handled) dropPaths(event);
+    },
+  };
+
+  // c6bf19e8f: "Shell exited." covers the terminal and its Restart shell takes focus when nothing else has it.
+  const restartButton = useRef(null);
+  const exitedNow = active?.status === "exited";
+  const [restartError, setRestartError] = useState(null); // {id, message}: the last Restart shell of that tab failed
+  const failedRestart = exitedNow && restartError?.id === active?.id ? restartError.message : null;
+  useEffect(() => {
+    const button = restartButton.current;
+    if (!exitedNow || !button) return;
+    const doc = button.ownerDocument, focused = doc.activeElement;
+    if (!focused || focused === doc.body || pane.current?.querySelector(".stp-body")?.contains(focused)) button.focus({ preventScroll: true });
+  }, [exitedNow, activeId]);
+
   const findRef = useRef(null);
   handlers.current.key = (action) => {
-    if (action === "find") setFindOpen(true);
+    if (action === "find") { setFindOpen(true); findRef.current?.focus(); }
     else findRef.current?.step(action === "find-next");
   };
+
+  useEffect(()=>{setFindOpen(false);},[activeId,owner]);
+  useEffect(()=>{if(active?.status==='exited'||error)setFindOpen(false);},[active?.status,error]);
+  useEffect(()=>{
+    const node=pane.current;
+    const command=event=>{if(!viewRef.current||viewRef.current.closed||active?.status==='exited'||error)return;event.preventDefault();handlers.current.key(event.detail.kind==='find-open'?'find':event.detail.forward?'find-next':'find-previous');};
+    node?.addEventListener('terminal-find-command',command);return()=>node?.removeEventListener('terminal-find-command',command);
+  },[active?.status,error]);
 
   // Drag a tab to a new slot (panes-tabs-current.js Oe onReorder); Ctrl+Shift+←/→ below stays the keyboard path.
   const tabDrag = useTabDragReorder({ stripRef: tabList, itemSelector: "[data-terminal-id]", idOf: (node) => node.dataset.terminalId,
@@ -442,15 +597,17 @@ export function SourceTerminalPane({
           <div ref={tabList} className="source-file-tabs stp-tabs" role="tablist" aria-label={t("Terminal tabs")}>
             <SourceTooltipGroup delay={700}>
               {shownTabs.map((tab, index) => (
-                <TerminalTab key={tab.id} tab={tab} onPointerDown={(event) => tabDrag.onPointerDown(tab.id, event)} label={tabLabel(tab, tabs.length)} selected={tab.id === activeId} posinset={index + 1}
+                <TerminalTab key={tab.id} tab={tab} onPointerDown={(event) => tabDrag.onPointerDown(tab.id, event)} label={tabLabel(tab, tabs.length)} running={titles.value(titleState, tab)} selected={tab.id === activeId} posinset={index + 1}
                   setsize={tabs.length} hintId={hintId} moveHintId={moveHintId} bell={bell?.id === tab.id && !reducedMotion}
                   renaming={renaming === tab.id} onRenameDone={async (title) => {
                     setRenaming(null);
-                    if (title !== undefined) { try { await terminals.rename(sessionId, homeWorkspace, tab.id, title); } catch (failure) { setError(terminalError(failure, t("Couldn’t rename the terminal"))); } }
+                    // Zg/r_ rename: trimmed; an empty name clears the tab's own name (it is numbered again).
+                    if (title !== undefined && title.trim() !== renameDraft(tab)) {
+                      title = title.trim(); try { await terminals.rename(sessionId, homeWorkspace, tab.id, title); } catch (failure) { setError(terminalError(failure, t("Couldn’t rename the terminal"))); } }
                     requestAnimationFrame(() => tabList.current?.querySelector(`[data-terminal-id="${tab.id}"] [role="tab"]`)?.focus());
                   }}
                   onSelect={() => select(tab.id, { focus: true })} onClose={() => close(tab.id)} onKeyDown={(event) => onTabKey(event, tab.id)}
-                  onRename={() => setRenaming(tab.id)} onClear={() => clear(tab.id)} onCloseOthers={tabs.length > 1 ? () => closeOthers(tab.id) : null} />
+                  onRename={() => setRenaming(tab.id)} canClear={() => terminals.hasView(tab.id)} onClear={() => clear(tab.id)} onCloseOthers={tabs.length > 1 ? () => closeOthers(tab.id) : null} />
               ))}
             </SourceTooltipGroup>
           </div>
@@ -464,32 +621,34 @@ export function SourceTerminalPane({
               <Icon name="Add" size={16} />
             </button>
           </SourceTooltip>
-          {overflowing && <MoreTerminals tabs={tabs} activeId={activeId} onSelect={(id) => select(id, { focus: true })} />}
+          {overflowing && <MoreTerminals tabs={tabs} activeId={activeId} list={tabList} titleState={titleState} titles={titles}
+            onSelect={(id) => select(id, { focus: true })} onClose={close} />}
         </div>
         {headerCenter}
-        {controls}
+        {React.isValidElement(controls) ? React.cloneElement(controls, {menuSections:terminalViewMenu(viewSettings,viewSettingsStore.set)}) : controls}
       </header>
-      <div className="stp-body" style={{ backgroundColor: theme.background }} data-exited={exited || undefined}
-        onKeyDown={(event) => { if (event.key === "Escape" && findOpen) { event.preventDefault(); setFindOpen(false); focusTerminal(); } }}>
+      <div className="stp-body" style={{ backgroundColor: theme.background }} data-exited={exited || undefined} {...dropHandlers}
+        onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing && findOpen) { event.preventDefault(); setFindOpen(false); focusTerminal(); } }}>
         {limited && !exited && <p className="stp-note" role="note">{t("Limited terminal: the terminal module couldn’t load, so the window size can’t change while a program runs.")}</p>}
         {/* The session folder was deleted or renamed: the running command goes on; the tab says why a new shell can't start. */}
         {active?.error === FOLDER_GONE && !exited && <p className="stp-note" role="note">{t(FOLDER_GONE)}</p>}
-        <div ref={host} className="stp-host"
+        <div ref={host} className="stp-host" hidden={exited || loadFailed || undefined}
           onContextMenu={(event) => {
             const term = viewRef.current?.term;
             if (!term) return;
             event.preventDefault();
+            if(terminalOwnsContextMenu(term,event.nativeEvent,/Mac/.test(navigator.platform)))return;
             setBodyMenu({ x: event.clientX, y: event.clientY, selection: term.getSelection() || "" });
           }} />
         {bodyMenu && (
           <SourceMenu.Popup anchor={host.current} trigger={null} point={bodyMenu} dataCds="ContextMenu" layer="contextmenu" label={t("Terminal")}
             onClose={() => { setBodyMenu(null); focusTerminal(); }}>
-            {/* 2.2553.1 cccc2cf0a Dm: Attach selection as context (only with a selection), then Copy, Paste and Select all. */}
+            {/* 2.31226.0 cccc2cf0a s_: selection actions, clipboard, Select all, Clear terminal. */}
             {onAttachSelection && bodyMenu.selection.trim() && <>
               <SourceMenu.Item shortcut="cmd+shift+l" onClick={() => handlers.current.attach(bodyMenu.selection)}>{t("Attach selection as context")}</SourceMenu.Item>
               <SourceMenu.Separator />
             </>}
-            <SourceMenu.Item shortcut="cmd+c" disabled={!bodyMenu.selection} onClick={() => { const text = bodyMenu.selection; void navigator.clipboard?.writeText?.(text).catch(() => {}); }}>{t("Copy")}</SourceMenu.Item>
+            <SourceMenu.Item shortcut="cmd+c" disabled={!bodyMenu.selection} onClick={() => { const text = terminalSelectionText(bodyMenu.selection); void navigator.clipboard?.writeText?.(text).catch(() => {}); }}>{t("Copy")}</SourceMenu.Item>
             <SourceMenu.Item shortcut="cmd+v" disabled={!active || active.status !== "running"} onClick={() => {
               const term = viewRef.current?.term;
               if (!term) return;
@@ -498,23 +657,39 @@ export function SourceTerminalPane({
             }}>{t("Paste")}</SourceMenu.Item>
             <SourceMenu.Separator />
             <SourceMenu.Item shortcut="cmd+a" onClick={() => viewRef.current?.term.selectAll()}>{t("Select all")}</SourceMenu.Item>
+            <SourceMenu.Separator />
+            <SourceMenu.Item onClick={() => { const view=viewRef.current;if(!view)return;view.term.clearSelection();view.term.clear();void handlers.current.clear(view.id); }}>{t('Clear terminal')}</SourceMenu.Item>
           </SourceMenu.Popup>
         )}
+        {selectionAnchor&&!selectionAnchor.offscreen&&onAttachSelection&&!bodyMenu&&<TerminalSelectionAction anchor={selectionAnchor} onAttach={()=>handlers.current.attach(viewRef.current?.term.getSelection())}/>}
         <span className="source-sr-only" role="status" aria-live="polite">{attached ? t("Terminal output attached to chat") : ""}</span>
-        {findOpen && <TerminalFind ref={findRef} view={viewRef} background={theme.background} onClose={() => { setFindOpen(false); focusTerminal(); }} />}
-        {exited && (
-          <div className="stp-exited" role="status">
-            <span>{active?.error === FOLDER_GONE ? t(FOLDER_GONE) : t("Shell exited.")}</span>
-            {active?.error !== FOLDER_GONE && <SourceSettingsButton size="sm" variant="secondary" onClick={() => void restart()}>{t("Restart shell")}</SourceSettingsButton>}
+        {findOpen && <SourceTerminalFind ref={findRef} selectionSuppressed={searchSelecting} view={viewRef} onClose={() => { setFindOpen(false); focusTerminal(); }} />}
+        {dropOver && !dropDisabled && <TerminalDropRing />}
+        {/* c6bf19e8f (4040-4097): the exited shell covers the surface (bg-surface-1 + EmptyState); Restart shell is
+            described by the title and takes focus. A tab whose folder is gone says so without the button (local). */}
+        {/* A restart that failed (c6bf19e8f A: "Failed to start shell" + Try again) takes the place of "Shell exited.". */}
+        {exited && !loadFailed && (
+          <div className="stp-overlay" data-terminal-exited=""
+            onMouseDown={(event) => { if (!event.defaultPrevented && !event.target.closest?.("button")) { event.preventDefault(); restartButton.current?.focus(); } }}>
+            <SourceEmptyState title={<span id={`${hintId}-exited`}>{failedRestart ?? (active?.error === FOLDER_GONE ? t(FOLDER_GONE) : t("Shell exited."))}</span>}
+              actions={active?.error !== FOLDER_GONE && failedRestart !== t(FOLDER_GONE) && <SourceSettingsButton ref={restartButton} size="sm" variant="secondary" aria-describedby={`${hintId}-exited`}
+                data-initial-focus="" onClick={() => void restart()}>{failedRestart ? t("Try again") : t("Restart shell")}</SourceSettingsButton>} />
           </div>
         )}
-        {error && !exited && (
+        {/* cccc2cf0a Rg/Bg: the terminal chunk (or the bridge) failed to load; Reload is the only way back. */}
+        {loadFailed && (
+          <div className="stp-overlay">
+            <SourceEmptyState role="alert" icon="Warning" title={t("Couldn’t load the terminal. Reload the page to try again.")}
+              actions={<SourceSettingsButton size="sm" variant="secondary" onClick={() => window.location.reload()}>{t("Reload")}</SourceSettingsButton>} />
+          </div>
+        )}
+        {error && !exited && !loadFailed && (
           <div className="stp-error" role="alert">
             <span>{error}</span>
             {terminals.available && owner && !tabs.length && <SourceSettingsButton size="sm" variant="secondary" onClick={() => void newTab()}>{t("New terminal")}</SourceSettingsButton>}
           </div>
         )}
-        {!tabs.length && !error && <span className="stp-placeholder" data-testid="terminal-pane-placeholder" aria-hidden="true" />}
+        {!tabs.length && !error && !loadFailed && <span className="stp-placeholder" data-testid="terminal-pane-placeholder" aria-hidden="true" />}
       </div>
       {confirm && (
         <SourceConfirmationDialog
@@ -529,11 +704,12 @@ export function SourceTerminalPane({
   );
 }
 
-function TerminalTab({ tab, label, selected, posinset, setsize, hintId, moveHintId, bell, renaming, onRenameDone, onSelect, onClose, onKeyDown, onRename, onClear, onCloseOthers, onPointerDown }) {
+function TerminalTab({ tab, label, running: title, selected, posinset, setsize, hintId, moveHintId, bell, renaming, onRenameDone, onSelect, onClose, onKeyDown, onRename, canClear, onClear, onCloseOthers, onPointerDown }) {
   const root = useRef(null), field = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [draft, setDraft] = useState(label);
-  useLayoutEffect(() => { if (renaming) { setDraft(tab.title ?? label); requestAnimationFrame(() => { field.current?.focus(); field.current?.select(); }); } }, [renaming]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [draft, setDraft] = useState("");
+  // Zg editValue: the tab's own name, empty for a numbered tab (Enter on an empty field clears the name).
+  useLayoutEffect(() => { if (renaming) { setDraft(renameDraft(tab)); requestAnimationFrame(() => { field.current?.focus(); field.current?.select(); }); } }, [renaming]); // eslint-disable-line react-hooks/exhaustive-deps
   const running = tab.busy === true && tab.status === "running";
   const status = tab.status === "exited" ? t("Shell exited.") : running ? t("Terminal (command running)") : null;
   return (
@@ -556,7 +732,7 @@ function TerminalTab({ tab, label, selected, posinset, setsize, hintId, moveHint
           }}
           onBlur={() => onRenameDone(draft)} />
       ) : (
-        <SourceTooltip content={label} detail={tab.cwd} side="bottom" align="start" delay={700} hoverable={false}>
+        <SourceTooltip content={label} detail={title ?? tab.cwd} side="bottom" align="start" delay={700} hoverable={false}>
           <div role="tab" aria-selected={selected} aria-posinset={posinset} aria-setsize={setsize} tabIndex={selected ? 0 : -1}
             aria-describedby={`${hintId} ${moveHintId}`} onClick={onSelect}
             onKeyDown={(event) => {
@@ -565,7 +741,8 @@ function TerminalTab({ tab, label, selected, posinset, setsize, hintId, moveHint
               onKeyDown(event);
             }}>
             {running && <span className="stp-tab-dot" aria-hidden="true" />}
-            <span className="source-file-tab-label" data-vtb-label=""><span>{label}{status && <span className="source-sr-only">, {status}</span>}</span></span>
+            {/* Zg description: the running command or the title's last path segment, muted after the name. */}
+            <span className="source-file-tab-label" data-vtb-label=""><span>{label}{title && <span className="stp-tab-description"><span className="source-sr-only">, </span>{terminalTitles().description(title)}</span>}{status && <span className="source-sr-only">, {status}</span>}</span></span>
           </div>
         </SourceTooltip>
       )}
@@ -577,7 +754,7 @@ function TerminalTab({ tab, label, selected, posinset, setsize, hintId, moveHint
         <SourceMenu.Popup anchor={root.current} trigger={null} side="bottom" align="start" dataCds="ContextMenu" layer="contextmenu"
           onClose={() => setMenuOpen(false)}>
           <SourceMenu.Item onClick={onRename}>{t("Rename terminal")}</SourceMenu.Item>
-          <SourceMenu.Item onClick={onClear} disabled={!selected} disabledReason={selected ? undefined : t("Switch to this terminal first")}>{t("Clear terminal")}</SourceMenu.Item>
+          <SourceMenu.Item onClick={onClear} disabled={!canClear()} disabledReason={canClear() ? undefined : t("Switch to this terminal first")}>{t("Clear terminal")}</SourceMenu.Item>
           <SourceMenu.Separator />
           <SourceMenu.Item onClick={onClose}>{t("Close terminal")}</SourceMenu.Item>
           {onCloseOthers && <SourceMenu.Item onClick={onCloseOthers}>{t("Close other terminals")}</SourceMenu.Item>}
@@ -587,63 +764,42 @@ function TerminalTab({ tab, label, selected, posinset, setsize, hintId, moveHint
   );
 }
 
-function MoreTerminals({ tabs, activeId, onSelect }) {
+// cfe7c4b3b ae: the tabs scrolled out of the strip, one row each (label, the running command as a caption, a close X;
+// ArrowRight/Delete/Backspace or a middle click closes, with the busy confirmation of close()).
+function MoreTerminals({ tabs, activeId, list, titleState, titles, onSelect, onClose }) {
   const trigger = useRef(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(null);
+  const [hidden, setHidden] = useState([]);
+  const show = (how) => {
+    const node = list.current;
+    const entries = node ? [...node.querySelectorAll("[data-terminal-id]")].map((element) => ({ id: element.dataset.terminalId, start: element.offsetLeft, end: element.offsetLeft + element.offsetWidth })) : [];
+    setHidden(hiddenTerminalTabs(entries, { scrollLeft: node?.scrollLeft ?? 0, clientWidth: node?.clientWidth ?? 0, activeId }));
+    setOpen(how);
+  };
+  const rows = tabs.filter((tab) => hidden.includes(tab.id)).map((tab) => {
+    const value = titles.value(titleState, tab);
+    return { id: tab.id, label: tabLabel(tab, tabs.length), detail: value };
+  });
   return (
     <span className="source-file-tabs-overflow" data-vtb-overflow="">
       <SourceTooltip content={t("More terminals")} side="bottom" hoverable={false}>
-        <button ref={trigger} type="button" className="source-icon-button" aria-label={t("More terminals")} aria-haspopup="menu" aria-expanded={open}
-          onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen((value) => !value)}>
+        <button ref={trigger} type="button" className="source-icon-button" aria-label={t("More terminals")}
+          {...menuTriggerProps({ open: !!open, onOpen: show })}
+          onMouseDown={(event) => event.preventDefault()} onClick={() => { if (open) setOpen(null); else show("click"); }}>
           <Icon name="CaretDown" size={16} />
         </button>
       </SourceTooltip>
       {open && (
-        <SourceMenu.Popup anchor={trigger.current} trigger={trigger.current} side="bottom" align="end" label={t("More terminals")} onClose={() => setOpen(false)}>
-          {tabs.map((tab) => (
-            <SourceMenu.Item key={tab.id} checked={tab.id === activeId} checkedRole="radio" onClick={() => onSelect(tab.id)}>{tabLabel(tab, tabs.length)}</SourceMenu.Item>
-          ))}
-        </SourceMenu.Popup>
+        <SourcePreviewTabOverflow anchor={trigger.current} tabs={rows} className="spv-overflow-menu stp-overflow-menu"
+          initialHighlight={open === "first" || open === "last" ? open : undefined}
+          labels={{ moreTabs: t("More terminals"), closeTab: t("Close terminal"), closeTabHint: t("press right arrow to close"), closeTabDeleteHint: t("Press Delete or Backspace to close the terminal") }}
+          onActivate={(id) => { setOpen(null); onSelect(id); }} onCloseTab={onClose} onClose={() => setOpen(null)} />
       )}
     </span>
   );
 }
 
-const TerminalFind = React.forwardRef(function TerminalFind({ view, background, onClose }, ref) {
-  const input = useRef(null);
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState({ activeIndex: 0, total: 0 });
-  const decorations = useMemo(() => ({ matchBackground: "#ffd500", activeMatchBackground: "#ff9632", matchOverviewRuler: "#ffd500", activeMatchColorOverviewRuler: "#ff9632" }), []);
-  useEffect(() => {
-    const search = view.current?.search;
-    if (!search) return undefined;
-    const subscription = search.onDidChangeResults(({ resultIndex, resultCount }) => setResult({ activeIndex: resultIndex + 1, total: resultCount }));
-    return () => { subscription.dispose(); search.clearDecorations(); };
-  }, [view]);
-  useLayoutEffect(() => { input.current?.focus(); input.current?.select(); }, []);
-  const run = (text, forward = true, incremental = false) => {
-    const search = view.current?.search;
-    if (!search) return;
-    if (!text) { search.clearDecorations(); setResult({ activeIndex: 0, total: 0 }); return; }
-    if (forward) search.findNext(text, { incremental, decorations });
-    else search.findPrevious(text, { decorations });
-  };
-  React.useImperativeHandle(ref, () => ({ step: (forward) => run(query, forward) }), [query]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div role="search" className="sfb-root stp-find" style={{ "--stp-find-surface": background }}>
-      <input ref={input} className="sfb-input hide-focus-ring" value={query} spellCheck={false} autoComplete="off" aria-label={FIND_LABELS.input}
-        placeholder={FIND_LABELS.placeholder}
-        onChange={(event) => { setQuery(event.target.value); run(event.target.value, true, true); }}
-        onKeyDown={(event) => {
-          const direction = findInputKey(event.nativeEvent ?? event);
-          if (direction) { event.preventDefault(); run(query, direction === "next"); return; }
-          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
-          if ((event.metaKey && event.code === "KeyG")) { event.preventDefault(); run(query, !event.shiftKey); }
-        }} />
-      <span role="status" aria-atomic="true" className="sfb-status">{findStatusText(query, result)}</span>
-      <button type="button" className="sfb-button can-focus" aria-label={FIND_LABELS.previous} disabled={!result.total} onClick={() => run(query, false)}><Icon name="CaretUp" size={20} /></button>
-      <button type="button" className="sfb-button can-focus" aria-label={FIND_LABELS.next} disabled={!result.total} onClick={() => run(query, true)}><Icon name="CaretDown" size={20} /></button>
-      <button type="button" className="sfb-button can-focus" aria-label={FIND_LABELS.close} onClick={onClose}><Icon name="X" size={20} /></button>
-    </div>
-  );
-});
+// cc63499d2 Qm "on-target": an inset accent ring with a soft inner glow while files are dragged over the terminal.
+function TerminalDropRing() {
+  return <div className="stp-drop-ring" aria-hidden="true"><div /></div>;
+}

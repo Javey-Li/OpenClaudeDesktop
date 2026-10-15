@@ -200,4 +200,16 @@ export default {
   "Its script no longer compiles.": "它的脚本已无法编译。",
   "ZCode no longer has this run.": "ZCode 已不再保留这次运行。",
   "This run’s settings can’t be changed.": "这次运行的设置无法更改。",
+  // B35: the phaseless agents group, a settled run's unstarted phase, and the large-workflow composer band (cc43287c9 Hq).
+  "Other agents": "其他智能体",
+  "Not run": "未运行",
+  "This workflow is larger than most.": "这个工作流比大多数都大。",
+  "Stop workflow": "停止工作流",
+  "Up to {count} agent scheduled, more than most workflows use.": "已安排多达 {count} 个智能体，超过大多数工作流的用量。",
+  "Up to {count} agents scheduled, more than most workflows use.": "已安排多达 {count} 个智能体，超过大多数工作流的用量。",
+  "As many as {tokens} tokens projected, more than most workflows use.": "预计多达 {tokens} 个 Token，超过大多数工作流的用量。",
+  "Up to {count} agent scheduled, about {tokens} tokens projected.": "已安排多达 {count} 个智能体，预计约 {tokens} 个 Token。",
+  "Up to {count} agents scheduled, about {tokens} tokens projected.": "已安排多达 {count} 个智能体，预计约 {tokens} 个 Token。",
+  // B35: a finished sub-agent's stats footnote (cccc2cf0a zw).
+  "1 token": "1 个 Token",
 };

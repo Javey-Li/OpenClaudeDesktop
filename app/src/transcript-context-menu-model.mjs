@@ -8,11 +8,16 @@ import { t } from "../electron/i18n/index.mjs";
 // session has a Preview pane, canOpenInPreview) and Copy link over a link; a separator when anything came before the
 // message items; Copy message and Copy message as Markdown; a separator
 // before Attach selection as context (cmd+shift+l, a selection of at least 2
-// characters) or Attach message as context; then Rewind to here (a user
+// characters) or Attach message as context; Pin as chapter / Unpin chapter on
+// an assistant message (canPin, pinned: cd5a31703 TI :25645-25651, the
+// session-chapters store); then Rewind to here (a user
 // message) and Fork from here (approval-current.js message menu onFork), each
 // only where the core serves thread/revert / thread/fork and the session is
-// idle (canRewind / canFork, decided by the caller). No image items:
-// response images keep their own menu (source-response-image.jsx).
+// idle (canRewind / canFork, decided by the caller), each with its one-line
+// description (cd5a31703 zNe :25678-25707, EI.rewindMenu / EI.forkMenu).
+// Over an image of the message (dI imageSrc / imageFileName, TI w → c26fb8b6b
+// Ge :172-222): Copy image and Save image head the menu (imageTarget, the
+// image's own copy/save from source-response-image.jsx).
 //
 // fileRefMenu: c856385e2-k3utJqnh.js Mn/Z for a transcript file reference —
 // Attach as context (with a composer), Copy ▸ Absolute path / Relative path /
@@ -43,13 +48,16 @@ export function linkTarget(href) {
 /** True when the selection is long enough to attach (CY w / S: trimmed ≥ 2). */
 export const attachableSelection = (text) => typeof text === "string" && text.trim().length >= 2;
 
-export function messageMenu({ selectionText = null, codeTarget = null, linkHref = null, canOpenInBrowser = false, canOpenInPreview = false, messageText, canAttach = false, canRewind = false, canFork = false } = {}) {
+export function messageMenu({ imageTarget = null, selectionText = null, codeTarget = null, linkHref = null, canOpenInBrowser = false, canOpenInPreview = false, messageText, canAttach = false, canPin = false, pinned = false, canRewind = false, canFork = false } = {}) {
   const selection = typeof selectionText === "string" && selectionText.trim() !== "" ? selectionText : null;
   const link = linkHref || null;
   const code = link ? null : codeTarget?.text ? codeTarget : null;
   const hasText = typeof messageText === "string";
   const attach = canAttach && hasText;
+  const pin = canPin && hasText;
+  const image = imageTarget?.src ? imageTarget : null;
   const entries = [];
+  if (image) entries.push(item("copy-image", t("Copy image")), item("save-image", t("Save image")));
   if (selection !== null) entries.push(item("copy-selection", t("Copy"), { shortcut: "cmd+c" }));
   if (code) entries.push(item("copy-code", code.isBlock ? t("Copy code block") : code.isPath ? t("Copy path") : t("Copy code")));
   if (link) {
@@ -60,13 +68,16 @@ export function messageMenu({ selectionText = null, codeTarget = null, linkHref 
   const before = entries.length > 0;
   if (before && hasText) entries.push(separator);
   if (hasText) entries.push(item("copy-message", t("Copy message")), item("copy-markdown", t("Copy message as Markdown")));
-  if ((before || hasText) && attach) entries.push(separator);
+  // TI E = attach || pin: the separator heads the Attach / Pin group even when only Pin is offered.
+  if ((before || hasText) && (attach || pin)) entries.push(separator);
   if (attach) entries.push(attachableSelection(selection)
     ? item("attach", t("Attach selection as context"), { shortcut: "cmd+shift+l" })
     : item("attach", t("Attach message as context")));
+  // TI (cd5a31703 :25645-25651): Pin as chapter / Unpin chapter on an assistant message, right after Attach.
+  if (pin) entries.push(item("pin", pinned ? t("Unpin chapter") : t("Pin as chapter")));
   if ((canRewind || canFork) && entries.length) entries.push(separator);
-  if (canRewind) entries.push(item("rewind", t("Rewind to here")));
-  if (canFork) entries.push(item("fork", t("Fork from here")));
+  if (canRewind) entries.push(item("rewind", t("Rewind to here"), { description: t("Removes this message and what follows") }));
+  if (canFork) entries.push(item("fork", t("Fork from here"), { description: t("Starts a new session, keeps this one") }));
   return entries;
 }
 

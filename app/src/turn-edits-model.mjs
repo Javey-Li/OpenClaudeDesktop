@@ -92,3 +92,50 @@ export function turnEditsLabel(edits) {
   const files = edits?.files || [];
   return files.length === 1 ? t("Edited {file}", { file: fileBasename(files[0].path) }) : tn(files.length, "Edited a file", "Edited {count} files");
 }
+
+// 2.31226.0 cd5a31703 h0 (readable :71733-71757): three rows before 'Show {count} more'.
+export const TURN_EDITS_LIST_LIMIT = 3;
+export function turnEditsListView(files, expanded) {
+  const list = files || [];
+  return { shown: expanded ? list : list.slice(0, TURN_EDITS_LIST_LIMIT), hidden: Math.max(0, list.length - TURN_EDITS_LIST_LIMIT) };
+}
+// 2.31226.0 cd5a31703 n0/r0/c2e/l2e/u2e/i0 (readable :71442-71488): entries that share a label get, as their
+// description, the shortest trailing run of their detail's folders that no other same-label entry ends with; a run
+// that would stop just under a root ('', '/', 'C:') becomes the whole folder. Identical folders get none. Pure.
+function detailSegments(entry) {
+  const detail = entry.detail ?? "", parts = detail.split("/").filter((part) => part !== "");
+  return detail.startsWith("//") ? ["/", ...parts] : detail.startsWith("/") ? ["", ...parts] : parts;
+}
+const sameSegments = (a, b) => a.length === b.length && a.every((part, index) => part === b[index]);
+const isRootSegment = (part) => part === "" || part === "/" || /^[A-Za-z]:$/.test(part ?? "");
+const joinSegments = (parts) => parts.join("/") || "/";
+function uniqueSuffix(own, others) {
+  if (own.length === 0 || others.every((other) => sameSegments(other, own))) return undefined;
+  for (let n = 1; n < own.length; n++) {
+    const tail = own.slice(-n).join("/");
+    if (others.every((other) => other.slice(-n).join("/") !== tail)) return n === own.length - 1 && isRootSegment(own[0]) ? joinSegments(own) : tail;
+  }
+  return joinSegments(own);
+}
+export function disambiguateLabels(entries) {
+  const byLabel = new Map();
+  for (const entry of entries) byLabel.set(entry.label, [...(byLabel.get(entry.label) ?? []), entry]);
+  if (![...byLabel.values()].some((group) => group.length > 1)) return entries;
+  return entries.map((entry) => {
+    const group = byLabel.get(entry.label);
+    if (!group || group.length < 2) return entry;
+    const description = uniqueSuffix(detailSegments(entry), group.filter((other) => other !== entry).map(detailSegments));
+    return description === undefined ? entry : { ...entry, description };
+  });
+}
+/** g2e: path -> folder hint for rows whose file name repeats in the card. The folders are the full ones (RO(path,
+ *  undefined) only normalizes separators), so a file at the session root is named by its folder too. */
+export function turnEditFolderHints(files) {
+  const entries = disambiguateLabels((files || []).map((file) => {
+    const shown = String(file.path).replace(/\\/g, "/"), slash = shown.lastIndexOf("/");
+    return { path: file.path, label: fileBasename(file.path) || file.path, detail: slash < 0 ? undefined : shown.slice(0, slash) || "/" };
+  }));
+  const hints = new Map();
+  for (const entry of entries) if (entry.description !== undefined) hints.set(entry.path, entry.description);
+  return hints;
+}

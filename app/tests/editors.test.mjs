@@ -42,3 +42,41 @@ test('the Files pane menu gets an Open in submenu of the editors, and Show in Fi
   const plain = fileContextMenu({ root: '/repo', path: 'src/a.js', canShowInFinder: true });
   assert.deepEqual(plain.map((entry) => entry.kind), ['submenu', 'separator', 'item']);
 });
+
+test('content-hit menu carries only positive integer file line positions', async () => {
+  const {fileContextMenu}=await import('../src/file-context-menu-model.mjs');
+  const item=(options={})=>fileContextMenu({root:'/repo',path:'a.js',editors:[{type:'vscode',name:'VS Code'}],...options}).find(e=>e.label==='Open in').items[0];
+  assert.equal(item({line:37}).line,37);
+  for(const line of [undefined,null,0,-1,2.5,'3',NaN,Infinity])assert.equal(item({line}).line,undefined);
+  assert.equal(item({line:37,directory:true}).line,undefined);
+});
+
+test('source URI encoder preserves paths and positive integer positions for every supported editor', async t => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'editor-location-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'中文 #?% &:17.txt');fs.writeFileSync(file,'first\nsecond\n');
+  const schemes={vscode:'vscode',vscodeInsiders:'vscode-insiders',cursor:'cursor',windsurf:'windsurf',zed:'zed'};
+  const encoded=file.split('/').map(encodeURIComponent).join('/');
+  for(const [type,scheme] of Object.entries(schemes)){
+    const calls=[];
+    await openInEditor(file,type,{exists:()=>true,line:17,column:3,run:()=>assert.fail('must use line-aware URI'),openExternal:async uri=>calls.push(uri)});
+    assert.deepEqual(calls,[`${scheme}://file/${encoded}:17:3`]);
+  }
+  const calls=[];const openExternal=async uri=>calls.push(uri);
+  await openInEditor(file,'vscode',{exists:()=>true,line:2,column:0,openExternal});
+  assert.deepEqual(calls,[`vscode://file/${encoded}:2`]);
+  await assert.rejects(openInEditor(file,'vscode',{exists:()=>true,line:2,openExternal:async()=>{throw Error('launch failed');}}),/launch failed/);
+  for(const target of [path.join(dir,'missing'),'relative'])await assert.rejects(openInEditor(target,'vscode',{exists:()=>true,line:2,openExternal:()=>assert.fail('must validate path first')}));
+});
+
+test('ordinary opens, folders, invalid lines and additional editors retain app-bundle launch', async t => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'editor-fallback-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'file.txt');fs.writeFileSync(file,'hello');
+  const calls=[],run=(cmd,args,opts,done)=>{calls.push([cmd,args]);done(null);};
+  const options={exists:()=>true,run,openExternal:()=>assert.fail('not a line-aware file open')};
+  for(const line of [undefined,0,-1,1.5,'2',Infinity])await openInEditor(file,'vscode',{...options,line});
+  await openInEditor(dir,'vscode',{...options,line:4});
+  await openInEditor(file,'sublime',{...options,line:4});
+  assert.equal(calls.length,8);assert.ok(calls.every(([cmd,args])=>cmd==='/usr/bin/open'&&args[0]==='-a'));
+  assert.equal(calls[6][1].at(-1),dir);assert.equal(calls[7][1][1],'/Applications/Sublime Text.app');
+});

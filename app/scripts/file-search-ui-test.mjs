@@ -78,7 +78,7 @@ async function size(width, height = 852) {
 async function ensureFiles() {
   if (!(await panel().isVisible())) {
     await page
-      .getByRole("button", { name: "Session options", exact: true })
+      .getByRole("button", { name: "View options", exact: true })
       .click();
     await page
       .getByRole("menuitemcheckbox", { name: "Files", exact: true })
@@ -478,7 +478,7 @@ try {
   assert.equal(await panel().isVisible(), true);
   assert.equal(
     await page
-      .getByRole("button", { name: "Session options", exact: true })
+      .getByRole("button", { name: "View options", exact: true })
       .count(),
     0,
   );

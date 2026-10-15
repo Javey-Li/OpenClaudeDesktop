@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FILE_TAB_LABELS,tabDetail,tabRelativePath,tabTooltip,tabMenuItems,insertFileTab,moveFileTab} from '../src/file-tab-menu-model.mjs';
+import {FILE_TAB_LABELS,tabDetail,tabRelativePath,tabTooltip,tabMenuItems,insertFileTab,moveFileTab,fileTabsToRight} from '../src/file-tab-menu-model.mjs';
 const labels=options=>tabMenuItems(options).map(item=>item.label);
 test('tab menu items follow he popup order (panes-tabs-current.js:470-485)',()=>{
  assert.deepEqual(labels({preview:true,solo:false}),['Keep open','Close file','Close other files','Close all files']);
@@ -53,4 +53,14 @@ test('moveFileTab moves one slot, never into a hidden slot',()=>{
  assert.deepEqual(moveFileTab(tabs,'b',-1).map(t=>t.path),['b','a','c','d']);
  assert.equal(moveFileTab(tabs,'a',-1),tabs);assert.equal(moveFileTab(tabs,'d',1),tabs);
  assert.equal(moveFileTab(tabs,'c',1,['d']),tabs,'d is behind More files');
+});
+
+test('close-right follows the current tab order, hides at the last tab and ignores missing tabs',()=>{
+ const tabs=['a','b','c'].map(path=>({path}));
+ assert.deepEqual(fileTabsToRight(tabs,'b'),['c']);
+ assert.deepEqual(fileTabsToRight(moveFileTab(tabs,'c',-1),'c'),['b']);
+ assert.deepEqual(fileTabsToRight(tabs,'c'),[]);
+ assert.deepEqual(fileTabsToRight(tabs,'missing'),[]);
+ assert.deepEqual(labels({hasTabsToRight:true}),['Close file','Close other files','Close files to the right','Close all files']);
+ assert.ok(!labels({hasTabsToRight:false}).includes('Close files to the right'));
 });

@@ -141,3 +141,15 @@ test("forget removes the key; with text only while the stored text still matches
   assert.equal(forgetDraft(storage, HOME_DRAFT_KEY), true);
   assert.equal(storage.map.size, 0);
 });
+
+
+test("snippet-only drafts retain text, label and file/line origin across storage; malformed snippets are dropped", () => {
+  const storage = memoryStorage(), key = draftKey("file-context");
+  persistDraft(storage, key, { text: "", attachments: [
+    { kind: "snippet", status: "ready", text: "alpha\nbeta", label: "notes.txt:L1-L2", sourceFile: "notes.txt:L1-L2", id: "volatile", previewUrl: "blob:volatile" },
+    { kind: "snippet", status: "ready", text: 42 }, { kind: "snippet", status: "ready", text: "   " },
+  ] });
+  assert.deepEqual(readPersistedDraft(storage, key), { text: "", mentions: [], attachments: [
+    { kind: "snippet", text: "alpha\nbeta", label: "notes.txt:L1-L2", sourceFile: "notes.txt:L1-L2" },
+  ] });
+});

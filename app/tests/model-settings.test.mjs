@@ -83,7 +83,7 @@ test('main.cjs wires the decorator before client.request and the desktop:call ca
   const main = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
   assert.match(main, /const \{ createModelSettings \} = require\("\.\/model-settings\.cjs"\);/);
   // decorate, then the collaboration mode (it reads the decorated model), both before client.request.
-  const rpc = main.slice(main.indexOf('case "rpc": {'), main.indexOf('case "respond": {'));
+  const rpc = main.slice(main.indexOf('async function requestRpc('), main.indexOf('ipcMain.handle("desktop:call"'));
   const at = text => { const index = rpc.indexOf(text); assert.ok(index > 0, text); return index; };
   assert.ok(at('modelSettings.decorate(p.method, params);') < at('nativeCollaborationMode(params,'));
   assert.ok(at('nativeCollaborationMode(params,') < at('result = await client.request(p.method, params);'));

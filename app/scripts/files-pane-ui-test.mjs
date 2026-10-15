@@ -16,13 +16,13 @@ await fs.mkdir(profile,{recursive:true});await fs.mkdir(path.join(workspace,'nes
 const files={'README.md':'# readme\n','index.html':'<p>x</p>\n','app.tsx':'export {};\n','data.csv':'a,b\n','store.sqlite':'','deck.pptx':'','bundle.zip':'','notes.txt':'notes\n','Makefile':'all:\n','config.json':'{}\n',
  'nested/deep.txt':'NESTED_DEEP_FILE\n','quarterly-infrastructure-migration-checklist.txt':'LONG_NAME_FILE\n','nested/inner/leaf.txt':'NESTED_LEAF_FILE\n','skills/demo/SKILL.md':'# skill\n',
  // R09: languages of the original 345-key map (c41eb0199) beyond the old ten extensions.
- 'util.mjs':'export const answer = 42;\n','main.go':'package main\n\nfunc main() {}\n'};
+ 'view-options.txt':'\talpha  beta\n'+('very_long_word '.repeat(120))+'\nlast\n','util.mjs':'export const answer = 42;\n','main.go':'package main\n\nfunc main() {}\n'};
 for(const [name,body] of Object.entries(files))await fs.writeFile(path.join(workspace,name),body);
 await fs.writeFile(path.join(workspace,'photo.png'),Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==','base64'));
-const A='files-pane-A',now=Math.floor(Date.now()/1000);
-const prefs=theme=>({cwd:workspace,theme,mode:'code',model:'fixture',effort:'low',threadIds:[A],sidebarWidth:288,displayName:'Fixture'});
+const A='files-pane-A',B='files-pane-B',now=Math.floor(Date.now()/1000);
+const prefs=theme=>({cwd:workspace,theme,mode:'code',model:'fixture',effort:'low',threadIds:[A,B],sidebarWidth:288,displayName:'Fixture'});
 await fs.writeFile(path.join(profile,'preferences.json'),JSON.stringify(prefs('light')));
-await fs.writeFile(path.join(profile,'fixture-threads.json'),JSON.stringify({next:100,threads:{[A]:{id:A,name:'Files pane A',cwd:workspace,createdAt:now,updatedAt:now,archived:false,turns:[]}}}));
+await fs.writeFile(path.join(profile,'fixture-threads.json'),JSON.stringify({next:100,threads:{[A]:{id:A,name:'Files pane A',cwd:workspace,createdAt:now,updatedAt:now,archived:false,turns:[]},[B]:{id:B,name:'Files pane B',cwd:workspace,createdAt:now,updatedAt:now,archived:false,turns:[]}}}));
 const glyphs=JSON.parse(await fs.readFile(path.join(root,'src/generated/icons.json'),'utf8')),glyph=name=>String.fromCodePoint(glyphs[name]);
 const build=JSON.parse(await fs.readFile(path.join(root,'dist/build-info.json'),'utf8')),sha=b=>createHash('sha256').update(b).digest('hex');let testHash;
 async function integrity(){assert.equal(sha(JSON.stringify(build.sources)),build.sourceSha256);for(const file of build.sources)assert.equal(sha(await fs.readFile(path.join(root,file.path))),file.sha256);
@@ -45,10 +45,10 @@ const poll=async(fn,label,ms=10000)=>{const end=Date.now()+ms;while(Date.now()<e
 const toasts=()=>page.locator('.source-toast-card:not([data-phase="ending"]) .source-toast-message').allTextContents();
 const itemsOf=locator=>locator.evaluate(m=>[...m.querySelectorAll('[role^="menuitem"],[role="separator"]')].filter(n=>n.closest('[role="menu"]')===m).map(n=>n.getAttribute('role')==='separator'?'|':(n.querySelector('.smenu-label')?.textContent??n.textContent).trim()));
 async function saveClipboard(){assert.equal(await app.evaluate(()=>!!globalThis.offscreenClipboard),true,'the Files pane copies require the offscreen in-memory clipboard');
- await app.evaluate(async({clipboard,ClipboardItem})=>{const originals=await clipboard.read();globalThis.filesPaneClipboard=await Promise.all(originals.map(async item=>new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type=>[type,await item.getType(type)]))))));});report.clipboardSaved=true;}
+ await app.evaluate(async({clipboard,ClipboardItem})=>{const originals=await clipboard.read();globalThis.filesPaneClipboard=await Promise.all(originals.map(async item=>new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type=>[type,await item.getType(type)]))))));});report.clipboardSaved=true;report.clipboardRestored=false;}
 async function restoreClipboard(){await app.evaluate(async({clipboard})=>{const saved=globalThis.filesPaneClipboard;if(!saved)throw Error('Clipboard backup unavailable');if(saved.length)await clipboard.write(saved);else await clipboard.clear();delete globalThis.filesPaneClipboard;});report.clipboardRestored=true;}
 async function open(){await page.locator(`[data-source-session-id="${A}"] .source-session-open`).click();await page.locator('.st-title').waitFor();await page.locator('.loading-state').waitFor({state:'detached'});await frames();}
-async function openFiles(){await page.getByRole('button',{name:'Session options',exact:true}).click();await page.getByRole('menuitemcheckbox',{name:'Files',exact:true}).click();await pane().waitFor();await tree().getByRole('button',{name:'README.md',exact:true}).waitFor();await frames();}
+async function openFiles(){await page.getByRole('button',{name:'View options',exact:true}).click();await page.getByRole('menuitemcheckbox',{name:'Files',exact:true}).click();await pane().waitFor();await tree().getByRole('button',{name:'README.md',exact:true}).waitFor();await frames();}
 async function shot(name){await page.screenshot({path:path.join(directory,name+'.png')});}
 // Every rendered treeitem: its primary button holds exactly one 12px icon in --cds-text-muted and a --cds-text-primary name.
 const rows=()=>tree().evaluate(treeNode=>{const probe=document.createElement('span');treeNode.append(probe);const color=v=>{probe.style.color=`var(${v})`;return getComputedStyle(probe).color;};
@@ -67,7 +67,8 @@ try{
  await integrity();await launch();await open();
  step('tree-light');await openFiles();
  await tree().getByRole('button',{name:'nested',exact:true}).click();await tree().getByRole('button',{name:'deep.txt',exact:true}).waitFor();
- await tree().getByRole('button',{name:'skills',exact:true}).click();await tree().getByRole('button',{name:'demo',exact:true}).click();await tree().getByRole('button',{name:'SKILL.md',exact:true}).waitFor();
+ // B33 (cccc2cf0a av/ne :3970-3984, :5484-5503): expanding skills auto-expands its single-child folder chain (demo), so demo is not clicked again.
+ await tree().getByRole('button',{name:'skills',exact:true}).click();await tree().getByRole('button',{name:'SKILL.md',exact:true}).waitFor();assert.equal(await page.evaluate(()=>document.querySelector('[role="treeitem"] > [data-file-path="skills/demo"]')?.parentElement.getAttribute('aria-expanded')),'true','single-child chain auto-expanded');
  await page.waitForFunction(()=>[...document.querySelectorAll('.source-tree-caret')].every(n=>n.getAnimations().every(a=>a.playState==='finished')));await frames();
  let snapshot=await rows();assertRows(snapshot,'light');report.metrics.light=snapshot;
  const expect={'README.md':'Note','index.html':'Globe','app.tsx':'Code','data.csv':'Spreadsheet','store.sqlite':'Database','deck.pptx':'Slides','bundle.zip':'Archive','photo.png':'Image','notes.txt':'File','Makefile':'File','config.json':'Code','SKILL.md':'Scroll','deep.txt':'File'};
@@ -107,7 +108,7 @@ try{
  await filter.fill('');await pane().locator('.sfs-results[hidden]').waitFor({state:'attached'});
  report.checks.push('Filename search results use the same shared-14 cP glyph per file at 12px in --cds-text-muted');
  step('file-tabs');
- // 0.2.128: c_ "Search files" (panes-tile-current.js:6791-6807, trailing slot :16366-16378) adds a 24px ghost control + 2px gap
+ // 0.2.128: c_ "Go to file or search" (panes-tile-current.js:6791-6807, trailing slot :16366-16378) adds a 24px ghost control + 2px gap
  // to the header, so the four-tab strip below loses 26px at 1280 (r1: README.md clipped). The 2:3 chat:pane split gives the
  // pane 3/5 of a wider window: 1328px (+48 -> ~+29px) restores the strip width these unchanged tab assertions were written for.
  await size(1328,820);
@@ -117,8 +118,9 @@ try{
   // Fidelity F11 opens the tab synchronously (panes-state-current.js F; vi drops the tree peek), so while the tree is not
   // shown beside the file the first click already swaps the tree for the viewer and a row double-click cannot land.
   // Keep the preview through its tab instead (the tab's double-click keeps it, as the row's does).
-  await row.click();await page.waitForFunction(n=>document.querySelector(`.source-file-tab[data-file-path$="${n}"][data-preview]`),name);
-  if(keep){await pane().locator(`.source-file-tab[data-file-path$=${JSON.stringify(name)}]`).dblclick();await page.waitForFunction(n=>document.querySelector(`.source-file-tab[data-file-path$="${n}"]:not([data-preview])`),name);}await frames();}
+  const previews=await page.evaluate(()=>localStorage.getItem('epitaxy-files-preview-tabs')!=='false');
+  await row.click();await page.waitForFunction(({name,previews})=>{const tab=document.querySelector(`.source-file-tab[data-file-path$="${name}"]`);return tab&&tab.hasAttribute('data-preview')===previews;},{name,previews});
+  if(keep&&previews){await pane().locator(`.source-file-tab[data-file-path$=${JSON.stringify(name)}]`).dblclick();await page.waitForFunction(n=>document.querySelector(`.source-file-tab[data-file-path$="${n}"]:not([data-preview])`),name);}await frames();}
  const longName='quarterly-infrastructure-migration-checklist.txt';
  await openTab('notes.txt',true);await openTab(longName,true);await openTab('deep.txt',true);await openTab('README.md',false);
  const deepPath=(await tabsNow()).find(t=>t.path.endsWith('deep.txt')).path;assert.equal(path.posix.basename(deepPath),'deep.txt');
@@ -198,11 +200,21 @@ try{
  const menuGeo=await page.evaluate(()=>{const popup=document.querySelector('[data-cds="ContextMenu"][data-open]'),root=document.querySelector('.source-file-tab[data-popup-open]');return {side:popup.dataset.side,align:popup.dataset.align,popup:popup.getBoundingClientRect().toJSON(),root:root?.getBoundingClientRect().toJSON(),rootPath:root?.dataset.filePath};});
  report.metrics.tabMenu=menuGeo;assert.equal(menuGeo.rootPath,'README.md');assert.equal(menuGeo.side,'bottom');assert.equal(menuGeo.align,'start');assert.ok(menuGeo.popup.top>=menuGeo.root.bottom-.5,'menu below the tab root');assert.ok(Math.abs(menuGeo.popup.left-menuGeo.root.left)<=1,'menu start-aligned to the tab root');
  await shot('file-tab-menu');await page.keyboard.press('Escape');await page.locator('[data-cds="ContextMenu"]').waitFor({state:'detached'});
- await openMenu(deepPath);assert.deepEqual(await menuItems(),[...FILE_ITEMS,'Close file','Close other files','Close all files'],'pinned tab menu has no Keep open');
- assert.deepEqual(await itemsOf(page.locator('[data-cds="ContextMenu"][data-open]')),['Attach as context','Copy','|',...OPEN_IN,'Show in Finder','|','Reveal in file tree','|','Close file','Close other files','Close all files'],'file items, then a separator before the tab items');
+ await openMenu(deepPath);assert.deepEqual(await menuItems(),[...FILE_ITEMS,'Close file','Close other files','Close files to the right','Close all files'],'pinned tab menu has no Keep open');
+ assert.deepEqual(await itemsOf(page.locator('[data-cds="ContextMenu"][data-open]')),['Attach as context','Copy','|',...OPEN_IN,'Show in Finder','|','Reveal in file tree','|','Close file','Close other files','Close files to the right','Close all files'],'file items, then a separator before the tab items');
  assert.equal(await tabRoot(deepPath).evaluate(n=>getComputedStyle(n.querySelector('.source-file-tab-bg')).backgroundColor),tokens.hoverBg,'data-popup-open tab uses --cds-fill-ghost-hover');
  await page.waitForTimeout(900);assert.equal(await page.locator('.source-tooltip-popup').count(),0,'tooltip suppressed while the tab menu is open');
  await page.keyboard.press('Escape');await page.locator('[data-cds="ContextMenu"]').waitFor({state:'detached'});
+ // Current source: close-right preserves an active file on the left; otherwise activates the clicked tab.
+ await tabRoot('notes.txt').locator('[role="tab"]').click();
+ await openMenu(deepPath);await page.getByRole('menuitem',{name:'Close files to the right',exact:true}).click();
+ assert.deepEqual((await tabsNow()).map(t=>[t.path,t.selected]),[['notes.txt',true],[longTab.path,false],[deepPath,false]]);
+ await openTab('README.md',false);
+ await openMenu(deepPath);await page.getByRole('menuitem',{name:'Close files to the right',exact:true}).click();
+ assert.equal((await tabsNow()).find(t=>t.selected)?.path,deepPath,'closing the active right-hand tab selects the clicked tab');
+ await openMenu(deepPath);assert.ok(!(await menuItems()).includes('Close files to the right'),'last tab omits close-right');await page.keyboard.press('Escape');
+ await openTab('README.md',false);
+ report.checks.push('2.31226.0 close-right: menu only on non-last tabs, preserves an active left tab, selects clicked tab if active right tab closes');
  await openMenu('README.md');await page.getByRole('menuitem',{name:'Close other files',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.source-file-tab').length===1);
  assert.deepEqual(await tabsNow(),[{path:'README.md',preview:true,selected:true}],'Close other files leaves only that tab');
  await openMenu('README.md');assert.deepEqual(await menuItems(),[...FILE_ITEMS,'Keep open','Close file'],'solo preview tab: Keep open + Close file');
@@ -215,17 +227,17 @@ try{
  // F11 (cd2efac6e jo/Yo/Ma, Mn file_browser, toggleDiffFileList, _e/K): the breadcrumb subheader and numbered rows, the
  // tree-row ContextMenu Copy ▸ Relative path, ⌘⇧Y with its CDS tooltip, and "More files" once the tabs overflow.
  await saveClipboard();
- await openTab('deep.txt',true);await pane().locator('[data-file-viewer] .sfv-line').first().waitFor();
- const viewer=await pane().evaluate(n=>{const b=n.querySelector('.sfv-path'),rows=[...n.querySelectorAll('[data-file-viewer] .sfv-line')],probe=document.createElement('span');n.append(probe);probe.style.color='var(--cds-text-muted)';const muted=getComputedStyle(probe).color;probe.style.color='var(--cds-text-secondary)';const secondary=getComputedStyle(probe).color;probe.remove();
+ await openTab('deep.txt',true);await pane().locator('[data-file-viewer] .cm-line').first().waitFor();
+ const viewer=await pane().evaluate(n=>{const b=n.querySelector('.sfv-path'),rows=[...n.querySelectorAll('[data-file-viewer] .cm-line')],probe=document.createElement('span');n.append(probe);probe.style.color='var(--cds-text-muted)';const muted=getComputedStyle(probe).color;probe.style.color='var(--cds-text-secondary)';const secondary=getComputedStyle(probe).color;probe.remove();
   const sub=n.querySelector('.sfv-subheader').getBoundingClientRect();
   return {label:b.getAttribute('aria-label'),lister:b.hasAttribute('data-breadcrumb-lister'),tag:b.tagName,segments:[...b.querySelectorAll('[data-breadcrumb-segment]')].map(s=>s.textContent),title:b.getAttribute('title'),crumb:n.querySelector('.sfv-breadcrumb').textContent,dirColor:getComputedStyle(n.querySelector('.sfv-crumb-dir')).color,muted,secondary,buttonColor:getComputedStyle(b).color,subHeight:sub.height,
-   rows:rows.map(r=>[r.dataset.line,r.querySelector('.sfv-number').dataset.number,r.querySelector('code').textContent]),gutterColor:getComputedStyle(rows[0].querySelector('.sfv-number')).color,whiteSpace:getComputedStyle(rows[0].querySelector('code')).whiteSpace,
+   rows:rows.map((r,i)=>[String(i+1),r.textContent]),gutterColor:getComputedStyle(n.querySelector('.cm-gutters')).color,whiteSpace:getComputedStyle(n.querySelector('.cm-content')).whiteSpace,
    back:!!n.querySelector('[aria-label="Back to files"], .source-file-location')};});
  report.metrics.viewer=viewer;
  // Yo with a lister (local sessions, cd2efac6e :4804-4872): a plain div, no Copy path button; each in-workspace segment opens "Files in {folder}".
  assert.equal(viewer.label,null);assert.equal(viewer.lister,true);assert.equal(viewer.tag,'DIV');assert.deepEqual(viewer.segments,['nested','deep.txt']);assert.ok(viewer.title.endsWith('/nested/deep.txt'),viewer.title);assert.equal(viewer.crumb,'nested/deep.txt');
  assert.equal(viewer.dirColor,viewer.muted,'folder segment text-muted');assert.equal(viewer.buttonColor,viewer.secondary,'breadcrumb button text-secondary');assert.ok(Math.abs(viewer.subHeight-32)<=.5,'2rem subheader');
- assert.deepEqual(viewer.rows,[['1','1','NESTED_DEEP_FILE\n']]);assert.equal(viewer.gutterColor,viewer.muted,'muted gutter');assert.equal(viewer.whiteSpace,'pre-wrap');assert.equal(viewer.back,false,'no Back to files / location row');
+ assert.deepEqual(viewer.rows,[['1','NESTED_DEEP_FILE'],['2','']]);assert.equal(viewer.gutterColor,viewer.muted,'muted gutter');assert.equal(viewer.whiteSpace,'break-spaces');assert.equal(viewer.back,false,'no Back to files / location row');
  const folderSegment=pane().locator('.sfv-path [data-breadcrumb-segment]',{hasText:'nested'}).first();await folderSegment.click();
  const folderPopover=page.getByRole('tree',{name:'Files in nested',exact:true});await folderPopover.waitFor();
  assert.equal(await folderSegment.getAttribute('aria-expanded'),'true');
@@ -269,15 +281,15 @@ try{
  await openMenu(target);await page.getByRole('menuitem',{name:'Close all files',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.source-side-tile[data-tile-id="files"] .source-file-tab'));
  assert.deepEqual(report.rendererErrors,[]);
  step('search-files');
- // c_ (panes-tile-current.js:6791-6807): ghost iconOnly "Search files" first in the file pane's trailing slot (:16366-16378), before the
+ // c_ (panes-tile-current.js:6791-6807): ghost iconOnly "Go to file or search" first in the file pane's trailing slot (:16366-16378), before the
  // yh settings menu; onClick focusFilesTreeFilter (panes-state-current.js:3097-3113) shows the tree (beside the file when it fits), then
  // focuses "Filter files" and selects its text. The CDS tooltip is the aria-label (shared-frame ks oe/se); no native title.
- const searchButton=pane().getByRole('button',{name:'Search files',exact:true}),filterBox=pane().getByRole('textbox',{name:'Filter files',exact:true});
+ const searchButton=pane().getByRole('button',{name:'Go to file or search',exact:true}),filterBox=pane().getByRole('textbox',{name:'Filter files',exact:true});
  const trailing=await pane().locator('.source-pane-header .spc-controls').evaluate(n=>[...n.querySelectorAll('button')].map(b=>b.getAttribute('aria-label')));
- report.metrics.searchFilesTrailing=trailing;assert.deepEqual(trailing.slice(0,2),['Search files','Files settings'],'Search files precedes the Files settings menu');
+ report.metrics.searchFilesTrailing=trailing;assert.deepEqual(trailing.slice(0,2),['Go to file or search','Files settings'],'Go to file or search precedes the Files settings menu');
  assert.equal(trailing.at(-1),'Close panel');assert.ok(trailing.indexOf('Expand')>1||trailing.indexOf('Collapse')>1,'Expand/Collapse after the settings menu');
  assert.deepEqual(await searchButton.evaluate(b=>({title:b.getAttribute('title'),ghost:b.classList.contains('spc-ghost'),icons:b.querySelectorAll('[data-cds="Icon"]').length,text:b.textContent.length})),{title:null,ghost:true,icons:1,text:1});
- await searchButton.hover();await page.locator('.source-tooltip-popup').filter({hasText:'Search files'}).waitFor();await page.mouse.move(2,2);await page.waitForFunction(()=>!document.querySelector('.source-tooltip-popup'));
+ await searchButton.hover();await page.locator('.source-tooltip-popup').filter({hasText:'Go to file or search'}).waitFor();await page.mouse.move(2,2);await page.waitForFunction(()=>!document.querySelector('.source-tooltip-popup'));
  const paneState=()=>pane().evaluate(n=>{const body=n.querySelector('.source-file-body'),tree=n.querySelector('.source-files-tree');return {treeVisible:body.dataset.treeVisible,column:body.dataset.treeColumn,treeShown:!!tree&&!tree.hidden&&tree.getClientRects().length>0,
   preview:n.querySelector('.sfv-breadcrumb')?.textContent??null,selected:n.querySelector('.source-file-tab[data-selected]')?.dataset.filePath??null,tabs:[...n.querySelectorAll('.source-file-tab')].map(t=>t.dataset.filePath),paneWidth:n.querySelector('.source-file-panel').clientWidth};});
  const focusedFilter=()=>page.evaluate(()=>{const n=document.activeElement;return n?.getAttribute('aria-label')==='Filter files'?{value:n.value,start:n.selectionStart,end:n.selectionEnd}:null;});
@@ -298,10 +310,33 @@ try{
  assert.deepEqual(await focusedFilter(),{value:'deep',start:0,end:4},'Filter files focused with its text selected');
  assert.deepEqual([hiddenAfter.treeVisible,hiddenAfter.column,hiddenAfter.treeShown],['true','true',true],'tree shown as a column beside the file');
  assert.deepEqual([hiddenAfter.preview,hiddenAfter.selected,hiddenAfter.tabs],[hiddenBefore.preview,hiddenBefore.selected,hiddenBefore.tabs],'the open file stays selected and previewed');
+ assert.equal(await pane().locator('.source-file-body').getAttribute('data-tree-peek'),'true','search temporarily peeks the hidden tree');
  await shot('search-files-beside');
  await filterBox.fill('');await pane().locator('.sfs-results[hidden]').waitFor({state:'attached'});
+ // Current source wb reads unavailable=missing (not generic errors) for the tab's deleted marker.
+ await fs.rename(path.join(workspace,'notes.txt'),path.join(workspace,'notes.saved'));
+ try {
+  await pane().getByRole('button',{name:'Files settings',exact:true}).click();
+  await page.getByRole('menuitem',{name:'Reload file',exact:true}).click();
+  await tabRoot('notes.txt').locator('[role="tab"]').filter({hasText:'deleted'}).waitFor();
+  assert.equal(await tabRoot('notes.txt').getAttribute('data-deleted'),'true');
+  assert.equal(await tabRoot('notes.txt').locator('.source-file-tab-label > span').evaluate(n=>getComputedStyle(n).textDecorationLine),'line-through');
+  await shot('deleted-file-tab');
+ } finally { await fs.rename(path.join(workspace,'notes.saved'),path.join(workspace,'notes.txt')); }
+ await tree().getByRole('button',{name:'notes.txt',exact:true}).click();
+ await poll(async()=>await tabRoot('notes.txt').getAttribute('data-deleted')===null,'restored file clears deleted state');
+ report.checks.push('2.31226.0 deleted file: a real missing read strikes through its tab and announces deleted; restoring and reopening clears it');
+ const storedTreePreference=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('code-desktop-tiles')).filesTreeShown);
+ assert.equal(await storedTreePreference(),false,'search peek never changes the persistent tree preference');
+ await pane().getByRole('button',{name:'Close panel',exact:true}).click();await pane().waitFor({state:'detached'});
+ await page.getByRole('button',{name:'View options',exact:true}).click();await page.getByRole('menuitemcheckbox',{name:'Files',exact:true}).click();await pane().waitFor();
+ await poll(async()=>await treeState()==='false','closing the pane clears temporary peek');
+ assert.equal(await pane().locator('.source-file-body').getAttribute('data-tree-peek'),null);
+ assert.equal(await storedTreePreference(),false);
+ report.checks.push('2.31226.0 tree peek does not persist; closing and reopening the Files pane restores the hidden tree preference');
+
  await tabRoot(hiddenAfter.selected).locator('.source-file-tab-close').click();await page.waitForFunction(()=>!document.querySelector('.source-side-tile[data-tile-id="files"] .source-file-tab'));
- report.checks.push('Search files (c_): ghost icon-only button first in the Files trailing controls ['+trailing.join(', ')+'], CDS tooltip, no native title; with the tree shown it only focuses "Filter files" and selects its text; with the tree hidden and a file open it shows the tree beside that file (pane '+hiddenBefore.paneWidth+'px), keeps the file selected, then focuses and selects the filter');
+ report.checks.push('Go to file or search (c_): ghost icon-only button first in the Files trailing controls ['+trailing.join(', ')+'], CDS tooltip, no native title; with the tree shown it only focuses "Filter files" and selects its text; with the tree hidden and a file open it shows the tree beside that file (pane '+hiddenBefore.paneWidth+'px), keeps the file selected, then focuses and selects the filter');
  assert.deepEqual(report.rendererErrors,[]);
  step('previews');
  // R09 (cd2efac6e qo/en/pn, the Eye/Code toggle :4169-4186, nr :4481-4500; c41eb0199 r(); shared-frame cs :2697/:2724):
@@ -315,19 +350,19 @@ try{
  const pressedLight=await pressedPaint();report.metrics.pressedLight=pressedLight;
  assert.equal(pressedLight.label,'Hide file tree','the tree is shown, so the ListBullet is pressed');
  assert.equal(pressedLight.color,pressedLight.accent.color,'pressed ListBullet colour = --cds-text-accent');assert.equal(pressedLight.background,pressedLight.accent.background,'pressed ListBullet fill = --cds-bg-accent');
- const tokenInfo=async name=>{await openTab(name,true);await page.waitForFunction(n=>{const v=document.querySelector(`.source-side-tile[data-tile-id="files"] .source-file-view[data-file-path="${n}"]`);return !!v?.querySelector('.source-file-preview[data-highlighted] [data-code-token]');},name);
-  return pane().evaluate((n,name)=>{const v=n.querySelector(`.source-file-view[data-file-path="${name}"]`),spans=[...v.querySelectorAll('[data-code-token]')];return {tokens:spans.length,colors:new Set(spans.map(s=>getComputedStyle(s).color)).size,first:v.querySelector('.sfv-line code').textContent};},name);};
+ const tokenInfo=async name=>{await openTab(name,true);await page.waitForFunction(n=>{const v=document.querySelector(`.source-side-tile[data-tile-id="files"] .source-file-view[data-file-path="${n}"]`);return !!v?.querySelector('.sfv-editor [data-code-token]');},name);
+  return pane().evaluate((n,name)=>{const v=n.querySelector(`.source-file-view[data-file-path="${name}"]`),spans=[...v.querySelectorAll('[data-code-token]')];return {tokens:spans.length,colors:new Set(spans.map(s=>getComputedStyle(s).color)).size,first:v.querySelector('.cm-line').textContent};},name);};
  const mjs=await tokenInfo('util.mjs'),go=await tokenInfo('main.go');report.metrics.highlightedFiles={mjs,go};
- assert.ok(mjs.tokens>=3&&mjs.colors>=2,'util.mjs is highlighted as javascript: '+JSON.stringify(mjs));assert.equal(mjs.first,'export const answer = 42;\n');
+ assert.ok(mjs.tokens>=3&&mjs.colors>=2,'util.mjs is highlighted as javascript: '+JSON.stringify(mjs));assert.equal(mjs.first,'export const answer = 42;');
  assert.ok(go.tokens>=3&&go.colors>=2,'main.go is highlighted as go: '+JSON.stringify(go));
  await openTab('README.md',true);const readme=pane().locator('.source-file-view[data-file-path="README.md"]'),viewToggle=readme.locator('.sfv-subheader [data-view-toggle]');
  await readme.locator('[data-file-preview="markdown"] .epitaxy-file-prose h1').filter({hasText:'readme'}).waitFor();
- const readmePreview=await readme.evaluate(v=>({view:v.dataset.fileView,label:v.querySelector('[data-view-toggle]').getAttribute('aria-label'),rows:v.querySelectorAll('.sfv-line').length,h1:getComputedStyle(v.querySelector('.epitaxy-file-prose h1')).fontSize,
+ const readmePreview=await readme.evaluate(v=>({view:v.dataset.fileView,label:v.querySelector('[data-view-toggle]').getAttribute('aria-label'),rows:v.querySelectorAll('.cm-line').length,h1:getComputedStyle(v.querySelector('.epitaxy-file-prose h1')).fontSize,
   column:getComputedStyle(v.querySelector('.max-w-\\[860px\\]')).maxWidth,scroller:v.querySelector('[data-file-preview]').classList.contains('source-file-preview')}));
  report.metrics.readmePreview=readmePreview;assert.deepEqual(readmePreview,{view:'preview',label:'View source',rows:0,h1:'22px',column:'860px',scroller:true});
- await viewToggle.click();await readme.locator('[data-file-viewer] .sfv-line').first().waitFor();
- assert.deepEqual(await readme.evaluate(v=>({view:v.dataset.fileView,label:v.querySelector('[data-view-toggle]').getAttribute('aria-label'),rows:[...v.querySelectorAll('.sfv-line')].map(r=>[r.dataset.line,r.querySelector('code').textContent])})),
-  {view:'source',label:'Preview',rows:[['1','# readme\n']]},'View source shows the numbered rows');
+ await viewToggle.click();await readme.locator('[data-file-viewer] .cm-line').first().waitFor();
+ assert.deepEqual(await readme.evaluate(v=>({view:v.dataset.fileView,label:v.querySelector('[data-view-toggle]').getAttribute('aria-label'),rows:[...v.querySelectorAll('.cm-line')].map((r,i)=>[String(i+1),r.textContent])})),
+  {view:'source',label:'Preview',rows:[['1','# readme'],['2','']]},'View source shows the numbered rows');
  await viewToggle.click();await readme.locator('[data-file-preview="markdown"] h1').waitFor();assert.equal(await viewToggle.getAttribute('aria-label'),'View source');
  await shot('readme-preview');
  await openTab('photo.png',true);const photo=pane().locator('[data-file-viewer][data-file-media="image"] img');await photo.waitFor();
@@ -338,8 +373,67 @@ try{
  await openMenu('photo.png');await page.getByRole('menuitem',{name:'Close all files',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.source-side-tile[data-tile-id="files"] .source-file-tab'));
  if(!(await tree().isVisible()))await pane().getByRole('button',{name:'Show file tree',exact:true}).click();
  report.checks.push('Previews: util.mjs and main.go render highlighted token spans ('+mjs.tokens+' / '+go.tokens+'); README.md opens as its Markdown preview (h1 22px in the 860px prose column) with the "View source" Code toggle, which shows the numbered source and flips to "Preview"; photo.png renders from its file:// URL with naturalWidth 1 and no toggle; the pressed ListBullet paints --cds-text-accent on --cds-bg-accent');
+ step('file-view-settings');
+ await openTab('view-options.txt',true);
+ const source=()=>pane().locator('.cm-scroller');
+ await source().waitFor();
+ const original=files['view-options.txt'];
+ const codeText=()=>source().locator('.cm-line').allTextContents().then(parts=>parts.join('\n'));
+ const option=label=>page.getByRole('menuitemcheckbox',{name:label,exact:true});
+ const openSettings=()=>pane().getByRole('button',{name:'Files settings',exact:true}).click();
+ await openSettings();
+ assert.equal(await option('Word wrap').getAttribute('aria-checked'),'true');
+ await option('Word wrap').click();assert.equal(await option('Word wrap').getAttribute('aria-checked'),'false');
+ assert.equal(await source().evaluate(n=>getComputedStyle(n.querySelector('.cm-content')).whiteSpace),'pre');
+ assert.ok(await source().evaluate(n=>n.scrollWidth>n.clientWidth),'nowrap permits horizontal scrolling inside the file');
+ await option('Show whitespace').click();assert.equal(await option('Show whitespace').getAttribute('aria-checked'),'true');
+ await source().locator('.cm-highlightTab').first().waitFor();assert.equal(await codeText(),original,'decorations preserve exact source text');
+ assert.notEqual(await source().locator('.cm-highlightSpace').first().evaluate(n=>getComputedStyle(n).backgroundImage),'none');
+ await option('Scroll past end').click();
+ assert.ok(await source().evaluate(n=>parseFloat(getComputedStyle(n.querySelector('.cm-content')).paddingBottom)>n.clientHeight-50),'last line can scroll to the top');
+ await page.getByRole('menuitem',{name:/^Tab size/}).click();await page.getByRole('menuitemradio',{name:'8',exact:true}).click();
+ assert.equal(await source().evaluate(n=>getComputedStyle(n.querySelector('.cm-content')).tabSize),'8');
+ const width8=await source().locator('.cm-highlightTab').first().evaluate(n=>n.getBoundingClientRect().width);
+ await openSettings();const tabSizeMenu=page.getByRole('menuitem',{name:/^Tab size/});await tabSizeMenu.focus();await page.keyboard.press('ArrowRight');
+ assert.equal(await page.getByRole('menuitemradio',{name:'8',exact:true}).getAttribute('aria-checked'),'true');
+ await page.getByRole('menuitemradio',{name:'2',exact:true}).click();
+ const width2=await source().locator('.cm-highlightTab').first().evaluate(n=>n.getBoundingClientRect().width);
+ assert.ok(Math.abs(width8-width2*4)<1,`Tab width actually changes: ${width8}px vs ${width2}px`);
+ await openSettings();await page.getByRole('menuitem',{name:/^Tab size/}).click();await page.getByRole('menuitemradio',{name:'8',exact:true}).click();
+
+ await shot('file-view-settings');
+ await source().locator('.cm-content').click();await page.keyboard.press('Meta+f');
+ await pane().getByRole('textbox',{name:'Find in file',exact:true}).fill('alpha');
+ await poll(async()=>!!(await source().locator('.sfv-editor-find-current').count()),'find survives whitespace decoration');
+ await page.keyboard.press('Escape');
+ await saveClipboard();
+ await openSettings();await page.getByRole('menuitem',{name:'Copy file contents',exact:true}).click();
+ assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),original,'copy uses unmodified content');await restoreClipboard();
+ await openSettings();await option('Word wrap').click();await page.keyboard.press('Escape');
+ assert.equal(await source().evaluate(n=>getComputedStyle(n.querySelector('.cm-content')).whiteSpace),'break-spaces');
+ assert.ok(await source().evaluate(n=>n.scrollWidth<=n.clientWidth+1),'wrapping removes horizontal overflow');
+ report.checks.push('Files view options: live wrap/nowrap, whitespace backgrounds without text mutation, unchanged Copy/Find, scroll-past-end padding and Tab size 8');
+ step('preview-tab-preference');
+ await openTab('README.md',false);
+ await openSettings();assert.equal(await option('Preview tabs').getAttribute('aria-checked'),'true');await option('Preview tabs').click();
+ await poll(async()=>(await tabsNow()).every(tab=>!tab.preview),'disable fixes existing preview');
+ assert.equal(await option('Preview tabs').getAttribute('aria-checked'),'false');await page.keyboard.press('Escape');
+ await openTab('notes.txt',false);
+ assert.deepEqual((await tabsNow()).map(tab=>[tab.path,tab.preview]),[['view-options.txt',false],['README.md',false],['notes.txt',false]],'single click appends fixed tabs when preview mode is off');
+ await openMenu('notes.txt');assert.ok(!(await menuItems()).includes('Keep open'));await page.keyboard.press('Escape');
+ await openSettings();await option('Preview tabs').click();await page.keyboard.press('Escape');
+ assert.ok((await tabsNow()).every(tab=>!tab.preview),'enabling does not unpin files');
+ await openTab('index.html',false);await openTab('deep.txt',false);
+ assert.deepEqual((await tabsNow()).map(tab=>[tab.path,tab.preview]),[['view-options.txt',false],['README.md',false],['notes.txt',false],[deepPath,true]],'only the preview slot is replaced after re-enabling');
+ await openSettings();await option('Preview tabs').click();await page.keyboard.press('Escape');
+ await openMenu(deepPath);await page.getByRole('menuitem',{name:'Close all files',exact:true}).click();
+ report.checks.push('Preview tabs: disabling fixes existing previews, future single clicks append fixed tabs, Keep open disappears; enabling preserves fixed files and resumes one replaceable preview slot');
+
  assert.deepEqual(report.rendererErrors,[]);
  step('dark-relaunch');await app.close();app=null;await fs.writeFile(path.join(profile,'preferences.json'),JSON.stringify({...JSON.parse(await fs.readFile(path.join(profile,'preferences.json'),'utf8')),theme:'dark'}));
+ const selectionFixture=JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8'));
+ selectionFixture.threads[A].turns.push({id:'selection-turn',status:'completed',items:[{id:'selection-answer',type:'agentMessage',text:'Selected transcript context'}]});
+ await fs.writeFile(path.join(profile,'fixture-threads.json'),JSON.stringify(selectionFixture));
  await launch();await open();if(!(await pane().count()))await openFiles();await tree().getByRole('button',{name:'README.md',exact:true}).waitFor();
  if(!(await tree().getByRole('button',{name:'deep.txt',exact:true}).count())){await tree().getByRole('button',{name:'nested',exact:true}).click();await tree().getByRole('button',{name:'deep.txt',exact:true}).waitFor();}
  await page.waitForFunction(()=>[...document.querySelectorAll('.source-tree-caret')].every(n=>n.getAnimations().every(a=>a.playState==='finished')));await frames();
@@ -349,7 +443,617 @@ try{
  assert.equal(pressedDark.background,pressedDark.accent.background,'dark pressed ListBullet fill = --cds-bg-accent');assert.notEqual(pressedDark.color,pressedLight.color,'the accent follows the theme');assert.notEqual(snapshot.primary,report.metrics.light.primary,'dark theme resolves a different --cds-text-primary'); await shot('tree-dark'); // --cds-text-muted is gray-400 in both themes (design-system.css:53578/54142).
  await size(760,768);const overflow=await page.evaluate(()=>({doc:document.documentElement.scrollWidth<=document.documentElement.clientWidth,body:document.body.scrollWidth<=document.body.clientWidth}));
  assert.deepEqual(overflow,{doc:true,body:true});if(await pane().count()){snapshot=await rows();assertRows(snapshot,'dark-760');}await shot('tree-dark-760');
+ await openTab('view-options.txt',true);
+ assert.equal(await source().evaluate(n=>getComputedStyle(n.querySelector('.cm-content')).tabSize),'8','tab size survives relaunch');
+ assert.ok(await source().locator('.cm-highlightTab').count()>0,'whitespace preference survives relaunch');
+ assert.equal(await pane().locator('.sfv-editor').getAttribute('data-scroll-past-end'),'true','scroll preference survives relaunch');
+ await saveClipboard();await openSettings();await page.getByRole('menuitem',{name:'Copy file contents',exact:true}).click();
+ assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),original,'virtualized editor retains the full file after dark relaunch');await restoreClipboard();
+ await source().evaluate(n=>{n.scrollTop=n.scrollHeight;});await source().locator('.cm-line').filter({hasText:/^last$/}).waitFor();
+ assert.ok((await tabsNow()).every(tab=>!tab.preview),'preview-tabs off survives relaunch');
+ await openSettings();assert.equal(await option('Preview tabs').getAttribute('aria-checked'),'false');await page.keyboard.press('Escape');
+ report.checks.push('File view settings survive dark relaunch with the same profile and keep source text intact');
  report.checks.push('Dark relaunch keeps one 12px glyph per row in --cds-text-muted (gray-400 in both themes) with the dark --cds-text-primary name; 760px has no document/body horizontal overflow');
+ step('content-search');
+ await fs.writeFile(path.join(workspace,'content-a.txt'),'header\nNeedle\nneedlework\nneedle\nNEEDLE\n');
+ await fs.writeFile(path.join(workspace,'content-b.txt'),'other\nneedle needle\n');
+ await fs.writeFile(path.join(workspace,'content-cap.txt'),Array.from({length:8},()=> 'capword').join('\n'));
+ await size(1440,900);await pane().getByRole('button',{name:'Go to file or search',exact:true}).click();
+ const contentFilter=pane().getByRole('textbox',{name:'Filter files',exact:true});await contentFilter.waitFor();
+ assert.equal(await contentFilter.getAttribute('placeholder'),'Filter, or ? to search in files');
+ await contentFilter.fill('?');await pane().getByText('Type after ? to search in files',{exact:true}).waitFor();
+ const contentRows=()=>pane().locator('[data-content-match]');
+ const queryContent=async text=>{await contentFilter.fill(text);await pane().locator('.sfs-browser[data-search-phase="success"]').waitFor();};
+ await queryContent('?needle');assert.equal(await contentRows().count(),5);
+ const contentOptions=pane().locator('.sfs-field').getByRole('group',{name:'Search options',exact:true});
+ await contentOptions.getByRole('button',{name:'Match case',exact:true}).click();await poll(async()=>await contentRows().count()===3,'case-sensitive content matches');
+ await contentOptions.getByRole('button',{name:'Match whole word',exact:true}).click();await poll(async()=>await contentRows().count()===2,'whole-word content matches');
+ await contentOptions.getByRole('button',{name:'Use regular expression',exact:true}).click();await queryContent('?^Needle$');assert.equal(await contentRows().count(),1);
+ await contentFilter.fill('?[');await pane().getByText('Invalid regular expression',{exact:true}).waitFor();assert.equal(await contentFilter.getAttribute('aria-invalid'),'true');assert.equal(await contentRows().count(),0);
+ for(const name of ['Match case','Match whole word','Use regular expression'])await contentOptions.getByRole('button',{name,exact:true}).click();
+ await queryContent('?needle');assert.equal(await contentRows().count(),5);
+ await contentFilter.press('ArrowDown');assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-level')),'1');
+ await page.keyboard.press('ArrowDown');assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-level')),'2');
+ await page.keyboard.press('ArrowLeft');assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-level')),'1');
+ await page.keyboard.press('ArrowUp');assert.equal(await contentFilter.evaluate(n=>n===document.activeElement),true);
+ await shot('content-search-dark');
+ await openSettings();await option('Preview tabs').click();await page.keyboard.press('Escape');
+ await pane().getByRole('button',{name:'content-a.txt:4',exact:true}).click();
+ await pane().locator('.source-file-view[data-file-path="content-a.txt"] .cm-content').waitFor();
+ assert.equal(await pane().getByRole('textbox',{name:'Find in file',exact:true}).inputValue(),'needle');
+ await poll(async()=>/3 of 4/.test(await pane().locator('.sfv-find-status').innerText()),'content hit selects the requested line in original file find');
+ await shot('content-search-open-line');
+ assert.equal((await tabsNow()).find(t=>t.path==='content-a.txt').preview,true,'single-click content result is a preview');
+ step('search-result-actions');
+ const hit=()=>pane().getByRole('button',{name:'content-a.txt:4',exact:true});
+ const fileActionsMenu=()=>page.getByRole('menu',{name:'File actions',exact:true});
+ await hit().click({button:'right'});await fileActionsMenu().waitFor();
+ const contentMenuItems=await itemsOf(fileActionsMenu());
+ assert.deepEqual(contentMenuItems,['Ask about this','Attach as context','Copy','|',...OPEN_IN,'Show in Finder']);
+ await shot('content-search-menu');
+ await saveClipboard();await fileActionsMenu().getByRole('menuitem',{name:'Copy',exact:true}).hover();
+ await page.getByRole('menuitem',{name:'Relative path',exact:true}).click();
+ assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'content-a.txt');await restoreClipboard();
+ // Keep the real IPC and editor service; intercept only OS launch effects for this isolated fixture.
+ await app.evaluate(async({app})=>{
+   const {createRequire}=process.mainModule.require('node:module');const service=createRequire(app.getAppPath()+'/package.json')('./electron/editors.cjs');
+   globalThis.editorLocationProbe={service,original:service.openInEditor,calls:[]};
+   const probe=globalThis.editorLocationProbe;
+   service.openInEditor=(target,type,options)=>probe.original(target,type,{...options,
+     openExternal:async uri=>probe.calls.push({kind:'uri',uri}),
+     run:(command,args,_options,done)=>{probe.calls.push({kind:'process',command,args});done(null);}});
+ });
+ try {
+   const editor=(await page.evaluate(()=>window.desktop.call('installed-editors'))).find(e=>e.type==='vscode');
+   assert.ok(editor,'line-navigation fixture requires the installed VS Code');
+   for(const [name,line] of [['content-a.txt:4',4],['content-b.txt:2',2]]){
+     await pane().getByRole('button',{name,exact:true}).click({button:'right'});
+     await fileActionsMenu().getByRole('menuitem',{name:'Open in',exact:true}).hover();
+     await page.getByRole('menuitem',{name:editor.name,exact:true}).click();
+     await poll(async()=>await app.evaluate(()=>globalThis.editorLocationProbe.calls.length)>=(line===4?1:2),'editor launch effect');
+   }
+   report.metrics.editorLocations=await app.evaluate(()=>globalThis.editorLocationProbe.calls);
+   assert.deepEqual(report.metrics.editorLocations,[
+     {kind:'uri',uri:`vscode://file/${path.join(workspace,'content-a.txt').split('/').map(encodeURIComponent).join('/')}:4`},
+     {kind:'uri',uri:`vscode://file/${path.join(workspace,'content-b.txt').split('/').map(encodeURIComponent).join('/')}:2`},
+   ]);
+   // The matching file header has no line: the existing ordinary launch is preserved.
+   await pane().locator('.sfs-results').getByRole('button',{name:'content-a.txt',exact:true}).click({button:'right'});
+   await fileActionsMenu().getByRole('menuitem',{name:'Open in',exact:true}).hover();await page.getByRole('menuitem',{name:editor.name,exact:true}).click();
+   await poll(async()=>await app.evaluate(()=>globalThis.editorLocationProbe.calls.length)===3,'ordinary editor launch effect');
+   const ordinary=await app.evaluate(()=>globalThis.editorLocationProbe.calls[2]);assert.equal(ordinary.kind,'process');assert.equal(ordinary.args.at(-1),path.join(workspace,'content-a.txt'));
+ } finally {await app.evaluate(()=>{const probe=globalThis.editorLocationProbe;probe.service.openInEditor=probe.original;delete globalThis.editorLocationProbe;});}
+ report.checks.push('Content-result Open in actions preserve distinct line numbers through real IPC and the editor service into the original encoded VS Code URI; file headers retain ordinary opening. OS launch effects are intercepted, so external editor navigation itself is not asserted');
+ // Keyboard invocation uses the same menu and returns focus to the matching row.
+ await hit().evaluate(n=>n.closest('[data-tree-row]').focus());await page.keyboard.press('Shift+F10');await fileActionsMenu().waitFor();
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('role')?.startsWith('menuitem'));
+ await page.keyboard.press('Escape');await fileActionsMenu().waitFor({state:'detached'});
+ report.metrics.searchMenuFocus=await page.evaluate(()=>({active:document.activeElement?.outerHTML?.slice(0,600)}));
+ await poll(async()=>await hit().evaluate(n=>n.closest('[data-tree-row]')===document.activeElement),'context menu returns focus to match row');
+ // Source Vv/Hv: middle click and keyboard activation pin instead of replacing the preview.
+ await hit().click({button:'middle'});await poll(async()=>(await tabsNow()).some(t=>t.path==='content-a.txt'&&!t.preview),'middle click pins content hit');
+ const secondHit=pane().getByRole('button',{name:'content-b.txt:2',exact:true});await secondHit.evaluate(n=>n.closest('[data-tree-row]').focus());await page.keyboard.press('Enter');
+ await poll(async()=>(await tabsNow()).some(t=>t.path==='content-b.txt'&&!t.preview),'keyboard pins content hit');
+ await fs.writeFile(path.join(profile,'fixture-customize.json'),JSON.stringify({autoCompleteTurns:true}));
+ const firstSelectionRow=page.locator('[data-transcript-item-id="selection-answer"]');await firstSelectionRow.scrollIntoViewIfNeeded();
+ await firstSelectionRow.evaluate(node=>{const range=document.createRange();range.selectNodeContents(node);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);});
+ await page.getByRole('toolbar',{name:'Selection actions',exact:true}).getByRole('button',{name:'Start a side chat',exact:true}).waitFor();
+ await page.evaluate(()=>getSelection().removeAllRanges());await page.getByRole('toolbar',{name:'Selection actions',exact:true}).waitFor({state:'hidden'});
+ const beforeQuestion=JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns;
+ await hit().click({button:'right'});await fileActionsMenu().getByRole('menuitem',{name:'Ask about this',exact:true}).click();
+ const side=page.getByRole('complementary',{name:'Side chat',exact:true});await side.waitFor();
+ assert.equal(await side.locator('.ssc-user').innerText(),'In content-a.txt at line 4: `needle` — explain what this does and where it’s used.');
+ await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();
+ await poll(async()=>await side.locator('.ssc-input').evaluate(n=>n===document.activeElement),'side question receives keyboard focus');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion,'side question leaves the parent conversation untouched');
+ await shot('content-search-side-question');
+ step('side-chat-geometry');
+ const panelRect=()=>side.evaluate(n=>{const r=n.getBoundingClientRect();return {left:r.left,top:r.top,width:r.width,height:r.height};});
+ const near=(actual,expected,label)=>{for(const key of Object.keys(expected))assert.ok(Math.abs(actual[key]-expected[key])<1,`${label} ${key}: ${actual[key]} vs ${expected[key]}`);};
+ const drag=async(locator,dx,dy)=>{const box=await locator.boundingBox();assert.ok(box);const x=box.x+box.width/2,y=box.y+box.height/2;await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:8});await page.mouse.up();await frames();};
+ const originalSideViewport=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
+ const initialSide=await panelRect();near(initialSide,{width:320,height:340},'original initial panel');
+ assert.equal(await side.locator('.ssc-resize').count(),8);
+ // Clicking the session outside the floating panel no longer dismisses it.
+ await pane().getByRole('textbox',{name:'Filter files',exact:true}).click();assert.equal(await side.isVisible(),true);
+ await drag(side.locator('.ssc-title'),-300,-100);
+ const movedSide=await panelRect();near(movedSide,{...initialSide,left:initialSide.left-300,top:initialSide.top-100},'header drag');
+ await drag(side.locator('[data-edge="se"]'),80,40);
+ near(await panelRect(),{...movedSide,width:400,height:380},'southeast resize');
+ await drag(side.locator('[data-edge="nw"]'),300,300);
+ near(await panelRect(),{left:movedSide.left+120,top:movedSide.top+220,width:280,height:160},'northwest minimum preserves opposite edges');
+ await drag(side.locator('[data-edge="nw"]'),-120,-180);
+ const savedSide=await panelRect();near(savedSide,{left:movedSide.left,top:movedSide.top+40,width:400,height:340},'northwest expands');
+ assert.equal(await page.evaluate(()=>document.body.style.userSelect),'','pointer capture cleanup restores selection');
+ await size(1100,760);near(await panelRect(),{...savedSide,left:savedSide.left+1100-originalSideViewport.width,top:savedSide.top+760-originalSideViewport.height},'resize retains closer right/bottom edges');
+ await size(originalSideViewport.width,originalSideViewport.height);near(await panelRect(),savedSide,'viewport restoration');
+ await side.getByRole('button',{name:'Close side chat',exact:true}).click();await side.waitFor({state:'hidden'});
+ await poll(()=>app.evaluate(({Menu,BrowserWindow})=>{const find=menu=>{for(const item of menu.items){if(item.label==='Show Side Chat'&&item.enabled)return item;const child=item.submenu&&find(item.submenu);if(child)return child;}};const item=find(Menu.getApplicationMenu());if(!item)return false;item.click(item,BrowserWindow.getAllWindows()[0]);return true;}),'reopen side chat via actual menu');
+ await side.waitFor();near(await panelRect(),savedSide,'reopening preserves panel geometry');
+ assert.equal(await side.locator('.ssc-user').count(),1,'reopening retains messages without sending again');
+ await side.locator('.ssc-input').fill('unsent side draft');
+ await side.locator('.ssc-input').press('Escape');await side.waitFor({state:'hidden'});
+ await poll(()=>app.evaluate(({Menu,BrowserWindow})=>{const find=menu=>{for(const item of menu.items){if(item.label==='Show Side Chat'&&item.enabled)return item;const child=item.submenu&&find(item.submenu);if(child)return child;}};const item=find(Menu.getApplicationMenu());if(!item)return false;item.click(item,BrowserWindow.getAllWindows()[0]);return true;}),'reopen after Escape');
+ await side.waitFor();assert.equal(await side.locator('.ssc-input').evaluate(n=>n.value),'unsent side draft');await side.locator('.ssc-input').fill('');
+ await shot('side-chat-moved-resized');
+ report.metrics.sideChatGeometry={initial:initialSide,moved:movedSide,saved:savedSide};
+ report.checks.push('Current original side-chat geometry: 320px initial width, eight handles, header drag, southeast and northwest resize, 280×160 minimum, opposite-edge anchoring, viewport rebasing, outside-click persistence and close/Escape/reopen preserving messages, draft and geometry');
+ step('side-chat-controls');
+ const questionInput=()=>side.locator('.ssc-input');
+ const showSide=()=>poll(()=>app.evaluate(({Menu,BrowserWindow})=>{const find=menu=>{for(const item of menu.items){if(item.label==='Show Side Chat'&&item.enabled)return item;const child=item.submenu&&find(item.submenu);if(child)return child;}};const item=find(Menu.getApplicationMenu());if(!item)return false;item.click(item,BrowserWindow.getAllWindows()[0]);return true;}),'show side chat');
+ const requests=async()=>{const data=await fs.readFile(path.join(profile,'fixture-requests.jsonl'),'utf8');return data.trim().split('\n').map(line=>JSON.parse(line));};
+ const starts=async()=>(await requests()).filter(call=>call.method==='turn/start').length;
+ // A real fixture stream exercises renderer → IPC → fork → turn/interrupt.
+ for(const via of ['button','escape']){
+   await side.evaluate(node=>{window.__sideStatusTrace=[];const read=()=>{const row=node.querySelector('.ssc-status');if(!row)return;const state={phase:row.dataset.sideStatus,announcement:row.querySelector('[role=status]').textContent,clock:row.querySelector('[data-runtime-stat=elapsed]')?.textContent??null,visual:row.querySelector('.sts-label').textContent};const previous=window.__sideStatusTrace.at(-1);if(JSON.stringify(state)!==JSON.stringify(previous))window.__sideStatusTrace.push(state);};window.__sideStatusObserver=new MutationObserver(read);window.__sideStatusObserver.observe(node,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['data-side-status']});read();});
+   await questionInput().fill('fixture:hold');await questionInput().press('Enter');
+   await side.getByRole('button',{name:'Stop response',exact:true}).waitFor();
+   await poll(async()=>await side.locator('.ssc-answer').last().innerText().then(text=>text.includes('HOLD_CHUNK_')),'partial side reply');
+   assert.equal(await questionInput().isDisabled(),true,'current source disables input during a response');
+   assert.equal(await side.evaluate(n=>getComputedStyle(n).outlineStyle),'none','source frame is outline-none even while focused');
+   await side.locator('.ssc-status[data-side-status=running] [data-runtime-stat=elapsed]').waitFor();
+   assert.equal(await side.locator('.ssc-status [role=status]').innerText(),'Thinking…','live announcement continues after text begins');
+   assert.equal(await side.locator('.ssc-status [data-cds=Spark]').getAttribute('data-spark-state'),'thinking');
+   await side.locator('.ssc-status').scrollIntoViewIfNeeded();
+   const statusGeometry=await side.locator('.ssc-status .sts-row').evaluate(row=>{const css=getComputedStyle(row),spark=row.querySelector('[data-cds=Spark]').getBoundingClientRect();return {height:row.getBoundingClientRect().height,gap:parseFloat(css.gap),sparkWidth:spark.width,sparkHeight:spark.height};});
+   assert.deepEqual(statusGeometry,{height:20,gap:16,sparkWidth:18,sparkHeight:18},'classic current Ta row geometry');
+   await shot('side-chat-streaming-'+via);
+   if(via==='button')await side.getByRole('button',{name:'Stop response',exact:true}).click();else{await side.focus();await page.keyboard.press('Escape');}
+   await poll(async()=>!(await questionInput().isDisabled()),'stop restores composer');
+   assert.equal(await side.isVisible(),true,'stopping keeps the panel open');
+   assert.ok((await side.locator('.ssc-answer').last().innerText()).includes('HOLD_CHUNK_'),'partial answer remains');
+   assert.equal(await side.getByRole('alert').count(),0);assert.equal(await side.getByRole('button',{name:'Retry',exact:true}).count(),0);
+   const trace=await page.evaluate(()=>{window.__sideStatusObserver.disconnect();delete window.__sideStatusObserver;return window.__sideStatusTrace;});
+   assert.ok(trace.some(s=>s.phase==='running'&&s.clock===null),'clock starts hidden');assert.ok(trace.some(s=>s.phase==='running'&&s.clock),'clock appears after two seconds');
+   assert.ok(trace.some(s=>s.phase==='running'&&s.visual.includes('Waiting for')),'first-response waiting label is visible');
+   assert.ok(trace.some(s=>s.phase==='stopping'&&s.announcement==='Stopping…'&&s.clock===null),'stop has its own announcement and hides elapsed clock');
+   assert.equal(trace.at(-1).phase,'idle');assert.equal(trace.at(-1).announcement,'');assert.equal(trace.at(-1).clock,null);
+   assert.equal(await side.locator('.ssc-status [data-cds=Spark]').count(),1,'idle retains one source mark');assert.equal(await side.locator('.ssc-status [data-cds=Spark]').getAttribute('data-spark-state'),null);
+   report.metrics['sideStatus-'+via]=trace;
+
+ }
+ report.checks.push('Current side working row persists during text streaming, announces Thinking, reveals the elapsed clock after two seconds, changes to Stopping via button/Escape and retains only the static mark when idle');
+ const stops=(await requests()).filter(call=>call.method==='turn/interrupt');assert.equal(stops.length,2);
+ assert.ok(stops.every(call=>call.params.threadId!==A&&call.params.threadId!==B),'only side forks are interrupted');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion,'main history remains unchanged after both stops');
+ await questionInput().fill('session A private draft');
+ await page.locator(`[data-source-session-id="${B}"] .source-session-open`).click();await side.waitFor({state:'hidden'});await showSide();await side.waitFor();
+ assert.equal(await questionInput().evaluate(n=>n.value),'','session B does not inherit session A draft');await questionInput().fill('session B private draft');
+ await page.locator(`[data-source-session-id="${A}"] .source-session-open`).click();await side.waitFor({state:'hidden'});await showSide();await side.waitFor();
+ assert.equal(await questionInput().evaluate(n=>n.value),'session A private draft');
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();assert.equal(await questionInput().evaluate(n=>n.value),'session A private draft','toolbar clear preserves draft');
+ assert.equal(await side.locator('.ssc-user').count(),0);
+ for(const command of ['/clear','/RESET','/new']){
+   await questionInput().fill('ordinary question');await questionInput().press('Enter');await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();
+   await poll(async()=>!(await questionInput().isDisabled()),'answer settles');const before=await starts();
+   await questionInput().fill(command);await questionInput().press('Enter');await side.locator('.ssc-empty').waitFor();
+   assert.equal(await questionInput().evaluate(n=>n.value),'');assert.equal(await starts(),before,command+' is not sent to the model');
+ }
+ step('side-chat-current-layout');
+ assert.equal(await side.locator('.ssc-context').count(),0,'current panel has no legacy message-count strip');
+ assert.equal(await side.locator('.ssc-header [data-cds="Shortcut"]').count(),0,'close shortcut lives in its tooltip');
+ assert.equal(await questionInput().getAttribute('contenteditable'),'true');assert.ok((await questionInput().getAttribute('class')).includes('ProseMirror'));
+ const sideLayout=await side.evaluate(node=>{const css=getComputedStyle(node),header=getComputedStyle(node.querySelector('.ssc-header')),empty=getComputedStyle(node.querySelector('.ssc-empty p')),composer=getComputedStyle(node.querySelector('.ssc-composer'));
+  const probe=node.ownerDocument.createElement('span');probe.style.borderRadius='var(--cds-radius)';node.append(probe);const baseRadius=parseFloat(getComputedStyle(probe).borderRadius);probe.remove();
+  return {scale:parseFloat(css.getPropertyValue('--cds-rem-scale'))||1,radius:parseFloat(css.borderRadius),baseRadius,headerHeight:parseFloat(header.height),headerBorder:header.borderBottomWidth,darkOutline:getComputedStyle(node.querySelector('.ssc-content')).outlineWidth,emptyBackground:empty.backgroundColor,emptyAlign:empty.textAlign,emptyPadding:empty.paddingLeft,composerBorder:composer.borderTopWidth};});
+ assert.equal(sideLayout.headerHeight,32*sideLayout.scale);assert.equal(sideLayout.radius,sideLayout.baseRadius+4*sideLayout.scale);
+ assert.equal(sideLayout.darkOutline,'1px');assert.equal(sideLayout.headerBorder,'0px');assert.equal(sideLayout.composerBorder,'0px');assert.equal(sideLayout.emptyAlign,'start');
+ assert.notEqual(sideLayout.emptyBackground,'rgba(0, 0, 0, 0)');assert.match(await side.locator('.ssc-empty').innerText(),/Codex sees the full context/);
+ const sendGlyph=await side.getByRole('button',{name:'Send',exact:true}).locator('[data-cds="Icon"]').innerText();assert.equal(sendGlyph,glyph('ArrowReturn'));
+ await side.getByRole('button',{name:'Close side chat',exact:true}).hover();await page.getByRole('tooltip').filter({hasText:'Close side chat'}).waitFor();
+ assert.ok(await page.getByRole('tooltip').filter({hasText:'Close side chat'}).locator('[data-cds="Shortcut"],kbd').count(),'close tooltip renders its shortcut');
+ await page.mouse.move(500,400);await questionInput().fill('first line');const beforeEditor=await starts();
+ await questionInput().press('Shift+Enter');await page.keyboard.type('second line');await questionInput().press('Alt+Enter');await page.keyboard.type('third line');
+ const multiline=await questionInput().evaluate(n=>n.value);assert.equal(multiline,'first line\nsecond line\nthird line');assert.equal(await starts(),beforeEditor);
+ await questionInput().press('Meta+z');assert.notEqual(await questionInput().evaluate(n=>n.value),multiline);await questionInput().press('Meta+Shift+z');assert.equal(await questionInput().evaluate(n=>n.value),multiline);
+ await questionInput().evaluate(node=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',keyCode:229,isComposing:true,bubbles:true,cancelable:true})));
+ assert.equal(await starts(),beforeEditor,'IME composing Enter does not submit');assert.equal(await questionInput().evaluate(n=>n.value),multiline);
+ await shot('side-chat-editor-multiline');await questionInput().press('Enter');await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();
+ assert.equal(await side.locator('.ssc-user').last().innerText(),multiline,'rich editor sends exact multiline text');
+ // OT/RW: measure on the inner bubble only, current compact tokens and no answer footer.
+ await questionInput().fill('Long side question '+ 'wrap '.repeat(100));await questionInput().press('Enter');
+ await poll(async()=>await questionInput().getAttribute('contenteditable')==='true'&&(await side.locator('.ssc-answer').count())===2,'long question settled');
+ const messageLayout=await side.evaluate(node=>{
+   const messages=node.querySelector('.ssc-messages'),user=[...node.querySelectorAll('.ssc-user')].at(-1),body=user.querySelector('.ssc-user-body'),bubble=user.querySelector('.ssc-user-bubble'),answer=[...node.querySelectorAll('.ssc-answer')].at(-1),text=answer.querySelector('.ssc-answer-text');
+   const css=getComputedStyle(bubble),probe=document.createElement('div');probe.style.cssText='position:absolute;visibility:hidden;background:var(--cds-bg-user-message);border-radius:calc(var(--cds-radius) + .25rem * var(--cds-rem-scale,1));padding:var(--cds-pad-md) var(--cds-pad-lg);font-size:var(--cds-font-size-heading);line-height:var(--cds-leading-heading)';node.append(probe);const expected=getComputedStyle(probe);
+   const result={userWidth:user.getBoundingClientRect().width,bodyWidth:body.getBoundingClientRect().width,bubbleWidth:bubble.getBoundingClientRect().width,answerInset:text.getBoundingClientRect().left-answer.getBoundingClientRect().left,answerExtraHeight:answer.getBoundingClientRect().height-text.getBoundingClientRect().height,overflow:messages.scrollWidth>messages.clientWidth,
+    actual:[css.backgroundColor,css.borderRadius,css.paddingTop,css.paddingLeft,css.fontSize,css.lineHeight],expected:[expected.backgroundColor,expected.borderRadius,expected.paddingTop,expected.paddingLeft,expected.fontSize,expected.lineHeight]};probe.remove();return result;
+ });
+ assert.ok(Math.abs(messageLayout.userWidth-messageLayout.bodyWidth)<1,'context wrapper takes full row width');
+ assert.ok(Math.abs(messageLayout.bubbleWidth-messageLayout.userWidth*.85)<1,'bubble applies original 85% measure once');
+ assert.deepEqual(messageLayout.actual,messageLayout.expected,'bubble uses current compact message color, radius, padding and heading typography');
+ assert.equal(messageLayout.answerInset,0);assert.equal(messageLayout.answerExtraHeight,0);assert.equal(messageLayout.overflow,false);
+ assert.equal(await side.getByRole('button',{name:'Copy answer',exact:true}).count(),0);assert.equal(await side.getByRole('button',{name:'Branch to new chat',exact:true}).count(),0);
+ report.metrics.sideMessageLayout=messageLayout;report.checks.push('Current OT/RW side-chat messages use full-width context rows and one 85% bubble measure, compact source color/radius/padding/heading tokens, with no assistant inset or legacy Copy/Branch footer; long questions do not overflow');
+ await shot('side-chat-message-layout');
+ step('side-chat-user-content');
+ const syntheticAnthropic='sk-ant-'+'x'.repeat(32),syntheticGithub='ghp_'+'y'.repeat(32),syntheticAws='AKIA'+'A'.repeat(24);
+ const richSideQuestion=['List question','','3. third','4. fourth','   * nested','','Literal `code` https://example.com','','```js','* literal fence','```','','Secrets: '+syntheticAnthropic+' '+syntheticGithub+' '+syntheticAws].join('\n');
+ await questionInput().fill(richSideQuestion);assert.equal(await questionInput().evaluate(n=>n.value),richSideQuestion);await questionInput().press('Enter');
+ await poll(async()=>await side.locator('.ssc-answer').count()===3&&!(await questionInput().isDisabled()),'list side answer settles');
+ const userContent=side.locator('.ssc-user-content').last();await userContent.locator('ol[start="3"]').waitFor();assert.equal(await userContent.locator('ol > li').count(),2);assert.equal(await userContent.locator('ol ul > li').innerText(),'nested');
+ assert.equal(await userContent.locator('pre,code,a').count(),0,'source ordinary user content keeps code and links literal');
+ assert.ok((await userContent.innerText()).includes('```js\n* literal fence\n```'));
+ const listPaint=await userContent.locator('ol').evaluate(n=>({style:getComputedStyle(n).listStyleType,padding:getComputedStyle(n).paddingLeft,gap:getComputedStyle(n).gap}));
+ assert.deepEqual(listPaint,{style:'decimal',padding:'20px',gap:'6px'});
+ const bodyBeforeReveal=await userContent.evaluate(n=>n.outerHTML);assert.ok(!bodyBeforeReveal.includes(syntheticAnthropic)&&!bodyBeforeReveal.includes(syntheticGithub)&&!bodyBeforeReveal.includes(syntheticAws),'fake secrets are masked in the DOM');
+ assert.equal(await userContent.locator('[data-redacted-secret]').count(),3);assert.ok(!(await userContent.locator('[data-redacted-secret]').last().innerText()).includes('A'.repeat(12)),'current detector masks extended fixed-length token suffixes');
+ const revealAnthropic=userContent.getByRole('button',{name:'Reveal Anthropic API key',exact:true});await revealAnthropic.click();assert.ok((await userContent.innerText()).includes(syntheticAnthropic));assert.ok(!(await userContent.innerText()).includes(syntheticGithub));
+ await userContent.getByRole('button',{name:'Hide Anthropic API key',exact:true}).click();
+ const revealGithub=userContent.getByRole('button',{name:'Reveal GitHub token',exact:true});await revealGithub.focus();await page.keyboard.press('Enter');assert.equal(await userContent.getByRole('button',{name:'Hide GitHub token',exact:true}).getAttribute('aria-pressed'),'true');await page.keyboard.press('Enter');
+ assert.ok(!(await userContent.innerText()).includes(syntheticGithub));
+ const richRequest=(await requests()).filter(call=>call.method==='turn/start').at(-1);assert.equal(richRequest.params.input[0].text,richSideQuestion,'presentation leaves original side-question wire text intact');
+ await userContent.locator('ol').scrollIntoViewIfNeeded();await shot('side-chat-user-lists');await revealGithub.scrollIntoViewIfNeeded();await shot('side-chat-user-redaction');
+ report.checks.push('Current original user-list parser/renderer preserves ordered starts and nested lists, keeps code fences/links literal, masks synthetic secrets with independent mouse/keyboard reveal toggles and sends unchanged question text through the real fork');
+
+
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();await side.locator('.ssc-empty').waitFor();
+ report.metrics.sideChatLayout=sideLayout;
+ report.checks.push('Current side-chat layout uses a 32px header, token card radius, tooltip-only close shortcut, top alpha notice naming the configured core and no legacy count/separators; shared ProseMirror editor supports Shift/Alt Enter, undo/redo, composing-Enter suppression and exact multiline dispatch with ArrowReturn');
+ await shot('side-chat-reset');
+ step('side-chat-file-mentions');
+ const startsBeforeMention=await starts();
+ await questionInput().fill('@read');
+ const sideSuggestions=side.getByRole('listbox',{name:'Mention suggestions',exact:true});
+ await sideSuggestions.getByRole('option').first().waitFor();
+ const mentionMenuProbe=await sideSuggestions.evaluate(node=>{const r=node.getBoundingClientRect();return {visible:node.contains(document.elementFromPoint(r.left+r.width/2,r.top+Math.min(12,r.height/2))),width:r.width};});
+ assert.equal(mentionMenuProbe.visible,true,'mention list is above the side panel and receives pointer input');
+ await questionInput().press('Escape');await sideSuggestions.waitFor({state:'hidden'});assert.equal(await side.isVisible(),true,'first Escape only dismisses mention suggestions');
+ await questionInput().fill('@');await sideSuggestions.getByRole('option').first().waitFor();
+ const optionCount=await sideSuggestions.getByRole('option').count();assert.ok(optionCount>1);await page.mouse.move(0,0);
+ await questionInput().press('End');await poll(async()=>await sideSuggestions.getByRole('option').last().getAttribute('aria-selected')==='true','End selects the last file option');
+ await sideSuggestions.getByRole('option').nth(1).hover();await poll(async()=>await sideSuggestions.getByRole('option').nth(1).getAttribute('aria-selected')==='true','mouse hover paints its own option');
+ await page.mouse.move(0,0);await poll(async()=>await sideSuggestions.getByRole('option').last().getAttribute('aria-selected')==='true','leaving restores the keyboard option');
+ await questionInput().press('ArrowDown');await poll(async()=>await sideSuggestions.getByRole('option').first().getAttribute('aria-selected')==='true','Down wraps to the first file option');
+ await questionInput().fill('@read');await sideSuggestions.getByRole('option').filter({hasText:'README.md'}).waitFor();
+ await shot('side-chat-file-mentions');
+ await questionInput().press('Enter');await sideSuggestions.waitFor({state:'hidden'});
+ await questionInput().locator('[data-mention="README.md"]').waitFor();assert.equal(await starts(),startsBeforeMention,'Enter picks a file without submitting');
+ assert.equal(await page.locator('.sc-input:not(.ssc-input) [data-mention="README.md"]').count(),0,'side file picks do not touch the main draft');
+ await side.getByRole('button',{name:'Close side chat',exact:true}).click();await showSide();
+ await questionInput().locator('[data-mention="README.md"]').waitFor();
+ // File chips share the same copy/open/delete menu; Escape must not close the side panel.
+ await questionInput().locator('.sc-mention-chip').click();
+ const mentionActionsMenu=page.getByRole('menu',{name:'Mention actions',exact:true});await mentionActionsMenu.waitFor();
+ assert.equal(await mentionActionsMenu.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2));}),true,'file chip actions sit above the side panel');
+ await page.keyboard.press('Escape');await mentionActionsMenu.waitFor({state:'hidden'});assert.equal(await side.isVisible(),true);
+ await questionInput().press('End');await questionInput().press('Enter');
+ await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();await poll(async()=>!(await questionInput().isDisabled()),'file mention answer finishes');
+ const mentionRequest=(await requests()).filter(call=>call.method==='turn/start').at(-1);assert.ok(mentionRequest.params.input[0].text.endsWith('@README.md'),'file path reaches the actual side fork');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion,'file mention question leaves parent history unchanged');
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();await side.locator('.ssc-empty').waitFor();
+ // Closing during the search debounce must leave no body-portal menu behind.
+ await questionInput().fill('@read');await side.getByRole('button',{name:'Close side chat',exact:true}).click();await new Promise(resolve=>setTimeout(resolve,250));
+ assert.equal(await page.getByRole('listbox',{name:'Mention suggestions',exact:true}).count(),0);await showSide();await questionInput().fill('');
+ report.checks.push('Side composer file mentions use isolated project search; menu is pointer-visible, wraps keyboard selection, consumes first Enter/Escape, keeps atomic file chips across close/reopen, sends the path only to the real side fork and leaves no menu after close');
+ step('side-chat-native-progress');
+ const customizeBeforeProgress=JSON.parse(await fs.readFile(path.join(profile,'fixture-customize.json'),'utf8'));
+ await fs.writeFile(path.join(profile,'fixture-customize.json'),JSON.stringify({...customizeBeforeProgress,sideForkDelayMs:800}));
+ await questionInput().fill('Lifecycle warmup');await questionInput().press('Enter');
+ const sideStatus=()=>side.locator('.ssc-status');
+ await side.locator('.ssc-title').getByText('Forking…',{exact:true}).waitFor();await sideStatus().getByRole('status').getByText('Forking session…',{exact:true}).waitFor();
+ assert.equal(await questionInput().isDisabled(),true);await shot('side-chat-forking');
+ await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();await poll(async()=>!(await questionInput().isDisabled()),'fork warmup finishes');assert.equal(await side.locator('.ssc-title').innerText(),'Side chat');
+ await fs.writeFile(path.join(profile,'fixture-customize.json'),JSON.stringify(customizeBeforeProgress));
+ const forksBeforeTools=(await requests()).filter(call=>call.method==='thread/fork').length;
+ await questionInput().fill('fixture:side-tools');await questionInput().press('Enter');
+ await sideStatus().getByRole('status').getByText('Reading README.md',{exact:true}).waitFor();
+ await sideStatus().locator('.sts-activity').getByText('Running tools…',{exact:true}).waitFor();assert.equal(await side.locator('.ssc-title').innerText(),'Side chat');
+ await sideStatus().getByRole('status').getByText('Searching for needle',{exact:true}).waitFor();await shot('side-chat-tool-activity');
+ await sideStatus().getByRole('status').getByText('Finding files',{exact:true}).waitFor();
+ await side.locator('.ssc-status[data-side-stage="waiting"]').waitFor();assert.equal(await sideStatus().getByRole('status').innerText(),'Thinking…');
+ await side.getByText('SIDE_TOOL_REPLY',{exact:true}).waitFor();await poll(async()=>!(await questionInput().isDisabled()),'tool side reply settles');
+ assert.equal(await sideStatus().getAttribute('data-side-status'),'idle');assert.equal(await sideStatus().getAttribute('data-side-stage'),null);
+ assert.equal((await requests()).filter(call=>call.method==='thread/fork').length,forksBeforeTools,'follow-up tools reuse the ephemeral fork');
+ await questionInput().fill('fixture:side-close');await questionInput().press('Enter');await side.getByRole('button',{name:'Stop response',exact:true}).waitFor();await poll(async()=>!(await questionInput().isDisabled()),'closed side fork releases the pending question');
+ assert.equal(await sideStatus().getAttribute('data-side-status'),'idle');assert.equal(await side.getByRole('alert').count(),0);assert.equal(await side.getByRole('button',{name:'Retry',exact:true}).count(),0);assert.equal(await side.isVisible(),true);
+ await questionInput().fill('Restart after side close');await questionInput().press('Enter');await poll(async()=>!(await questionInput().isDisabled())&&(await side.locator('.ssc-answer').count())===3,'new question starts a fresh fork after close');assert.equal((await requests()).filter(call=>call.method==='thread/fork').length,forksBeforeTools+1);
+
+
+ const recoveredRequest=(await requests()).filter(call=>call.method==='turn/start').at(-1).params;
+ const recoveredText=recoveredRequest.input[0].text;
+ assert.ok(recoveredText.startsWith('Side conversation boundary.'));
+ assert.ok(recoveredText.includes('<side_chat_history>\nUser: Lifecycle warmup'));
+ assert.ok(recoveredText.includes('Assistant: CUSTOMIZE_FIXTURE_REPLY'));
+ assert.ok(recoveredText.includes('User: fixture:side-tools'));assert.ok(recoveredText.includes('Assistant: SIDE_TOOL_REPLY'));
+ assert.ok(recoveredText.includes('User: Restart after side close'));assert.ok(!recoveredText.includes('User: fixture:side-close'),'the unanswered closed question was replaced, not replayed');
+ assert.equal(recoveredText.split('User: Lifecycle warmup').length,2,'history appears once');
+ assert.equal(await side.locator('.ssc-user').last().innerText(),'Restart after side close','the transport replay never replaces the visible question');
+ await shot('side-chat-history-recovered');
+ await questionInput().fill('Healthy follow-up after recovery');await questionInput().press('Enter');
+ await poll(async()=>!(await questionInput().isDisabled())&&(await side.locator('.ssc-answer').count())===4,'recovered fork handles its next question');
+ const healthyRequest=(await requests()).filter(call=>call.method==='turn/start').at(-1).params;
+ assert.equal(healthyRequest.threadId,recoveredRequest.threadId);assert.equal(healthyRequest.input[0].text,'Healthy follow-up after recovery');
+ report.checks.push('After unexpected native fork closure, a fresh read-only fork receives bounded source-formatted prior side questions and answers plus the latest unanswered question; the visible question stays unchanged, parent history is untouched and a healthy follow-up does not replay history twice');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion,'tool lifecycle events never enter parent history');
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();await side.locator('.ssc-empty').waitFor();
+ report.checks.push('Real native fork lifecycle events show Forking header/status during delayed thread/fork, then structured Read/Search/List tool announcements and Running tools, model wait, final answer and idle; follow-ups reuse the fork, unexpected fork closure releases busy state without a false error/retry, and parent history remains untouched');
+
+ report.checks.push('Side chat Stop button/Escape interrupt only the real ephemeral fork, keep partial output and leave the panel open without error/retry; busy input is disabled; per-session drafts survive switches; toolbar Clear retains draft and /clear /reset /new clear locally without model calls');
+ await side.getByRole('button',{name:'Close side chat',exact:true}).click();await side.waitFor({state:'hidden'});
+ step('transcript-side-chat-selection');
+ const selectedQuote='Selected transcript context';
+ const selectionToolbar=()=>page.getByRole('toolbar',{name:'Selection actions',exact:true});
+ const selectQuote=async()=>{
+   const row=page.locator('[data-transcript-item-id="selection-answer"]');await row.scrollIntoViewIfNeeded();
+   await row.evaluate(node=>{const body=node.querySelector('.smd')??node;const range=document.createRange();range.selectNodeContents(body);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);});
+   await selectionToolbar().waitFor();
+ };
+ const beforeSelection=await starts();await selectQuote();
+ assert.deepEqual(await selectionToolbar().getByRole('button').allTextContents(),['Send to side chat','Reply']);
+ await shot('transcript-selection-toolbar');await selectionToolbar().getByRole('button',{name:'Send to side chat',exact:true}).click();await side.waitFor();
+ assert.equal(await starts(),beforeSelection,'selection only stages context, it does not start a request');
+ const staged=()=>side.locator('.ssc-composer [data-kind="snippet"]');await staged().waitFor();
+ assert.equal(await questionInput().evaluate(n=>n===document.activeElement),true);
+ await staged().getByRole('button',{name:selectedQuote,exact:true}).click();await page.locator('[data-cds="AttachmentPreview"]').waitFor();
+ assert.equal(await page.locator('.sca-preview-text').innerText(),selectedQuote);
+ await poll(()=>page.locator('.sca-preview-text').evaluate(n=>{const r=n.getBoundingClientRect();return !!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-cds=AttachmentPreview]');}),'selection preview is painted above the side panel');await frames();await shot('side-chat-selection-preview');await page.keyboard.press('Escape');
+ await page.locator('[data-cds="AttachmentPreview"]').waitFor({state:'hidden'});assert.equal(await side.isVisible(),true);
+ await questionInput().fill('keep draft');await side.getByRole('button',{name:'Close side chat',exact:true}).click();await side.waitFor({state:'hidden'});
+ await showSide();await side.waitFor();assert.equal(await staged().count(),0,'closing discards context');assert.equal(await questionInput().evaluate(n=>n.value),'keep draft');
+ await questionInput().fill('');await selectQuote();await selectionToolbar().getByRole('button',{name:'Send to side chat',exact:true}).click();await staged().waitFor();
+ await staged().hover();await staged().getByRole('button',{name:'Remove '+selectedQuote,exact:true}).click();assert.equal(await staged().count(),0);assert.equal(await questionInput().evaluate(n=>n===document.activeElement),true);
+ await selectQuote();await selectionToolbar().getByRole('button',{name:'Send to side chat',exact:true}).click();await staged().waitFor();
+ await questionInput().fill('Explain this selection');await questionInput().press('Enter');await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();
+ assert.equal(await staged().count(),0);assert.equal(await side.locator('.ssc-user p').last().innerText(),'Explain this selection');
+ assert.equal(await side.locator('.ssc-user [data-kind="snippet"]').count(),1);assert.equal(await side.locator('.ssc-user .sca-remove').count(),0,'sent selection is a read-only preview');
+ await side.locator('.ssc-user [data-kind="snippet"]').getByRole('button').click();await page.locator('[data-cds=AttachmentPreview]').waitFor();
+ await poll(()=>page.locator('.sca-preview-text').evaluate(n=>{const r=n.getBoundingClientRect();return !!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-cds=AttachmentPreview]');}),'sent quote preview is painted above the side panel');await page.keyboard.press('Escape');await page.locator('[data-cds=AttachmentPreview]').waitFor({state:'hidden'});
+ const selectionStart=(await requests()).filter(call=>call.method==='turn/start').at(-1);
+ assert.ok(JSON.stringify(selectionStart.params).includes('<!-- attach -->\\n> Selected transcript context\\n\\nExplain this selection'),'actual fork receives the original context wire format');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion,'selection question does not mutate the parent');
+ await shot('side-chat-selection-answer');await selectQuote();await selectionToolbar().getByRole('button',{name:'Send to side chat',exact:true}).click();await staged().waitFor();
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();await side.locator('.ssc-empty').waitFor();assert.equal(await staged().count(),1,'clear messages preserves staged context');
+ await page.evaluate(()=>getSelection().removeAllRanges());await selectionToolbar().waitFor({state:'hidden'});
+ await side.getByRole('button',{name:'Close side chat',exact:true}).click();await side.waitFor({state:'hidden'});
+ report.checks.push('Original transcript selection toolbar stages a previewable/removable quote without model calls; close clears only context, send uses original attachment wire on a read-only fork, sent quote previews are immutable, and started sessions use Send to side chat');
+ step('side-chat-source-scroll');
+ await showSide();await side.waitFor();
+ for(let index=0;index<3;index++){
+   await questionInput().fill('Earlier side question '+index);await questionInput().press('Enter');
+   await poll(async()=>await side.locator('.ssc-answer').count()===index+1&&!(await questionInput().isDisabled()),'earlier side answer');
+ }
+ const scrollSnapshot=()=>side.locator('.ssc-messages').evaluate(node=>{
+   const bounds=node.getBoundingClientRect();
+   const lastUser=[...node.querySelectorAll('.ssc-user')].at(-1),text=[...node.querySelectorAll('.ssc-answer')].at(-1)?.textContent??'';
+   const chunks=[...text.matchAll(/HOLD_CHUNK_(\d+)/g)].map(match=>Number(match[1]));
+   return {top:node.scrollTop,height:node.scrollHeight,view:node.clientHeight,userOffset:lastUser?lastUser.getBoundingClientRect().top-bounds.top:null,lastChunk:Math.max(0,...chunks)};
+ });
+ await questionInput().fill('fixture:hold');await questionInput().press('Enter');
+ await poll(async()=>{const r=await scrollSnapshot();return r.lastChunk>=10&&r.height>r.view+300;},'long side reply');
+ const anchored=await scrollSnapshot();assert.ok(Math.abs(anchored.userOffset-8)<=1,'source keeps the current question eight pixels below the top');
+ await poll(async()=>(await scrollSnapshot()).lastChunk>=anchored.lastChunk+2,'reply grows after anchoring');
+ const grown=await scrollSnapshot();assert.ok(Math.abs(grown.top-anchored.top)<=1,'long reply does not chase its tail');assert.ok(grown.height-grown.view-grown.top>100);
+ await shot('side-chat-long-reply-anchor');
+ const messageBounds=await side.locator('.ssc-messages').boundingBox();await page.mouse.move(messageBounds.x+messageBounds.width/2,messageBounds.y+messageBounds.height/2);await page.mouse.wheel(0,-120);
+ await poll(async()=>(await scrollSnapshot()).top<grown.top-60,'read earlier side messages');await frames();const reading=await scrollSnapshot();
+ await poll(async()=>(await scrollSnapshot()).lastChunk>=reading.lastChunk+2,'reply grows while reading history');
+ assert.ok(Math.abs((await scrollSnapshot()).top-reading.top)<=1,'stream leaves manual reading position intact');
+ await side.getByRole('button',{name:'Stop response',exact:true}).click();await poll(async()=>!(await questionInput().isDisabled()),'long reply stopped');
+ assert.ok(Math.abs((await scrollSnapshot()).top-reading.top)<=1,'settling response keeps reading position');await shot('side-chat-long-reply-history');
+ await questionInput().fill('New question after reading history');await questionInput().press('Enter');await poll(async()=>!(await questionInput().isDisabled())&&await side.locator('.ssc-answer').count()===5,'new answer after history');
+ const latest=await scrollSnapshot();assert.ok(latest.userOffset>=0&&latest.userOffset<latest.view-20,'new question becomes visible');
+ await page.locator(`[data-source-session-id="${B}"] .source-session-open`).click();await side.waitFor({state:'hidden'});await showSide();await side.locator('.ssc-empty').waitFor();
+ await page.locator(`[data-source-session-id="${A}"] .source-session-open`).click();await side.waitFor({state:'hidden'});await showSide();await side.waitFor();
+ const reopened=await scrollSnapshot();assert.ok(reopened.userOffset>=0&&reopened.userOffset<reopened.view-20,'returning from another session targets this session’s last question');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion);
+ report.metrics.sideChatScroll={anchored,grown,reading,latest,reopened};
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();await side.locator('.ssc-empty').waitFor();
+ await side.getByRole('button',{name:'Close side chat',exact:true}).click();await side.waitFor({state:'hidden'});
+ report.checks.push('Original side-chat scrolling anchors the question 8px below the viewport during a real long stream, retains manual history reading through growth/Stop, exposes the next question, and resets correctly across sessions without changing parent history');
+ step('side-chat-background-lifecycle');
+ await showSide();await side.waitFor();const beforeUnmount=await panelRect();
+ const storedPanel=await page.evaluate(()=>JSON.parse(localStorage.getItem('epitaxy.sideChat.v1')));
+ near(storedPanel,beforeUnmount,'completed drag writes source geometry key');
+ // Warm the fresh fork: its first prompt carries the native boundary, whereas fixture:hold is an exact fixture command.
+ await questionInput().fill('Background lifecycle warmup');await questionInput().press('Enter');await side.getByText('CUSTOMIZE_FIXTURE_REPLY',{exact:true}).waitFor();await poll(async()=>!(await questionInput().isDisabled()),'background fork ready');
+ await questionInput().fill('fixture:hold');await questionInput().press('Enter');
+ await poll(async()=>(await scrollSnapshot()).lastChunk>=2,'stream before leaving session');
+ await poll(async()=>parseInt(await side.locator('.ssc-status [data-runtime-stat=elapsed]').textContent().catch(()=>''),10)>=2,'background clock reaches two seconds');
+ const beforeLeavingClock=await side.locator('.ssc-status [data-runtime-stat=elapsed]').innerText();
+ const beforeLeaving=await scrollSnapshot();await page.getByRole('button',{name:'New',exact:true}).click();
+ await poll(async()=>await page.locator('.ssc-root').count()===0,'side panel completely unmounts on New');
+ // Wait on actual fork traffic, rather than a wall-clock guess, while no panel exists.
+ await poll(async()=>{
+   const calls=await requests(),lastStart=calls.filter(call=>call.method==='turn/start').at(-1);
+   const database=JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8'));
+   return !!lastStart&&database.threads[lastStart.params.threadId]?.turns.at(-1)?.status==='inProgress';
+ },'side fork remains active without a view');
+ // The fixture persists at completion, so observe delivered native events for streamed progress.
+ const eventChunks=()=>app.evaluate(({BrowserWindow})=>{
+   const win=BrowserWindow.getAllWindows()[0];return win.webContents.executeJavaScript('window.__sideLifecycleChunks??0');
+ });
+ await page.evaluate(()=>{window.__sideLifecycleChunks=0;window.__stopSideLifecycleProbe=window.desktop.onEvent(e=>{if(e.method==='codeDesktop/sideQuestion/delta')window.__sideLifecycleChunks++;});});
+ await poll(async()=>await eventChunks()>=4,'four deltas while side component is absent');
+ await page.evaluate(()=>{window.__stopSideLifecycleProbe();delete window.__stopSideLifecycleProbe;delete window.__sideLifecycleChunks;});
+ await page.locator(`[data-source-session-id="${A}"] .source-session-open`).click();await page.locator('.loading-state').waitFor({state:'detached'});await showSide();await side.waitFor();
+ near(await panelRect(),beforeUnmount,'panel rectangle survives full component unmount');
+ await poll(async()=>(await scrollSnapshot()).lastChunk>=beforeLeaving.lastChunk+4,'background stream is visible on return');
+ const assertContinuous=async()=>{
+   const chunks=await side.locator('.ssc-answer').last().evaluate(n=>[...n.textContent.matchAll(/HOLD_CHUNK_(\d+)/g)].map(m=>Number(m[1])));
+   assert.ok(chunks.length>=6);assert.deepEqual(chunks,Array.from({length:chunks.at(-1)},(_,i)=>i+1),'every streamed chunk appears once, including while absent');return chunks.length;
+ };
+ await assertContinuous();
+ // Mount a second session App. Its hidden side panel must not subscribe to and duplicate A's stream.
+ await page.locator(`[data-source-session-id="${B}"] .source-session-open`).click({button:'right'});
+ await page.getByRole('menuitem',{name:'Open in',exact:true}).click();await page.getByRole('menu',{name:'Open in',exact:true}).getByRole('menuitem',{name:'Split view',exact:true}).click();
+ await page.locator('.split-pane-secondary .st-title').waitFor();assert.equal(await page.locator('.ssc-root').count(),2);
+ const beforeSplit=(await scrollSnapshot()).lastChunk;await poll(async()=>(await scrollSnapshot()).lastChunk>=beforeSplit+3,'stream with two mounted side panels');await assertContinuous();assert.ok(parseInt(await side.locator('.ssc-status [data-runtime-stat=elapsed]').innerText(),10)>=parseInt(beforeLeavingClock,10),'request clock survives complete view unmount and split mounting');await shot('side-chat-split-stream');
+ await app.evaluate(({Menu,BrowserWindow})=>{const view=Menu.getApplicationMenu().items.find(i=>i.label==='View'),split=view.submenu.items.find(i=>i.label==='Split View'),close=split.submenu.items.find(i=>i.label==='Close Split View');close.click(close,BrowserWindow.getAllWindows()[0]);});
+ await page.locator('.split-pane-secondary').waitFor({state:'detached'});await page.locator(`[data-source-session-id="${A}"] .source-session-open`).click();await page.locator('.loading-state').waitFor({state:'detached'});if(!await side.isVisible())await showSide();await side.waitFor();
+ await assertContinuous();await side.getByRole('button',{name:'Stop response',exact:true}).click();await poll(async()=>!(await questionInput().isDisabled()),'background stream stops');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[A].turns,beforeQuestion);
+ await side.getByRole('button',{name:'Clear side chat',exact:true}).click();await side.locator('.ssc-empty').waitFor();await side.getByRole('button',{name:'Close side chat',exact:true}).click();
+ await page.reload();await page.getByRole('button',{name:'Model',exact:true}).filter({hasText:'Test model'}).waitFor();await open();await showSide();await side.waitFor();
+ near(await panelRect(),beforeUnmount,'original panel rectangle persists through renderer reload');assert.equal(await side.locator('.ssc-user').count(),0,'side messages are not persisted');await shot('side-chat-restored-geometry');
+ await side.getByRole('button',{name:'Close side chat',exact:true}).click();await side.waitFor({state:'hidden'});
+ report.checks.push('Request-owned side streams retain every chunk across full panel unmount and two mounted split views without duplicates; stop affects only the fork; original geometry key survives unmount/reload without persisting messages');
+ if(!await pane().isVisible()){await page.getByRole('button',{name:'View options',exact:true}).click();await page.getByRole('menuitemcheckbox',{name:'Files',exact:true}).click();await pane().waitFor();}
+ await pane().getByRole('button',{name:'Go to file or search',exact:true}).click();await queryContent('?needle');
+ // File headers and filename matches retain the shared file menu, without Ask about this.
+ await pane().locator('.sfs-results').getByRole('button',{name:'content-a.txt',exact:true}).click({button:'right'});await fileActionsMenu().waitFor();
+ assert.equal(await fileActionsMenu().getByRole('menuitem',{name:'Ask about this',exact:true}).count(),0);
+ await page.waitForFunction(()=>document.activeElement?.closest('[role=menu]'));await page.keyboard.press('Escape');
+ await queryContent('content-b');await pane().locator('.sfs-results').getByRole('button',{name:'content-b.txt',exact:true}).click({button:'right'});await fileActionsMenu().waitFor();
+ assert.deepEqual(await itemsOf(fileActionsMenu()),['Attach as context','Copy','|',...OPEN_IN,'Show in Finder']);
+ await page.waitForFunction(()=>document.activeElement?.closest('[role=menu]'));await page.keyboard.press('Escape');
+ report.checks.push('Search-result context menus reuse file actions; matching lines offer Ask about this through the real read-only side-chat route with exact path/line/snippet and unchanged parent history; keyboard menu focus and middle/keyboard pinning match source behavior');
+ step('multi-file-search-actions');
+ await queryContent('content-');
+ const searchRows=()=>pane().locator('.sfs-results [data-tree-row]');
+ const multiSearchButton=name=>pane().locator('.sfs-results').getByRole('button',{name,exact:true});
+ await searchRows().first().focus();await page.keyboard.press('Meta+a');await page.keyboard.press('Escape');
+ assert.equal(await pane().locator('.sfs-results [aria-selected="true"]').count(),0);
+ await multiSearchButton('content-cap.txt').click({modifiers:['Meta']});await multiSearchButton('content-a.txt').click({modifiers:['Meta']});
+ assert.equal(await pane().locator('.sfs-results [aria-selected="true"]').count(),2);
+ const selectedPaths=await pane().locator('.sfs-results [aria-selected="true"] button').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('aria-label')));
+ await multiSearchButton('content-a.txt').click({button:'right'});await fileActionsMenu().getByText('2 items selected',{exact:true}).waitFor();
+ assert.deepEqual(await itemsOf(fileActionsMenu()),['Attach as context','Copy',...(OPEN_IN.length?['|',...OPEN_IN]:[])]);
+ await shot('multi-file-search-menu');
+ await saveClipboard();await fileActionsMenu().getByRole('menuitem',{name:'Copy',exact:true}).hover();
+ assert.deepEqual(await itemsOf(page.getByRole('menu',{name:'Copy',exact:true})),['Absolute paths','Relative paths','Filenames']);
+ await page.getByRole('menuitem',{name:'Relative paths',exact:true}).click();
+ assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),selectedPaths.join('\n'));await restoreClipboard();
+ await multiSearchButton('content-a.txt').click({button:'right'});await fileActionsMenu().getByRole('menuitem',{name:'Attach as context',exact:true}).click();
+ for(const name of selectedPaths)await page.locator('[data-cds-attachment]').getByRole('button',{name,exact:true}).waitFor();
+ assert.equal(await page.locator('[data-cds-attachment]').count(),2,'one batch stages both files');
+ for(const name of selectedPaths){await page.locator('[data-cds-attachment]').getByRole('button',{name,exact:true}).hover();await page.getByRole('button',{name:`Remove ${name}`,exact:true}).click();}
+ // Right-click on a nonselected row resets selection and restores the single-file menu.
+ await multiSearchButton('content-b.txt').click({button:'right'});await fileActionsMenu().waitFor();
+ assert.equal(await fileActionsMenu().getByText('2 items selected',{exact:true}).count(),0);
+ assert.equal(await pane().locator('.sfs-results [aria-selected="true"]').count(),1);
+ assert.equal(await pane().locator('.sfs-results [aria-selected="true"] button').getAttribute('aria-label'),'content-b.txt');
+ await page.waitForFunction(()=>document.activeElement?.closest('[role=menu]'));await page.keyboard.press('Escape');
+ // Shift selection uses the most recent command-click anchor, then plain Escape clears the range.
+ await multiSearchButton('content-a.txt').click({modifiers:['Meta']});await multiSearchButton('content-cap.txt').click({modifiers:['Shift']});
+ assert.equal(await pane().locator('.sfs-results [aria-selected="true"]').count(),3);
+ await searchRows().first().focus();await page.keyboard.press('Escape');
+ assert.equal(await pane().locator('.sfs-results [aria-selected="true"]').count(),0);assert.equal(await contentFilter.inputValue(),'content-');
+ await fs.copyFile(path.join(workspace,'photo.png'),path.join(workspace,'second-photo.png'));
+ await queryContent('photo.png');assert.equal(await searchRows().count(),2);await searchRows().first().focus();await page.keyboard.press('Meta+a');
+ await searchRows().first().locator('button').click({button:'right'});await fileActionsMenu().getByText('2 items selected',{exact:true}).waitFor();
+ assert.deepEqual(await itemsOf(fileActionsMenu()),['Attach as context','Copy'],'image-only selection excludes external text editors');
+ await page.waitForFunction(()=>document.activeElement?.closest('[role=menu]'));await page.keyboard.press('Escape');
+ report.checks.push('Multi-selected filename results show the source count label and batch menu; Copy uses visual order and newline separation, Attach stages all selected files, unselected right-click resets selection, Cmd-click updates the Shift anchor, and Escape clears selection without clearing the query; image-only selections omit external text editors');
+ await contentFilter.fill('?no-content-hit-anywhere');await pane().getByText('No matches in file contents',{exact:true}).waitFor();
+ await queryContent('?capword');assert.equal(await contentRows().count(),5);await pane().getByText('More matches in this file.',{exact:true}).waitFor();
+ await contentFilter.fill('');await pane().locator('.sfs-results[hidden]').waitFor({state:'attached'});
+ report.checks.push('Question-mark content search scans real unopened files, groups matching lines, applies case/whole-word/regexp options and invalid-pattern states, supports hierarchical keyboard navigation, opens exact lines with the query/options in file Find, reports no matches and caps each file at five visible hits');
+ step('nested-tree-selection');
+ const plainTree=()=>pane().locator('.source-tree-content');
+ const plainButton=name=>plainTree().getByRole('button',{name,exact:true});
+ const selectedTree=()=>plainTree().locator('[data-tree-row][aria-selected="true"]');
+ await plainTree().locator('[data-tree-row]').first().focus();await page.keyboard.press('Meta+a');await page.keyboard.press('Escape');
+ assert.equal(await selectedTree().count(),0);assert.equal(await plainTree().getAttribute('aria-multiselectable'),'true');
+ const activeBefore=(await tabsNow()).find(t=>t.selected)?.path;
+ await plainButton('notes.txt').click({modifiers:['Meta']});await plainButton('README.md').click({modifiers:['Meta']});
+ assert.equal(await selectedTree().count(),2);assert.equal((await tabsNow()).find(t=>t.selected)?.path,activeBefore,'modified tree clicks only change selection');
+ const treePaths=await selectedTree().evaluateAll(nodes=>nodes.map(n=>n.querySelector('[data-tree-primary]').dataset.filePath));
+ await plainButton('notes.txt').click({button:'right'});await fileActionsMenu().getByText('2 items selected',{exact:true}).waitFor();
+ await page.waitForFunction(()=>document.activeElement?.closest('[role=menu]'));
+ assert.equal(await plainTree().locator('.source-tree-row').evaluateAll(nodes=>nodes.filter(n=>getComputedStyle(n).boxShadow!=='none').length),0,'only the keyboard-focused tree row can show a focus ring');
+ await shot('nested-tree-multi-menu');
+ await saveClipboard();await fileActionsMenu().getByRole('menuitem',{name:'Copy',exact:true}).hover();await page.getByRole('menuitem',{name:'Relative paths',exact:true}).click();
+ assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),treePaths.join('\n'));await restoreClipboard();
+ await plainButton('notes.txt').click({button:'right'});await fileActionsMenu().getByRole('menuitem',{name:'Attach as context',exact:true}).click();
+ for(const name of treePaths)await page.locator('[data-cds-attachment]').getByRole('button',{name,exact:true}).waitFor();
+ assert.equal(await page.locator('[data-cds-attachment]').count(),2);
+ for(const name of treePaths){await page.locator('[data-cds-attachment]').getByRole('button',{name,exact:true}).hover();await page.getByRole('button',{name:`Remove ${name}`,exact:true}).click();}
+ await plainButton('nested').click({button:'right'});await fileActionsMenu().waitFor();assert.equal(await selectedTree().count(),1);
+ await fileActionsMenu().getByRole('menuitem',{name:'Attach as context',exact:true}).click();
+ const folderPill=page.locator('[data-cds-attachment]').filter({has:page.getByRole('button',{name:'nested',exact:true})});await folderPill.waitFor();
+ assert.equal(await folderPill.locator('.sca-extension').count(),0,'attached directory keeps its Folder glyph');
+ await folderPill.hover();await page.getByRole('button',{name:'Remove nested',exact:true}).click();
+ if(await plainButton('nested').evaluate(n=>n.closest('[data-tree-row]').getAttribute('aria-expanded'))!=='true')await plainButton('nested').click();
+ await plainButton('deep.txt').waitFor();await plainButton('deep.txt').click({modifiers:['Meta']});
+ await plainButton('deep.txt').evaluate(n=>n.closest('[data-tree-row]').focus());await page.keyboard.press('Shift+ArrowDown');
+ assert.equal(await selectedTree().count(),2,'shift navigation spans flattened visible nested rows');
+ await page.keyboard.press('Escape');assert.equal(await selectedTree().count(),0);
+ await page.keyboard.press('Meta+Space');assert.equal(await selectedTree().count(),1);
+ await page.keyboard.press('Shift+F10');await fileActionsMenu().waitFor();await page.waitForFunction(()=>document.activeElement?.getAttribute('role')?.startsWith('menuitem'));
+ await page.keyboard.press('Escape');await fileActionsMenu().waitFor({state:'detached'});assert.equal(await plainTree().evaluate(n=>n.contains(document.activeElement)),true);
+ report.checks.push('Nested file tree uses original multi-selection/range/anchor state; modified clicks preserve preview, batch context Copy and Attach operate on visual order, directory attachments retain Folder identity, Shift navigation crosses visible nesting, Escape clears selection and keyboard context menus restore tree focus');
+ step('file-context-drag');
+ const composerDrop=page.locator('form[data-cds="ChatComposer"]');
+ const removeStaged=async()=>{for(const name of await page.locator('[data-cds-attachment] .sca-body').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('aria-label')))){await page.locator('[data-cds-attachment]').getByRole('button',{name,exact:true}).hover();await page.getByRole('button',{name:`Remove ${name}`,exact:true}).click();}};
+ const dragTransfer=()=>page.evaluateHandle(()=>new DataTransfer());
+ const dragRow=button=>button.locator('xpath=..');
+ await plainTree().locator('[data-tree-row]').first().focus();await page.keyboard.press('Meta+a');await page.keyboard.press('Escape');
+ await plainButton('notes.txt').click({modifiers:['Meta']});await plainButton('README.md').click({modifiers:['Meta']});
+ const dt=await dragTransfer();const dragSource=dragRow(plainButton('notes.txt'));assert.equal(await dragSource.getAttribute('draggable'),'true');
+ await dragSource.dispatchEvent('dragstart',{dataTransfer:dt});
+ assert.deepEqual(await dt.evaluate(d=>[...d.types]),['application/x-claude-file-context']);assert.equal(await dt.evaluate(d=>d.getData('text/plain')),'');
+ await composerDrop.dispatchEvent('dragover',{dataTransfer:dt});await poll(async()=>await composerDrop.getAttribute('data-drag-over')==='true','composer accepts the owned file-context drag');
+ await composerDrop.dispatchEvent('drop',{dataTransfer:dt});await dragSource.dispatchEvent('dragend',{dataTransfer:dt});
+ for(const name of ['notes.txt','README.md'])await page.locator('[data-cds-attachment]').getByRole('button',{name,exact:true}).waitFor();assert.equal(await page.locator('[data-cds-attachment]').count(),2);
+ await shot('tree-drag-attachments');await removeStaged();
+ // A drag outside the existing selection only carries that directory; cancellation clears its pending action.
+ const folderSource=dragRow(plainButton('nested')),folderTransfer=await dragTransfer();
+ await folderSource.dispatchEvent('dragstart',{dataTransfer:folderTransfer});await composerDrop.dispatchEvent('drop',{dataTransfer:folderTransfer});await folderSource.dispatchEvent('dragend',{dataTransfer:folderTransfer});
+ assert.equal(await page.locator('[data-cds-attachment]').count(),1);assert.equal(await page.locator('[data-cds-attachment] .sca-extension').count(),0);await removeStaged();
+ const cancelledTransfer=await dragTransfer();await dragSource.dispatchEvent('dragstart',{dataTransfer:cancelledTransfer});await dragSource.dispatchEvent('dragend',{dataTransfer:cancelledTransfer});
+ await composerDrop.dispatchEvent('drop',{dataTransfer:cancelledTransfer});assert.equal(await page.locator('[data-cds-attachment]').count(),0);
+ // Blank-area press + click clears selection; pointercancel prevents the clearing click.
+ await plainTree().dispatchEvent('pointerdown',{button:0,clientX:0,clientY:0});await plainTree().dispatchEvent('pointercancel');await plainTree().dispatchEvent('click');assert.equal(await selectedTree().count(),2);
+ await plainTree().dispatchEvent('pointerdown',{button:0,clientX:0,clientY:0});await plainTree().dispatchEvent('click');assert.equal(await selectedTree().count(),0);
+ await queryContent('content-');await searchRows().first().focus();await page.keyboard.press('Meta+a');
+ const resultsBox=pane().locator('.sfs-results');await resultsBox.dispatchEvent('pointerdown',{button:0,clientX:0,clientY:0});await resultsBox.dispatchEvent('click');assert.equal(await resultsBox.locator('[aria-selected="true"]').count(),0);
+ const searchDrag=resultsBox.locator('[data-tree-row]').first(),searchName=await searchDrag.locator('button').getAttribute('aria-label'),searchTransfer=await dragTransfer();
+ await searchDrag.dispatchEvent('dragstart',{dataTransfer:searchTransfer});await composerDrop.dispatchEvent('drop',{dataTransfer:searchTransfer});await searchDrag.dispatchEvent('dragend',{dataTransfer:searchTransfer});
+ await page.locator('[data-cds-attachment]').getByRole('button',{name:searchName,exact:true}).waitFor();assert.equal(await page.locator('[data-cds-attachment]').count(),1);await removeStaged();
+ await queryContent('?needle');assert.ok((await contentRows().evaluateAll(nodes=>nodes.map(n=>n.getAttribute('draggable')))).every(value=>value==='false'),'content-hit rows are not file drag handles');
+ await contentFilter.fill('');
+ report.checks.push('Browser DataTransfer/DragEvent integration uses the original private marker to attach tree selections, unselected directories and filename results through the composer; dragend cancellation prevents stale drops, content hits are not draggable, and blank press/click clears selection unless pointercancel intervenes');
+ step('shared-tree-search-selection');
+ const treeSelectionPaths=()=>selectedTree().evaluateAll(nodes=>nodes.map(n=>n.querySelector('[data-tree-primary]').dataset.filePath));
+ const searchSelectionPaths=()=>pane().locator('.sfs-results [aria-selected="true"] button').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('aria-label')));
+ await plainButton('content-a.txt').click({modifiers:['Meta']});await plainButton('content-b.txt').click({modifiers:['Meta']});
+ assert.deepEqual(await treeSelectionPaths(),['content-a.txt','content-b.txt']);
+ await queryContent('content-');assert.deepEqual(await searchSelectionPaths(),['content-a.txt','content-b.txt'],'matching tree selection survives into filename results');
+ await multiSearchButton('content-b.txt').click();await contentFilter.fill('');await plainTree().waitFor({state:'visible'});
+ assert.deepEqual(await treeSelectionPaths(),['content-b.txt'],'clearing search uses the new shared selection, not the previous tree selection');
+ await queryContent('content-');await multiSearchButton('content-cap.txt').click({modifiers:['Meta']});
+ assert.deepEqual(await searchSelectionPaths(),['content-b.txt','content-cap.txt']);
+ await queryContent('README.md');assert.deepEqual(await searchSelectionPaths(),[],'a nonempty filtered list retains only matching paths');
+ await contentFilter.fill('');assert.deepEqual(await treeSelectionPaths(),[],'filtered-out selection cannot reappear in the tree');
+ await plainButton('content-a.txt').click({modifiers:['Meta']});await queryContent('zz-file-does-not-exist');
+ await pane().getByText('No matching files',{exact:true}).waitFor();await contentFilter.fill('');
+ assert.deepEqual(await treeSelectionPaths(),['content-a.txt'],'an empty notice has no source Wv list and does not prune the existing selection');
+ await queryContent('?needle');assert.equal(await pane().locator('.sfs-results [aria-selected="true"]').count(),0);await contentFilter.fill('');
+ assert.deepEqual(await treeSelectionPaths(),[],'entering content mode clears the common selection');
+ await queryContent('content-');await multiSearchButton('content-cap.txt').click({modifiers:['Shift']});
+ assert.deepEqual(await searchSelectionPaths(),['content-cap.txt'],'Shift-click with no surviving anchor starts at the clicked result');
+ await multiSearchButton('content-a.txt').click({modifiers:['Meta']});await searchRows().first().focus();await page.keyboard.press('Shift+End');
+ assert.deepEqual(await searchSelectionPaths(),['content-a.txt','content-cap.txt'],'source Home/End focus movement does not extend selection');
+ await contentFilter.focus();await page.keyboard.press('ArrowDown');await multiSearchButton('content-b.txt').click({modifiers:['Shift']});
+ assert.deepEqual(await searchSelectionPaths(),['content-a.txt','content-b.txt'],'Down from the input moves the shared range anchor to the first result');
+ await shot('shared-search-selection');
+ await contentFilter.focus();await page.keyboard.press('Enter');
+ await poll(async()=>JSON.stringify(await searchSelectionPaths())===JSON.stringify(['content-a.txt']),'Enter activation updates shared selection');
+ await contentFilter.fill('');assert.deepEqual(await treeSelectionPaths(),['content-a.txt']);
+ report.checks.push('Tree and filename results share original selection/anchor state across mode switches: nonempty lists prune hidden paths, empty notices preserve state, content mode clears it, unanchored Shift starts at the clicked row, Home/End do not extend a range, input Down sets the first-row anchor and Enter selects the activated file');
+ step('file-search-entry-points');
+ const filterSelection=()=>contentFilter.evaluate(n=>({value:n.value,start:n.selectionStart,end:n.selectionEnd,focused:document.activeElement===n}));
+ await pane().getByRole('button',{name:'Close panel',exact:true}).click();await pane().waitFor({state:'detached'});
+ await page.locator('[data-cds="ChatComposerEditor"]').focus();await page.keyboard.press('Meta+p');await pane().waitFor();
+ await poll(async()=>await contentFilter.evaluate(n=>document.activeElement===n),'global Cmd P opens and focuses file filter');
+ await contentFilter.fill('needle');
+ const nativeFind=async()=>app.evaluate(({Menu,BrowserWindow})=>{
+   const menu=Menu.getApplicationMenu(),item=menu.getMenuItemById('find-in-files');
+   if(!item?.enabled)throw Error('Find in Files is not enabled');
+   item.click(item,BrowserWindow.getAllWindows()[0],{});
+ });
+ await poll(async()=>await app.evaluate(({Menu})=>Menu.getApplicationMenu()?.getMenuItemById('find-in-files')?.enabled),'native Find in Files availability');
+ await nativeFind();await poll(async()=>JSON.stringify(await filterSelection())===JSON.stringify({value:'?needle',start:1,end:7,focused:true}),'native content search prefixes and selects query');
+ await pane().locator('.sfs-browser[data-search-phase="success"]').waitFor();assert.equal(await contentRows().count(),5);
+ await nativeFind();await poll(async()=>JSON.stringify(await filterSelection())===JSON.stringify({value:'?needle',start:1,end:7,focused:true}),'repeated content entry does not double-prefix');
+ await page.keyboard.type('capword');await pane().getByText('More matches in this file.',{exact:true}).waitFor();assert.equal(await contentFilter.inputValue(),'?capword');
+ await pane().getByRole('button',{name:'Go to file or search',exact:true}).click();await poll(async()=>JSON.stringify(await filterSelection())===JSON.stringify({value:'?capword',start:0,end:8,focused:true}),'filter entry selects the full query');
+ await contentFilter.evaluate(n=>n.setSelectionRange(3,3));await page.keyboard.press('Meta+p');await poll(async()=>(await filterSelection()).start===0&&(await filterSelection()).end===8,'pane Cmd P selects the full query');
+ await contentFilter.fill('');await nativeFind();await poll(async()=>JSON.stringify(await filterSelection())===JSON.stringify({value:'?',start:1,end:1,focused:true}),'empty content entry places caret after question mark');
+ await pane().getByText('Type after ? to search in files',{exact:true}).waitFor();await shot('native-find-in-files');
+ await contentFilter.fill('');
+ report.checks.push('Current Go to file or search toolbar label and Cmd+P work inside Files and from the composer with Files closed; real Electron Edit/Find menu dispatch opens content mode, prefixes ? once, selects only the query and places an empty-query caret after ?; normal filter entry selects the whole query');
  assert.deepEqual(report.rendererErrors,[]);await integrity();report.passed=true;
 }catch(error){report.failure=error.stack;report.phase=phase;process.exitCode=1;if(page)await shot('failure').catch(()=>{});}
 finally{if(app&&report.clipboardSaved&&!report.clipboardRestored){try{await restoreClipboard();}catch(error){report.clipboardRestoreError=String(error);report.passed=false;process.exitCode=1;}}

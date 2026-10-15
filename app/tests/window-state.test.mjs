@@ -89,3 +89,13 @@ test('track: debounced bbe save on window events, immediate save on close, minim
  assert.deepEqual(loadWindowState(file,screen),{...saved()},'the written file loads back unchanged');
  win.emit('closed');assert.equal(win.listenerCount('resize'),0,'closed unmanages');assert.equal(tracker.state.x,300);
 });
+
+test('a session torn off the sidebar opens its window at the drop point, kept on that display (shared-19 DY initialPosition)',()=>{
+ const {positionWindowState}=windowState,screen=screenOf(LAPTOP,EXTERNAL);
+ const state={width:1200,height:800,isMaximized:true,isFullScreen:false};
+ assert.deepEqual(positionWindowState(state,{x:1600,y:200},screen),{width:1200,height:800,x:1600,y:200,isMaximized:false,isFullScreen:false});
+ // Near the laptop's right edge: pulled back so the frame stays on its work area (below the menu bar).
+ assert.deepEqual(positionWindowState(state,{x:1000,y:0},screenOf(LAPTOP)),{width:1200,height:800,x:270,y:33,isMaximized:false,isFullScreen:false});
+ assert.equal(positionWindowState(state,null,screen),state);
+ assert.equal(positionWindowState(state,{x:NaN,y:1},screen),state);
+});

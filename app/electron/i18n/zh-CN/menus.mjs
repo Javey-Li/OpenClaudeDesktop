@@ -22,6 +22,7 @@ export default {
   'Paste and Match Style': '粘贴并匹配样式',
   'Select All': '全选',
   'Find': '查找',
+  'Find in Files…': '在文件中查找…',
   'Find…': '查找…',
   'Find Next': '查找下一个',
   'Find Previous': '查找上一个',
@@ -77,6 +78,8 @@ export default {
   'Workflow JavaScript': '工作流 JavaScript',
   'Export conversation': '导出对话',
   'Add folder to session': '向会话添加文件夹',
+  'Couldn’t add {count} folder to this session': '无法将 {count} 个文件夹添加到此会话',
+  'Couldn’t add {count} folders to this session': '无法将 {count} 个文件夹添加到此会话',
   'Select folder for local session': '选择本地会话的文件夹',
   // Role items (labelled only outside en-US).
   'About {appName}': '关于 {appName}',

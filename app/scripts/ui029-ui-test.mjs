@@ -60,11 +60,11 @@ const snapshot=()=>page.locator('.transcript').evaluate(v=>{
 });
 async function stable(){await within(page.evaluate(()=>new Promise((resolve,reject)=>{let prior,count=0;const end=performance.now()+2000;function step(){const v=document.querySelector('.transcript'),top=v?.scrollTop;count=prior!==undefined&&Math.abs(top-prior)<0.1?count+1:0;prior=top;if(count>=4)resolve();else if(performance.now()>end)reject(new Error('Scroll did not settle'));else requestAnimationFrame(step);}requestAnimationFrame(step);})), 'Scroll settle',2500);}
 async function tail(){return poll(snapshot,s=>s.following==='true'&&s.remaining<=1,'Expected actual tail');}
-async function idle(){await page.locator(`${TAIL}[${STATE}="idle"]`).waitFor({state:'attached'});await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'hidden'});await frames();}
+async function idle(){await page.locator(`${TAIL}[${STATE}="idle"]`).waitFor({state:'attached'});await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({state:'hidden'});await frames();}
 async function jump(){const b=page.getByTestId('jump-to-latest');if(await b.getAttribute('data-visible')==='true')await b.click();return tail();}
 async function wheelUp(){const r=await page.locator('.transcript').boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.wheel(0,-530);await poll(snapshot,s=>s.following==='false'&&s.remaining>200,'Wheel releases following');await stable();return snapshot();}
 async function sameAnchor(before,label){await frames();const after=await snapshot();assert.equal(after.following,'false',label+': following');assert.equal(after.anchor,before.anchor,label+': item');near(after.offset,before.offset,label+': offset',2);return after;}
-async function send(text){await page.getByRole('textbox',{name:'Message DeepSeek'}).fill(text);await page.getByRole('button',{name:'Send message',exact:true}).click();}
+async function send(text){await page.getByRole('textbox',{name:'Message DeepSeek'}).fill(text);await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();}
 async function store(){return JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8'));}
 async function turnState(id){const t=(await store()).threads[id].turns.at(-1);return {id:t.id,status:t.status,text:t.items.filter(item=>item.type==='agentMessage').map(item=>item.text).join('\n')};}
 async function shot(name){const file=path.join(directory,name+'.png');await within(page.screenshot({path:file,timeout:4000}),'Screenshot',4500);screenshots.push(file);}
@@ -109,7 +109,7 @@ async function assertUser(id,bodies,plainIndices=[]){
  for(const i of plainIndices)assert.equal(await row.locator(USER_CODE).nth(i).locator('[data-code-token]').count(),0);
 }
 async function size(width,height=852){await app.evaluate(({BrowserWindow},s)=>BrowserWindow.getAllWindows()[0].setContentSize(s.width,s.height),{width,height});await page.waitForFunction(s=>innerWidth===s.width&&innerHeight===s.height,{width,height});await frames();}
-async function openFiles(){await page.getByRole('button',{name:'Session options',exact:true}).click();await page.getByRole('menuitemcheckbox',{name:'Files',exact:true}).click();await page.getByRole('complementary',{name:'Files panel'}).waitFor();await frames();}
+async function openFiles(){await page.getByRole('button',{name:'View options',exact:true}).click();await page.getByRole('menuitemcheckbox',{name:'Files',exact:true}).click();await page.getByRole('complementary',{name:'Files panel'}).waitFor();await frames();}
 async function closeFiles(){await page.locator('.source-side-tile').getByRole('button',{name:'Close panel',exact:true}).click();await page.locator('.source-side-tile').waitFor({state:'detached'});await frames();}
 async function paneWidth(width){
  // 0.2.14 tile engine: separators are labelled "Resize {i} and {i+1}" (2.2553.1 Mh aria-label).
@@ -238,7 +238,7 @@ async function stopIdentity(){
  await page.evaluate(({TAIL,STATE})=>{window.ui029Stopping=null;const take=()=>{const tail=document.querySelector(`${TAIL}[${STATE}="stopping"]`);if(!tail||window.ui029Stopping)return;const label=tail.querySelector('.sts-label');
   window.ui029Stopping={at:Date.now(),tailHidden:tail.getAttribute('aria-hidden'),labelHidden:label?.getAttribute('aria-hidden')??null,role:label?.getAttribute('role')??null,name:label?.getAttribute('aria-label')??null,text:label?.textContent??'',sprites:tail.querySelectorAll('span.sts-spark[data-spark-rendering="sprite"][data-spark-state="thinking"]').length};observer.disconnect();};
   const observer=new MutationObserver(take);observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:[STATE,'aria-hidden','aria-label','data-spark-state','data-spark-rendering']});take();},{TAIL,STATE});
- const stop=page.getByRole('button',{name:'Stop response',exact:true});await stop.click();
+ const stop=page.locator('[data-testid="code-prompt-stop"]:not([inert] *)');await stop.click();
  const seen=await poll(()=>page.evaluate(()=>window.ui029Stopping),s=>!!s,'Stopping tail rendered');
  const stoppedAt=seen.at;metrics.stoppingTail=seen;
  assert.equal(seen.tailHidden,null,'Stopping tail is exposed to assistive tech');assert.equal(seen.labelHidden,null);assert.equal(seen.role,'status');assert.match(seen.name,/Stopping/);assert.match(seen.text,/Stopping/);
@@ -248,7 +248,7 @@ async function stopIdentity(){
  // remaining live activation path is Escape in the focused editor, which the interrupting guard must ignore.
  await stop.waitFor({state:'detached'});
  const pendingSlot=await page.locator('.sc-submit-layer:not([data-leaving]) .sc-submit-slot button').evaluate(n=>({label:n.getAttribute('aria-label'),disabled:n.disabled,busy:n.getAttribute('aria-busy')}));
- assert.deepEqual(pendingSlot,{label:'Send message',disabled:true,busy:null},'Pending interrupt shows the disabled Send glyph instead of Stop');
+ assert.deepEqual(pendingSlot,{label:'Send',disabled:true,busy:null},'Pending interrupt shows the disabled Send glyph instead of Stop');
  await page.getByRole('textbox',{name:'Message DeepSeek'}).focus();await page.keyboard.press('Escape');await page.keyboard.press('Escape');
  await open(IDS.longB);await idle();await assertIdle();assert.doesNotMatch(await page.locator('.conversation').innerText(),/Stopping/);
  await poll(()=>turnState(IDS.longA),s=>s.status==='interrupted','Delayed real interruption');

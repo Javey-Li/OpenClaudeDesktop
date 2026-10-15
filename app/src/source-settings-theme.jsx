@@ -114,8 +114,8 @@ export function SourceThemeSettings({ config = {}, desktopCall, onSave, onOpenSe
   // A link to a setting's home page (the row highlighted there); without a navigator the description names the page.
   const openButton = (label, section, rowId) => onOpenSetting
     ? <SourceSettingsButton variant="secondary" size="sm" onClick={() => onOpenSetting(section, rowId)}>{label}</SourceSettingsButton> : null;
-  const modeRow = settingRow('themeMode', t('Light or dark'), t('Choose System, Light or Dark under Theme on the Preferences page.'),
-    openButton(t('Open Preferences'), 'preferences', 'theme'));
+  const modeRow = settingRow('themeMode', t('Light or dark'), t('Choose System, Light or Dark under Theme on the General page.'),
+    openButton(t('Open General settings'), 'preferences', 'theme'));
   // The one free-text font override in the theme (customTheme.uiFont); the Interface font choice itself is on Code.
   const uiFontRow = settingRow('themeUiFont', t('Custom interface font'), t('Any installed font, saved with this theme. Leave empty to use the Interface font chosen on the Code page.'),
     <UiFontControl value={theme.uiFont} onCommit={value => saveTheme('themeUiFont', { uiFont: value })}/>,
@@ -141,7 +141,7 @@ export function SourceThemeSettings({ config = {}, desktopCall, onSave, onOpenSe
     <SettingsGroup title={t('Code')} rows={[codeLinkRow]} rowErrors={rowErrors}/>
     <SettingsGroup title={t('Preview')}>
       <ThemePreviewCard/>
-      <p className="ss-theme-custom-note">{t('Light and dark mode follow the Theme setting on the Preferences page. Pop-out windows keep the default theme.')}</p>
+      <p className="ss-theme-custom-note">{t('Light and dark mode follow the Theme setting on the General page. Pop-out windows keep the default theme.')}</p>
     </SettingsGroup>
   </div>;
 }

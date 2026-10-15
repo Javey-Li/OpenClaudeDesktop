@@ -18,6 +18,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn, execFile } = require("node:child_process");
 const model = require("./terminal-model.mjs");
+const {prepareTerminalShell,cleanupTerminalShell}=require("./terminal-shell-integration.cjs");
 const { proxyEnv, loginShellProxy } = require("./proxy-env.cjs");
 
 const FLUSH_MS = 8;
@@ -131,7 +132,7 @@ function createTerminalService(options = {}) {
   function info(record) {
     return {
       id: record.id, owner: record.owner, sessionId: record.sessionId, number: record.number, title: record.title,
-      cwd: record.cwd, status: record.status, exitCode: record.exitCode, signal: record.signal, backend: record.backend,
+      cwd: record.cwd, shell: record.shell ?? null, shellIntegration: record.shellIntegration?.kind ?? null, status: record.status, exitCode: record.exitCode, signal: record.signal, backend: record.backend,
       limited: record.backend === "script", busy: record.busy, openedBy: record.openedBy, userTyped: record.userTyped,
       generation: record.generation, createdAt: record.createdAt, error: record.error ?? null,
     };
@@ -170,12 +171,21 @@ function createTerminalService(options = {}) {
   function startProcess(record, size) {
     const shell = shellPath();
     record.shell = shell;
-    const env = record.env;
+    let env = record.env;
+    let args = typeof record.runCommand === "string" ? ["-lc", record.runCommand] : ["-l"];
+    cleanupTerminalShell(record.shellIntegration);
+    record.shellIntegration=null;
+    try {
+      const directory=typeof options.shellIntegrationDir==='function'?options.shellIntegrationDir():options.shellIntegrationDir;
+      record.shellIntegration=prepareTerminalShell({shell,args,env,directory});
+      if(record.shellIntegration){args=record.shellIntegration.args;env=record.shellIntegration.env;}
+    } catch { /* Startup still works when the optional integration directory cannot be written. */ }
     let pty = forceScript ? { error: "forced" } : loadPty();
     const generation = record.generation;
     const exited = (exitCode, signal) => {
       if (record.generation !== generation || records.get(record.id) !== record) return;
       flush(record);
+      cleanupTerminalShell(record.shellIntegration);
       record.proc = null;
       record.status = "exited";
       record.exitCode = Number.isInteger(exitCode) ? exitCode : null;
@@ -186,7 +196,7 @@ function createTerminalService(options = {}) {
     let proc = null;
     if (pty.module) {
       // A shell-mode run ('!command' in the composer) is a login shell running just that command; a tab, an interactive one.
-      const args = typeof record.runCommand === "string" ? ["-lc", record.runCommand] : ["-l"];
+
       try { proc = pty.module.spawn(shell, args, { name: "xterm-256color", cols: size.cols, rows: size.rows, cwd: record.cwd, env, encoding: "utf8" }); }
       catch (error) { pty = { error: String(error?.message || error) }; }
     }
@@ -210,12 +220,9 @@ function createTerminalService(options = {}) {
     // size travel as positional arguments, never as shell source, so nothing the user names can inject a command.
     record.backend = "script";
     record.error = pty.error === "forced" ? null : pty.error ?? null;
-    // A shell-mode run passes its command as a fourth positional argument ($3), never as shell source of the wrapper.
-    const run = typeof record.runCommand === "string";
-    const wrapper = run
-      ? `cat | { /usr/bin/script -q /dev/null /bin/sh -c 'stty rows "$1" cols "$2" 2>/dev/null; exec "$0" -lc "$3"' "$0" "$1" "$2" "$3" 3>&-; echo "$?" >&3; }`
-      : `cat | { /usr/bin/script -q /dev/null /bin/sh -c 'stty rows "$1" cols "$2" 2>/dev/null; exec "$0" -l' "$0" "$1" "$2" 3>&-; echo "$?" >&3; }`;
-    const child = spawn("/bin/sh", ["-c", wrapper, shell, String(size.rows), String(size.cols), ...(run ? [record.runCommand] : [])], {
+    // Arguments remain positional for both the source integration planner and command runs.
+    const wrapper = `cat | { /usr/bin/script -q /dev/null /bin/sh -c 'stty rows "$1" cols "$2" 2>/dev/null; shift 2; exec "$0" "$@"' "$0" "$@" 3>&-; echo "$?" >&3; }`;
+    const child = spawn("/bin/sh", ["-c", wrapper, shell, String(size.rows), String(size.cols), ...args], {
       cwd: record.cwd, env: { ...env, COLUMNS: String(size.cols), LINES: String(size.rows) }, stdio: ["pipe", "pipe", "pipe", "pipe"], detached: true,
     });
     const signalGroup = (signal) => { try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch {} } };
@@ -273,6 +280,7 @@ function createTerminalService(options = {}) {
   }
   function stop(record, signal = "SIGHUP") {
     const proc = record.proc;
+    cleanupTerminalShell(record.shellIntegration);
     record.proc = null;
     if (!proc) return;
     try { proc.kill(signal); } catch {}
@@ -474,6 +482,16 @@ function createTerminalService(options = {}) {
     return { owner: model.ownerKey(sessionId, cwd), sessionId, cwd };
   }
 
+  /** Wait for the shell's startup files (first output, then a short quiet spell); throws when it never got there. */
+  async function shellReady(record) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < READY_MAX_MS && record.status === "running") {
+      if (record.total > 0 && Date.now() - record.lastOutputAt >= READY_QUIET_MS) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (record.status !== "running" || records.get(record.id) !== record) throw new Error("The terminal wasn’t ready, so the command wasn’t run");
+  }
+
   /** One renderer request; `sender` is the trusted webContents. */
   async function call(op, params = {}, sender = null) {
     if (params === null || typeof params !== "object" || Array.isArray(params)) throw new Error("Invalid terminal request.");
@@ -541,8 +559,32 @@ function createTerminalService(options = {}) {
         if (ownerRecords(owner).some((record) => typeof record.runCommand === "string" && record.status === "running")) throw new Error("A shell command is already running");
         subscribe(sender, owner);
         const opened = await create({ owner, sessionId, cwd, cols: params.cols, rows: params.rows, title: command.split("\n")[0].slice(0, 40), runCommand: command });
-        toEveryone({ kind: "opened", id: opened.id, owner, sessionId, openedBy: "user" });
+        // quiet: a code block's run whose output goes to the model (B20) doesn't open the pane (c03935b01 Vt).
+        if (params.quiet !== true) toEveryone({ kind: "opened", id: opened.id, owner, sessionId, openedBy: "user" });
         return opened;
+      }
+      case "probe": {
+        // A code block's Run (B20; c11959232 getBusyShellPtyKeys): which of the owner's interactive shells are live,
+        // and which run a command (busy) or can't be told (unknown), read now rather than from the poll.
+        const { owner } = ownerOf(params);
+        subscribe(sender, owner);
+        const live = [], busy = [], unknown = [];
+        for (const record of ownerRecords(owner)) {
+          if (record.status !== "running" || typeof record.runCommand === "string") continue;
+          live.push(record.id);
+          const state = record.backend === "script" ? await scriptBusy(record) : foregroundBusy(record);
+          if (state === true) busy.push(record.id); else if (state !== false) unknown.push(record.id);
+        }
+        return { live, busy, unknown };
+      }
+      case "ready": {
+        // A code block's Run (B20): the shell is ready for a command once its startup files are done; `at` is where its
+        // output stood then, so what follows is the command's.
+        const { owner } = ownerOf(params);
+        const record = owned(owner, params.id);
+        await shellReady(record);
+        flush(record);
+        return { at: record.total };
       }
       case "wait": {
         // A shell-mode run's end: its exit code and output (plain text, the last lines), or {running: true} at the deadline.
@@ -668,12 +710,7 @@ function createTerminalService(options = {}) {
     /** Wait for the shell's startup files (first output, then a short quiet spell), then type `command` and Enter. */
     async type(owner, id, command) {
       const record = owned(owner, id);
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < READY_MAX_MS && record.status === "running") {
-        if (record.total > 0 && Date.now() - record.lastOutputAt >= READY_QUIET_MS) break;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      if (record.status !== "running" || records.get(id) !== record) throw new Error("The terminal wasn’t ready, so the command wasn’t run");
+      await shellReady(record);
       return write(record, `${command}\r`, { source: "agent" });
     },
     interrupt(owner, id) { return write(owned(owner, id), "\u0003", { source: "agent" }); },

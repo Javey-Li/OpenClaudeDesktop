@@ -1,22 +1,38 @@
+import {startFileContextDrag} from "./file-context-drag.mjs";
+import {dispatchTerminalFind} from "./terminal-find-model.mjs";
+import { guardFileEdits } from "./file-edit-store.mjs";
+import { SourceFileEditGuard } from "./source-file-edit-guard.jsx";
+import { useFileViewSettings } from "./use-file-view-settings.mjs";
+import { SourceRoutines } from './source-routines.jsx';
 import { threadPermissionParams, turnPermissionParams, approvesPlan, afterPlanPermission, approvedPlanPermission, workflowAccess, planImplementationTurn, bypassAvailability as requirementsBypass } from '../electron/permission-policy.mjs';
+import { sessionSurface, surfaceSessions, surfaceDraftKey, surfaceInstructions, validSurface } from '../electron/surface-policy.mjs';
+import { SourceArtifactLibrary } from './source-artifact-library.jsx';
+import { SourceProjects } from './source-projects.jsx';
+import { SourceSurfaceGreeting, SourceSurfaceHome, homeScrollClass, SourceCoworkProgress, SourceCoworkComingSoon } from './source-surfaces.jsx';
+import { SourceCoworkHome } from './source-cowork-home.jsx';
 import { SourceSuggestedTasks } from "./source-suggested-tasks.jsx";
+import { SourceTaskBacklog } from "./source-task-backlog.jsx";
+import { insertTakenPrompt } from "./task-backlog-model.mjs";
 import { carryApplies } from '../electron/bypass-carry.mjs';
 import { useBypassPermission, SourceBypassDialog, bypassGuide } from './source-bypass-permission.jsx';
 import {SourceToastProvider, useSourceToasts} from './source-toast.jsx';
 import { reportActionError, sessionActionErrorKind, ACTION_ERROR_COPY, cleanErrorReason } from "./action-error-model.mjs";
 import { saveConfirmedPreferences } from './preference-save.mjs';
 import {WorkflowRow,WorkflowCard,WorkflowLaunch} from "./source-workflow.jsx";
+import {createWorkflowSizeStore,pickWorkflowSizeWarning,syncWorkflowSizeStore,workflowSizeDetail} from "./workflow-size-band-model.mjs";
+// cc43287c9 Nq: the large-workflow band entries (drawn warning or dismissed) per workflow task, for the app's life.
+const workflowSizeStore = createWorkflowSizeStore();
 import { resolveWorkflowSettings } from "../electron/prefs/workflow-settings.mjs";
 import { ultracodeMatches, withoutSystemReminders } from "../electron/prefs/workflow-keyword.mjs";
-import { withUltracodeLevel, coreEffort, durableEffort, isTopTierEffort as isUltracodeTier } from "./model-menu-model.mjs";
+import { withUltracodeLevel, coreEffort, durableEffort, isTopTierEffort as isUltracodeTier, markDefaultEffort } from "./model-menu-model.mjs";
 import {mergeWorkflow} from "./workflow-progress-model.mjs";
 import {parseWorkflowLaunch} from "./workflow-launch-model.mjs";
 import {isModelWorkflow,modelWorkflowRuns,withModelWorkflowRows,workflowTask,workflowKey} from "./model-workflow-model.mjs";
-import {SourceBackgroundTasks} from "./source-background-tasks.jsx";
+import {SourceBackgroundTasks,taskRowsStore} from "./source-background-tasks.jsx";
 import {backgroundTasks,taskSections} from "./background-tasks-model.mjs";
 import { SourceTasksPane } from "./source-agent.jsx";
 import { agentView, subAgentMessageError } from "./agent-model.mjs";
-import { ADD_TO_PROMPT_EVENT } from "./inline-comments.mjs";
+import { ADD_TO_PROMPT_EVENT, promptAdditions, serializeLineComment } from "./inline-comments.mjs";
 import { groupFileTools, pathChoices } from "./file-tool-model.mjs";
 import { messageItemText, quoteBlock } from "./transcript-context-menu-model.mjs";
 import { absoluteDiffPath } from "./diff-file-header-model.mjs";
@@ -66,8 +82,8 @@ import { ToolButton } from "./code-ui";
 import "./style.css";
 import { SIDEBAR_WIDTH, clampSidebarWidth, effectiveSidebarWidth, narrowViewportQuery, storedSidebarWidth, trafficLightSpacerWidth } from "./sidebar-width-model.mjs";
 import { SourceGreeting, SourceStatsCard, useHomeStartedAt } from "./source-home";
-import { SourceActionCenter, SourceActionCenterPlaceholder, useSessionsLimit } from "./source-action-center";
-import { classifyAttention, sortAttention, landingClear as shapeLandingClear, sessionTimestampMs } from "./home-model.mjs";
+import { SourceActionCenter, SourceActionCenterPlaceholder, useSessionsLimit, usePullRequestsLimit } from "./source-action-center";
+import { classifyAttention, acknowledgementTime, unackedError, sortAttention, landingClear as shapeLandingClear, sessionTimestampMs, activePullRequestEntries, classifyPullRequest, sortPullRequestRows } from "./home-model.mjs";
 import { normalizeSidebarPreferences, sessionArchived, sessionParentId, unreadOnTurnCompleted, withCoreSections } from "./sidebar-model.js";
 import { SourceForkLineage, SourceForkMarker } from "./source-fork-lineage.jsx";
 import { forkMarkersFor } from "./fork-marker-model.mjs";
@@ -79,33 +95,45 @@ import { version as clientVersion } from "../package.json";
 import { markSeenValue, readSeenVersion, whatsNewVisible, writeSeenVersion } from "./whats-new-model.mjs";
 import { navAvailability } from "./source-nav-buttons";
 import { SourceComposer, SourceEffortPopover, SourceUsagePopover, SourceRecentFolderMenu, SourceBranchPickerMenu } from "./source-composer";
-import { recentFolders, recentFolderRows, folderPickerBrowsesDirectly } from "./recent-folders-model.mjs";
-import { defaultBranch, sortBranches, branchSwitchPlan, checkedOutBranch, branchCheckoutTarget, WORKING_TREE_ERROR } from "./branch-picker-model.mjs";
+import { recentFolders, recentFolderRows, folderPickerBrowsesDirectly, withRecentFolderFields, RECENT_FOLDER_REFRESH_MS } from "./recent-folders-model.mjs";
+import { defaultBranch, sortBranches, branchSwitchPlan, checkedOutBranch, branchCheckoutTarget, WORKING_TREE_ERROR, otherSessionCount } from "./branch-picker-model.mjs";
 import { SourceBranchSwitchDialog } from "./source-branch-switch-dialog.jsx";
-import { gitRepoMenuItems, COMMIT_RESPONDING_REASON, pullRequestAction, CREATE_PR_TURN_TEXT, CREATE_DRAFT_PR_TURN_TEXT } from "./git-rail-model.mjs";
+import { SourceLocalEnvironmentDialog } from "./source-local-environment-dialog.jsx";
+import { gitRepoMenuItems, COMMIT_RESPONDING_REASON, pullRequestAction, CREATE_PR_TURN_TEXT, CREATE_DRAFT_PR_TURN_TEXT, branchPullRequest, bandPrMode, githubRepoUrl, githubBranchUrl, readPrCreateMode, writePrCreateMode, prStateLabel, prStatusWarning, behindIndicator } from "./git-rail-model.mjs";
+import { sessionPullRequestUrl } from "./sidebar-palette-model.mjs";
 import { humanPrompts } from "./prompt-history-model.mjs";
-import { composerPlaceholder } from "./composer-placeholder.mjs";
+import { composerPlaceholder, composerFirstRun } from "./composer-placeholder.mjs";
 import { SourceQueuedMessages } from "./source-queued-messages";
-import { stageFiles, markReady, markFailed, removeAttachment, attachmentInputs, isMaxImagesNotice, MAX_IMAGES_TIMEOUT, makeSnippet, addSnippet, snippetText, coreTakesFileMentions, modelAcceptsImages, skillChipInput, IMAGE_PROCESS_ERROR, basename as attachmentBasename, shownThread, shownUserItem, shownUserItems, shownTurns, shownQueueList, firstMessageName } from "./composer-attachments-model.mjs";
+import { stageFiles, markReady, markFailed, removeAttachment, attachmentInputs, isMaxImagesNotice, MAX_IMAGES_TIMEOUT, makeSnippet, addSnippet, removeSnippetByKey, snippetText, coreTakesFileMentions, modelAcceptsImages, skillChipInput, IMAGE_PROCESS_ERROR, basename as attachmentBasename, shownThread, shownUserItem, shownUserItems, shownTurns, shownQueueList, firstMessageName } from "./composer-attachments-model.mjs";
 import { draftKey as sessionDraftKey, saveDraft, takeDraft, clearDraft, mapDraftAttachments, HOME_DRAFT_KEY, browserStorage, persistDraft, readPersistedDraft, forgetDraft } from "./composer-draft-store.mjs";
+import { makeSelectedElementAttachment, addSelectedElementAttachment, selectedElementInputs } from './preview-element-attachments.mjs';
+import { IMAGE_MODEL_ERROR, IMAGE_FALLBACK_NOTE } from './composer-attachments-model.mjs';
+import { planFolderIntake, planFolderPaste, folderGrantError } from "./composer-attachments-model.mjs";
 import { createCustomizeStore } from "./customize-store.mjs";
 import { skillInvocable, skillMenuItems, pluginMenuGroups } from "./customize-model.mjs";
-import { agentMentionText, mentionInputs } from "./mention-model.mjs";
-import { emptyQueue, queueFromList, previewText, steerInputText, steerTextCount, submitLane, optimisticRemove, optimisticReorder, lockEntry, unlockEntry, editableDraft, isNotSteerable, lastDequeueable } from "./queued-messages-model.mjs";
+import { agentMentionText, mentionInputs, sessionMentionMatches, agentMentionMatches, sessionMentionsBlock } from "./mention-model.mjs";
+import { githubIssueUnavailableMessage, issueSelection, withIssueBody, githubIssueContext, withIssueContext } from "./github-issue-model.mjs";
+import { SourceGithubIssuePicker } from "./source-github-issue-picker.jsx";
+import { emptyQueue, queueFromList, previewText, steerInputText, steerTextCount, submitLane, optimisticRemove, optimisticReorder, lockEntry, unlockEntry, editableDraft, isNotSteerable, lastDequeueable, canSendNow, restoredOrder } from "./queued-messages-model.mjs";
 import { rpcResult } from "./rpc-error.mjs";
 import { SourceModelMenu } from "./source-model-menu";
 import { SourceMenu } from "./source-menu";
 import { SourceToolsMenu } from "./source-tools-menu.jsx";
 import { SourceOnboarding } from "./source-onboarding.jsx";
+import { nuxAccountAged } from "./file-tree-row-model.mjs";
 import { SourceComputerUseBanner } from "./source-computer-use.jsx";
 import { activeComputerUse } from "./computer-use-model.mjs";
 import { defaultProfile, normalizeProfiles, normalizeSelection, toggleInSelection } from "../electron/prefs/tool-profiles.mjs";
 import { SourcePermissionMenu, PERMISSION_OPTIONS, bypassOffer } from "./source-permission-menu";
 import { SourceTileLayout } from "./source-tile-layout";
-import { SourceSplitRoot, SourceSplitHost, splitStore, useSplitSides } from "./source-split-view.jsx";
-import { sessionSplitItem, recordSessionSwitch, alternatingPartner, canSuggestSplit, splitSuggestionState, emptySplitSuggestion } from "./split-view-model.mjs";
+import { SourceSplitRoot, SourceSplitHost, splitStore, useSplitSides, SESSION_POPOUT_WINDOW, PANE_WINDOW } from "./source-split-view.jsx";
+import { runLayoutCommand, layoutSnapshot } from "./layout-command-model.mjs";
+import { posKey, splitMenuState as splitRoomState } from "./split-view-model.mjs";
+import { sessionSplitItem, paneMenuItems, SPLIT_SUGGESTION_KEY, splitSuggestionState, persistedSplitSuggestion, splitSuggestionNavigate, splitSuggestionShown, retractSplitSuggestion, dismissSplitSuggestion, acceptSplitSuggestion } from "./split-view-model.mjs";
 // The split-view tip's shown / accepted / dismissed counts (per profile: the app's own storage).
-const SPLIT_TIP_KEY = "epitaxy-split-suggestion";
+// c11959232 yd persist: the split tip's counters in this renderer's localStorage (zustand persist {state, version}).
+const readSplitSuggestion = () => { try { return splitSuggestionState(JSON.parse(globalThis.localStorage?.getItem(SPLIT_SUGGESTION_KEY) || "null")); } catch { return splitSuggestionState(null); } };
+const writeSplitSuggestion = (value) => { try { globalThis.localStorage?.setItem(SPLIT_SUGGESTION_KEY, JSON.stringify(persistedSplitSuggestion(value))); } catch { /* no storage */ } };
 import { SourcePaneControls, SourcePopoutControls } from "./source-pane-controls";
 import { createTileLayoutStore, emptySessionEntry } from "./tile-layout-store.mjs";
 import { CHAT_TILE_ID, PANE_KINDS, chatOnlyLayout, fromSpec, moveTileToEdge, openPane as openPaneInLayout, rememberPaneFlex, removeTile, tileIds } from "./tile-layout-model.mjs";
@@ -113,6 +141,9 @@ import { SourceTranscript } from "./source-transcript";
 import { SourceFindBar } from "./source-find-bar.jsx";
 import { SourceTranscriptStatus } from "./source-transcript-status.jsx";
 import { SourceTurnFooter } from "./source-turn-footer.jsx";
+import { SourceChapterHeading, useChapterStoreState } from "./source-chapters.jsx";
+import { chapterStore, pinnedChaptersForRow, reuseChapters, rowSeedText, seedChapterTitle, sessionChapterState, sessionChapters, turnPinAnchor } from "./session-chapters-model.mjs";
+import { isHiddenTranscriptItem } from "./transcript-item-visibility.mjs";
 import { userMessageActions } from "./message-actions-model.mjs";
 import { acceptedSend, failedSend, pendingSend, pendingStillShown, pendingUserRow, retriedSend, withKnownItems } from "./pending-send-model.mjs";
 import { SourceTurnError } from "./source-turn-error.jsx";
@@ -121,34 +152,45 @@ import { forgeRepoSlug } from "./response-link-model.mjs";
 import { SourceTranscriptSkeleton, SourceTranscriptLoadFailure, SourceTranscriptEmpty } from "./source-transcript-states.jsx";
 import { misalignmentStop, retryInput, turnErrorPlacements } from "./turn-error-model.mjs";
 import { turnEdits, undoTurnText, fileChangesDiff } from "./turn-edits-model.mjs";
+import { editInvalidation } from "./file-live-refresh-model.mjs";
 import { SourceTurnEdits } from "./source-turn-edits.jsx";
-import { requestDiffReveal } from "./diff-reveal.mjs";
+import { matchDiffPath, requestDiffReveal } from "./diff-reveal.mjs";
+import { parseUnifiedDiff } from "./diff-model";
+import { diffFileEntries } from "./diff-file-list-model.mjs";
 import { SourceRecapCard } from "./source-recap-card.jsx";
 import { SourceTaskEvent } from "./source-task-event.jsx";
 import { backgroundTaskEventsByTurn } from "./task-event-model.mjs";
 import { ClaudeImportDialog } from "./source-claude-import.jsx";
 import { SourceResumeDialog } from "./source-resume-dialog.jsx";
-import { autoCompactPercent } from "./context-usage-model.mjs";
+import { autoCompactHint } from "./context-usage-model.mjs";
 import { MCP_STATUS_LABELS, customizeCore } from "./customize-model.mjs";
+import { addConnectorsEntry, addPluginsEntry } from "./add-menu-model.mjs";
 import { SourceSwitch } from "./source-switch.jsx";
 import { CodexFeedbackDialog } from "./source-codex-feedback.jsx";
-import { retryingStatus } from "./transcript-status-model.mjs";
+import { retryingStatus, spawnPhaseLabel } from "./transcript-status-model.mjs";
+import { gitFailureFromMessage, gitWarning, GIT_FAILURE_MESSAGES } from "./git-dialog-model.mjs";
+import { SourceGitRequiredDialog } from "./source-git-dialog.jsx";
 import { buildTurnCopyFooters } from "./turn-copy-model.mjs";
 import { turnSecondsToMs } from "./relative-time-model.mjs";
 import { useTurnFooterInteraction } from "./use-turn-footer-interaction.js";
-import { createApprovalDraftRuntime, dismissQuestionPayload, visibleApprovals } from "./approval-draft-model.mjs";
+import { createApprovalDraftRuntime, dismissQuestionPayload, visibleApprovals, isPlanReviewRequest } from "./approval-draft-model.mjs";
+import { planCommentsEnabled } from "./plan-comments-model.mjs";
 import { createStopRequestTracker, stopRequestMatches } from "./stop-request-model.mjs";
 import { WebLinkContext } from "./web-link-context.mjs";
 import { previewLinksStore, webLinkRoute } from "./preview-links-model.mjs";
-import { KeyboardShortcutsDialog, SlashHelp, RewindDialog, ReviewDialog, SessionStatusDialog, FeedbackShareDialog } from "./source-session-actions";
+import { createPreviewLinkRouter, previewChooserStore } from "./preview-link-routing.mjs";
+import { SourcePreviewLinkChooser } from "./source-preview-link-chooser.jsx";
+import { KeyboardShortcutsDialog, SlashHelp, RewindPicker, RewindConfirmDialog, ReviewDialog, SessionStatusDialog, FeedbackShareDialog } from "./source-session-actions";
 import { SourceDialog, SourceDialogFooter, useDialogRetention } from "./source-dialog.jsx";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { withLocalCommandRows, rewindChoices, transcriptMarkdown } from "./slash-actions-model.mjs";
-import { withWorkflowToolRuns } from "./agent-tool-titles.mjs";
+import { REWIND_PREVIEW_DELAY_MS, rewindPreview, rewindRequestStep, rewindRestoreItems, rewindRestoresFiles, turnRows } from "./rewind-flow-model.mjs";
+import { chapterOf, withWorkflowToolRuns } from "./agent-tool-titles.mjs";
 import { CodeBlockActionsContext, terminalCommandText } from "./code-block-actions.mjs";
+import { runOpensPane } from "./code-block-run-model.mjs";
 import { workflowCommandRows } from "./saved-workflow-commands.mjs";
 import { SourceUserText } from "./source-user-text";
-import { sessionCommands, parseSessionCommand, commandUnavailable, unsupportedCommand, operationPending, planCommandAction, sideQuestionsSupported, workflowsSupported, workflowEngine, workflowEngineChoice, agentWorkflowPrompt, coreWorkflowCommand, matchCommands } from "./session-command-model.mjs";
+import { sessionCommands, parseSessionCommand, commandUnavailable, unsupportedCommand, operationPending, planCommandAction, sideQuestionsSupported, workflowsSupported, workflowEngine, workflowEngineChoice, agentWorkflowPrompt, coreWorkflowCommand, matchCommands, slashListState } from "./session-command-model.mjs";
 import { bootEngine, coreEngine, partitionSessions } from "./session-engine-model.mjs";
 import { sessionWork, shouldUnload } from "./session-unload-model.mjs";
 import { accountIdentity, accountOrgLine, connectionMenuHeader, coreSignInPrompt } from "./account-label-model.mjs";
@@ -156,16 +198,21 @@ import { DEEPSEEK_KEYS_URL, accountMenuSignOut, usesCustomEndpoint } from "./acc
 import { signOutConfirmText } from "./settings-core-copy.mjs";
 import { SourceGitStatus } from "./source-git-status";
 import { useDiffScope } from "./source-diff-scope.jsx";
-import { SourceSidebar, SourceSidebarMenu, SourceSidebarSessionMenu, SourceConfirmDialog, deleteConfirmCopy } from "./source-sidebar";
+import { carriedOverDiff } from "./diff-scope-model.mjs";
+import { SourceSidebar, SourceSidebarBoundary, SourceSidebarMenu, SourceSidebarSessionMenu, SessionKeepAwakeItem, SourceConfirmDialog, deleteConfirmCopy } from "./source-sidebar";
+import { SourceSessionDeleteDialog, SourceWorktreeDirtyDialog } from "./source-worktree-dispose-dialog.jsx";
+import { RENAME_START_DELAY_MS, renameSubmission, renameSubmittable } from "./session-title-menu-model.mjs";
 import { SourceMessage as Message, SourceApproval as Approval, SourceFilePanel as FilePanel, SourcePlanHandoffCard, sessionHasThinking, SourceMarkdown } from "./source-session";
 import { CardComposerContext } from "./use-card-hotkeys.js";
 import { pendingCommandItemIds } from "./command-row-model.mjs";
 import { approvalItem, pendingElicitationItemIds, planHandoff } from "./approval-card-model.mjs";
 import { setCodeThemes } from "./code-theme-store.mjs";
+import { applyAppearanceRoot, cdsFontFor } from "./appearance-root.mjs";
 import codeThemeColors from "./generated/code-theme-colors.json";
 import { fileListRoute, paneShortcut, paneShortcutKind } from "./pane-shortcuts.mjs";
 import { SourceTerminalPane } from "./source-terminal-pane.jsx";
-import { SourcePreviewPane, usePreviewActivity } from "./source-preview-pane.jsx";
+import { SourcePreviewPane, usePreviewSnapshot } from "./source-preview-pane.jsx";
+import { previewRunningToolLabel } from "./preview-model.mjs";
 import { isTerminalToggle, terminalError } from "./terminal-pane-model.mjs";
 import { ownerKeyOf, terminalStore } from "./terminal-store.mjs";
 import { CHIN_MENU_KINDS, chinKindOfMenu, chinShortcutCommand, modeMenuDigit, resolveChinRequest } from "./chin-shortcuts.mjs";
@@ -176,6 +223,7 @@ import { createSessionCycler } from "./session-cycle-model.mjs";
 import { effectiveView, nextTranscriptView, readSessionViews, withSessionView, writeSessionViews, transcriptViewMenu } from "./transcript-view-model.mjs";
 import { reasoningPlacement } from "./reasoning-model.mjs";
 import { initialAppearance, parseThemeCommand, resolveThemeMode, writeThemeMode, THEME_LABELS } from "./theme-command-model.mjs";
+import { applyCjkOrder } from "./cjk-order.mjs";
 import { applyCustomTheme, themeDensity } from "./theme-custom-model.mjs";
 import { withEffortDefaults } from "../electron/prefs/model-settings.mjs";
 import { customCommandsStore } from "./custom-commands-store.mjs";
@@ -183,7 +231,8 @@ import { mergeCommands, expandCommand } from "./custom-commands-model.mjs";
 import { normalizeCustomCommands } from "../electron/prefs/custom-commands.mjs";
 import { setPersona } from "./persona-store.mjs";
 import { SourceLanguagePicker } from "./source-language-picker.jsx";
-import { SourceSideChat } from "./source-side-chat.jsx";
+import { sideChatStore } from "./side-chat-store.mjs";
+import { SourceSideChat, askSideQuestion } from "./source-side-chat.jsx";
 import { t, tn } from "../electron/i18n/index.mjs";
 import { coreAssistant, coreById, coreForEngine, coreName, coreSupports, hasSignInOptions, registerCores } from "../electron/core-registry.mjs";
 import { getAssistantName, getLocale } from "../electron/i18n/index.mjs";
@@ -198,6 +247,8 @@ import { SourceGoalStrip } from "./source-goal-strip.jsx";
 import { AsyncQuestionsContext } from "./source-async-questions.jsx";
 import { settledQuestionIds } from "./async-questions-model.mjs";
 import { goalCommandRequest, goalCommandResult, goalNeedsReplaceConfirmation, nativeGoalCommand, nativeInitCommand, INIT_PROMPT } from "./goal-model.mjs";
+import { paneKeyAction, paneKeyContext } from "./pane-keys-model.mjs";
+import { useFocusRegionNavigation } from "./use-focus-regions.js";
 const api = window.desktop;
 // index.html ships data-mode="system" (the loaded CSS resolves it through
 // prefers-color-scheme, which nativeTheme.themeSource drives). Before the first
@@ -205,9 +256,16 @@ const api = window.desktop;
 // appearance value, so React never starts from a light frame.
 const bootAppearance = initialAppearance(api?.appearance, matchMedia("(prefers-color-scheme: dark)").matches);
 document.documentElement.dataset.mode = bootAppearance.mode;
+// ion-dist/index.html cjk script: html[data-cjk-order] from the preferred system languages (else navigator.languages),
+// so the loaded CSS orders the CJK fallbacks and gives --cds-font-system its CJK chain (B38).
+applyCjkOrder(document.documentElement, { desktopLanguages: api?.appearance?.preferredLanguages, navigatorLanguages: navigator.languages, uiLocale: getLocale() });
 // Per-session tile layout + file view (2.2553.1 panes store slices); one
 // instance per renderer, persisted under localStorage "code-desktop-tiles".
-const tileStore = createTileLayoutStore({ storage: (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })() });
+// A session popout or pane window (B27) reads the saved layouts but keeps its own changes in memory: its layout belongs to
+// that window, and writing would replace the main window's saved layouts with this window's older copy.
+const tileStorage = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();
+const tileStore = createTileLayoutStore({ storage: (SESSION_POPOUT_WINDOW || PANE_WINDOW) && tileStorage
+  ? { getItem: (name) => tileStorage.getItem(name), setItem: () => {}, removeItem: () => {} } : tileStorage });
 const EMPTY_TILE_ENTRY = emptySessionEntry();
 const PANE_NAMES = { files: t("Files"), changes: t("Changes"), plan: t("Plan"), tasks: t("Background tasks"), terminal: t("Terminal"), preview: t("Preview") };
 const baseTileLayout = (entry) => (entry?.expandedTile ? entry.baseLayout : entry?.tileLayout) ?? null;
@@ -220,7 +278,16 @@ const focusedPaneKind = () => {
 };
 // Menu bar events the renderer acts on (app-menu.cjs: File New Session / Open Folder… / Close Pane,
 // View pane items, Go Previous/Next Session and Search…, Help Keyboard Shortcuts).
-const MENU_COMMANDS = new Set(["new-session", "new-session-current", "open-folder", "open-file", "toggle-pane", "close-pane", "close-session", "reopen-closed", "open-shortcuts", "cycle-session", "open-search"]);
+// B27 session popout (main.cjs openSessionPopout; cd377abb5 xi → c5638815a Je): this window shows one session (or, from
+// File › New Window, a new-session draft that becomes that session's popout on its first send) without the sidebar or
+// split view, its titlebar ending with Open in main window and Keep window on top. ⌘W closes a pane, then the window.
+const SESSION_POPOUT = SESSION_POPOUT_WINDOW;
+// B27 pane window (main.cjs openPopout for the Tasks, Terminal and Side chat panes; cd377abb5 Ci/_i): this window runs the
+// session's App with that one pane — no sidebar, no titlebar, no composer — under the pane popout's own controls (Open
+// in main window, Keep window on top). Its ⌘W closes the window, which docks the pane back; other commands belong to
+// the window showing the session. PANE_WINDOW: { pane, sessionId, cwd } or null.
+const NO_SIDEBAR = SESSION_POPOUT || !!PANE_WINDOW;
+const MENU_COMMANDS = new Set(["new-session", "new-session-current", "open-folder", "open-file", "toggle-pane", "close-pane", "close-session", "reopen-closed", "open-shortcuts", "cycle-session", "open-search", "find-in-files"]);
 // Xm (shared-19-CjdiaR4X.js): the sidebar's session row main buttons in order, alias rows skipped,
 // starting from the open row (aria-current) or else a data-selected="focused" one.
 function sidebarCycleRows() {
@@ -301,7 +368,7 @@ function IconButton({
     </button>
   );
 }
-// side: 0 is the window's primary App (sidebar, Settings, window-wide dialogs); 1 is the secondary split side
+// side: 0 is the window's primary App (sidebar, Settings, window-wide dialogs); i > 0 is an extra split pane
 // (source-split-view.jsx), which opens `initialSession` (or a new session) once it is ready.
 // Terminal focus requests are unique in this window: every SourceTerminalPane (both split sides) shares the last one
 // it took (source-terminal-pane.jsx handledFocusRequest), so a per-App counter would collide between the sides.
@@ -318,8 +385,16 @@ function App({ side = 0, initialSession = null }) {
   splitActiveRef.current = splitActive;
   // Composer drafts are stored per session; the new-session page's draft is per side, so a split with the new-session
   // page on both sides never writes one side's unsent text over the other's.
-  const homeDraftKey = side === 0 ? HOME_DRAFT_KEY : `${HOME_DRAFT_KEY}-split`;
-  const draftKey = (sessionId) => (typeof sessionId === "string" && sessionId ? sessionDraftKey(sessionId) : homeDraftKey);
+  const [mode, setModeState] = useState('code');
+  const [artifactPreviewOpen, setArtifactPreviewOpen] = useState(false);
+  const [surfaceActivity, setSurfaceActivity] = useState({});
+  const modeRef = useRef('code'), surfaceNavigation = useRef(0), surfaceFolders = useRef({});
+  const setMode = value => { modeRef.current = value; setModeState(value); };
+  const [projectDraftId, setProjectDraftId] = useState(null);
+  const projectDraftRef = useRef(null);
+  const homeKey = (surface, projectId) => surfaceDraftKey(surface, side) + (projectId ? `:project-${projectId}` : '');
+  const homeDraftKey = homeKey(mode, projectDraftId);
+  const draftKey = (sessionId, surface = modeRef.current, projectId = projectDraftRef.current) => (typeof sessionId === "string" && sessionId ? sessionDraftKey(sessionId) : homeKey(surface, projectId));
   // This side's workspace <main>: window-level key handlers find this side's composer chrome inside it, and
   // navigateRef / windowKeyRef reach this App's latest navigate and window keys from the split store.
   const mainRef = useRef(null), navigateRef = useRef(null), windowKeyRef = useRef(null);
@@ -339,6 +414,8 @@ function App({ side = 0, initialSession = null }) {
     // placeholder and the remembered shape follow the session query, not boot).
     [sessionsLoaded, setSessionsLoaded] = useState(false),
     sessionsLoadedRef = useRef(false),
+    // Session ids whose thread/unarchive is in flight (ce4f4374c Ae isUnarchiving → "Unarchiving…").
+    [unarchiving, setUnarchiving] = useState(() => new Set()),
     // The core whose sessions the list holds (coreEngine of the boot loadSessions read): a reconnect onto another core reloads it.
     sessionsCoreRef = useRef(null),
     // Remembered ids loadSessions kept out of the list: {otherEngine, missing}
@@ -354,6 +431,8 @@ function App({ side = 0, initialSession = null }) {
     [mentions, setMentions] = useState([]),
     // Real Codex queue for the open session (thread/queue/list snapshot).
     [queue, setQueue] = useState(() => emptyQueue(null)),
+    // The queued entry 'Send now' is promoting into the running turn (one at a time: the bar's steerBusy lock).
+    [queueSteering, setQueueSteering] = useState(null),
     [additionalFolders, setAdditionalFolders] = useState([]),
     [sending, setSending] = useState(false),
     [error, setErrorText] = useState(""),
@@ -361,7 +440,6 @@ function App({ side = 0, initialSession = null }) {
     [effort, setEffort] = useState("medium"),
     // The "ultracode" keyword in the draft: alt+w ignores it for this prompt (Claude Code's chat:workflowKeywordToggle).
     [keywordIgnored, setKeywordIgnored] = useState(false),
-    [mode, setMode] = useState("code"),
     [theme, setTheme] = useState(bootAppearance.theme),
     [collapsed, setCollapsed] = useState(false),
     [search, setSearch] = useState(""),
@@ -412,6 +490,8 @@ function App({ side = 0, initialSession = null }) {
     [history, setHistory] = useState([null]),
     [historyAt, setHistoryAt] = useState(0),
     [rename, setRename] = useState(null),
+    // c593f7513 wm onRenameStart: the title bar's header menu Rename starts the inline title edit ({ id, token }).
+    [titleRenameRequest, setTitleRenameRequest] = useState(null),
     [menu, setMenu] = useState(null),
     // Add › Tools (prefs/tool-profiles.mjs): the core's tool list, and the New draft's turned-off tools
     // (undefined = the default profile's).
@@ -420,6 +500,7 @@ function App({ side = 0, initialSession = null }) {
     [onboarding, setOnboarding] = useState(null),
     [draftTools, setDraftTools] = useState(undefined),
     [section, setSection] = useState("new"),
+    [routineSelection, setRoutineSelection] = useState(null),
     [sidebarWidth, setSidebarWidth] = useState(288),
     [fullScreen, setFullScreen] = useState(false),
     // Main window zoom factor (index.chunk-ChZ67Jhw.js dispatchZoomFactorChanged).
@@ -439,6 +520,7 @@ function App({ side = 0, initialSession = null }) {
     [remembered, setRemembered] = useState(null),
     [sidebarPreferences, setSidebarPreferences] = useState({}),
     [sessionMetadata, setSessionMetadata] = useState({}),
+    [homeIdeaPreview, setHomeIdeaPreview] = useState(undefined),
     // Codex's built-in Pinned section id (sidebar snapshot), so a chat pinned in the Codex app reads as pinned here.
     [codexPinnedSection, setCodexPinnedSection] = useState(null),
     [customGroups, setCustomGroups] = useState([]),
@@ -450,12 +532,22 @@ function App({ side = 0, initialSession = null }) {
     [repoIdentities, setRepoIdentities] = useState({}),
     [peek, setPeek] = useState({ hovering: false, peeked: false, top: 46, left: 6 }),
     [confirmDelete, setConfirmDelete] = useState(null),
+    // shared-19 cK/yK → SK: archive / bulk-delete confirms of dirty worktrees wait in a queue, SK shows its head.
+    [worktreeQueue, setWorktreeQueue] = useState([]),
+    // Code › env pill › Local › settings: the "Edit local environment" dialog (c3f9f1667 Ae, cc43287c9 ZY uF).
+    [localEnvOpen, setLocalEnvOpen] = useState(false),
     [permission, setPermission] = useState("auto"),
     // init() finished (or failed): until then `permission` is the placeholder default, not the saved mode.
     [initSettled, setInitSettled] = useState(false),
     [worktree, setWorktree] = useState(false),
     [workspaceInfo, setWorkspaceInfo] = useState(null),
     [gitStatus, setGitStatus] = useState(null),
+    // B08: the open checkout's PR through the local gh (main.cjs workspace-pull-request), keyed `${cwd}\0${branch}`;
+    // the split button's remembered create mode (ca80fca8d SB 'epitaxy-pr-create-mode'); the session whose Create PR
+    // turn is starting (cd5a31703 prBusy 'Creating PR…').
+    [prLookup, setPrLookup] = useState(null),
+    [prCreateMode, setPrCreateModeState] = useState(() => { try { return readPrCreateMode(globalThis.localStorage); } catch { return "create"; } }),
+    [prCreating, setPrCreating] = useState(null),
     [gitDiff, setGitDiff] = useState(null),
     [gitStatusError, setGitStatusError] = useState(""),
     [gitDiffError, setGitDiffError] = useState(""),
@@ -540,9 +632,52 @@ function App({ side = 0, initialSession = null }) {
     return () => media.removeEventListener("change", sync);
   }, [narrowQuery]);
   // The secondary split side has no sidebar of its own, so it never draws the collapsed-sidebar chrome.
-  const effectiveCollapsed = side === 0 && (collapsed || narrowViewport);
+  // A session popout (B27) has no sidebar: its chrome is laid out as collapsed (the traffic lights' spacer) without the
+  // Show sidebar trigger.
+  const effectiveCollapsed = side === 0 && (NO_SIDEBAR || collapsed || narrowViewport);
   // Reopen Closed Session (closed-session-model.mjs, shared-19 Wh): ids closed with ⌘W / File > Close Session.
   const [closedSessions, setClosedSessions] = useState([]);
+  // B27 session popout header (shared-18 mx/hx, yx): Keep window on top, read from main as the window loads (a pinned
+  // popout restored at launch shows the pin pressed), and Open in main window (main.cjs session-popout-dock: the full
+  // window focused last shows this session, or the new-session page for a draft, and this window closes).
+  const [popoutPinned, setPopoutPinned] = useState(false);
+  // A pane window (B27) reads the same from popout-state, with the side chat's conversation it took over (seed).
+  const [paneWindowSeed, setPaneWindowSeed] = useState(undefined);
+  useEffect(() => {
+    if ((!SESSION_POPOUT && !PANE_WINDOW) || side !== 0 || !api) return undefined;
+    let live = true;
+    if (PANE_WINDOW) call("popout-state").then((value) => { if (!live) return; setPopoutPinned(value?.alwaysOnTop === true); setPaneWindowSeed(value?.seed ?? null); }).catch(() => { if (live) setPaneWindowSeed(null); });
+    else call("session-popout-state").then((value) => { if (live) setPopoutPinned(value?.alwaysOnTop === true); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const toggleSessionPopoutPin = () => { call("session-popout-pin", { value: !popoutPinned }).then((value) => setPopoutPinned(value === true)).catch((reason) => setError(reason.message)); };
+  const dockSessionPopout = () => { call("session-popout-dock").catch((reason) => setError(reason.message)); };
+  // The side chat window takes over the conversation it was opened with, and keeps main's copy current so the window's
+  // close (whichever way) hands the latest one back (main.cjs popout-handback / popout-docked data).
+  useEffect(() => {
+    if (PANE_WINDOW?.pane !== "side-chat" || side !== 0 || paneWindowSeed === undefined) return undefined;
+    const id = PANE_WINDOW.sessionId;
+    if (paneWindowSeed) sideChatStore.importThread(id, paneWindowSeed);
+    let timer = null, last = null;
+    const push = () => {
+      timer = null;
+      const data = sideChatStore.exportThread(id);
+      const key = data ? JSON.stringify(data) : null;
+      if (!data || key === last) return;
+      last = key;
+      call("popout-handback", { data }).catch(() => {});
+    };
+    const off = sideChatStore.subscribe(() => { clearTimeout(timer); timer = setTimeout(push, 250); });
+    return () => { off(); clearTimeout(timer); };
+  }, [paneWindowSeed]);
+  const togglePaneWindowPin = () => { call("popout-always-on-top", { value: !popoutPinned }).then((value) => setPopoutPinned(value === true)).catch((reason) => setError(reason.message)); };
+  // Open in main window: the pane window closes and its pane opens again in the window that popped it out (main.cjs
+  // popout-dock → popout-docked). The side chat hands its conversation back; its X closes the side chat instead.
+  function dockPaneWindow({ close = false } = {}) {
+    if (!PANE_WINDOW) return;
+    const data = PANE_WINDOW.pane === "side-chat" ? sideChatStore.exportThread(PANE_WINDOW.sessionId) : undefined;
+    call("popout-dock", { sessionId: PANE_WINDOW.sessionId, pane: PANE_WINDOW.pane, ...(data ? { data } : {}), ...(close ? { close: true } : {}) }).catch((reason) => setError(reason.message));
+  }
   // Go > Back/Forward arrive as {kind:"navigate", delta} (app-menu.cjs, Cyr).
   const travelShortcutRef = useRef(null);
   const paneShortcutRef = useRef(null);
@@ -554,7 +689,7 @@ function App({ side = 0, initialSession = null }) {
     call("installed-editors").then((list) => { if (live && Array.isArray(list)) setEditors(list.filter((entry) => entry && typeof entry.type === "string" && typeof entry.name === "string")); }, () => {});
     return () => { live = false; };
   }, []);
-  const openInEditor = (target, type) => call("open-in-editor", { path: target, type }).catch((e) => { if (toasts) toasts.add(e.message || t("Couldn’t open it in that editor."), { variant: "warning" }); else setError(e.message); });
+  const openInEditor = (target, type, line) => call("open-in-editor", { path: target, type, line }).catch((e) => { if (toasts) toasts.add(e.message || t("Couldn’t open it in that editor."), { variant: "warning" }); else setError(e.message); });
   // ⌘⌥↑ / ⌘⌥↓: the transcript's previous or next user prompt (transcript-feed-nav.mjs promptJumpIndex) to the top.
   const jumpToPrompt = (direction) => {
     const content = transcriptRef.current?.getContent?.(), viewport = content?.parentElement;
@@ -608,11 +743,16 @@ function App({ side = 0, initialSession = null }) {
     // first loadSessions of a reconnect followed by reopening the target), and
     // an unknown Thread would route a legacy thread down the paginated path.
     sessionsRef = useRef([]),
+    observedPullRequests = useRef(new Map()),
     modelRef = useRef(model);
   modelRef.current = model;
   // Every Thread enters the list with its preview as the user wrote it (shownThread: no attachment note).
   // A pull request the core bound to a session (codeDesktop.pr: Qwen's PR binding) lights the sidebar's review glyph.
+  // B08: a PR the band's GitHub CLI lookup found for a session's branch (observedPullRequests) gives the session its live
+  // state (sidebar glyph, row menu Open PR, Action Center › Pull requests) for this app run.
   const withPullRequest = (thread) => {
+    const seen = thread?.id ? observedPullRequests.current.get(thread.id) : null;
+    if (seen) return thread.prInfo === seen && thread.prState === seen.state && thread.prLink === seen.url ? thread : { ...thread, prState: seen.state, prLink: seen.url, prInfo: seen };
     const pr = thread?.codeDesktop?.pr;
     return pr && (pr.url || pr.number) && !thread.prState ? { ...thread, prState: "open", prLink: typeof pr.url === "string" ? pr.url : null } : thread;
   };
@@ -648,6 +788,9 @@ function App({ side = 0, initialSession = null }) {
     done.forEach(([threadId, entry]) => updatePendingSend(threadId, entry.id, (shown) => shown === entry ? null : shown));
   }, [state.items, pendingSends]);
   const newSessionGroup = useRef(null);
+  // B29 CZ/jZ: the pending group is state too, so the draft shows 'Added to {name}' with an X that drops it.
+  const [draftGroupId, setDraftGroupId] = useState(null);
+  const setDraftGroup = (id) => { newSessionGroup.current = id ?? null; setDraftGroupId(id ?? null); };
   const copyWithToast = (text, message) => navigator.clipboard.writeText(text)
     .then(() => toasts?.add(message, { variant: "neutral" }), e => setError(e.message));
   // R03: failed non-composer actions take the original's addError danger toast with catalog copy
@@ -672,7 +815,8 @@ function App({ side = 0, initialSession = null }) {
   // This side's open session and title, for the window's split store (sidebar selection, tabs, layout persistence).
   useEffect(() => { splitStore.reportSide(side, { current, title: session ? session.name || session.preview || "" : "" }); }, [current, session?.name, session?.preview]);
   // Multi-window: the window title names its primary session, so the Window menu and Mission Control tell windows apart.
-  useEffect(() => { if (side === 0) document.title = session ? `${session.name || session.preview || t("Untitled session")} — OpenClaude Desktop` : "OpenClaude Desktop"; }, [current, session?.name, session?.preview]);
+  // A new-session popout (B27, cd377abb5 bi) is titled "Code" until its session starts.
+  useEffect(() => { if (side === 0) document.title = session ? `${session.name || session.preview || t("Untitled session")} — OpenClaude Desktop` : SESSION_POPOUT ? t("Code") : "OpenClaude Desktop"; }, [current, session?.name, session?.preview]);
   // A core whose sessions can run as one of its own primary agents (capabilities.primaryAgents: OpenCode/MiMo's
   // default_agent and custom primary agents): the folder's list, and the agent chosen per session ('' = the draft).
   const [primaryAgents, setPrimaryAgents] = useState(null);
@@ -690,6 +834,23 @@ function App({ side = 0, initialSession = null }) {
     return () => { live = false; };
   }, [primaryAgentsSupported, workdir, boot?.core?.id]);
   const agentChoice = agentChoices[current || ""] ?? null;
+  // Import GitHub issue (ca80fca8d zN + cc43287c9 gH): the draft folder's availability {folder, available,
+  // unavailableReason, repo} (main github-issues.cjs through the user's gh), the picker, and the draft's selectedIssue.
+  const [issueStatus, setIssueStatus] = useState(null);
+  const [issuePicker, setIssuePicker] = useState(false);
+  const [draftIssue, setDraftIssue] = useState(null);
+  const issueFolder = !current ? (workdir || cwd || null) : null;
+  // gH: a folder whose repository isn't the issue's drops it (k !== O → D(null)).
+  useEffect(() => {
+    if (!draftIssue || !issueStatus || issueStatus.folder !== issueFolder) return;
+    if (issueStatus.repo !== draftIssue.repo) setDraftIssue(null);
+  }, [issueFolder, issueStatus, draftIssue]);
+  const pickIssue = (issue) => {
+    setDraftIssue(issueSelection(issue));
+    Promise.resolve(call("github-issues", { operation: "get", cwd: issueFolder, number: issue.number })).then(
+      (detail) => setDraftIssue((selected) => withIssueBody(selected, issue, detail && detail.repo === issue.repo ? detail : null)),
+      () => setDraftIssue((selected) => withIssueBody(selected, issue, null)));
+  };
   // codeDesktop.agent goes with each turn (and the new session's thread/start) once the user picked one.
   const withAgentChoice = (params, key = current || "") => {
     const agent = primaryAgents ? agentChoices[key] : null;
@@ -698,9 +859,34 @@ function App({ side = 0, initialSession = null }) {
   // Pins and groups Codex keeps on its own threads (Thread.section), where OpenClaude Desktop recorded none (sidebar-model).
   const shownSessionMetadata = useMemo(() => withCoreSections(sessionMetadata, sessions, { customGroups, pinnedSectionId: codexPinnedSection }), [sessionMetadata, sessions, customGroups, codexPinnedSection]);
   // A committed feature branch of a GitHub repository: the band offers Create PR (a fixed turn) or GitHub's compare page.
-  const bandPrAction = pullRequestAction({ status: gitStatus, identity: repoIdentities[workdir] ?? null, responding: running });
-  const bandPr = bandPrAction ? { ...bandPrAction, onCreate: () => sendFixedTurn(CREATE_PR_TURN_TEXT), onDraft: () => sendFixedTurn(CREATE_DRAFT_PR_TURN_TEXT),
-    onManual: bandPrAction.manualUrl ? () => call("external", { url: bandPrAction.manualUrl }).catch(actionFailed("open-link")) : null } : null;
+  // B08 (cd5a31703 :37062-37470): the branch's existing PR (gh lookup, else the core's codeDesktop.pr binding) puts the
+  // band in view/merged/queued mode with no Create PR; while the lookup runs Create PR waits ('Checking for an
+  // existing pull request'); a missing or signed-out gh shows the c219730b0 un hint.
+  const bandIdentity = repoIdentities[workdir] ?? null;
+  const prLookupKey = workdir && gitStatus?.isRepo && gitStatus.branch && !gitStatus.detached && githubRepoUrl(bandIdentity) ? `${workdir}\u0000${gitStatus.branch}` : null;
+  const bandLookup = prLookupKey ? (prLookup?.key === prLookupKey ? prLookup : { key: prLookupKey, status: "pending" }) : null;
+  const bandBranchPr = gitStatus?.isRepo ? branchPullRequest({ lookup: bandLookup, branch: gitStatus.branch, sessionPr: session?.codeDesktop?.pr ?? null }) : null;
+  const bandPrAction = pullRequestAction({ status: gitStatus, identity: bandIdentity, responding: running, lookup: bandLookup, pr: bandBranchPr, mode: prCreateMode });
+  const setPrCreateMode = (mode) => { setPrCreateModeState(mode); try { writePrCreateMode(globalThis.localStorage, mode); } catch { /* storage unavailable */ } };
+  // Create / Create draft send the agent a fixed turn (busy 'Creating PR…' until turn/start answers); Manually create PR
+  // opens GitHub's compare page, or says the branch is not on GitHub yet (ca80fca8d PB compose + bB).
+  const firePullRequest = async (mode) => {
+    if (mode === "compose") {
+      if (bandPrAction?.manualDisabledReason || !bandPrAction?.manualUrl) {
+        toasts?.add(Number.isFinite(gitStatus?.comparison?.unpushed) ? bandPrAction?.manualDisabledReason || t("Add a GitHub remote to create a pull request")
+          : t("This branch hasn’t been pushed to GitHub. Push it and try again."), { variant: "danger" });
+        return;
+      }
+      return call("external", { url: bandPrAction.manualUrl }).catch(actionFailed("open-link"));
+    }
+    const id = current;
+    setPrCreating(id);
+    try { await sendFixedTurn(mode === "draft" ? CREATE_DRAFT_PR_TURN_TEXT : CREATE_PR_TURN_TEXT); }
+    finally { setPrCreating((value) => value === id ? null : value); }
+  };
+  const bandPr = bandPrAction ? { ...bandPrAction, busy: prCreating === current, onPrimary: firePullRequest, onSelectMode: setPrCreateMode } : null;
+  const bandPrView = bandBranchPr ? { ...bandBranchPr, onOpen: (url) => call("external", { url }).catch(actionFailed("open-link")) } : null;
+  const bandBranchUrl = githubBranchUrl(bandIdentity, gitStatus);
   const gitBandMemo = useRef(new Map()), gitStatusOwner = useRef(null);
   const rememberGitBand = (id, status) => {
     gitStatusOwner.current = id;
@@ -751,6 +937,16 @@ function App({ side = 0, initialSession = null }) {
   useLayoutEffect(() => { stopRequests.current.reconcile(stopLive.current); },
     [state.active, boot?.connected, state.approvalClosed, state.approvalConnectionId, state.approvalConnectionEpoch]);
   const turnInteraction = useTurnFooterInteraction(current, items);
+  // Session chapters (session-chapters-model.mjs, cd5a31703 Hw/i9): this session's pinned, renamed and hidden chapters.
+  // Pinning toggles a user chapter at an anchor row (H6e/KL): unpin every chapter there, or pin one seeded from the text.
+  const chapterState = useChapterStoreState();
+  const chapterListRef = useRef(null);
+  const chapterSession = sessionChapterState(chapterState, current);
+  const toggleChapterPin = (anchorId, seed) => {
+    if (!current || !anchorId) return;
+    if (chapterSession.userChapters.some((chapter) => chapter.afterId === anchorId)) chapterStore().unpinAt(current, anchorId);
+    else chapterStore().addUserChapter(current, anchorId, seedChapterTitle(seed));
+  };
   const turnFooters = useMemo(() => {
     // A genuine delta/item-start can precede turn/started or thread/resume.
     // Explicit idle overrides old item observations; unknown active state does not.
@@ -791,7 +987,8 @@ function App({ side = 0, initialSession = null }) {
   // Failed turns (state.turnErrors): newest-of-last-turn card vs older marker.
   const turnErrorView = useMemo(() => turnErrorPlacements(items, state.turnErrors?.[current], { activeTurnId: state.active[current] }),
     [items, state.turnErrors, current, state.active]);
-  const rewindPreselect = useRef(null);
+  // G4 m: one rewind runs at a time (the message menu, the picker and the confirm share it).
+  const rewindRunning = useRef(false);
   const misalignedTurn = current ? misalignmentStop(items, state.turnErrors?.[current], { activeTurnId: state.active[current] }) : null;
   // Per-turn edits card (turn-edits-model.mjs, Vpe): what each finished turn changed; Undo on the latest turn only.
   const editsByTurn = useMemo(() => turnEdits(items, { activeTurnId: state.active[current] }), [items, current, state.active]);
@@ -800,6 +997,15 @@ function App({ side = 0, initialSession = null }) {
   const editsNeeded = !gitStatus?.isRepo && !(current && state.diffs[current]);
   const editsDiff = useMemo(() => editsNeeded ? fileChangesDiff(items, { cwd: workdir }) : "", [editsNeeded, items, workdir]);
   const sessionDiff = (current && state.diffs[current]) || editsDiff || null;
+  // B07 Te/Ee (c4e0cfada :333-382): the paths of edits that completed since the last look go to the Files pane, which
+  // re-reads the open tabs for them ({paths, seq}; the first look at a session only records what is there).
+  const editSeen = useRef(null);
+  const [filesInvalidate, setFilesInvalidate] = useState(null);
+  useEffect(() => {
+    const { state: seen, paths } = editInvalidation(editSeen.current, current ?? null, items);
+    editSeen.current = seen;
+    if (paths.length) setFilesInvalidate((previous) => ({ paths, seq: (previous?.seq ?? 0) + 1 }));
+  }, [items, current]);
   const canViewChanges = !!(gitStatus?.isRepo || sessionDiff);
   const latestTurnId = useMemo(() => { let latest = null; for (const item of items || []) if (item?.turnId) latest = item.turnId; return latest; }, [items]);
   // A steered message is shown as pending until its userMessage (clientId = clientUserMessageId) is in the transcript.
@@ -823,10 +1029,14 @@ function App({ side = 0, initialSession = null }) {
   // /toggleExpandedTile/moveTileToEdge): the store is the source of truth, so a
   // session switch reads the entering session's saved layout, tabs and tree state.
   const tileState = useSyncExternalStore(tileStore.subscribe, tileStore.getState);
+  const [fileViewSettings] = useFileViewSettings();
+  useLayoutEffect(() => { if (!fileViewSettings.previewTabs) tileStore.keepAllFileTabs(); }, [fileViewSettings.previewTabs, tileState]);
+
   const tileOwner = current ?? HOME_TILE_KEY;
   const tileEntry = tileState.sessions[tileOwner] ?? null;
   const storedLayout = tileEntry?.tileLayout ?? null;
-  const displayLayout = useMemo(() => storedLayout ?? chatOnlyLayout(), [storedLayout]);
+  // A pane window (B27) shows its one pane whatever the session's saved layout (the side chat window has no tiles).
+  const displayLayout = useMemo(() => PANE_WINDOW && PANE_WINDOW.pane !== "side-chat" ? fromSpec({ direction: "row", children: [PANE_WINDOW.pane] }) : storedLayout ?? chatOnlyLayout(), [storedLayout]);
   const openPanes = useMemo(() => tileIds(displayLayout), [displayLayout]);
   const panel = PANE_KINDS.find((kind) => openPanes.has(kind)) ?? null;
   const hasPane = openPanes.size > 1 || !openPanes.has(CHAT_TILE_ID);
@@ -835,13 +1045,18 @@ function App({ side = 0, initialSession = null }) {
   const [popouts, setPopouts] = useState([]);
   const popoutKeys = useMemo(() => new Set(popouts.map((entry) => `${entry.sessionId}:${entry.pane}`)), [popouts]);
   const openPaneTile = useCallback((kind, sessionId = currentRef.current ?? HOME_TILE_KEY) => {
+    // A pane window has its one pane; files it opens go to the main window (openFileRef).
+    if (PANE_WINDOW) return;
     if (!sessionId || !PANE_KINDS.includes(kind)) return;
     const entry = tileStore.getSession(sessionId);
     const next = openPaneInLayout(baseTileLayout(entry), kind, tileStore.getState().lastPaneFlexByKind);
     tileStore.setSession(sessionId, { tileLayout: next, baseLayout: null, expandedTile: null });
   }, []);
   const closePaneTile = useCallback((kind, sessionId = currentRef.current ?? HOME_TILE_KEY) => {
+    // A pane window's pane closes with its window, which docks it back into the window that popped it out.
+    if (PANE_WINDOW) { if (kind === PANE_WINDOW.pane) dockPaneWindow(); return; }
     if (!sessionId) return;
+    if (kind === "files" && guardFileEdits(() => closePaneTile(kind, sessionId), { sessionId })) return;
     const entry = tileStore.getSession(sessionId);
     if (!entry?.tileLayout) return;
     const next = removeTile(baseTileLayout(entry), kind);
@@ -900,8 +1115,14 @@ function App({ side = 0, initialSession = null }) {
   const terminalBusy = useMemo(() => !!terminalOwner && terminalStore().busy(terminalOwner), [terminalOwner, terminalVersion]);
   // Preview pane (source-preview-pane.jsx): ⇧⌘P, View › Show/Hide Preview, the titlebar button and the agent's preview
   // tools; one per session (a page needs the session's folder). previewRunning draws the titlebar's activity dot.
-  const previewAvailable = section === "new" && !!current && !!api;
-  const previewRunning = usePreviewActivity(previewAvailable ? current : null, api);
+  // B39 (cf580efe9 fa owner / c5da7eb42 Bd {type: "landing"}): the New session page has its own browser too, owned by
+  // its folder ("home:<folder>", as the terminal's owner) and showing "Browse the web" (no session, so no agent).
+  const previewOwner = ownerKeyOf(current ?? null, current ? null : workdir);
+  const previewAvailable = section === "new" && !!previewOwner && !!api;
+  const previewSnapshot = usePreviewSnapshot(previewAvailable ? previewOwner : null, api);
+  const previewRunning = (previewSnapshot?.servers ?? []).some(server => ['running', 'starting'].includes(server.status));
+  const previewReopening = useRef(false);
+  const canReopenPreview = previewAvailable && previewSnapshot?.canReopenTab && (openPanes.has('preview') || previewSnapshot.lastTabClosed);
   const toggleTerminalPane = () => {
     if (!terminalAvailable) return;
     if (!openPanes.has("terminal")) { openPaneTile("terminal"); setTerminalFocus(nextTerminalFocusRequest()); return; }
@@ -932,7 +1153,37 @@ function App({ side = 0, initialSession = null }) {
     openPaneTile("terminal");
     terminalStore().input(info.id, command);
   }, [workdir, openPaneTile]);
-  const codeBlockActions = useMemo(() => (terminalAvailable ? { runInTerminal } : null), [terminalAvailable, runInTerminal]);
+  // B20: a transcript code block's Run (c11959232 terminalRun "ur", c19e90103 Bg): the command is typed at an idle
+  // prompt of this side's terminals (a new tab when none is), its output streams into the block, and the pane opens
+  // without taking focus (c03935b01 Vt, requestQuietOpen). When the composer could take it, the run is a bash turn
+  // instead: a tab of its own, and the output goes to the model when it ends (cc43287c9 sb/oh, runCodeBlockTurn).
+  const codeBlockTurn = useRef(null);
+  const codeBlockArmed = mode === "code" && !!current && terminalAvailable && !!boot?.connected && !session?.archived;
+  const codeBlockCore = coreName(boot?.core);
+  const codeBlockActions = useMemo(() => {
+    if (!terminalAvailable) return null;
+    const store = terminalStore();
+    return {
+      sessionKey: current ?? `home:${workdir}`, powerShell: false,
+      inlineRun: store.inlineRun, subscribeInline: store.subscribeInline, runRecord: store.runRecord,
+      run: (id, command) => {
+        // c11959232 ur (Qo): no run starts while a bash turn's run is going (its output still has to reach the model).
+        const going = store.inlineRun();
+        if (going && !going.settled && going.mode === "dedicated") { toasts?.add(t("A shell command is already running"), { variant: "danger" }); return; }
+        const sessionId = currentRef.current ?? null, homeWorkspace = sessionId ? null : workdir;
+        store.runInline({ id, sessionId, homeWorkspace, command,
+          onTab: () => { if (runOpensPane({ captured: false })) openPaneTile("terminal"); } }).catch(() => null);
+      },
+      cancel: () => store.cancelInlineRun(),
+      openInTerminal: (id) => {
+        const tab = store.inlineTab(id);
+        if (tab) store.select(tab.owner, tab.id);
+        openPaneTile("terminal");
+        setTerminalFocus(nextTerminalFocusRequest());
+      },
+      bashTurn: codeBlockArmed ? { target: codeBlockCore, run: (id, command) => { void codeBlockTurn.current?.(id, command); } } : null,
+    };
+  }, [terminalAvailable, current, workdir, openPaneTile, codeBlockArmed, codeBlockCore, toasts]);
   useEffect(() => terminalStore().onOpened((event) => {
     if (typeof event?.sessionId === "string" && event.sessionId) openPaneTile("terminal", event.sessionId);
   }), [openPaneTile]);
@@ -965,6 +1216,7 @@ function App({ side = 0, initialSession = null }) {
   const popoutTile = useCallback(async (kind, position = null) => {
     const id = currentRef.current;
     if (!id) return false;
+    if (kind === "files" && guardFileEdits(() => popoutTile(kind, position), { sessionId: id })) return false;
     try {
       await call("popout-open", { sessionId: id, pane: kind, position });
       closePaneTile(kind, id);
@@ -972,7 +1224,8 @@ function App({ side = 0, initialSession = null }) {
     } catch (error) { setError(error.message); return false; }
   }, [closePaneTile]);
   const tearOffTile = useCallback((tileId, screen) => {
-    if (!PANE_KINDS.includes(tileId) || tileId === "tasks" || tileId === "terminal" || tileId === "preview" || !api) return false;
+    // B27 (c03935b01 $a): Tasks and Terminal tear off too; the Preview's popout is behind a flag in the reference (eo).
+    if (!PANE_KINDS.includes(tileId) || tileId === "preview" || !api || !currentRef.current) return false;
     popoutTile(tileId, { x: Math.round(screen.x - 120), y: Math.round(screen.y - 14) });
     return true;
   }, [popoutTile]);
@@ -985,10 +1238,16 @@ function App({ side = 0, initialSession = null }) {
   // A pane window shows one session's data, pushed by the Apps that hold that session: split sides and other windows
   // that never opened it have nothing for it and must not overwrite the popped-out pane with an empty one.
   const holdsSession = (id) => state.items[id] !== undefined || state.plans[id] !== undefined || state.planDocs?.[id] !== undefined;
+  // B22 (cccc2cf0a Xh o = xs(id) || permissionMode === "plan"): the Plan pane takes comments while a plan review waits
+  // for the session (its own request or a sub-agent's, ownerThreadId) or while the session is in Plan.
+  const planReviewPending = (id) => !!id && state.approvals.some((request) => isPlanReviewRequest(request)
+    && (request.params?.threadId ? ownerThreadId(state, request.params.threadId) === id : id === current));
+  const planCommentsOpen = (id) => planCommentsEnabled({ pendingReview: planReviewPending(id), permission: id === current ? effectivePermission : null });
   useEffect(() => {
     for (const entry of popouts) if (entry.pane === "plan" && holdsSession(entry.sessionId))
-      call("popout-sync", { sessionId: entry.sessionId, pane: "plan", data: { plan: state.plans[entry.sessionId] ?? null, document: state.planDocs?.[entry.sessionId] ?? null } }).catch(() => {});
-  }, [popouts, state.plans, state.planDocs]);
+      call("popout-sync", { sessionId: entry.sessionId, pane: "plan", data: { plan: state.plans[entry.sessionId] ?? null, document: state.planDocs?.[entry.sessionId] ?? null,
+        commentsEnabled: planCommentsOpen(entry.sessionId) } }).catch(() => {});
+  }, [popouts, state.plans, state.planDocs, state.approvals, current, effectivePermission]);
   // A popped-out Changes pane outside a git repo shows the same session diff as the docked one (turn diff, else edits).
   const popoutDiffsSent = useRef(new Map());
   useEffect(() => {
@@ -1005,9 +1264,16 @@ function App({ side = 0, initialSession = null }) {
   }, [popouts, state.items, state.diffs, state.threads, workdir]);
   const openFileRef = useCallback((ref) => {
     if (!ref || typeof ref.path !== "string") return;
+    // B27: a pane window has no Files pane; the window showing the session opens the file (main.cjs popout-open-file).
+    if (PANE_WINDOW) { call("popout-open-file", { ref: { path: ref.path, line: ref.line, endLine: ref.endLine } }).catch(() => {}); return; }
     setPanel("files");
     setFileRequest({ path: ref.path, line: ref.line, endLine: ref.endLine, sequence: Date.now() + Math.random() });
   }, []);
+  function requestFileSearch(mode = "filter") {
+    if(!session||!workdir||section!=="new"||settings||actionDialog||rename||whatsNew||layerOpen())return;
+    openPaneTile("files");
+    setFileRequest({filter:mode,sequence:Date.now()+Math.random()});
+  }
   // The ⌘K search's 'Start a session' row (official palette 'Write a message…' + Send): the text goes to the Home composer
   // and is sent there, in the Home folder, core and mode, as a Home send would.
   const pendingSearchSend = useRef(null);
@@ -1074,16 +1340,92 @@ function App({ side = 0, initialSession = null }) {
       const absolute = absoluteDiffPath(diffRoot, filePath);
       if (absolute) attachFilePath(absolute);
     },
+    // B34 View image (cccc2cf0a Gb: local repository diffs only): one side of a changed image in the shown scope.
+    ...(gitStatus?.isRepo ? { fetchImage: ({ path, side }) => call("workspace-git-image", { cwd: workdir, sessionId: current, path, side,
+      scope: diffScope.param, ...(diffScope.base ? { base: diffScope.base } : {}) }) } : {}),
   };
-  function attachFilePath(absolute) {
-    if (!absolute) return;
+  function attachFilePath(absolute) { if(absolute)attachFilePaths([absolute]); }
+  function attachFilePaths(paths,directories=[]) {
+    if (!paths?.length || paths.length>100) return;
     setAttachments((entries) => {
-      const staged = stageFiles(entries, [{ name: attachmentBasename(absolute), path: absolute, type: "" }], { imagesAllowed });
+      const staged = stageFiles(entries, paths.map(absolute=>({ name: attachmentBasename(absolute), path: absolute, type: "", ...(directories.includes(absolute)?{isDirectory:true}:{}) })), { imagesAllowed });
       let next = staged.entries;
       for (const entry of staged.added) if (entry.kind === "image") next = markReady(next, entry.id, { previewUrl: filePreviewUrl(entry.path) });
       if (staged.notices.length) setError(staged.notices.join("\n"));
       return next;
     });
+  }
+  // cc43287c9 Hm (:39615-39660): every folder the composer takes in (Add › Add folder, a pasted or dropped folder).
+  // planFolderIntake decides: a draft keeps an outside folder as an extra folder (Zd → nu); otherwise a folder chip,
+  // and in a session an outside folder is granted too (addDirectories → the session's additionalFolders, which
+  // codeDesktop/thread/permissions hands the core). A refused grant takes its chips back (CNiYa5WL8N).
+  async function addFolderPaths(paths) {
+    const owner = currentRef.current;
+    const plan = planFolderIntake(paths, { workdir, sessionOpen: !!owner });
+    if (plan.draftFolders.length) setAdditionalFolders((list) => [...new Set([...list, ...plan.draftFolders.filter((dir) => dir !== cwd)])]);
+    // Hm removes only the chips it just made (by id); staging dedupes by path, so a folder chip already attached stays.
+    const attached = new Set(attachments.filter((entry) => entry.isDirectory).map((entry) => entry.path));
+    if (plan.chips.length) attachFilePaths(plan.chips, plan.chips);
+    if (!plan.grant.length || !owner) return;
+    try {
+      const next = [...new Set([...additionalFolders, ...plan.grant])];
+      setAdditionalFolders(next);
+      await updateSessionMetadata(owner, { additionalFolders: next });
+      // addDirectories grants the live session at once: a running turn on a core with live permissions gets the folders
+      // now (as the mode-change effect does); otherwise the next turn/start carries them.
+      if (running && livePermissions && boot?.connected && resumed.current.has(owner) && currentRef.current === owner)
+        rpc("codeDesktop/thread/permissions", { threadId: owner, ...turnPermissionParams({ permission: effectivePermission, mode, cwd: workdir || cwd, additionalFolders: next, ...permissionHints() }) }).catch((e) => setError(e.message));
+    } catch (error) {
+      // QG: onDenied runs only while this session is still the current one (the composer state belongs to it).
+      if (currentRef.current !== owner) return;
+      const before = new Set(additionalFolders);
+      setAdditionalFolders((list) => list.filter((dir) => before.has(dir) || !plan.grant.includes(dir)));
+      setAttachments((entries) => entries.filter((entry) => !(entry.isDirectory && plan.grant.includes(entry.path) && !attached.has(entry.path))));
+      const message = folderGrantError(plan.grant.length);
+      if (toasts) toasts.add(message, { variant: "danger" }); else setError(error?.message || message);
+    }
+  }
+  // cc43287c9 $m (:39668-39688): Add › Add folder opens the 'Add folder to session' picker and adds the folder; it
+  // never changes the session's own folder. Absent without a working folder (zN pushes no row then).
+  async function addFolderFromMenu() {
+    const owner = currentRef.current;
+    try {
+      const dir = await call("folder", { additional: true });
+      if (dir && currentRef.current === owner) { await addFolderPaths([dir]); textarea.current?.focus(); }
+    } catch (error) { setError(error.message); }
+  }
+  // A pasted or dropped path is checked by the /add-dir route (main 'folder' with a path: realpath, must be a
+  // directory, then an approved workspace root); null for anything that is not a folder.
+  function resolveFolderPaths(paths) {
+    return Promise.all(paths.map((folder) => call("folder", { additional: true, path: folder }).catch(() => null)));
+  }
+  // cc43287c9 sg (:42384-42395, paste and folderDrop): a draft without a working folder takes the first folder as its
+  // working folder (Id); otherwise the folders go through addFolderPaths (Hm).
+  async function addFolderFiles(files) {
+    const paths = files.map((file) => (typeof api?.pathForFile === "function" ? api.pathForFile(file) : "")).filter(Boolean);
+    if (!paths.length) return;
+    const owner = currentRef.current;
+    const folders = (await resolveFolderPaths(paths)).filter(Boolean);
+    if (currentRef.current === owner) takeFolderPaths(folders);
+  }
+  function takeFolderPaths(paths) {
+    const plan = planFolderPaste(paths, { draft: !currentRef.current, workdir, sessionOpen: !!currentRef.current });
+    if (!plan) return;
+    if (plan.workingFolder) setCwd(plan.workingFolder);
+    else void addFolderPaths(paths);
+    requestAnimationFrame(() => textarea.current?.focus());
+  }
+  // Paste/drop intake: a path-backed entry with no MIME type may be a Finder folder the clipboard did not mark as a
+  // directory, so it is checked on disk first and takes the folder route when it is one; everything else stages as before.
+  async function stageComposerIntake(files, options = {}) {
+    const unknown = files.map((file) => ({ file, path: !file.type && typeof api?.pathForFile === "function" ? api.pathForFile(file) : "" })).filter((item) => item.path);
+    const owner = currentRef.current;
+    const resolved = unknown.length ? await resolveFolderPaths(unknown.map((item) => item.path)) : [];
+    if (currentRef.current !== owner) return;
+    const folders = unknown.map((item, index) => ({ ...item, real: resolved[index] })).filter((item) => item.real);
+    const rest = folders.length ? files.filter((file) => !folders.some((item) => item.file === file)) : files;
+    if (rest.length) stageComposerFiles(rest, options);
+    if (folders.length) takeFolderPaths(folders.map((item) => item.real));
   }
   // 'Attach selection/message as context' (scroll-messages-current.js:33677-33686 S; cc43287c9-BMbiZYzF.js:32293-32305
   // ju). The source adds a context snippet to the composer and schedules its focus: the text becomes a Quote snippet
@@ -1099,25 +1441,40 @@ function App({ side = 0, initialSession = null }) {
   }, []);
   // The terminal pane's "Attach selection as context" (⇧⌘L, its body menu): the selected output becomes a context
   // snippet pill in the composer (Claude's attachAsContext), and the composer takes focus.
-  const attachTerminalOutput = useCallback((text) => {
-    const snippet = makeSnippet(text);
+  const attachTerminalOutput = useCallback((text, metadata) => {
+    const snippet = makeSnippet(text, metadata);
     if (!snippet) return;
     setAttachments((entries) => addSnippet(entries, snippet));
     requestAnimationFrame(() => textarea.current?.focus());
   }, []);
   // 'Add to prompt' from a pane (inline-comments.mjs addToPrompt: plan comments, changed-line comments): a context
   // snippet pill (Claude's addSnippet), sent ahead of the message; the composer takes focus.
+  // The side that takes it cancels the event, so addToPrompt reports that the comment landed.
   useEffect(() => {
     const add = (event) => {
-      if (!splitActiveRef.current) return;
+      if (!splitActiveRef.current || event.defaultPrevented) return;
       const snippet = makeSnippet(typeof event?.detail?.text === "string" ? event.detail.text.trim() : "");
       if (!snippet) return;
+      event.preventDefault();
       setAttachments((entries) => addSnippet(entries, snippet));
       requestAnimationFrame(() => textarea.current?.focus());
     };
     window.addEventListener(ADD_TO_PROMPT_EVENT, add);
     return () => window.removeEventListener(ADD_TO_PROMPT_EVENT, add);
   }, []);
+  // 'Add to prompt' relayed from a pane window (main.cjs popout-add-to-prompt → "add-to-prompt"): the side showing that
+  // session takes the queued text as snippets, now or when it opens the session.
+  useEffect(() => {
+    const take = (sessionId) => {
+      if (!sessionId || sessionId !== currentRef.current || !promptAdditions.has(sessionId)) return;
+      const snippets = promptAdditions.takeEntries(sessionId).map((entry) => makeSnippet(entry.text, entry.meta)).filter(Boolean);
+      if (!snippets.length) return;
+      setAttachments((entries) => snippets.reduce((next, snippet) => addSnippet(next, snippet), entries));
+      requestAnimationFrame(() => textarea.current?.focus());
+    };
+    take(current);
+    return promptAdditions.subscribe(take);
+  }, [current]);
   const actionPending = operationPending(operation);
   // boot.core (main.cjs connect): engine and capabilities from initialize.
   // A start that failed reports no core (main.cjs init {connected:false, config}): name the chosen core, not Codex.
@@ -1171,6 +1528,17 @@ function App({ side = 0, initialSession = null }) {
     compactInstructions: coreSupports(boot?.core, "compactInstructions"),
     // /usage's description (session-command-model sessionCommandDescription): a per-token core has no plan limits.
     perTokenBilling: coreSupports(boot?.core, "perTokenBilling") };
+  // The '/' list's loading skeleton and 'Type / again to retry' header (c5cd1b4dc :3586-3625): the skills (skills/list)
+  // and the custom commands (custom-commands-store), each a real load; a retry asks again for the ones that failed.
+  {
+    const listState = slashListState({ skills: boot?.connected ? customizeSnapshot.skills : null, customCommands: customCommandsEntry ?? null });
+    commandContext.commandsLoading = listState.loading;
+    commandContext.commandsFailed = listState.failed;
+    commandContext.retryCommands = () => {
+      if (customizeSnapshot.skills.status === "error" && boot?.connected) customizeStore.loadSkills({ cwd: workdir || cwd, force: true });
+      if (customCommandsEntry?.status === "error") customCommandsStore.load(workdir || cwd, { force: true });
+    };
+  }
   const models = useMemo(() => withEffortDefaults(boot?.models || [], boot?.config?.modelSettings), [boot?.models, boot?.config?.modelSettings]);
   const chosen = models.find((m) => m.model === model);
   // A saved model the current core does not list (a Codex model on the DeepSeek core) or a
@@ -1206,6 +1574,19 @@ function App({ side = 0, initialSession = null }) {
   const workflowSizeCap = workflowState.sizeWarningAgents.source === "default" && workflowState.sizeSource !== "default" && workflowState.sizeGuideline !== "unrestricted" ? { small: 5, medium: 10, large: 50 }[workflowState.sizeGuideline] : workflowState.sizeWarningAgents.value;
   const workflowWarningLimits = useMemo(() => ({ agents: workflowSizeCap, tokens: workflowState.sizeWarningTokens.value, suppressed: ultracodeOn }),
     [workflowSizeCap, workflowState.sizeWarningTokens.value, ultracodeOn]);
+  // cc43287c9 Uq/qq: the large-workflow band above the composer for this session's first running workflow that passes
+  // these limits — 'This workflow is larger than most.', Hq's detail, Stop workflow (stopBackgroundTask) and dismiss.
+  const workflowSizeEntries = useSyncExternalStore(workflowSizeStore.subscribe, workflowSizeStore.entries, workflowSizeStore.entries);
+  const workflowSizePick = pickWorkflowSizeWarning(tasks, workflowSizeEntries, workflowWarningLimits);
+  const [workflowSizeStopping, setWorkflowSizeStopping] = useState(null);
+  useEffect(() => { syncWorkflowSizeStore(workflowSizeStore, tasks, workflowSizePick); });
+  const workflowSizeNotice = workflowSizePick ? { kind: "workflowSize", dismissKey: "workflow-size:" + workflowSizePick.task.id,
+    summary: t("This workflow is larger than most."), details: workflowSizeDetail(workflowSizePick.warning),
+    onDismiss: () => workflowSizeStore.set(workflowSizePick.task.id, "dismissed"),
+    actions: [{ label: t("Stop workflow"), busy: workflowSizeStopping === workflowSizePick.task.id, run: () => {
+      const task = workflowSizePick.task; setWorkflowSizeStopping(task.id);
+      Promise.resolve(stopBackgroundTask(task)).catch((e) => setError(e?.message || String(e))).finally(() => setWorkflowSizeStopping((id) => id === task.id ? null : id));
+    } }] } : null;
   // The effort popover's Plan mode row: a core with its own Plan reasoning (collaboration modes, no permission hints:
   // Codex's plan_mode_reasoning_effort, else its Plan preset), read when the popover opens.
   const [planEffort, setPlanEffort] = useState(null);
@@ -1419,25 +1800,64 @@ function App({ side = 0, initialSession = null }) {
     const timer = running ? setInterval(query, GIT_STATUS_RESPONDING_INTERVAL) : null;
     return () => { live = false; if (timer) clearInterval(timer); };
   }, [current, workdir, running, gitRefresh]);
+  // B08 (cd5a31703 Gde/afe, notes 'cached on the git-status poll'): look the branch's PR up when the checkout or branch
+  // changes, on window focus (gitRefresh) and, bypassing main's 30s cache, when a turn ends (the agent may have just
+  // opened or merged it). The previous answer for the same key stays while a refresh runs.
+  const prLookupWasRunning = useRef(running);
+  useEffect(() => {
+    const ended = prLookupWasRunning.current && !running;
+    prLookupWasRunning.current = running;
+    if (!prLookupKey) return undefined;
+    let live = true;
+    const [cwdForLookup, branchForLookup] = prLookupKey.split("\u0000");
+    setPrLookup((previous) => previous?.key === prLookupKey ? previous : { key: prLookupKey, status: "pending" });
+    call("workspace-pull-request", { cwd: cwdForLookup, branch: branchForLookup, fresh: ended })
+      .then((result) => { if (live && result && typeof result.status === "string") setPrLookup({ ...result, key: prLookupKey }); })
+      .catch((reason) => { if (live) setPrLookup({ key: prLookupKey, status: "error", message: reason?.message ?? String(reason) }); });
+    return () => { live = false; };
+  }, [prLookupKey, running, gitRefresh]);
+  // The current session worked on this branch: its PR (and later state changes) belongs to the session.
+  const observedPr = prLookup?.status === "found" && prLookup.key === prLookupKey ? prLookup.pr : null;
+  useEffect(() => {
+    const known = current ? observedPullRequests.current.get(current) : null;
+    if (!current || !observedPr || (known && JSON.stringify(known) === JSON.stringify(observedPr))) return;
+    observedPullRequests.current.set(current, observedPr);
+    setSessions((rows) => rows);
+  }, [current, observedPr]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeKey = gitChangeKey(gitStatus);
   // F12 Changes diff scope (panes-tile-current.js:2949-3110 zm; Od he = {kind:"branch"}): per session,
   // "All changes vs {base}" by default, "Uncommitted changes", a commit, or another base via "Compare against".
   const diffScope = useDiffScope({ call, cwd: workdir, sessionId: current, status: gitStatus, active: openPanes.has("changes"), refreshKey: diffRefresh });
   const diffScopeKey = JSON.stringify([diffScope.param ?? null, diffScope.base ?? null]);
   const shownDiffScope = useRef(null);
+  // B15 (c44d00c7f Xc, cb61be3a2 Je carriedOver): the scope {key, param} gitDiff was read for. A scope
+  // change keeps the previous comparison on screen, dimmed, until the new one lands (carriedOverDiff).
+  const [loadedDiffScope, setLoadedDiffScope] = useState(null);
+  // cb61be3a2 Je loadRetrying: a refetch started from the failed state ("Try again" / Refresh) is running.
+  const [diffRetrying, setDiffRetrying] = useState(false);
   useEffect(() => {
     // The Changes panel re-reads the full worktree diff only when the panel opens
     // or the change signal moves; the previous diff stays on screen meanwhile.
-    // A scope change drops the other scope's patch first (loading, not a stale body).
-    if (!openPanes.has("changes") || !changeKey) { setGitDiff(null); setGitDiffError(""); return undefined; }
-    if (shownDiffScope.current !== diffScopeKey) { shownDiffScope.current = diffScopeKey; setGitDiff(null); setGitDiffError(""); }
+    if (!openPanes.has("changes") || !changeKey) { setGitDiff(null); setGitDiffError(""); setDiffRetrying(false); return undefined; }
+    if (shownDiffScope.current !== diffScopeKey) { shownDiffScope.current = diffScopeKey; setGitDiffError(""); }
     let live = true;
+    const loaded = { key: diffScopeKey, param: diffScope.param };
     call("workspace-git-diff", { cwd: workdir, sessionId: current, completeContext: true, scope: diffScope.param, ...(diffScope.base ? { base: diffScope.base } : {}) })
-      .then(result => { if (live) { setGitDiff(result); setGitDiffError(""); } })
-      .catch(reason => { if (live) { setGitDiff(""); setGitDiffError("Could not load repository diff: " + reason.message); } });
+      .then(result => { if (live) { setGitDiff(result); setLoadedDiffScope(loaded); setGitDiffError(""); setDiffRetrying(false); } })
+      .catch(reason => { if (live) { setGitDiff(""); setLoadedDiffScope(loaded); setGitDiffError("Could not load repository diff: " + reason.message); setDiffRetrying(false); } });
     return () => { live = false; };
   }, [openPanes, workdir, changeKey, diffRefresh, diffScopeKey]);
-  const refreshChanges = useCallback(() => { diffRefreshRequested.current = true; setGitRefresh(value => value + 1); }, []);
+  const shownGitDiff = carriedOverDiff(gitDiff, loadedDiffScope, diffScopeKey);
+  // Yg(path, {probe: true}): whether the Changes pane's diff lists a file (parsed only when a turn edits row is clicked).
+  // The repository diff loads only while the Changes pane is open: until it is loaded the answer is "yes" (the reveal
+  // waits in diff-reveal.mjs for the diff), so only a loaded diff without the file sends the row to the Files pane.
+  const turnFileInChanges = (path) => {
+    if (!canViewChanges) return false;
+    const patch = gitStatus?.isRepo ? shownGitDiff.diff : sessionDiff;
+    if (typeof patch !== "string" || (gitStatus?.isRepo && (shownGitDiff.carriedOver || gitDiffError))) return true;
+    return !!matchDiffPath(path, diffFileEntries(parseUnifiedDiff(patch).sections).map((entry) => entry.filePath));
+  };
+  const refreshChanges = useCallback(() => { diffRefreshRequested.current = true; setDiffRetrying(true); setGitRefresh(value => value + 1); }, []);
   useEffect(() => {
     currentRef.current = current;
   }, [current]);
@@ -1486,8 +1906,10 @@ function App({ side = 0, initialSession = null }) {
   function restorePersistedDraft(key) {
     const stored = readPersistedDraft(browserStorage(), key);
     if (!stored) return null;
-    if (stored.attachments.length) rehydrateDraftAttachments(key, stored.attachments);
-    return { text: stored.text, mentions: stored.mentions, attachments: [] };
+    const files = stored.attachments.filter(entry => entry.kind !== "snippet");
+    const snippets = stored.attachments.filter(entry => entry.kind === "snippet").map(entry => makeSnippet(entry.text, entry)).filter(Boolean);
+    if (files.length) rehydrateDraftAttachments(key, files);
+    return { text: stored.text, mentions: stored.mentions, attachments: snippets };
   }
   function rehydrateDraftAttachments(key, refs) {
     draftRestores.current.add(key);
@@ -1507,12 +1929,12 @@ function App({ side = 0, initialSession = null }) {
       .catch(() => {})
       .finally(() => { draftRestores.current.delete(key); });
   }
-  function switchComposerDraft(leaving, entering) {
+  function switchComposerDraft(leaving, entering, leavingSurface = modeRef.current, enteringSurface = modeRef.current, leavingProject = projectDraftRef.current, enteringProject = projectDraftRef.current) {
     pendingDraftWrite.current = null;
-    persistComposer(draftKey(leaving), liveComposer.current);
-    const stashed = saveDraft(composerDrafts.current, draftKey(leaving), liveComposer.current);
-    let restored = takeDraft(stashed, draftKey(entering));
-    if (!stashed.has(draftKey(entering))) restored = { map: restored.map, draft: restorePersistedDraft(draftKey(entering)) ?? restored.draft };
+    persistComposer(draftKey(leaving, leavingSurface, leavingProject), liveComposer.current);
+    const stashed = saveDraft(composerDrafts.current, draftKey(leaving, leavingSurface, leavingProject), liveComposer.current);
+    let restored = takeDraft(stashed, draftKey(entering, enteringSurface, enteringProject));
+    if (!stashed.has(draftKey(entering, enteringSurface, enteringProject))) restored = { map: restored.map, draft: restorePersistedDraft(draftKey(entering, enteringSurface, enteringProject)) ?? restored.draft };
     composerDrafts.current = restored.map;
     liveComposer.current = restored.draft;
     setDraft(restored.draft.text);
@@ -1533,7 +1955,7 @@ function App({ side = 0, initialSession = null }) {
     // A write someone else took over (a switch, the unload flush, a Home send handing its draft on) is skipped.
     const timer = setTimeout(() => { if (pendingDraftWrite.current !== pending) return; pendingDraftWrite.current = null; persistComposer(key, value); }, 300);
     return () => clearTimeout(timer);
-  }, [current, draft, attachments, mentions]);
+  }, [current, mode, projectDraftId, draft, attachments, mentions]);
   useEffect(() => {
     const flush = () => { const pending = pendingDraftWrite.current; pendingDraftWrite.current = null; if (pending) persistComposer(pending.key, pending.value); };
     window.addEventListener("pagehide", flush);
@@ -1549,6 +1971,10 @@ function App({ side = 0, initialSession = null }) {
   // R05 'Send and stay here' (cc43287c9 :35140-35200, :31913 [Kc,qc] backgroundSpawnCount, :27612 Jr): Home
   // launches held while a detached spawn is in flight; the Home composer is disabled until it settles, then refocused.
   const [backgroundSpawns, setBackgroundSpawns] = useState(0), backgroundSpawnsRef = useRef(0), spawnFocus = useRef(false);
+  // B29: the step a Home send's worktree is at ({token, phase}; main 'worktree-phase'), and the Git dialog (rY/nY).
+  const [spawnPhase, setSpawnPhase] = useState(null);
+  const [gitDialog, setGitDialog] = useState(null);
+  const shownGitDialog = useDialogRetention(gitDialog);
   useEffect(() => {
     if (backgroundSpawns > 0 || !spawnFocus.current) return;
     spawnFocus.current = false;
@@ -1583,6 +2009,36 @@ function App({ side = 0, initialSession = null }) {
   }
   function removeComposerAttachment(id) {
     setAttachments((entries) => { entries.filter((entry) => entry.id === id).forEach(revokePreview); return removeAttachment(entries, id); });
+  }
+  function stageSelectedElement(event) {
+    if (event.sessionId !== currentRef.current) return;
+    if (event.context.screenshot && !imagesAllowed && !imageFallback) { setError(IMAGE_MODEL_ERROR); return; }
+    const entry = makeSelectedElementAttachment(event.context, { previewId: event.sessionId, tabId: event.tabId, asFile: imageFallback });
+    let pending, scheduled = false;
+    setAttachments(entries => {
+      const next = addSelectedElementAttachment(entries, entry);
+      pending = next.find(item => item.context === entry.context);
+      if (!scheduled) {
+        scheduled = true;
+        queueMicrotask(async () => {
+          if (!pending?.context.screenshot) return;
+          const id = pending.id;
+          try {
+            const bytes = Uint8Array.from(atob(pending.context.screenshot), char => char.charCodeAt(0));
+            const result = await call('attachments:stage', { name: 'element-screenshot.png', type: 'image/png', bytes });
+            updateComposerAttachments(entries => entries.some(item => item.id === id) ? markReady(entries, id, { path: result.path }) : entries);
+          } catch (error) {
+            const exists = liveComposer.current.attachments.some(item => item.id === id)
+              || [...composerDrafts.current.values()].some(draft => draft.attachments.some(item => item.id === id));
+            updateComposerAttachments(entries => markFailed(entries, id).entries);
+            if (exists) setError(IMAGE_PROCESS_ERROR);
+          }
+        });
+      }
+      return next;
+    });
+    if (imageFallback && entry.context.screenshot) toasts?.add(IMAGE_FALLBACK_NOTE, { variant: 'neutral' });
+    requestAnimationFrame(() => { if (currentRef.current === event.sessionId) textarea.current?.focus(); });
   }
   const filePreviewUrl = (filePath) => encodeURI(`file://${filePath}`);
   // Paste (image lane, official q/ue) and Finder drop: files with a real path
@@ -1683,22 +2139,35 @@ function App({ side = 0, initialSession = null }) {
         .map((entry) => ({ reference: true, path: entry.name, target: entry.path, description: entry.description || entry.source?.repository || entry.path }));
       const literal = targets.filter((entry) => !needle || entry.name.toLowerCase().includes(needle) || entry.text.toLowerCase().includes(needle))
         .map((entry) => ({ literal: true, kind: entry.kind, name: entry.name, text: entry.text, description: [entry.kind === "extension" ? t("Extension") : t("Connector"), entry.description].filter(Boolean).join(" · ") }));
-      // Another session in this folder (capabilities.sessionMentions: ZCode's # mentions, read with ReadSessionContext).
+      // Sessions (ca80fca8d vN): the user's other sessions, '@[title]', which the app's own list_events tool reads
+      // (agent-tools/sessions.mjs; sessionMentionsBlock on send). ZCode reads this folder's sessions itself as
+      // '[#title](#id)' (capabilities.sessionMentions, ReadSessionContext).
       const folder = workdir || cwd;
-      const others = coreSupports(boot?.core, "sessionMentions")
-        ? sessions.filter((entry) => entry?.id && entry.id !== current && (!folder || entry.cwd === folder) && !sessionArchived(entry) && !sessionParentId(entry))
-          .filter((entry) => !needle || (entry.name || entry.preview || "").toLowerCase().includes(needle)).slice(0, 8)
-          .map((entry) => ({ session: { id: entry.id, title: entry.name || entry.preview || t("Untitled session") }, description: t("Session") })) : [];
-      return [...named, ...literal, ...others, ...(result?.error ? [] : (result?.matches || []))];
+      const native = coreSupports(boot?.core, "sessionMentions");
+      const others = sessionMentionMatches(sessions.filter((entry) => !native || !sessionParentId(entry)), { current, query: trimmed, folder: native ? folder : null, native, archived: sessionArchived });
+      // Agents (jj, agentMentionsEnabled = draft && agentsSupported): the core's own primary agents for the new session.
+      const agents = !current && primaryAgents ? agentMentionMatches(primaryAgents.rows, trimmed) : [];
+      // TN order: agents, sessions, then files (with the core's references and @ targets ahead of them).
+      return [...agents, ...others, ...named, ...literal, ...(result?.error ? [] : (result?.matches || []))];
     } catch { return []; }
   }
+  async function searchSideMentionFiles(query) {
+    if (!current) return [];
+    const trimmed = query.trim().slice(0, 64);
+    const result = await call("files:search", { pane: "side-composer", requestId: `side-mention-${++mentionRequest.current}`, sessionId: current, query: trimmed, browse: !trimmed });
+    return result?.error ? [] : (result?.matches || []);
+  }
   function rememberMention(option) {
+    // An agent row chooses the new session's agent (jj onSelect → setSelectedAgent); nothing stays in the draft.
+    if (option?.kind === "agent") { setAgentChoices((choices) => ({ ...choices, "": option.agent })); return; }
     setMentions((list) => (list.some((entry) => entry.path === option.path) ? list : [...list, { path: option.path, name: option.label, ...(option.target ? { target: option.target } : {}),
       ...(option.literal ? { literal: true } : {}), ...(option.session ? { session: option.session } : {}) }]));
   }
   // The mention chip's menu (c856385e2 Z for a ccd-files mention): Copy ▸ with the c3e58cab4 'Copied to clipboard.'
   // toast, Open in ▸ Files pane. Paths are relative to the root the '@' search ran in.
-  const mentionActions = { root: workdir || cwd, onCopy: (text) => copyWithToast(text, t("Copied to clipboard.")), onOpen: (path) => openFileRef({ path }) };
+  // onOpenLink: the composer link bubble's Open link (ca80fca8d KM: http(s)/mailto/tel in the browser).
+  const mentionActions = { root: workdir || cwd, onCopy: (text) => copyWithToast(text, t("Copied to clipboard.")), onOpen: (path) => openFileRef({ path }),
+    onOpenLink: (url) => call("external", { url }).catch(actionFailed("open-link")) };
   // Queue bar actions over the real Codex queue with optimistic removal and
   // rollback; edit = delete + restore into the draft (official onEdit).
   async function queueCancel(id) {
@@ -1735,6 +2204,46 @@ function App({ side = 0, initialSession = null }) {
       setError(reason.message);
     }
   }
+  // Send now (cf74bc599 nS/oS onSteer; cc43287c9 :38930-38946 queueBarSendNow → zr promote): the entry leaves the
+  // queue (thread/queue/delete; deleted:false = the queue already started it) and goes into the running turn through
+  // turn/steer, as Enter does while a turn runs. A refused steer puts it back at its old slot (thread/queue/add +
+  // thread/queue/reorder) and says why.
+  async function queueSteer(id) {
+    const threadId = queue.threadId, index = queue.entries.findIndex((item) => item.id === id), entry = queue.entries[index];
+    const turnId = threadId ? state.active[threadId] : null;
+    if (!entry || !canSendNow(queue, id, { turnId, connected: !!boot?.connected, archived: !!session?.archived, steeringId: queueSteering })) return;
+    setQueueSteering(id);
+    setQueue((current) => lockEntry(current, id));
+    let removed = false;
+    try {
+      const deleted = await rpc("thread/queue/delete", { threadId, queuedSubmissionId: id });
+      removed = true;
+      setQueue((current) => (current.threadId === threadId ? optimisticRemove(current, id).queue : current));
+      if (deleted?.deleted === false) return;
+      const clientUserMessageId = entry.clientUserMessageId || crypto.randomUUID();
+      // The entry has already left the queue: a steer that throws (no live connection) is a refusal too, so it is re-added.
+      const outcome = await call("steer", { threadId, expectedTurnId: turnId, input: entry.input, clientUserMessageId }).catch((reason) => ({ ok: false, message: reason?.message || "" }));
+      if (outcome.ok) {
+        const inputText = steerInputText(entry.input);
+        setPendingSteers((all) => ({ ...all, [threadId]: [...(all[threadId] ?? []), { id: clientUserMessageId, input: entry.input, text: editableDraft(entry).text, turnId, preview: entry.preview, inputText, baseline: steerTextCount(latestState.current.items?.[threadId], inputText) }] }));
+        return;
+      }
+      const added = await rpc("thread/queue/add", { threadId, input: entry.input, clientUserMessageId });
+      const addedId = added?.queuedSubmission?.id;
+      if (addedId) {
+        const listed = await rpc("thread/queue/list", { threadId }).catch(() => null);
+        const order = restoredOrder((Array.isArray(listed?.data) ? listed.data : []).map((item) => item?.id), addedId, index);
+        if (order) await rpc("thread/queue/reorder", { threadId, queuedSubmissionIds: order }).catch(() => {});
+      }
+      throw new Error(isNotSteerable(outcome) ? t("This turn can’t take new messages right now. The message stays queued.") : outcome.message || t("The message could not be sent to the running turn."));
+    } catch (reason) {
+      if (!removed) setQueue((current) => unlockEntry(current, id));
+      setError(reason.message);
+    } finally {
+      setQueueSteering(null);
+      loadQueue(threadId);
+    }
+  }
   async function queueReorder(fromId, toId) {
     const threadId = queue.threadId;
     if (!threadId) return;
@@ -1769,7 +2278,18 @@ function App({ side = 0, initialSession = null }) {
       setPermission(savedPermission(b.config));
       setCwd(b.config.cwd);
       setTheme(b.config.theme);
-      setMode(b.config.mode || "code");
+      if (!currentRef.current) {
+        // A session popout is a Code window (cd377abb5 si: File › New Window opens a code-draft).
+        const next = NO_SIDEBAR ? 'code' : validSurface(b.config.mode) ? b.config.mode : 'code';
+        if (next !== modeRef.current) switchComposerDraft(null, null, modeRef.current, next);
+        setMode(next);
+        surfaceFolders.current.code = b.config.cwd;
+        if (next !== 'code') {
+          const workspace = await call('surface-workspace', { surface: next });
+          if (!currentRef.current && modeRef.current === next) setCwd(workspace.cwd);
+          surfaceFolders.current[next] = workspace.cwd;
+        }
+      }
       const selected =
         b.models?.find((m) => m.model === b.config.model) ||
         b.models?.find((m) => m.isDefault) ||
@@ -1792,7 +2312,7 @@ function App({ side = 0, initialSession = null }) {
       if (b.connected && b.threadUsage && typeof b.threadUsage === "object") dispatch({ type: "usage-restore", usage: b.threadUsage });
       // Split view / windows: the secondary side opens the session it was split with; the primary side restores this
       // window's layout (a relaunch, or the session a new window was opened for: main.cjs windowLayout).
-      if (side === 1 && initialSession && b.connected) navigate(initialSession);
+      if (side > 0 && initialSession && b.connected) navigate(initialSession);
       if (side === 0 && b.connected) restoreWindowLayout(b.windowLayout);
     } catch (e) {
       setError(e.message);
@@ -1828,11 +2348,32 @@ function App({ side = 0, initialSession = null }) {
       dispatch({ event: e });
       if (side === 0) customizeStore.observe(e);
       if(e.kind === "desktop-navigate" && side === 0) openInFocusedSide(e.threadId);
+      // A pane window's 'Add to prompt' (popout-add-to-prompt): queued for its session; a window not showing that
+      // session opens it in the focused side, whose composer then takes the text.
+      if (e.kind === "add-to-prompt" && side === 0 && typeof e.sessionId === "string" && typeof e.text === "string") {
+        if (promptAdditions.queue(e.sessionId, e.text, e.meta) && !splitStore.isShown(e.sessionId) && currentRef.current !== e.sessionId) openInFocusedSide(e.sessionId);
+      }
       if(e.kind === "desktop-archived") setSessions(rows=>rows.map(row=>row.id===e.threadId?{...row,archived:true}:row));
       if (e.kind === "window") setFullScreen(e.fullScreen);
       if (e.kind === "zoom-factor" && Number.isFinite(e.zoomFactor)) setZoomFactor(e.zoomFactor);
       if (e.kind === "popouts") setPopouts(Array.isArray(e.popouts) ? e.popouts : []);
-      if (e.kind === "popout-docked" && typeof e.sessionId === "string" && side === 0) openPaneTile(e.pane, e.sessionId);
+      // B27: the side chat window closed. Its conversation comes back into this window's store; Open in main window
+      // shows the panel again, while its X or the window's close button closed the side chat (cd377abb5 _i onClose).
+      if (e.kind === "popout-docked" && e.pane === "side-chat" && typeof e.sessionId === "string" && side === 0) {
+        if (e.data) sideChatStore.importThread(e.sessionId, e.data);
+        if (e.entryPoint === "dock" && currentRef.current === e.sessionId) setSideChat({ open: true, pending: null });
+      } else if (e.kind === "popout-docked" && typeof e.sessionId === "string" && side === 0) openPaneTile(e.pane, e.sessionId);
+      if (e.kind === "layout-command" && side === 0 && typeof e.requestId === "string") runLayoutCommandRef.current?.(e);
+      // B27: a file reference opened in a popped-out Tasks or Terminal pane (main.cjs popout-open-file).
+      if (e.kind === "open-file-ref" && side === 0 && typeof e.sessionId === "string" && e.ref && typeof e.ref.path === "string") {
+        if (currentRef.current !== e.sessionId && !splitStore.isShown(e.sessionId)) openInFocusedSide(e.sessionId);
+        if (currentRef.current === e.sessionId || !splitStore.isShown(e.sessionId)) requestAnimationFrame(() => openFileRef(e.ref));
+      }
+      // B27: the main window asks a popped-out side chat (this pane window) a /btw question or stages a selection.
+      if (PANE_WINDOW?.pane === "side-chat" && e.kind === "popout-data" && e.pane === "side-chat" && e.data && typeof e.data === "object") {
+        if (typeof e.data.stagedContext === "string" && e.data.stagedContext) sideChatStore.stageContext(PANE_WINDOW.sessionId, e.data.stagedContext);
+        if (typeof e.data.pending === "string" && e.data.pending.trim()) void askSideQuestion({ rpc, threadId: PANE_WINDOW.sessionId, question: e.data.pending });
+      }
       // The agent opened a page in a session's preview (preview_start / navigate): that session shows its Preview pane.
       if (e.kind === "preview-reveal" && typeof e.sessionId === "string" && side === 0) openPaneTile("preview", e.sessionId);
       if (e.kind === "toggle-sidebar" && side === 0) toggleSidebarRef.current?.();
@@ -1840,8 +2381,8 @@ function App({ side = 0, initialSession = null }) {
       if (e.kind === "navigate" && (e.delta === -1 || e.delta === 1) && splitActiveRef.current) travelShortcutRef.current?.(e.delta);
       if (MENU_COMMANDS.has(e.kind) && (e.kind === "open-search" ? side === 0 : splitActiveRef.current)) menuCommandRef.current?.(e);
       // Edit ▸ Find (app-menu.cjs ISr): the transcript's find bar (source-find-bar.jsx) opens or steps.
-      if (e.kind === "find-open" && splitActiveRef.current) transcriptRef.current?.openFind?.();
-      if (e.kind === "find-step" && splitActiveRef.current) transcriptRef.current?.stepFind?.(e.forward !== false);
+      if (e.kind === "find-open" && splitActiveRef.current && !dispatchTerminalFind(e.kind)) transcriptRef.current?.openFind?.();
+      if (e.kind === "find-step" && splitActiveRef.current && !dispatchTerminalFind(e.kind,e.forward!==false)) transcriptRef.current?.stepFind?.(e.forward !== false);
       if (e.kind === "open-settings" && side === 0) { setMenu(null); setActionDialog(null); setWhatsNew(false); setShowSearch(false); setRename(null); setSettings(true); }
       if (e.kind === "stats" && e.stats && Array.isArray(e.stats.dailyActivity)) setStatsSnapshot(e.stats);
       // An Extension Pack was imported or removed: register its cores and re-render what keys on them.
@@ -1897,6 +2438,7 @@ function App({ side = 0, initialSession = null }) {
       if(e.kind==='account-snapshot')setBoot(b=>b&&({...b,account:e.account}));
       // Codex's own sidebar sections imported in main (codex-sections.cjs): the new pins and groups.
       if(e.kind==='sidebar-state'&&e.state)applySidebarState(e.state);
+      if (e.kind === "worktree-phase" && typeof e.phase === "string") setSpawnPhase((value) => value && value.token === e.token ? { ...value, phase: e.phase } : value);
       // Another window or the other split side changed the session list or the settings (main.cjs emitSessionList /
       // emitConfig): this side's list and appearance follow.
       if (e.kind === "session-list") applySessionList(e);
@@ -1909,7 +2451,7 @@ function App({ side = 0, initialSession = null }) {
     loadStats();
     call("home-shape").then((shape) => {
       setDisplayName((value) => value || shape?.displayName || "");
-      setRemembered({ sessions: shape?.rememberedActionCenterCounts?.sessions || 0, projects: 0, prs: 0 });
+      setRemembered({ sessions: shape?.rememberedActionCenterCounts?.sessions || 0, projects: 0, prs: shape?.rememberedActionCenterCounts?.prs || 0 });
     }).catch(() => setRemembered({ sessions: 0, projects: 0, prs: 0 }));
     return () => unsub?.();
   }, []);
@@ -1925,13 +2467,15 @@ function App({ side = 0, initialSession = null }) {
     // Same ownership rule as the transcript: a sub-agent's approval flags the
     // session that owns it, which is the only row the user can open.
     const approvalIds = new Set(state.approvals.map((approval) => ownerThreadId(state, approval.params?.threadId)).filter(Boolean));
+    // B29 hover card (Vse awaiting body): the requests a blocked row waits on, in arrival order.
+    const requestsOf = (id) => state.approvals.filter((approval) => ownerThreadId(state, approval.params?.threadId) === id);
     const rows = [];
     for (const item of sessions) {
       const meta = sessionMetadata[item.id] || {};
       const timestamp = sessionTimestampMs(item);
       const kind = classifyAttention({ archived: sessionArchived(item), pinned: !!meta.pinned, hasApproval: approvalIds.has(item.id),
-        running: !!state.active[item.id], unread: !!meta.unread, ackedAt: meta.ackedAt, timestamp });
-      if (kind) rows.push({ session: item, kind, timestamp });
+        running: !!state.active[item.id], unread: !!meta.unread, ackedAt: meta.ackedAt, errorAt: meta.errorAt, timestamp });
+      if (kind) rows.push({ session: item, kind, timestamp, ...(kind === "blocked" ? { requests: requestsOf(item.id) } : {}) });
     }
     return sortAttention(rows);
   }, [boot, sessions, sessionMetadata, state.approvals, state.active, state.threadParents]);
@@ -1939,19 +2483,32 @@ function App({ side = 0, initialSession = null }) {
   // the landing-clear card (and flip the greeting) between init and thread/read,
   // and write a transient 0 into rememberedActionCenterCounts.
   const homeLoading = !sessionsLoaded;
-  const homeLandingClear = homeLoading ? shapeLandingClear(remembered) : attentionRows.length === 0;
+  // B08 Action Center › Pull requests (cc43287c9 QR b / hR / cz): sessions' active, non-draft PRs, one row per URL.
+  const pullRequestRows = useMemo(() => (boot ? sortPullRequestRows(activePullRequestEntries(sessions, { archived: sessionArchived })
+    .map((entry) => classifyPullRequest(entry, prStateLabel))) : []), [boot, sessions]);
+  // $R: landing clear only with no sessions, projects or PRs to show.
+  const homeLandingClear = homeLoading ? shapeLandingClear(remembered) : attentionRows.length === 0 && pullRequestRows.length === 0;
   const sessionsRowLimit = useSessionsLimit();
+  const pullRequestsRowLimit = usePullRequestsLimit();
   // Zk's mount time (Lo startedAt): the stats hold skeleton's delayed reveal counts from it.
   const homeStartedAt = useHomeStartedAt(section === "new" && !current);
   useEffect(() => {
-    if (side !== 0 || homeLoading || !remembered || remembered.sessions === attentionRows.length) return;
-    const next = { sessions: attentionRows.length, projects: 0, prs: 0 };
+    if (side !== 0 || homeLoading || !remembered || (remembered.sessions === attentionRows.length && (remembered.prs || 0) === pullRequestRows.length)) return;
+    const next = { sessions: attentionRows.length, projects: 0, prs: pullRequestRows.length };
     setRemembered(next);
     call("settings", { rememberedActionCenterCounts: next }).catch(() => {});
-  }, [homeLoading, remembered, attentionRows.length]);
+  }, [homeLoading, remembered, attentionRows.length, pullRequestRows.length]);
+  // O6: the acknowledgement covers the session's timestamp and its failure (errorAt), whichever is later.
   async function ackSession(item) {
-    applySidebarState(await call("session-ack", { id: item.id, ackedAt: sessionTimestampMs(item) }));
+    applySidebarState(await call("session-ack", { id: item.id, ackedAt: acknowledgementTime(sessionTimestampMs(item), sessionMetadata[item.id]?.errorAt) }));
   }
+  // B29 (shared-19 D6/k6): a failed session the user opens has had its failure seen; Home stops listing it.
+  const viewedSession = current ? sessions.find((item) => item.id === current) : null;
+  const viewedErrorUnacked = !!viewedSession && !state.active[current] && unackedError({ archived: sessionArchived(viewedSession),
+    errorAt: sessionMetadata[current]?.errorAt, ackedAt: sessionMetadata[current]?.ackedAt, timestamp: sessionTimestampMs(viewedSession) });
+  useEffect(() => {
+    if (viewedErrorUnacked && viewedSession) ackSession(viewedSession).catch(() => {});
+  }, [viewedErrorUnacked, viewedSession?.id]);
   useEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
     // Only the resolved light/dark is written (never "system"); a flip finishes
@@ -1964,38 +2521,11 @@ function App({ side = 0, initialSession = null }) {
   // Official rg/sR: html carries data-system-font / data-dyslexic-font, and every
   // cds-root gets data-font (anthropic → "sans", otherwise the system branch;
   // OpenDyslexic rides on that branch through --font-ui-dyslexic).
-  const cdsFont = prefs.interfaceFont === "anthropic" ? "sans" : "system";
+  const cdsFont = cdsFontFor(prefs);
   useEffect(() => { setPersona(boot?.config?.persona); }, [boot?.config?.persona]);
   useEffect(() => {
-    const root = document.documentElement;
-    for (const key of ["motion","transcriptSize","transcriptWidth"]) root.dataset['local' + key[0].toUpperCase() + key.slice(1)] = prefs[key];
-    // scroll-shared-10-current.js:17688-17708 CM/DM: the in-app Reduce motion
-    // setting is html[data-reduce-motion="true"], which the loaded CSS's
-    // motion-reduce variants and local reduce rules key on; data-local-motion
-    // stays as an alias for the older local rules.
-    if (prefs.motion === "reduce") root.dataset.reduceMotion = "true";
-    else delete root.dataset.reduceMotion;
-    root.toggleAttribute("data-system-font", prefs.interfaceFont === "system");
-    root.toggleAttribute("data-dyslexic-font", prefs.interfaceFont === "dyslexic");
-    root.dataset.font = cdsFont;
-    for (const key of ["--cds-font-code","--cds-font-mono"]) {
-      if (prefs.codeFont) root.style.setProperty(key, JSON.stringify(prefs.codeFont) + ', anthropic-mono, monospace');
-      else root.style.removeProperty(key);
-    }
-    // Official c6e73333a: the selected themes' editor/selection colors become
-    // --code-theme-* variables; the worker tokenizes under the same pair.
-    const pair = setCodeThemes({ light: prefs.codeThemeLight, dark: prefs.codeThemeDark });
-    // c66fe388e he(): html carries the pair as data-code-theme-light/-dark, which the
-    // claude-light/claude-dark code-box ring keys on (design-system.css:56758-56768).
-    root.dataset.codeThemeLight = pair.light;
-    root.dataset.codeThemeDark = pair.dark;
-    for (const mode of ["light", "dark"]) {
-      const colors = codeThemeColors[pair[mode]];
-      root.style.setProperty(`--code-theme-${mode}-bg`, colors.bg);
-      root.style.setProperty(`--code-theme-${mode}-fg`, colors.fg);
-      root.style.setProperty(`--code-theme-${mode}-selection-bg`, colors.selection);
-    }
-    root.style.setProperty("--cds-code-text-selection-bg", `light-dark(${codeThemeColors[pair.light].selection}, ${codeThemeColors[pair.dark].selection})`);
+    // appearance-root.mjs: the same writer a popped-out pane window uses (PopoutApp), so both look alike.
+    applyAppearanceRoot(document.documentElement, prefs, { setThemes: setCodeThemes, colors: codeThemeColors });
     window.dispatchEvent(new Event("local-motion-change"));
     // Keyed on the appearance values, not the object: a model or effort save re-creates localPreferences
     // (applyConfirmedPreferences) and must not re-apply appearance or announce a motion change.
@@ -2020,8 +2550,10 @@ function App({ side = 0, initialSession = null }) {
   // Closed dialogs stay mounted through their exit transition (source-dialog.jsx useDialogRetention); the rename
   // form is keyed by its session so typing (a new rename object per keystroke) does not remount it.
   const shownActionDialog = useDialogRetention(actionDialog), shownConfirmDelete = useDialogRetention(confirmDelete);
+  const shownWorktreeConfirm = useDialogRetention(worktreeQueue[0] ?? null), worktreeQueueAdvanced = useRef(0);
   const shownBypass = useDialogRetention(bypassMode.confirming && !menu), shownRename = useDialogRetention(rename?.id ?? null);
-  const lastRename = useRef(null), renameInput = useRef(null);
+  // renameSelected: Jd's h ref, set once this open's field has selected its name on focus (renameDialogFor resets it).
+  const lastRename = useRef(null), renameInput = useRef(null), renameSelected = useRef(null);
   if (rename) lastRename.current = rename;
   const renameShown = rename ?? lastRename.current;
   const actionDialogProps = (kind) => ({ open: shownActionDialog.open && actionDialog?.kind === kind, onExited: shownActionDialog.onExited });
@@ -2040,6 +2572,12 @@ function App({ side = 0, initialSession = null }) {
       // globalShortcutCommand (shortcuts-dialog-model.mjs) matches each chord exactly as this
       // handler always has; the Keyboard shortcuts dialog lists the same chords.
       const command = globalShortcutCommand(e);
+      // B27 pane window: its ⌘W closes the window (the pane docks back); the session's other chords belong to the window
+      // showing the session.
+      if (PANE_WINDOW) {
+        if (command === "close-session" && !(actionDialog || layerOpen())) { e.preventDefault(); if (!e.repeat) dockPaneWindow({ close: PANE_WINDOW.pane === "side-chat" }); }
+        return;
+      }
       if (command === "settings") { e.preventDefault(); setMenu(null); setActionDialog(null); setWhatsNew(false); setShowSearch(false); setRename(null); setSettings(true); return; }
       // Km (shared-19-CjdiaR4X.js): ⌘⇧[ / ⌘⇧] and Ctrl+Tab / Ctrl+Shift+Tab walk the sidebar's session
       // rows through the new-session page. Same guards as ⌘[ / ⌘]; every other key ends a held sequence.
@@ -2047,6 +2585,10 @@ function App({ side = 0, initialSession = null }) {
       if (settings || actionDialog || rename || whatsNew) sessionCycler.current.reset();
       else if (sessionCycler.current.keydown(e)) { e.preventDefault(); return; }
       if (settings) return;
+      if(command === "go-to-file"){
+        if(e.defaultPrevented||actionDialog||rename||whatsNew||layerOpen()||!session||!workdir||section!=="new")return;
+        e.preventDefault();if(!e.repeat)requestFileSearch("filter");return;
+      }
       // sidebar-main.js:14680 Vf("toggle_sidebar") cmd+b. preventDefault marks
       // the key handled, so Electron does not also run the View menu's
       // CmdOrCtrl+B accelerator (key equivalents reach the page first and only
@@ -2059,8 +2601,8 @@ function App({ side = 0, initialSession = null }) {
         if (!e.repeat) toggleSidebarRef.current?.();
         return;
       }
-      // ⌥⌘P/R/A/U/O: the open session's pin, rename, archive, read/unread and fork (sessionChordRef).
-      if (["pin-session", "rename-session", "archive-session", "unread-session", "fork-session"].includes(command)) {
+      // ⌥⌘P/R/A/U/G/O: the open session's pin, rename, archive, read/unread, PR and fork (sessionChordRef).
+      if (["pin-session", "rename-session", "archive-session", "unread-session", "open-session-pr", "fork-session"].includes(command)) {
         if (actionDialog || rename || whatsNew || menu) return;
         e.preventDefault();
         if (!e.repeat) sessionChordRef.current?.(command);
@@ -2111,7 +2653,7 @@ function App({ side = 0, initialSession = null }) {
       // view, which ⇧⌘T can reopen. Elsewhere, or under a menu or dialog, the key stays unhandled and File's
       // own ⌘W item (Close Pane / Close Window) applies.
       if (command === "close-session") {
-        if (menu || actionDialog || rename || whatsNew || layerOpen() || !(session || splitView.open) || section !== "new") return;
+        if (menu || actionDialog || rename || whatsNew || layerOpen() || !(session || splitView.open || SESSION_POPOUT) || section !== "new") return;
         e.preventDefault();
         if (!e.repeat) closeSessionView();
         return;
@@ -2230,7 +2772,9 @@ function App({ side = 0, initialSession = null }) {
       const command = chinShortcutCommand(e);
       if (!command) return;
       if (command === "fast") {
-        if (!fastTier || fastSaving || running || sending || !boot?.connected) return;
+        // ca80fca8d B$ (:29068-29075): honored whenever the model menu's own Fast control is (s && !a), a running
+        // turn included: the speed is saved at once and the next turn goes out with it, like Mode and Model.
+        if (!fastTier || fastSaving || sending || !boot?.connected) return;
         e.preventDefault(); e.stopPropagation();
         if (!e.repeat) changeSpeed(nextSpeed()).catch(error => setError(error.message));
         return;
@@ -2247,10 +2791,51 @@ function App({ side = 0, initialSession = null }) {
     window.addEventListener("keydown", chin, true);
     return () => window.removeEventListener("keydown", chin, true);
   });
+  // cc43287c9-Bchz60VT.js:45084-45180 session pane keydown (pane-keys-model.mjs): on this side's document, after the
+  // focused element's own handlers (bubble phase), Arrow / Page keys scroll the transcript with an eased animation from
+  // anywhere that does not own them, Tab from inside the transcript moves into the composer (tryFocusComposer), and a
+  // printable key typed outside every editor, menu and dialog goes to the end of the composer (focusAndInsert). Only
+  // the focused split side listens; Settings and the local dialog slots stand it down like an open layer does.
+  // ca1d33d05 bn: F6 / Shift+F6 cycle the page areas (sidebar, content area or session title, composer, side panes,
+  // notifications); one listener per window, mounted by the primary side.
+  useFocusRegionNavigation(side === 0);
+  const paneKeyFacts = useRef(null);
+  paneKeyFacts.current = { blocked: !!(settings || actionDialog || rename || whatsNew || menu || workflowLaunch || bypassMode.confirming) || section !== "new",
+    landing: !current };
+  useEffect(() => {
+    function paneKey(event) {
+      const facts = paneKeyFacts.current, transcript = transcriptRef.current;
+      if (event.defaultPrevented) { transcript?.cancelKeyScroll?.(); return; }
+      if (!splitActiveRef.current || facts.blocked) return;
+      const composer = textarea.current;
+      const viewport = transcript?.getViewport?.() ?? null;
+      const locked = !composer?.focusAndInsert || composer.getAttribute("aria-disabled") === "true" || !!composer.closest("[inert]");
+      const action = paneKeyAction(event, paneKeyContext(event, { doc: document, transcript: viewport, landing: facts.landing, locked }));
+      if (!action || action.type === "cancel") return;
+      if (action.type === "scroll") {
+        if (transcript?.keyScroll?.(action.key)) event.preventDefault();
+        return;
+      }
+      if (action.type === "tab") {
+        if (locked) return;
+        composer.focus();
+        const active = document.activeElement;
+        if (active === composer || composer.contains(active)) event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      composer.focusAndInsert(action.char);
+    }
+    document.addEventListener("keydown", paneKey);
+    return () => { document.removeEventListener("keydown", paneKey); transcriptRef.current?.cancelKeyScroll?.(); };
+  }, []);
   // retry: xu's Retry (approval-entry-current.js:4214 onRetry A) refetches the
   // same session in place, so it keeps the composer draft, attachments, queue
   // and history position that a navigation resets.
-  async function openSession(id, { retry = false } = {}) {
+  async function openSession(id, { retry = false, surface, projectId = null } = {}) {
+    if (id !== currentRef.current && guardFileEdits(() => openSession(id, { retry, surface, projectId }), { sessionId: currentRef.current, leavesSession: true })) return;
+    const previousSurface = modeRef.current;
+    const targetSurface = id ? sessionSurface(id, sessionMetadata) : surface ?? previousSurface;
     transcriptRef.current?.capture();
     const seq = ++loadSeq.current;
     const leaving = currentRef.current;
@@ -2268,13 +2853,17 @@ function App({ side = 0, initialSession = null }) {
     setCurrent(id);
     if (id && sessionMetadata[id]?.unread) updateSessionMetadata(id, { unread: false }).catch(actionFailed("mark-read"));
     // Leaving Home for a session drops a pending custom-group "New session" (F08 Mz).
-    if (id) newSessionGroup.current = null;
+    if (id) setDraftGroup(null);
     setError("");
     if (!retry) {
-      switchComposerDraft(leaving, id);
+      switchComposerDraft(leaving, id, previousSurface, targetSurface, projectDraftRef.current, id ? null : projectId);
+      projectDraftRef.current = id ? null : projectId;
+      setProjectDraftId(projectDraftRef.current);
       setQueue(emptyQueue(id));
       setAdditionalFolders(id ? sessionMetadata[id]?.additionalFolders || [] : []);
     }
+    setMode(targetSurface);
+    if (!id && surfaceFolders.current[targetSurface]) setCwd(surfaceFolders.current[targetSurface]);
     if (!id) {
       applySessionModel(null);
       setLoading(false);
@@ -2294,7 +2883,7 @@ function App({ side = 0, initialSession = null }) {
         ? historyReadParams(id, known)
         : historyResumeParams({
             threadId: id,
-            ...threadPermissionParams({permission: bypassMode.forSession(id, known?.cwd || cwd), mode, ...permissionHints()}),
+            ...threadPermissionParams({permission: bypassMode.forSession(id, known?.cwd || cwd), mode: targetSurface, ...permissionHints()}),
           }, known));
       if (!isArchived) resumed.current.add(id);
       // Left while it was resuming: release it now, not at the next visit.
@@ -2338,6 +2927,25 @@ function App({ side = 0, initialSession = null }) {
     rpc("thread/unsubscribe", { threadId: previous }).catch(() => {});
   }
   const closeSideChat = useCallback(() => setSideChat(value => value.open ? { open: false, pending: null } : value), []);
+  // B27 side chat window (cd377abb5 _i): while this session's side chat has its own window the panel stays hidden here,
+  // and opening it again (⌘;, /btw, Ask about a selection) brings that window forward with the question or selection.
+  const sideChatPoppedOut = !!current && popoutKeys.has(`${current}:side-chat`);
+  const popOutSideChat = (bounds) => {
+    const id = currentRef.current;
+    if (!id) return;
+    const seed = sideChatStore.exportThread(id);
+    if (!seed) return;
+    call("popout-open", { sessionId: id, pane: "side-chat", ...(bounds ? { bounds } : {}), seed })
+      .then(() => setSideChat({ open: false, pending: null })).catch((reason) => setError(reason.message));
+  };
+  useEffect(() => {
+    if (!sideChatPoppedOut || !sideChat.open || !current) return;
+    const staged = sideChatStore.get(current).stagedContext;
+    if (sideChat.pending || staged !== null) call("popout-sync", { sessionId: current, pane: "side-chat", data: { pending: sideChat.pending ?? null, stagedContext: staged } }).catch(() => {});
+    if (staged !== null) sideChatStore.clearStagedContext(current);
+    call("popout-open", { sessionId: current, pane: "side-chat" }).catch(() => {});
+    setSideChat({ open: false, pending: null });
+  }, [sideChat, sideChatPoppedOut, current]);
   useEffect(() => { setSideChat(value => value.open ? { open: false, pending: null } : value); }, [current]);
   // A reconnect onto a core without side questions closes an open card.
   useEffect(() => { if (!commandContext.sideQuestions) setSideChat(value => value.open ? { open: false, pending: null } : value); }, [commandContext.sideQuestions]);
@@ -2353,47 +2961,60 @@ function App({ side = 0, initialSession = null }) {
     document.addEventListener("keydown", toggle, true);
     return () => document.removeEventListener("keydown", toggle, true);
   }, [settings]);
-  function navigate(id) {
+  function navigate(id, options = {}) {
+    if (id !== currentRef.current && guardFileEdits(() => navigate(id, options), { sessionId: currentRef.current, leavesSession: true })) return;
     // Split view: a session the other side already shows is focused there, never opened twice in one window.
     const shownOn = id && splitStore.getState().open ? splitStore.sideShowing(id) : null;
     if (shownOn !== null && shownOn !== side) { splitStore.focus(shownOn, { move: true }); return; }
     // shared-19 Rh -> Mh: opening a row (or any navigation) closes the collapsed sidebar's peek.
     closePeek();
     // Any navigation drops a pending custom-group "New session" (groupAction sets it after navigating).
-    newSessionGroup.current = null;
+    setDraftGroup(null);
     setSection("new");
+    setRoutineSelection(null);
     setMenu(null);
     setHistory((h) => [...h.slice(0, historyAt + 1), id]);
     setHistoryAt(historyAt + 1);
-    openSession(id);
+    openSession(id, options);
     noteSessionSwitch(id);
   }
-  // Split-view tip (2.2553.1 "epitaxy-split-suggestion"): switching back and forth between two sessions (A, B, A, B
-  // within 30 s) offers to show them side by side, with Claude's backoff between shows (split-view-model.mjs).
-  function noteSessionSwitch(id) {
-    if (side !== 0 || splitStore.getState().open) { switchHistory.current = []; return; }
-    switchHistory.current = recordSessionSwitch(switchHistory.current, id, Date.now());
-    const partner = alternatingPartner(switchHistory.current);
-    if (!partner || splitTip) return;
-    let saved = emptySplitSuggestion;
-    try { saved = splitSuggestionState(JSON.parse(globalThis.localStorage?.getItem(SPLIT_TIP_KEY) || "null")); } catch { /* no storage */ }
-    if (!canSuggestSplit(saved)) return;
-    try { globalThis.localStorage?.setItem(SPLIT_TIP_KEY, JSON.stringify({ ...saved, shown: saved.shown + 1, lastShownAt: Date.now() })); } catch { /* no storage */ }
-    switchHistory.current = [];
-    setSplitTip({ partner });
+  // Split-view tip (c11959232 yd/wd/bd/Td): switching back and forth between two sessions (A, B, A, B within 30 s)
+  // offers to show them side by side (split-view-model.mjs splitSuggestionNavigate: at most 3 shows, once per run,
+  // dismissal backoff, retracted on leaving the pair). Tracked only while the card could show (Ed gate: the primary
+  // side of a full window, no split, no Settings or dialog over the session); the counters persist per renderer.
+  const splitTipModel = useRef(null);
+  function updateSplitTip(next) {
+    const before = splitTipModel.current;
+    splitTipModel.current = next;
+    if (!before || JSON.stringify(persistedSplitSuggestion(before)) !== JSON.stringify(persistedSplitSuggestion(next))) writeSplitSuggestion(next);
+    setSplitTip(next.partner !== null ? { partner: next.partner } : null);
   }
+  const splitTipGate = () => !NO_SIDEBAR && side === 0 && !splitStore.getState().open && !settings && !actionDialog;
+  function noteSessionSwitch(id) {
+    if (NO_SIDEBAR || side !== 0) return;
+    const model = splitTipModel.current ?? readSplitSuggestion();
+    if (!splitTipGate()) { switchHistory.current = []; updateSplitTip(retractSplitSuggestion(model)); return; }
+    const result = splitSuggestionNavigate(model, switchHistory.current, id, Date.now(), { splitOpen: splitStore.getState().open });
+    switchHistory.current = result.history;
+    // Ed: the card's first render counts as a show.
+    updateSplitTip(result.state.pairKeys !== null ? splitSuggestionShown(result.state) : result.state);
+  }
+  // Td/Sd: the card retracts when split view opens or its gate closes (it does not come back this run).
+  useEffect(() => {
+    const model = splitTipModel.current;
+    if (model && model.pairKeys !== null && (splitView.open || settings || actionDialog)) updateSplitTip(retractSplitSuggestion(model));
+  }, [splitView.open, !!settings, !!actionDialog]);
   function closeSplitTip(outcome) {
-    setSplitTip(null);
-    try {
-      const saved = splitSuggestionState(JSON.parse(globalThis.localStorage?.getItem(SPLIT_TIP_KEY) || "null"));
-      globalThis.localStorage?.setItem(SPLIT_TIP_KEY, JSON.stringify({ ...saved, [outcome]: saved[outcome] + 1 }));
-    } catch { /* no storage */ }
+    const model = splitTipModel.current ?? readSplitSuggestion();
+    updateSplitTip(outcome === "accepted" ? acceptSplitSuggestion(model) : dismissSplitSuggestion(model, Date.now()));
   }
   function travel(delta) {
     const at = historyAt + delta;
     if (at < 0 || at >= history.length) return;
     setHistoryAt(at);
     openSession(history[at]);
+    // Td/xd follow the pathname, so Back/Forward between two sessions counts toward the split tip too.
+    noteSessionSwitch(history[at]);
   }
   // ⌘[ / ⌘] and Go > Back/Forward share the ⌘B guard: inert under Settings,
   // action dialogs, inline rename and What's New. The buttons call travel().
@@ -2419,6 +3040,9 @@ function App({ side = 0, initialSession = null }) {
   // (source-sidebar-palette.jsx) is a centred overlay whatever the sidebar state: showSearch holds its
   // entry mode ("default" / "search"), and the palette focuses its own field.
   function searchShortcut(toggle) {
+    // B27 review: the palette lives in the sidebar, which a session or pane window does not render; ⌘K there would only
+    // leave an invisible open state that blocks the window's other shortcuts.
+    if (NO_SIDEBAR) return;
     const action = searchShortcutAction({ showSearch, toggle });
     if (action === "close") { setShowSearch(false); return; }
     setMenu(null);
@@ -2448,7 +3072,8 @@ function App({ side = 0, initialSession = null }) {
     const known = (id) => typeof id === "string" && sessionsRef.current.some((thread) => thread.id === id);
     if (known(layout?.current)) navigate(layout.current);
     const split = layout?.split;
-    if (split && (split.sessionId === null || known(split.sessionId))) splitStore.restore(split);
+    // Every saved pane whose session still exists comes back (split-view-model.mjs savedSplit; the earlier two-sided shape too).
+    if (split) splitStore.restore(split, { known });
   }
   // Another window (or the other split side) added, renamed, archived or deleted a session (main.cjs emitSessionList).
   function applySessionList(event) {
@@ -2487,6 +3112,8 @@ function App({ side = 0, initialSession = null }) {
     if (kind) { closePaneTile(kind); return; }
     // Split view: ⌘W closes the focused side before it closes a session view.
     if (splitView.open) { splitStore.close(side); return; }
+    // B27: a session popout's ⌘W closes the window once no pane is left (c5638815a Ze closePane, then the window).
+    if (SESSION_POPOUT) { window.close(); return; }
     if (!current) return;
     setClosedSessions((stack) => pushClosedSession(stack, current));
     navigate(null);
@@ -2494,6 +3121,16 @@ function App({ side = 0, initialSession = null }) {
   // ⇧⌘T / File > Reopen Closed Session (cb24e6301 h): pop the newest existing entry (qh), then planReopen
   // focuses a session already shown or navigates to it.
   function reopenClosedSession() {
+    // Current shared-16 preview reopen handlers take precedence while Preview is
+    // mounted, and after its last user-closed tab, before the session history.
+    if (previewOwner && previewAvailable && (openPanes.has('preview') || canReopenPreview)) {
+      if (previewReopening.current) return;
+      const id = previewOwner, tile = current ?? HOME_TILE_KEY;previewReopening.current = true;
+      call('preview-tab-reopen', { sessionId: id }).then(next => {
+        if (next?.reopened && (currentRef.current ?? HOME_TILE_KEY) === tile) openPaneTile('preview', tile);
+      }, error => setError(error.message)).finally(() => { previewReopening.current = false; });
+      return;
+    }
     const { id, stack } = popClosedSession(closedSessions, sessionExists);
     setClosedSessions(stack);
     if (id && planReopen(id, { currentId: current }) === "navigate") navigate(id);
@@ -2519,6 +3156,7 @@ function App({ side = 0, initialSession = null }) {
     else if (e.kind === "new-session-current") newSessionFromCurrent();
     else if (e.kind === "open-folder") { if (!settings) folder(); }
     else if (e.kind === "open-file") { if (!settings) void openFileFromMenu(); }
+    else if (e.kind === "find-in-files") requestFileSearch("content");
     else if (e.kind === "toggle-pane") {
       if (e.pane === "changes" || e.pane === "files") paneShortcutRef.current?.(e.pane);
       else if (e.pane === "terminal" && !(settings || actionDialog || rename || whatsNew)) toggleTerminalPane();
@@ -2531,7 +3169,7 @@ function App({ side = 0, initialSession = null }) {
       const kind = focusedPaneKind() ?? PANE_KINDS.find((candidate) => openPanes.has(candidate));
       if (kind) closePaneTile(kind);
     }
-    else if (e.kind === "close-session") { if (!(settings || menu || actionDialog || rename || whatsNew || layerOpen()) && (session || splitView.open) && section === "new") closeSessionView(); }
+    else if (e.kind === "close-session") { if (!(settings || menu || actionDialog || rename || whatsNew || layerOpen()) && (session || splitView.open || SESSION_POPOUT) && section === "new") closeSessionView(); }
     else if (e.kind === "reopen-closed") { if (!(settings || actionDialog || rename || whatsNew || layerOpen())) reopenClosedSession(); }
     else if (e.kind === "open-shortcuts") openShortcuts();
     else if (e.kind === "cycle-session") { if (!(settings || actionDialog || rename || whatsNew) && (e.delta === -1 || e.delta === 1)) sessionCycler.current.step(e.delta); }
@@ -2544,18 +3182,21 @@ function App({ side = 0, initialSession = null }) {
   // session view shows: ⌘W reads Close Session) and reopenClosed is cb24e6301's report ({available: true,
   // enabled: Jh}). Main rebuilds only on a change.
   const paneMenuAvailable = !!session && section === "new";
-  const menuState = { panes: { changes: { enabled: paneMenuAvailable, open: openPanes.has("changes") }, files: { enabled: paneMenuAvailable && !!workdir, open: openPanes.has("files") },
+  const menuState = { findInFiles: {enabled:paneMenuAvailable && !!workdir && !settings && !actionDialog && !rename && !whatsNew}, panes: { changes: { enabled: paneMenuAvailable, open: openPanes.has("changes") }, files: { enabled: paneMenuAvailable && !!workdir, open: openPanes.has("files") },
     terminal: { enabled: terminalAvailable && !settings, open: openPanes.has("terminal") },
     preview: { enabled: previewAvailable && !settings, open: openPanes.has("preview") },
     ...(commandContext.sideQuestions !== false ? { sideChat: { enabled: !!current && !settings && commandContext.sideQuestions === true, open: sideChat.open } } : {}) },
     closePane: { enabled: PANE_KINDS.some((kind) => openPanes.has(kind)) },
-    session: { open: paneMenuAvailable || splitView.open }, reopenClosed: { available: true, enabled: hasClosedSession(closedSessions, sessionExists) } };
+    session: { open: paneMenuAvailable || splitView.open }, reopenClosed: { available: true, enabled: !!canReopenPreview || hasClosedSession(closedSessions, sessionExists) } };
   const menuStateKey = JSON.stringify(menuState);
   useEffect(() => { if (splitActive) call("menu-state", menuState).catch(() => {}); }, [menuStateKey, splitActive]);
   async function folder() {
     try {
-      const dir = await call("folder");
-      if (dir) {
+      const surface = modeRef.current;
+      const dir = await call("folder", { surface });
+      if (dir && surface === modeRef.current) {
+        surfaceFolders.current[surface] = dir;
+        if (surface !== "code") setBoot(previous => ({ ...previous, config: { ...previous.config, surfaceFolders: { ...previous.config.surfaceFolders, [surface]: dir } } }));
         setCwd(dir);
         navigate(null);
       }
@@ -2605,9 +3246,10 @@ function App({ side = 0, initialSession = null }) {
   // A fixed turn the app sends for the user (Commit, Create PR, a core's own /workflow), under the session's options.
   async function sendFixedTurn(text, extraInput = []) {
     const id = current;
-    if (!id || loading || sending || running || actionPending || commitLock.current) return;
+    // Resolves true once the turn was started (the Preview pane's start-failure card says the error was sent).
+    if (!id || loading || sending || running || actionPending || commitLock.current) return false;
     const failed = () => toasts?.add(COMMIT_SEND_FAILED, { variant: "danger" });
-    if (!boot?.connected || session?.archived) { failed(); return; }
+    if (!boot?.connected || session?.archived) { failed(); return false; }
     commitLock.current = true;
     try {
       await ensureResumed(id);
@@ -2617,10 +3259,12 @@ function App({ side = 0, initialSession = null }) {
         input: [...(text || !extraInput.length ? [{ type: "text", text, text_elements: [] }] : []), ...extraInput],
         ...turnOptions(workdir || cwd),
       });
+      return true;
     } catch (e) {
       setTurnRequested(value => value === id ? null : value);
       console.warn(e);
       failed();
+      return false;
     } finally {
       commitLock.current = false;
     }
@@ -2733,18 +3377,26 @@ function App({ side = 0, initialSession = null }) {
   // the additional-folder note, then real attachment parts. A leading skill
   // chip (or its '/name' text) becomes the {type:"skill"} item after them —
   // where the Add › Skills pill used to put it — and leaves the text.
-  function composerInput(text, turnCwd) {
+  function composerInput(text, turnCwd, { issueContext = "" } = {}) {
     const parsed = parseSessionCommand(text, commandContext);
     const chip = parsed?.skill ? skillChipInput(text, parsed.skill) : null;
     // A session mention reads as ZCode's '[#title](#id)'; a literal @ target ('@mcp:github') stays text (agentMentionText).
     // Context snippets (Quote pills) lead the message as Markdown quotes (snippetText; Claude's be).
-    const body = snippetText(attachments) + agentMentionText(chip ? chip.text : parsed?.custom ? expandCommand(parsed.custom.body, parsed.args) : text, mentions);
+    const selectedParts = selectedElementInputs(attachments, { fileMentions: coreTakesFileMentions(boot?.core) });
+    const selectedText = part => part.type === 'text' && part.text.startsWith('<launch-selected-element>');
+    const body = withIssueContext(selectedParts.filter(selectedText).map(part => part.text).join('') + snippetText(attachments) + agentMentionText(chip ? chip.text : parsed?.custom ? expandCommand(parsed.custom.body, parsed.args) : text, mentions), issueContext);
     const root = (turnCwd || "").replace(/\/$/, "");
     const fileMentions = mentions.filter((entry) => !entry.literal && !entry.session);
     // A reference mention ('@docs') resolves to its own folder; a file mention is relative to the turn's folder.
     const mentioned = mentionInputs(body, fileMentions, { resolvePath: (relative) => fileMentions.find((entry) => entry.path === relative && entry.target)?.target ?? (root ? `${root}/${relative}` : relative) });
+    // '@[title]' session mentions: the desktop host's <session-mentions> reminder (sessionMentionsBlock), a hidden part
+    // the transcript leaves out (composer-attachments-model shownUserItem).
+    const sessionBlock = sessionMentionsBlock(body, mentions.filter((entry) => entry.session && entry.session.native !== true).map((entry) => ({ sessionId: entry.session.id, title: entry.session.title })),
+      { current, isLive: (id) => sessions.some((entry) => entry.id === id && !sessionArchived(entry)) });
     return [
       ...(chip && !body.trim() ? [] : [{ type: "text", text: body, text_elements: mentioned.text_elements }]),
+      ...(sessionBlock ? [{ type: "text", text: sessionBlock, text_elements: [] }] : []),
+      ...selectedParts.filter(part => !selectedText(part)),
       ...(additionalFolders.length ? [{ type: "text", text: "Additional workspace directories for this task:\n" + additionalFolders.join("\n"), text_elements: [] }] : []),
       ...mentioned.items,
       ...attachmentInputs(attachments, { fileMentions: coreTakesFileMentions(boot?.core) }),
@@ -2769,14 +3421,39 @@ function App({ side = 0, initialSession = null }) {
       const result = await terminalStore().wait(id, info.id, 30 * 60 * 1000);
       if (result?.closed) return;
       if (result?.running) { setError(t("The command is still running in the terminal, so its output wasn’t sent.")); return; }
-      const turnCwd = workdir || cwd, input = composerInput(shellOutputMessage(command, result), turnCwd);
-      await ensureResumed(id);
-      if (latestState.current.active?.[id]) { await rpc("thread/queue/add", { threadId: id, input, clientUserMessageId: crypto.randomUUID() }); loadQueue(id); return; }
-      setTurnRequested(id);
-      try { await rpc("turn/start", { threadId: id, input, ...turnOptions(turnCwd, effectivePermission) }); }
-      catch (e) { setTurnRequested((value) => value === id ? null : value); throw e; }
+      await sendShellOutput(id, command, result);
     } catch (e) { setError(e?.message ? cleanErrorReason(e.message) : t("Couldn’t send the command’s output to {core}. Check the terminal tab.", { core: coreName(boot?.core) })); }
   }
+  // A terminal run's output goes to the model as the user's message (queued while a turn runs).
+  async function sendShellOutput(id, command, result) {
+    const turnCwd = workdir || cwd, input = composerInput(shellOutputMessage(command, result), turnCwd);
+    await ensureResumed(id);
+    if (latestState.current.active?.[id]) { await rpc("thread/queue/add", { threadId: id, input, clientUserMessageId: crypto.randomUUID() }); loadQueue(id); return; }
+    setTurnRequested(id);
+    try { await rpc("turn/start", { threadId: id, input, ...turnOptions(turnCwd, effectivePermission) }); }
+    catch (e) { setTurnRequested((value) => value === id ? null : value); throw e; }
+  }
+  // B20: a code block's Run as a bash turn (cc43287c9 sb → oh, source "code_block"): a tab of its own runs the command
+  // (its output streams into the block; c03935b01 Vt: no pane opens for a captured run), and when it ends the output
+  // goes to the model. A cancelled run sends nothing; one already going refuses (alreadyRunning).
+  async function runCodeBlockTurn(runId, command) {
+    const id = currentRef.current, store = terminalStore();
+    if (!id) return;
+    const going = store.inlineRun();
+    if (going && !going.settled && going.mode === "dedicated") { toasts?.add(t("A shell command is already running"), { variant: "danger" }); return; }
+    let info;
+    try { info = await store.runDedicated({ id: runId, sessionId: id, command }); }
+    catch (e) { toasts?.add(terminalError(e, t("Failed to start command in terminal")), { variant: "danger" }); return; }
+    try {
+      const result = await store.wait(id, info.id, 30 * 60 * 1000);
+      const run = store.inlineRun();
+      if (run?.id === runId) store.recordRun(runId);
+      if (result?.closed || (run?.id === runId && run.endedBy === "cancel")) return;
+      if (result?.running) { toasts?.add(t("The command is still running in the terminal, so its output wasn’t sent."), { variant: "warning" }); return; }
+      await sendShellOutput(id, command, result);
+    } catch { toasts?.add(t("Couldn’t send the command’s output to {core}. Check the terminal tab.", { core: coreName(boot?.core) }), { variant: "danger" }); }
+  }
+  codeBlockTurn.current = runCodeBlockTurn;
   function clearComposerDraft(sequence, text, entries, sessionId, started = sessionId) {
     if (sequence !== loadSeq.current) {
       clearStashedDraft(sessionId, text);
@@ -2914,14 +3591,16 @@ function App({ side = 0, initialSession = null }) {
       await executeCommand("fork", draft.trim(), draft);
       return;
     }
-    if (!(draft.trim() || attachments.length) || attachments.some((entry) => entry.status !== "ready")) return;
+    // The draft's GitHub issue goes with its first message, and can be sent alone (cc43287c9 hasAttachments).
+    const sentIssue = !current && draftIssue ? draftIssue : null;
+    if (!(draft.trim() || attachments.length || sentIssue) || attachments.some((entry) => entry.status !== "ready")) return;
     // Codex stopped this chat as a precaution (misalignment): like its own client, ordinary input stays off until a
     // new session or the card's explicit acknowledgment. The draft is kept.
     if (misalignedTurn && !running) { setError(t("This chat was stopped as a precaution. Start a new session to continue.")); return; }
     // '!command': the user's own shell command, not a prompt. A core with shell mode (Codex) runs it (thread/shellCommand);
     // on any other core it runs in a terminal tab and its output goes to the model (runTerminalShell).
-    const shellCommand = shellModeCommand(draft, boot?.core, shellOptions);
-    if (shellModeActive(draft, boot?.core, shellOptions)) {
+    const shellCommand = mode === "code" ? shellModeCommand(draft, boot?.core, shellOptions) : null;
+    if (mode === "code" && shellModeActive(draft, boot?.core, shellOptions)) {
       if (!shellCommand) return;
       if (running) { setError(t("Wait for {core} to finish before running a shell command.", { core: coreName(boot?.core) })); return; }
       if (attachments.length) { setError(t("A shell command can’t include attachments. Remove them, or remove the ! to send a message.")); return; }
@@ -2951,6 +3630,8 @@ function App({ side = 0, initialSession = null }) {
     setError("");
     const text = draft;
     const entries = attachments, mentionList = mentions;
+    // dH: the issue's <github_issue> block (its body when it was read), after the message text.
+    const issueContext = githubIssueContext(sentIssue);
     let id = current;
     // F08 Mz: a session started after a custom group's "New session" is filed into that group.
     const startedGroup = current ? null : newSessionGroup.current;
@@ -2976,8 +3657,8 @@ function App({ side = 0, initialSession = null }) {
     let pendingEntry = null;
     const showPending = (threadId) => {
       if (stay || shellCommand || !threadId) return;
-      pendingEntry = { ...withKnownItems(pendingSend({ threadId, text, attachments: entries }), latestState.current.items?.[threadId] || []),
-        input: composerInput(text, turnCwd), mentions: mentionList, turnCwd };
+      pendingEntry = { ...withKnownItems(pendingSend({ threadId, text: withIssueContext(text, issueContext), attachments: entries }), latestState.current.items?.[threadId] || []),
+        input: composerInput(text, turnCwd, { issueContext }), mentions: mentionList, turnCwd };
       const shown = pendingEntry;
       // A refused send stays above the new one until its own Retry or Discard.
       setPendingSends((all) => ({ ...all, [threadId]: [...(all[threadId] || []).filter((entry) => entry.status === "failed"), shown] }));
@@ -2987,11 +3668,20 @@ function App({ side = 0, initialSession = null }) {
     };
     if (id) showPending(id);
     try {
-      if (!id && worktree && workspaceInfo?.isRepo) {
-        turnCwd = await call("prepare-worktree", {
-          cwd,
-          branch: workspaceInfo.branch,
-        });
+      // rY/nY: with git missing, blocked or broken a worktree can't be made; the dialog says why (catch below).
+      if (!id && mode === "code" && worktree && !workspaceInfo?.isRepo && workspaceInfo?.gitUnavailable)
+        throw new Error(GIT_FAILURE_MESSAGES[workspaceInfo.gitUnavailable] ?? GIT_FAILURE_MESSAGES.missing);
+      if (!id && mode === "code" && worktree && workspaceInfo?.isRepo) {
+        // _3 spawn steps: 'Creating worktree…', then main's 'Refreshing origin…' / 'Adding worktree…' for this send only.
+        const token = stay ? null : `wt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        if (token) setSpawnPhase({ token, phase: "worktree" });
+        try {
+          turnCwd = await call("prepare-worktree", {
+            cwd,
+            branch: workspaceInfo.branch,
+            ...(token ? { token } : {}),
+          });
+        } finally { if (token) setSpawnPhase((value) => value?.token === token ? null : value); }
         // A background launch (stay) leaves the Home environment as it was (stayOnDraft keeps qe/Q and useWorktree), so
         // every ⌘⏎ gets its own worktree; only a launch that opens its session hands Home over to the worktree.
         if (!stay && sendSequence === loadSeq.current) {
@@ -3002,7 +3692,7 @@ function App({ side = 0, initialSession = null }) {
       // Branch step 2 (cc43287c9 :35132 branchChanged; the spawn's 'git switch <branch>', asar index.chunk-l0PS_wmg.js):
       // with worktree off a recorded branch other than the checked-out one is switched to before the session starts;
       // a failure shows UR's toast and keeps the draft.
-      const checkout = !id && !worktree ? branchCheckoutTarget(workspaceInfo) : null;
+      const checkout = !id && mode === "code" && !worktree ? branchCheckoutTarget(workspaceInfo) : null;
       if (checkout) {
         try { await call("branch-checkout", { cwd: turnCwd, branch: checkout }); }
         catch {
@@ -3020,7 +3710,8 @@ function App({ side = 0, initialSession = null }) {
           ...threadPermissionParams({permission: effectivePermission, mode, ...permissionHints()}),
           // Codex only: the DeepSeek core honors developerInstructions (structured.js, for workflow agents), and its
           // persona and custom instructions come from the profile and codeDesktop.customization instead.
-          ...(coreSupports(boot?.core, "customization") ? {} : { developerInstructions:
+          codeDesktop: { surface: mode, ...(projectDraftId ? { projectId: projectDraftId } : {}) },
+          ...(mode !== 'code' ? { developerInstructions: surfaceInstructions(mode) } : coreSupports(boot?.core, "customization") ? {} : { developerInstructions:
             "You are the assistant in OpenClaude Desktop, a local desktop client. Follow the user language. When asked for a plan, use the plan tool. Do not claim to be Claude." }),
         };
         // The draft's turned-off tools (Add › Tools); main saves them as the new session's.
@@ -3040,6 +3731,7 @@ function App({ side = 0, initialSession = null }) {
         // :35161-35168 vi(a, t.split('\n')[0].slice(0, 80)): a background launch is titled from its first line.
         // A message that is only attachments is named after its files (a core refuses an empty name).
         const name = firstMessageName(text, entries, stay ? { max: 80, firstLine: true } : { max: 64 });
+        setSessionMetadata(value => ({ ...value, [id]: { ...value[id], surface: mode, ...(projectDraftId ? { projectId: projectDraftId } : {}) } }));
         setSessions((s) => [{ ...r.thread, name }, ...s.filter((t) => t.id !== r.thread.id)]);
         if (!stay && sendSequence === loadSeq.current) {
           // The New session page's terminals (its folder) go with the session they started: their pane stays open,
@@ -3064,14 +3756,15 @@ function App({ side = 0, initialSession = null }) {
         // Codex names a new session from its first message (titleRequest): the first-message name stays until it does.
         if (name.trim() && text.trim() && coreSupports(boot?.core, "titleRequest")) void requestThreadTitle(id, name, text, turnCwd);
       }
-      if (startedGroup && newSessionGroup.current === startedGroup) newSessionGroup.current = null;
+      if (startedGroup && newSessionGroup.current === startedGroup) setDraftGroup(null);
       await updateSessionMetadata(id, { additionalFolders, ...(startedGroup && !origin ? { customGroupId: startedGroup } : {}) });
       await ensureResumed(id);
       if (!stay) setTurnRequested(id);
       // Shell mode: Codex runs the command as its own turn (a commandExecution with source userShell).
       if (shellCommand) await rpc("thread/shellCommand", { threadId: id, command: shellCommand });
-      else await rpc("turn/start", { threadId: id, input: pendingEntry?.input ?? composerInput(text, turnCwd), ...turnOptions(turnCwd, effectivePermission, { keyword: keywordRequested }) });
+      else await rpc("turn/start", { threadId: id, input: pendingEntry?.input ?? composerInput(text, turnCwd, { issueContext }), ...turnOptions(turnCwd, effectivePermission, { keyword: keywordRequested }) });
       turnStarted = true;
+      if (sentIssue) setDraftIssue((value) => (value === sentIssue ? null : value));
       const accepted = pendingEntry;
       if (accepted) updatePendingSend(id, accepted.id, acceptedSend);
       if (stay) {
@@ -3091,7 +3784,8 @@ function App({ side = 0, initialSession = null }) {
       } else if (refused && !turnStarted) {
         // :39779-39823: the refused send stays in the transcript as 'Not delivered' with Retry / Discard (no banner).
         updatePendingSend(id, refused.id, (entry) => failedSend(entry, e));
-      } else setError(e.message);
+      } else if (gitFailureFromMessage(e.message)) setGitDialog(gitFailureFromMessage(e.message));
+      else setError(e.message);
     } finally {
       if (stay) {
         backgroundSpawnsRef.current -= 1;
@@ -3381,10 +4075,13 @@ function App({ side = 0, initialSession = null }) {
           case "usage": setSettings("usage"); break;
           case "sandbox": setSettings("code#sandbox"); break;
           case "theme": {
-            // cc43287c9 zI: auto is system; no or an unknown argument opens the picker.
+            // cc43287c9 r4: auto is system, the localized names count too; no or an unknown argument opens the picker.
             const parsed=parseThemeCommand(args);
+            // c4 "extra_lines" → rejectExtraLines: the shared single-line notice; the draft stays.
+            if(parsed.extraLines)throw new Error(t('/{command} only works on a single line. Remove the extra lines and try again.',{command:'theme'}));
             if(parsed.open){setSettings("preferences#theme");break;}
-            // :33700-33716 addSuccess('Appearance set to …') → a neutral toast.
+            // c4 :34672-34689 addSuccess('Appearance set to …'): shared-75 Eb addSuccess is addInfo (toastType "info"),
+            // which the CDS Toast (shared-19 aV) paints as its neutral variant.
             await updatePreferences({theme:parsed.set});notice(t('Appearance set to {theme}',{theme:t(THEME_LABELS[parsed.set])}),{variant:'neutral'});break;
           }
           case "skills": setSettings("customize-skills"); break;
@@ -3422,15 +4119,16 @@ function App({ side = 0, initialSession = null }) {
             if(plan.composerText!==null)setDraft(plan.composerText);break;
           }
           case "diff": togglePaneTile("changes"); break;
-          case "tasks": togglePaneTile("tasks"); break;
-          case "workflows": changeTileView({taskViews:[]});openPaneTile('tasks');break;
+          // o4 / s4 (cc43287c9 :34338-34343): /tasks opens the list (never closes it); /workflows also expands Finished.
+          case "tasks": changeTileView({taskViews:[]});openPaneTile('tasks');break;
+          case "workflows": changeTileView({taskViews:[],finishedExpanded:true});openPaneTile('tasks');break;
           // A core with only its own workflow engine (Qwen Code) runs /workflow itself; its run shows in the WorkflowCard.
           // A core with its own /workflow command (ZCode) gets that command as typed (its path "command:workflow" row),
           // so the core loads its workflow-design guidance itself.
           case "workflow": if (workflowEngine(runningCore, boot?.config?.workflowEngines) === "agent") { const own = coreWorkflowCommand(commandContext.skills); await (own ? sendFixedTurn(args, [{ type: "skill", name: own.name, path: own.path }]) : sendFixedTurn(agentWorkflowPrompt(args))); clearCommand(); break; }
             setWorkflowLaunch({...parseWorkflowLaunch(args),threadId:current,cwd:workdir,model,effort:coreEffort(effort),permission:effectivePermission,mode,access:workflowAccess({permission:effectivePermission,mode}),after:items.at(-1)?.id});break;
           case "rename":
-            if(args){if(!await renameSession(current,args))return;}else setRename({id:current,name:session?.name||session?.preview||""});break;
+            if(args){if(!await renameSession(current,args))return;}else setRename(renameDialogFor({id:current,name:session?.name,preview:session?.preview}));break;
           case "add-dir": {
             const dir=await call('folder',{additional:true,...(args?{path:args,cwd:workdir}:{})});
             if(dir&&sequence===loadSeq.current){const next=[...new Set([...additionalFolders,dir])];setAdditionalFolders(next);if(current)await updateSessionMetadata(current,{additionalFolders:next});}break;
@@ -3443,9 +4141,8 @@ function App({ side = 0, initialSession = null }) {
           case "rewind": {
             const full=await readFullHistory(current);
             if(full.thread.historyMode!=='paginated')throw new Error(t('Rewind is not available for legacy sessions.'));
-            // 'Rewind to here' from the message menu opens with that message chosen.
-            const preselected=rewindPreselect.current;rewindPreselect.current=null;
-            if(sequence===loadSeq.current)setActionDialog({kind:'rewind',threadId:current,turns:rewindChoices(shownTurns(full.turns)),preselected});break;
+            // J1: the Rewind picker over the whole retained history; its rows (turnRows) feed the pick's file check.
+            if(sequence===loadSeq.current)setActionDialog({kind:'rewind',threadId:current,turns:rewindChoices(shownTurns(full.turns)),rows:turnRows(full.turns)});break;
           }
         }
         clearCommand();
@@ -3459,17 +4156,47 @@ function App({ side = 0, initialSession = null }) {
     const history=await loadThreadHistory(rpc,{threadId:id,thread:response.thread,route});
     return {...history,thread:response.thread};
   }
-  async function rewindConversation(beforeTurnId, { restoreFiles = false } = {}) {
-    const id=actionDialog.threadId,sequence=loadSeq.current,baselineItems=state.items[actionDialog.threadId],baselineActiveVersion=state.activeVersions?.[actionDialog.threadId];
-    const result=await call('slash-rewind',{threadId:id,beforeTurnId,restoreFiles,expected:{connectionId:state.approvalConnectionId,connectionEpoch:state.approvalConnectionEpoch}});
-    const history=await loadThreadHistory(rpc,{threadId:id,thread:result.thread,route:historyRoute(result.thread)});
-    if(history.truncated||history.unavailable)throw new Error(t('Rewind succeeded, but retained history could not be fully loaded. Reopen the session.'));
-    dispatch({type:'hydrate',id,thread:{...result.thread,turns:history.turns},replaceHistory:true,baselineItems,baselineActiveVersion});
-    setLocalCommandRows(rows=>({...rows,[id]:[]}));
-    if(sequence===loadSeq.current){setDraft(actionDialog.turns.find(t=>t.id===beforeTurnId)?.text||'');setActionDialog(null);}
-    // A core that restored files in the same rewind (thread/revert codeDesktop.filesRestored: Qwen's file history) says how many.
-    const restoredFiles=Array.isArray(result?.codeDesktop?.filesRestored)?result.codeDesktop.filesRestored.length:0;
-    if(restoredFiles&&toasts)toasts.add(tn(restoredFiles,'Rewound. {count} file was restored.','Rewound. {count} files were restored.',{count:restoredFiles}));
+  // G4 requestRewind (cc43287c9 :35980-36040): the file check first (rewindPreview over the transcript's agent edits, on a
+  // core that restores files with the conversation). Files to restore → the 'Rewind to this message?' confirm; nothing
+  // to restore → the conversation rewinds at once, with a 'Rewinding…' toast if it takes longer than 400ms.
+  function requestRewind(threadId, turnId, text, rows) {
+    if (!threadId || !turnId || rewindRunning.current) return;
+    const started = performance.now();
+    const preview = boot?.core?.capabilities?.rewindFiles === true ? rewindPreview(rows, turnId) : null;
+    const next = rewindRequestStep({ preview, elapsedMs: performance.now() - started });
+    if (next.step === "confirm") { setActionDialog({ kind: "rewind-confirm", threadId, turnId, text, preview: next.preview }); return; }
+    rewindRunning.current = true;
+    let pending = null;
+    const timer = setTimeout(() => { pending = toasts?.add(t("Rewinding…"), { timeout: Infinity, dedupe: false }) ?? null; }, REWIND_PREVIEW_DELAY_MS);
+    void rewindConversation(threadId, turnId, text).finally(() => { clearTimeout(timer); if (pending != null) toasts?.close(pending); rewindRunning.current = false; });
+  }
+  // G4 confirmRewind: Code and conversation restores the files with the cut (thread/revert codeDesktop.restoreFiles);
+  // Conversation only cuts the history alone. The confirm closes once the rewind settles, success or not.
+  async function confirmRewind(dialog, choice) {
+    if (!dialog || rewindRunning.current) return;
+    rewindRunning.current = true;
+    try { await rewindConversation(dialog.threadId, dialog.turnId, dialog.text, { restoreFiles: rewindRestoresFiles(choice) }); }
+    finally { rewindRunning.current = false; setActionDialog((value) => value === dialog ? null : value); }
+  }
+  async function rewindConversation(id, beforeTurnId, text, { restoreFiles = false } = {}) {
+    const sequence=loadSeq.current,baselineItems=state.items[id],baselineActiveVersion=state.activeVersions?.[id];
+    try {
+      const result=await call('slash-rewind',{threadId:id,beforeTurnId,restoreFiles,expected:{connectionId:state.approvalConnectionId,connectionEpoch:state.approvalConnectionEpoch}});
+      const history=await loadThreadHistory(rpc,{threadId:id,thread:result.thread,route:historyRoute(result.thread)});
+      if(history.truncated||history.unavailable)throw new Error(t('Rewind succeeded, but retained history could not be fully loaded. Reopen the session.'));
+      dispatch({type:'hydrate',id,thread:{...result.thread,turns:history.turns},replaceHistory:true,baselineItems,baselineActiveVersion});
+      setLocalCommandRows(rows=>({...rows,[id]:[]}));
+      // Za(e || t): the rewound message goes back into the composer, which takes focus (Ji.current?.scheduleFocus()) once
+      // the confirm has closed and released the modal inert.
+      if(sequence===loadSeq.current){setDraft(text||'');requestAnimationFrame(()=>requestAnimationFrame(()=>{if(sequence===loadSeq.current)textarea.current?.focus();}));}
+      // A core that restored files in the same rewind (thread/revert codeDesktop.filesRestored: Qwen's file history) says how many.
+      const restoredFiles=Array.isArray(result?.codeDesktop?.filesRestored)?result.codeDesktop.filesRestored.length:0;
+      if(restoredFiles&&toasts)toasts.add(tn(restoredFiles,'Rewound. {count} file was restored.','Rewound. {count} files were restored.',{count:restoredFiles}));
+    } catch (error) {
+      // runConversationRewind: 'Can’t rewind to this message.' (HXRzK0tCC9) unless the core said why.
+      const message=error?.message||t('Can’t rewind to this message.');
+      if(toasts)toasts.add(message,{variant:'danger'});else setError(message);
+    }
   }
   async function readSessionStatus() {
     if (!boot?.connected) return {error:t("Reconnect to load account usage limits.")};
@@ -3718,14 +4445,29 @@ function App({ side = 0, initialSession = null }) {
     applySidebarState(await call("sidebar-state", { operation: "metadata", id, patch, ...(automatic ? { automatic: true } : {}) }));
   }
   // The session's own worktree before archive / delete (main worktree-status): null when it has none or another session
-  // shares it; false when uncommitted changes need the 'Archive/Delete session with uncommitted changes?' confirm,
-  // which repeats the action with worktreeChecked.
+  // shares it; false when the 'Archive/Delete session with uncommitted changes?' confirm (shared-19 mK/yK → SK) was
+  // cancelled. The confirm waits in a queue (cK) so every dirty session of a bulk action is asked in turn, and the
+  // action goes on once it is accepted. A delete whose check failed asks with the
+  // "Couldn’t check…" copy (hK deadline → unknown); an archive goes ahead (mK: only dirty asks) but keeps the worktree
+  // it could not read. The single-session Delete checks inside its own confirm (SourceSessionDeleteDialog, IK).
   async function sessionWorktree(action, target, payload) {
     if (payload.worktreeChecked) return payload.worktree ?? null;
     const status = await call("worktree-status", { threadId: target.id }).catch(() => null);
     if (!status?.worktree || status.shared) return null;
-    if (status.changes > 0) { setActionDialog({ kind: "worktree-dirty", action, target, payload, status }); return false; }
-    return status;
+    if (status.changes > 0 || (status.unknown && action === "delete")) {
+      const accepted = await new Promise((resolve) => setWorktreeQueue((queue) => [...queue, { id: `${target.id}:${action}:${Date.now()}`, action, status, resolve }]));
+      return accepted ? status : false;
+    }
+    return status.unknown ? null : status;
+  }
+  // yK resolve + cK shift: answer the head of the queue; the next confirm counts a press only after 500 ms (SK d.current).
+  function settleWorktreeConfirm(entry, accepted) {
+    setWorktreeQueue((queue) => {
+      if (!queue.includes(entry)) return queue;
+      if (queue.length > 1) worktreeQueueAdvanced.current = Date.now();
+      return queue.filter((item) => item !== entry);
+    });
+    entry.resolve(accepted);
   }
   async function sessionAction(action, target, payload = {}) {
     switch (action) {
@@ -3738,7 +4480,10 @@ function App({ side = 0, initialSession = null }) {
         // A session in its own worktree: confirm uncommitted changes first, then the worktree goes with it.
         const worktree = action === "archive" ? await sessionWorktree(action, target, payload) : null;
         if (worktree === false) return;
-        const result = await rpc("thread/" + action, { threadId: target.id });
+        if (action === "unarchive") setUnarchiving((ids) => new Set(ids).add(target.id));
+        const result = await rpc("thread/" + action, { threadId: target.id }).finally(() => {
+          if (action === "unarchive") setUnarchiving((ids) => { const next = new Set(ids); next.delete(target.id); return next; });
+        });
         if (worktree?.worktree && !worktree.shared) void call("worktree-remove", { worktree: worktree.worktree }).catch(() => {});
         if (action === "archive") resumed.current.delete(target.id);
         setSessions(list => list.map(thread => thread.id === target.id ? { ...thread, ...result.thread, archived: action === "archive" } : thread));
@@ -3760,6 +4505,8 @@ function App({ side = 0, initialSession = null }) {
         setPinnedOrder(order => order.filter(id => id !== target.id));
         if (currentRef.current === target.id) navigate(null);
         clearStashedDraft(target.id);
+        // c03935b01 :4500-4555: a deleted session's open task rows and pending stops go with it.
+        taskRowsStore.forget(target.id);
         return;
       }
       case "fork": {
@@ -3789,6 +4536,8 @@ function App({ side = 0, initialSession = null }) {
         } finally { actionLock.current.delete(target.id); }
       }
       case "open-terminal": return call("open-terminal", { cwd: target.cwd });
+      // ce4f4374c Oe Open PR (g): the session's pull request on GitHub (no in-app PR pane locally).
+      case "open-pr": return typeof payload?.url === "string" && /^https:\/\//i.test(payload.url) ? call("external", { url: payload.url }) : undefined;
       case "pinned-order": return applySidebarState(await call("sidebar-state", { operation: "pinned-order", ids: payload.ids }));
       case "reveal-folder": return call("reveal-folder", { cwd: target.cwd });
       case "open-in-editor": return call("open-in-editor", { path: target.cwd, type: payload?.type });
@@ -3798,6 +4547,16 @@ function App({ side = 0, initialSession = null }) {
       case "mark-unread": return updateSessionMetadata(target.id, { unread: true });
       case "move-to-group": return updateSessionMetadata(target.id, { customGroupId: payload.groupId });
       case "keep-awake": return updateSessionMetadata(target.id, { keepAwake: payload?.value === true });
+      // ce4f4374c Ne / c39a247c4 P (Set model for {count}): the session's own model, as the composer picks it
+      // (sessionMetadata model; the open session's composer follows at once). Reports whether it changed.
+      case "set-model": {
+        const model = payload?.model;
+        if (typeof model !== "string" || !models.some((entry) => (entry.model || entry.id) === model)) throw new Error(t("Unsupported session action."));
+        const open = currentRef.current === target.id;
+        const previous = open ? (sessionModel.current?.model ?? null) : (sessionMetadata[target.id]?.model ?? null);
+        if (open) await chooseModel({ model }); else await updateSessionMetadata(target.id, { model });
+        return { changed: previous !== model };
+      }
       // A core's own share page (capabilities.threadShare: OpenCode /share): public once shared, so it asks first.
       case "share": {
         if (!payload?.confirmed) { setActionDialog({ kind: "share", target }); return; }
@@ -3832,7 +4591,7 @@ function App({ side = 0, initialSession = null }) {
     if (action === "new-session") {
       if (payload.cwd) setCwd(payload.cwd);
       navigate(null);
-      newSessionGroup.current = group.customGroupId;
+      setDraftGroup(group.customGroupId);
       return;
     }
     applySidebarState(await call("sidebar-state", { operation: action + "-group", id: group.customGroupId, name: payload.name }));
@@ -3848,12 +4607,42 @@ function App({ side = 0, initialSession = null }) {
       setSessions((list) => list.map((thread) => thread.id === id && thread.name === placeholder ? { ...thread, name: title } : thread));
     } catch (error) { console.warn(error); }
   }
-  async function renameSession(id, name) {
+  // onFailure (the Rename session dialog): report the failure there instead of the composer error row.
+  async function renameSession(id, name, { onFailure } = {}) {
     try {
       await rpc("thread/name/set", { threadId: id, name });
       setSessions(list => list.map(thread => thread.id === id ? { ...thread, name } : thread));
       return true;
-    } catch (error) { setError(error.message); return false; }
+    } catch (error) {
+      if (onFailure) { console.warn("Rename failed:", error); onFailure(error); } else setError(error.message);
+      return false;
+    }
+  }
+  // shared-16 Jd: the dialog remembers the name it opened with (initialName) next to the field's value.
+  function renameDialogFor(target) {
+    renameSelected.current = null;
+    const name = target.name || target.preview || "";
+    return { id: target.id, name, initial: name };
+  }
+  // shared-16 Jd b(): close at once; send the trimmed name only when it differs from the one the dialog opened with.
+  // c4ae8f050 rename mutation: onMutate shows the new title at once; onError puts the previous title back (when the
+  // row still shows the optimistic one) and reports addWarning "Rename failed. You can try again." (the dialog is gone
+  // by then), never the composer error row behind it.
+  function submitRenameDialog() {
+    const target = rename;
+    if (!target) return;
+    const next = renameSubmission(target.name, target.initial);
+    if (!next.close) return;
+    setRename(null);
+    if (!next.name) return;
+    const { id } = target, name = next.name;
+    const previous = sessions.find((thread) => thread.id === id)?.name;
+    setSessions((list) => list.map((thread) => thread.id === id ? { ...thread, name } : thread));
+    void renameSession(id, name, { onFailure: () => {
+      setSessions((list) => list.map((thread) => thread.id === id && thread.name === name ? { ...thread, name: previous } : thread));
+      if (toasts) toasts.add(t("Rename failed. You can try again."), { variant: "warning" });
+      else setError(t("Rename failed. You can try again."));
+    } });
   }
   async function stop() {
     const live = stopLive.current, threadId = currentRef.current;
@@ -3943,15 +4732,32 @@ function App({ side = 0, initialSession = null }) {
     setters[key]?.(value);
     return updatePreferences({[key]:value}).catch(error => { setError(error.message); });
   }
-  // The title-bar Chat / Code switch. Chat runs every turn read-only (permission-policy.mjs), so switching into it says so
-  // once in a toast, instead of tasks silently 'finishing' without edits.
-  function switchMode(next) {
-    if (next === mode) return;
-    preference("mode", next);
-    if (next === "chat") {
-      const message = t("Chat mode is read-only: {assistant} can answer and read files, but can’t edit files or run commands. Switch back to Code to make changes.", { assistant: getAssistantName() });
-      if (toasts) toasts.add(message, { variant: "neutral" }); else setError(message);
-    }
+  // Switching products leaves a running session alone and restores that surface's own draft.
+  async function openLocalProject(project) {
+    const opened = await call('local-projects', { action: 'open', id: project.id });
+    surfaceFolders.current.cowork = opened.cwd;
+    setBoot(previous => ({ ...previous, config: { ...previous.config, localProjects: [...(previous.config.localProjects ?? []).filter(project => project.id !== opened.id), opened], surfaceFolders: { ...previous.config.surfaceFolders, cowork: opened.cwd } } }));
+    setWorktree(false);
+    navigate(null, { surface: 'cowork', projectId: opened.id });
+    setSection('projects');
+    await call('settings', { mode: 'cowork' });
+    return opened;
+  }
+  async function switchMode(next) {
+    if (!validSurface(next) || next === modeRef.current || sending) return;
+    const request = ++surfaceNavigation.current;
+    surfaceFolders.current[modeRef.current] = current ? surfaceFolders.current[modeRef.current] || cwd : cwd;
+    try {
+      if (next !== 'code' && !surfaceFolders.current[next]) {
+        const workspace = await call('surface-workspace', { surface: next });
+        surfaceFolders.current[next] = workspace.cwd;
+      }
+      if (request !== surfaceNavigation.current) return;
+      setWorktree(false);
+      navigate(null, { surface: next });
+      // Persist the last product, without a late preference acknowledgement changing a newer navigation.
+      await call('settings', { mode: next });
+    } catch (error) { if (request === surfaceNavigation.current) setError(error.message); }
   }
   // An approved DeepSeek plan review leaves Plan, as the source plan card's
   // accept changes the mode (approval-current.js Rse → onModeChange). The core
@@ -4020,6 +4826,10 @@ function App({ side = 0, initialSession = null }) {
   // First-run setup opens by itself once: on the DeepSeek core with no key at all (no DeepSeek key and no custom
   // provider key), unless it was finished or put off before (config.onboarded).
   const onboardingOffered = useRef(false);
+  // shared-5 Sy: NUX coachmarks wait out onboarding and the profile's first day (its config.activity.startedAt stands
+  // in for the account's created_at), measured from when this window mounted.
+  const [nuxMountedAt] = useState(() => Date.now());
+  const nuxAllowed = !onboarding && nuxAccountAged(boot?.config?.activity?.startedAt, nuxMountedAt);
   // The running core's sign-in options (core descriptor `login`, e.g. Codex: ChatGPT, device code, API key).
   const signInCore = boot?.connected ? coreForEngine(boot.core?.engine) : null;
   // Setup's Sign in step only for a core whose login offers something to do (Qwen Code's is empty: its provider is
@@ -4148,19 +4958,65 @@ function App({ side = 0, initialSession = null }) {
   // Each open carries a token so a re-targeted menu (right-click while another
   // menu is open) mounts a fresh popup instead of updating the live one.
   const menuToken = useRef(0);
-  const openMenu = (kind, anchor, data, entry) => {
+  // point: a right-click's cursor ({x, y}); the menu opens there as a ContextMenu and a repeat right-click re-targets
+  // it instead of toggling it closed (shared-21 IV contextMenuAt).
+  const openMenu = (kind, anchor, data, entry, point) => {
     setMenu((m) =>
-      m?.kind === kind && m.anchor === anchor && entry === undefined ? null : { kind, anchor, data, entry, token: ++menuToken.current },
+      !point && m?.kind === kind && m.anchor === anchor && entry === undefined ? null : { kind, anchor, data, entry, point, token: ++menuToken.current },
     );
   };
   const closeMenu = () => setMenu(null);
-  // Composer folder picker (recent-folders-model.mjs): recents from the session list, the chosen folder
-  // prepended, minus the dismissals main.cjs persists (dismiss-recent-folder → config.dismissedRecentFolders).
+  // Composer folder picker (recent-folders-model.mjs): recents from the Code sessions' origin folders (worktree
+  // sessions count for their repository; missing folders and scratch workspaces drop out) then detected projects,
+  // the chosen folder prepended, minus the dismissals main.cjs persists (dismiss-recent-folder →
+  // config.dismissedRecentFolders). c749529a1 P: main.cjs 'recent-folder-sessions' (getAll's originCwd,
+  // folderExists, isScratchWorkspace) and 'detected-projects' are read while the Code home's folder chip shows and
+  // every 30 s; until both answered the chip opens the menu rather than browsing (NZ frecentsLoading).
   const dismissedRecentFolders = boot?.config?.dismissedRecentFolders;
+  const recentFoldersEnabled = mode === "code" && !current && sessionsLoaded;
+  const codeSessions = useMemo(() => surfaceSessions(sessions, "code", sessionMetadata), [sessions, sessionMetadata]);
+  // The sidebar's list keeps its identity across renders: a fresh filter per render re-ran the sidebar's [sessionById]
+  // effects on every keystroke, and their queued updates chained into React #185 under fast typing.
+  const sidebarSessions = useMemo(() => surfaceSessions(sessions, mode, sessionMetadata), [sessions, mode, sessionMetadata]);
+  const codeSessionFolders = useMemo(() => codeSessions.filter((session) => typeof session?.cwd === "string" && session.cwd).map((session) => ({ id: session.id, cwd: session.cwd })), [codeSessions]);
+  const codeSessionFoldersKey = JSON.stringify(codeSessionFolders);
+  const [recentFolderFields, setRecentFolderFields] = useState(null), [detectedProjects, setDetectedProjects] = useState(null);
+  useEffect(() => {
+    if (!recentFoldersEnabled) return;
+    let live = true;
+    const read = () => call("recent-folder-sessions", { sessions: codeSessionFolders })
+      .then((fields) => { if (live) setRecentFolderFields(fields && typeof fields === "object" ? fields : {}); })
+      .catch(() => { if (live) setRecentFolderFields((value) => value ?? {}); });
+    read();
+    const timer = setInterval(read, RECENT_FOLDER_REFRESH_MS);
+    return () => { live = false; clearInterval(timer); };
+  }, [recentFoldersEnabled, codeSessionFoldersKey]);
+  useEffect(() => {
+    if (!recentFoldersEnabled) return;
+    let live = true;
+    const read = () => call("detected-projects")
+      .then((list) => { if (live) setDetectedProjects(Array.isArray(list) ? list : []); })
+      .catch(() => { if (live) setDetectedProjects((value) => value ?? []); });
+    read();
+    const timer = setInterval(read, RECENT_FOLDER_REFRESH_MS);
+    return () => { live = false; clearInterval(timer); };
+  }, [recentFoldersEnabled]);
   const recentFolderList = useMemo(() => {
-    const list = recentFolders({ sessions, current: workdir, dismissedAt: dismissedRecentFolders });
-    return { rows: recentFolderRows(list, workdir), browseDirectly: folderPickerBrowsesDirectly(list) };
-  }, [sessions, workdir, dismissedRecentFolders]);
+    const list = recentFolders({ sessions: withRecentFolderFields(codeSessions, recentFolderFields || {}), detectedProjects: detectedProjects || [], current: workdir, dismissedAt: dismissedRecentFolders });
+    return { rows: recentFolderRows(list, workdir), browseDirectly: folderPickerBrowsesDirectly(list, { loading: recentFolderFields === null || detectedProjects === null }) };
+  }, [codeSessions, recentFolderFields, detectedProjects, workdir, dismissedRecentFolders]);
+  // A Recent pick goes the way a browsed folder does (cc43287c9 FZ P → onSelectFolder; shared-75 ccd-session-store
+  // persists selectedFolder): main.cjs 'folder' with the path saves it as config.cwd, so New session and a relaunch
+  // reopen in it.
+  const pickRecentFolder = (dir) => {
+    const surface = modeRef.current;
+    call("folder", { surface, path: dir }).then((saved) => {
+      if (!saved || surface !== modeRef.current) return;
+      surfaceFolders.current[surface] = saved;
+      if (surface !== "code") setBoot(previous => ({ ...previous, config: { ...previous.config, surfaceFolders: { ...previous.config.surfaceFolders, [surface]: saved } } }));
+      setCwd(saved);
+    }).catch((e) => setError(e.message));
+  };
   const dismissRecentFolder = (dir) => {
     const withDismissed = (dismissed) => setBoot((b) => (b ? { ...b, config: { ...b.config, dismissedRecentFolders: dismissed } } : b));
     withDismissed({ ...(dismissedRecentFolders || {}), [dir]: Date.now() });
@@ -4239,6 +5095,17 @@ function App({ side = 0, initialSession = null }) {
     if (profile?.model && models.some(m => m.model === profile.model)) preference("model", profile.model);
     if (profile?.permission) bypassMode.select(profile.permission);
   }
+  // gH Iv: the draft folder's GitHub issue availability, asked for each draft folder and again as the Add menu opens
+  // (gh's sign-in can change meanwhile), so the row is in place when the menu shows.
+  const addMenuOpen = menu?.kind === "add";
+  useEffect(() => {
+    if (current || !issueFolder) return undefined;
+    let live = true;
+    Promise.resolve(call("github-issues", { operation: "status", cwd: issueFolder })).then(
+      (value) => { if (live && value && typeof value === "object") setIssueStatus({ folder: issueFolder, available: value.available === true, unavailableReason: value.unavailableReason ?? null, repo: value.repo ?? null }); },
+      () => { if (live) setIssueStatus({ folder: issueFolder, available: false, unavailableReason: null, repo: null }); });
+    return () => { live = false; };
+  }, [addMenuOpen, current, issueFolder]);
   useEffect(() => {
     if (menu?.kind !== "add") return;
     customizeStore.loadSkills({ cwd: workdir || cwd });
@@ -4267,6 +5134,7 @@ function App({ side = 0, initialSession = null }) {
   // drag end / key press, so each commit is exactly one settings write; the
   // live drag only moves --df-sidebar-width on the root.
   const saveWidth = (w) => {
+    if (NO_SIDEBAR) return;
     const next = clampSidebarWidth(w);
     setSidebarWidth(next);
     call("settings", { sidebarWidth: next }).catch(() => {});
@@ -4274,7 +5142,8 @@ function App({ side = 0, initialSession = null }) {
   // shared-2 dframe-store persists collapsed beside sidebarWidth: one settings
   // write per actual change, which also relabels View > Hide/Show Sidebar.
   const setSidebarCollapsed = (next) => {
-    if (collapsedRef.current === next) return;
+    // A session popout has no sidebar, and its keys must not change the main window's saved state.
+    if (NO_SIDEBAR || collapsedRef.current === next) return;
     collapsedRef.current = next;
     clearTimeout(peekTimer.current);
     setPeek((previous) => ({ ...previous, hovering: false, peeked: false }));
@@ -4354,7 +5223,8 @@ function App({ side = 0, initialSession = null }) {
   // for an open session in the chat section (SourceTitlebar `session &&
   // section === "new"`); Files also needs a workspace folder.
   paneShortcutRef.current = (kind) => {
-    if (settings || actionDialog || rename || whatsNew || !session || section !== "new") return;
+    // B39: Preview also works on the New session page (its folder's browser; previewAvailable says when).
+    if (settings || actionDialog || rename || whatsNew || (!session && kind !== "preview") || section !== "new") return;
     // ⌘⇧Y toggleDiffFileList (pane-shortcuts.mjs fileListRoute; c936fcd42 ei/$r,
     // code-workspace.js:2230-2241): the focused (or only) Files pane's tree
     // (fileTreeToggleRef), else the open Changes pane's file list (diffTreeToggleRef,
@@ -4397,22 +5267,26 @@ function App({ side = 0, initialSession = null }) {
 
   const menuContent = () => {
     switch (menu.kind) {
-      case "local":
-        // cc43287c9-BMbiZYzF.js:20975-21060 env pill menu (Z.Popup side top, align start, !min-w-[200px]):
-        // the Local row is a checked radio (VV); environment settings stay a plain row.
+      case "local": {
+        // 2.31226.0 cc43287c9 dX (:19035-19133 Ft, :19524-19537 the desktop Z.Popup [BY, Ft, …, Bt]): the env pill
+        // menu holds the Local row alone — a checked radio (ny) whose trailing Settings button (Xv → ca80fca8d DJ/EJ,
+        // revealed on the highlighted row) and ArrowRight open "Edit local environment" (ZY openLocalEnvironmentSettings
+        // → uF), with the sr-only ', environment settings, right arrow'. The cloud, Remote Control, WSL and SSH
+        // submenus (Lt/Rt/zt/Bt) have no local transport, so none is listed.
+        const openEnvironment = () => { closeMenu(); setLocalEnvOpen(true); };
         return (
-          <>
-            <SourceMenu.Item checked checkedRole="radio">{t("Local")}</SourceMenu.Item>
-            <SourceMenu.Separator />
-            {/* The local environment's settings (Worktree location, Sandbox mode, Sandbox network access) live on
-                Code › Local sessions: open there, anchored on Worktree location, as /sandbox opens code#sandbox. */}
-            <SourceMenu.Item onClick={() => setSettings("code#worktreeLocation")}>{t("Environment settings")}</SourceMenu.Item>
-          </>
+          <SourceMenu.Item checked checkedRole="radio" data-testid="env-picker-local"
+            onKeyDown={(event) => { if (event.key === "ArrowRight") { event.preventDefault(); event.stopPropagation(); openEnvironment(); } }}
+            trailing={<button type="button" tabIndex={-1} aria-hidden="true" className="sc-env-settings" data-env-settings=""
+              onClick={(event) => { event.stopPropagation(); event.preventDefault(); openEnvironment(); }}><Icon name="Settings" size={16} /></button>}>
+            {t("Local")}<span className="sc-sr-only">{t(", environment settings, right arrow")}</span>
+          </SourceMenu.Item>
         );
+      }
       case "home-folder":
         // lH (cc43287c9 :21638-21850) + dH frecents (:21921-21928): recents by last use with the chosen
         // folder prepended; dismissing persists a dismissedAt per path (main.cjs dismiss-recent-folder).
-        return <SourceRecentFolderMenu rows={recentFolderList.rows} onSelect={setCwd} onDismiss={dismissRecentFolder} onBrowse={folder} />;
+        return <SourceRecentFolderMenu rows={recentFolderList.rows} onSelect={pickRecentFolder} onDismiss={dismissRecentFolder} onBrowse={folder} />;
       case "folder":
         // c360a9e1c-GPs-MV9u.js:6760-6830 Fp → Gt.Popup side bottom / align start, and :6555-6588 Ep: a Group
         // with GroupLabel 'Working directory' over the shared repo items (Ko/qo → gitRepoMenuItems).
@@ -4434,18 +5308,25 @@ function App({ side = 0, initialSession = null }) {
         return <SourceBranchPickerMenu branches={branchChoices} current={workspaceInfo?.branch || ""}
           onSelect={(branch) => { selectBranch(branch); }} />;
       case "add":
-        // Official composer Add menu (c752b32f8 yr over CDS Menu; c099c328d :8052-8330 em = [Qp 'Add files or
-        // photos', ...Kp: 'Add folder' (icon Folder), ...Hp: 'Slash commands', connectors, plugins], no separators;
-        // 'Import GitHub/Linear issue' need integrations absent here): file/folder
-        // rows, then the Skills submenu (scroll-shared-10 jy: icon Scroll, skill
-        // rows sorted by label, footer = separator + "Manage skills") and the
-        // Plugins submenu (Bv/zv: one submenu per enabled plugin holding its
-        // skills, footer "Manage plugins"). "Browse skills/plugins" open the
-        // claude.ai Directory and have no Codex counterpart, so they are absent.
+        // Official composer Add menu (ca80fca8d KN/GN + zN :12490-12620 = [GN 'Add files or photos', 'Add folder'
+        // (icon Folder), ...jN: 'Slash commands', connectors, plugins], no separators; 'Import GitHub/Linear issue'
+        // need integrations absent here). GN's 'Add image' label is for a surface without file attachments; every
+        // local composer attaches files (non-images become mentions), so the label stays 'Add files or photos'.
+        // Local additions between Slash commands and Connectors: the per-session Tools submenu and the Skills
+        // submenu (an older build's jy: icon Scroll, skill rows sorted by label, footer separator + 'Manage
+        // skills'); the current build reaches skills through '/', which lists them too.
         return (
           <>
             <SourceMenu.Item icon="Attachment" shortcut="cmd+u" onClick={attach}>{t("Add files or photos")}</SourceMenu.Item>
-            <SourceMenu.Item icon="Folder" onClick={folder}>{t("Add folder")}</SourceMenu.Item>
+            {/* zN (ca80fca8d :12490-12540) with onAddFolder = cc43287c9 $m: adds a folder to the session or draft
+                (addFolderFromMenu), never switches the working folder; no row without a working folder. */}
+            {!!workdir && <SourceMenu.Item icon="Folder" onClick={addFolderFromMenu}>{t("Add folder")}</SourceMenu.Item>}
+            {/* zN :12540-12590: in the draft, 'Import GitHub issue' (GitHub glyph) opens the picker, or sits disabled with
+                gH's reason; the user's gh answers (github-issues.cjs). Linear needs a connector the cores don't have. */}
+            {!current && issueStatus?.folder === issueFolder && (issueStatus.available || issueStatus.unavailableReason) && (
+              <SourceMenu.Item icon="Github" disabled={!issueStatus.available} disabledReason={issueStatus.available ? undefined : githubIssueUnavailableMessage(issueStatus.unavailableReason)}
+                onClick={() => { if (issueStatus.available) setIssuePicker(true); }}>{t("Import GitHub issue")}</SourceMenu.Item>
+            )}
             <SourceMenu.Item icon="SlashShortcutCommand" onClick={() => { setDraft(d=>d.startsWith('/')?d:'/'+d); textarea.current?.focus(); textarea.current?.dispatchEvent(new Event('open-slash')); }}>{t("Slash commands")}</SourceMenu.Item>
             {/* Local: per-session tools (harness tool-gate.js), only with a core that can turn them off. */}
             {toolSelection && (
@@ -4471,61 +5352,74 @@ function App({ side = 0, initialSession = null }) {
                 </SourceMenu.Popup>
               </SourceMenu.Submenu>
             )}
-            {/* Bv (:8881-8925): {type:"loading"} is the c752b32f8 Q skeleton
-                row (h-control, 20x20 + 96x16, no text). The official empty
-                state is an "Add plugins" button that opens the claude.ai
-                Directory; Codex has no such install path, so — like Bv's
-                arePluginsAvailable === false branch — nothing is drawn. */}
-            {/* gi/_i/vi (tmp-c752b32f8 :2065-2200): Connectors, one row per MCP server with its status (a server that
-                needs sign-in leads to its page in Customize › Connectors), a skeleton while the list loads, then
-                Add connector and Manage connectors. */}
-            {boot?.connected && (customizeSnapshot.mcp?.status === "loading" && !customizeSnapshot.mcp?.rows?.length
-              ? <div className="smenu-skeleton-row" data-add-loading="connectors">
-                  <span className="smenu-skeleton" style={{ width: 20, height: 20 }} />
-                  <span aria-hidden="true" className="smenu-skeleton" style={{ width: 96, height: 16 }} />
-                </div>
-              : <SourceMenu.Submenu>
-                  <SourceMenu.SubmenuTrigger icon="Connectors" data-testid="add-connectors">{t("Connectors")}</SourceMenu.SubmenuTrigger>
-                  <SourceMenu.Popup label={t("Connectors")} className="add-connectors-popup">
-                    {(customizeSnapshot.mcp?.rows || []).map((row) => {
-                      // A connector the core's config can turn on or off (native Codex, customize mcp-enable): a switch row
-                      // that stays open; one that needs a sign-in still leads to its page.
-                      const setting = customizeSnapshot.mcpConfig?.status === "ready" ? customizeSnapshot.mcpConfig.servers?.[row.name]
-                        : customizeCore(boot?.core).connectorToggle ? { enabled: row.kind !== "disabled", editable: true } : null;
-                      if (setting?.editable && row.kind !== "signIn") return <SourceMenu.Item key={row.id} data-connector={row.name} keepOpen role="menuitemcheckbox"
-                        aria-checked={setting.enabled !== false} hint={setting.enabled === false ? t("Off") : MCP_STATUS_LABELS[row.kind] || undefined}
-                        trailing={<SourceSwitch decorative checked={setting.enabled !== false} />}
-                        onClick={() => { customizeStore.setMcpEnabled(row.name, setting.enabled === false).catch((e) => { if (toasts) toasts.add(e.message, { variant: "warning" }); else setError(e.message); }); }}>{row.title || row.name}</SourceMenu.Item>;
-                      return <SourceMenu.Item key={row.id} data-connector={row.name} hint={MCP_STATUS_LABELS[row.kind] || undefined}
-                        onClick={() => { setSettings("customize-connectors"); }}>{row.title || row.name}</SourceMenu.Item>;
-                    })}
-                    {(customizeSnapshot.mcp?.rows || []).length > 0 && <SourceMenu.Separator />}
-                    <SourceMenu.Item icon="Add" onClick={() => setSettings("customize-connectors")}>{t("Add connector")}</SourceMenu.Item>
-                    <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-connectors")}>{t("Manage connectors")}</SourceMenu.Item>
-                  </SourceMenu.Popup>
-                </SourceMenu.Submenu>)}
-            {addPlugins.loading
-              ? <div className="smenu-skeleton-row" data-add-loading="">
-                  <span className="smenu-skeleton" style={{ width: 20, height: 20 }} />
-                  <span aria-hidden="true" className="smenu-skeleton" style={{ width: 96, height: 16 }} />
-                </div>
-              : addPlugins.groups.length > 0 && (
-                <SourceMenu.Submenu>
-                  <SourceMenu.SubmenuTrigger icon="Plugin" data-testid="add-plugins">{t("Plugins")}</SourceMenu.SubmenuTrigger>
-                  <SourceMenu.Popup label={t("Plugins")} className="add-plugins-popup">
-                    {addPlugins.groups.map((group) => (
-                      <SourceMenu.Submenu key={group.id}>
-                        <SourceMenu.SubmenuTrigger icon="Plugin" data-plugin-id={group.id}>{group.label}</SourceMenu.SubmenuTrigger>
-                        <SourceMenu.Popup label={group.label} className="add-plugin-skills-popup">
-                          {group.items.map((item) => <SourceMenu.SkillItem key={item.path} item={item} onSelect={applySkill} />)}
-                        </SourceMenu.Popup>
-                      </SourceMenu.Submenu>
-                    ))}
-                    <SourceMenu.Separator />
-                    <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-plugins")}>{t("Manage plugins")}</SourceMenu.Item>
-                  </SourceMenu.Popup>
-                </SourceMenu.Submenu>
-              )}
+            {/* re (ca80fca8d jN :12093-12290, add-menu-model addConnectorsEntry): a skeleton while the list loads with
+                nothing to show; no connector → a plain 'Manage connectors' row; otherwise the Connectors submenu with
+                'Manage connectors' (icon Tool) first, a separator, then the connector rows (icon Connectors: a switch for
+                a connector the core's config can turn on or off, else a row opening its page), the ones that need a
+                sign-in again (CloudSlash, 'Reconnect') and 'Connecting…'; the hint counts the reconnect rows. */}
+            {boot?.connected && (() => {
+              const entry = addConnectorsEntry({ rows: customizeSnapshot.mcp?.rows || [], status: customizeSnapshot.mcp?.status,
+                settingFor: (row) => customizeSnapshot.mcpConfig?.status === "ready" ? customizeSnapshot.mcpConfig.servers?.[row.name]
+                  : customizeCore(boot?.core).connectorToggle ? { enabled: row.kind !== "disabled", editable: true } : null });
+              const openConnectors = () => setSettings("customize-connectors");
+              // ne (:12085-12090): a connector's row and its Reconnect open that connector's page.
+              const openConnector = (row) => setSettings(`customize-connectors#${encodeURIComponent(row.name)}`);
+              if (entry.kind === "loading") return <div className="smenu-skeleton-row" data-add-loading="connectors">
+                <span className="smenu-skeleton" style={{ width: 20, height: 20 }} />
+                <span aria-hidden="true" className="smenu-skeleton" style={{ width: 96, height: 16 }} />
+              </div>;
+              if (entry.kind === "manage") return <SourceMenu.Item icon="Connectors" data-testid="add-connectors" onClick={openConnectors}>{t("Manage connectors")}</SourceMenu.Item>;
+              return <SourceMenu.Submenu>
+                <SourceMenu.SubmenuTrigger icon="Connectors" data-testid="add-connectors"
+                  hint={entry.reconnectCount > 0 ? tn(entry.reconnectCount, "{count} needs reconnection", "{count} need reconnection") : undefined}>{t("Connectors")}</SourceMenu.SubmenuTrigger>
+                <SourceMenu.Popup label={t("Connectors")} className="add-connectors-popup">
+                  <SourceMenu.Item icon="Tool" onClick={openConnectors}>{t("Manage connectors")}</SourceMenu.Item>
+                  <SourceMenu.Separator />
+                  {entry.items.map((item) => {
+                    const { row, setting } = item;
+                    if (item.type === "connecting") return <SourceMenu.Item key="connecting" disabled aria-busy="true">{t("Connecting…")}</SourceMenu.Item>;
+                    if (item.type === "reconnect") return <SourceMenu.Item key={row.id} icon="CloudSlash" data-connector={row.name} description={t("Reconnect")}
+                      onClick={() => openConnector(row)}>{row.title || row.name}</SourceMenu.Item>;
+                    if (item.type === "toggle") return <SourceMenu.Item key={row.id} icon="Connectors" data-connector={row.name} keepOpen role="menuitemcheckbox"
+                      aria-checked={setting.enabled !== false} hint={setting.enabled === false ? t("Off") : row.kind !== "connected" ? MCP_STATUS_LABELS[row.kind] || undefined : undefined}
+                      trailing={<SourceSwitch decorative checked={setting.enabled !== false} />}
+                      onClick={() => { customizeStore.setMcpEnabled(row.name, setting.enabled === false).catch((e) => { if (toasts) toasts.add(e.message, { variant: "warning" }); else setError(e.message); }); }}>{row.title || row.name}</SourceMenu.Item>;
+                    return <SourceMenu.Item key={row.id} icon="Connectors" data-connector={row.name} onClick={() => openConnector(row)}>{row.title || row.name}</SourceMenu.Item>;
+                  })}
+                </SourceMenu.Popup>
+              </SourceMenu.Submenu>;
+            })()}
+            {/* oe (ca80fca8d jN :12313-12440, add-menu-model addPluginsEntry): the c752b32f8 Q skeleton row (h-control,
+                20x20 + 96x16, no text) while plugins load with none ready; no plugin with skills → the on-this-device
+                branch's plain 'Add plugins' row (icon Plugin, `n = e === "org"` false); otherwise the Plugins submenu
+                (one submenu per enabled plugin holding its skills, then 'Manage plugins' (Tool, separator before) and
+                'Browse plugins' (Add)). Add and Browse open the Directory (ie) in the reference; locally Settings ›
+                Plugins is both, its Available section listing what the core's marketplaces offer. */}
+            {(() => {
+              const entry = addPluginsEntry({ loading: addPlugins.loading, status: customizeSnapshot.plugins.status, groups: addPlugins.groups });
+              if (entry.kind === "loading") return <div className="smenu-skeleton-row" data-add-loading="">
+                <span className="smenu-skeleton" style={{ width: 20, height: 20 }} />
+                <span aria-hidden="true" className="smenu-skeleton" style={{ width: 96, height: 16 }} />
+              </div>;
+              if (entry.kind === "add") return <SourceMenu.Item icon="Plugin" data-testid="add-plugins" onClick={() => setSettings("customize-plugins")}>{t("Add plugins")}</SourceMenu.Item>;
+              if (entry.kind !== "submenu") return null;
+              return <SourceMenu.Submenu>
+                <SourceMenu.SubmenuTrigger icon="Plugin" data-testid="add-plugins">{t("Plugins")}</SourceMenu.SubmenuTrigger>
+                <SourceMenu.Popup label={t("Plugins")} className="add-plugins-popup">
+                  {addPlugins.groups.map((group) => (
+                    <SourceMenu.Submenu key={group.id}>
+                      <SourceMenu.SubmenuTrigger icon="Plugin" data-plugin-id={group.id}>{group.label}</SourceMenu.SubmenuTrigger>
+                      <SourceMenu.Popup label={group.label} className="add-plugin-skills-popup">
+                        {group.items.map((item) => <SourceMenu.SkillItem key={item.path} item={item} onSelect={applySkill} />)}
+                      </SourceMenu.Popup>
+                    </SourceMenu.Submenu>
+                  ))}
+                  <SourceMenu.Separator />
+                  <SourceMenu.Item icon="Tool" onClick={() => setSettings("customize-plugins")}>{t("Manage plugins")}</SourceMenu.Item>
+                  <SourceMenu.Item icon="Add" data-add-browse-plugins="" onClick={() => setSettings("customize-plugins")}>{t("Browse plugins")}</SourceMenu.Item>
+                </SourceMenu.Popup>
+              </SourceMenu.Submenu>;
+            })()}
           </>
         );
       case "titlebar":
@@ -4542,28 +5436,47 @@ function App({ side = 0, initialSession = null }) {
             ...((state.plans[current]?.length || state.planDocs?.[current] || openPanes.has("plan")) ? [{kind: "plan", label: "Plan", icon: "Checklist"}] : [])]
             .map(item => <SourceMenu.Item key={item.kind} className="st-view-item" icon={item.icon} checked={openPanes.has(item.kind)} shortcut={item.shortcut}
               onClick={() => (item.kind === "terminal" ? toggleTerminalPane() : togglePaneTile(item.kind))}>{t(item.label)}</SourceMenu.Item>)}
-          <SourceMenu.Separator />
-          {transcriptViewSubmenu(menu.data?.id)}
-          <SourceMenu.Separator />
-          {sessionCommands.filter(command => ["compact","fork","review","status"].includes(command.id)).map(command => {
-            const reason = commandUnavailable(command, commandContext);
-            return <SourceMenu.Item key={command.id} icon={command.icon} disabled={!!reason} disabledReason={reason || undefined}
-              onClick={() => executeCommand(command.id)}>{command.label}</SourceMenu.Item>;
-          })}
-          <SourceMenu.Separator />
-          <SourceSidebarSessionMenu session={menu.data} metadata={sessionMetadata[menu.data.id]} customGroups={customGroups} state={state} editors={editors} shareable={sessionsShareable} windowActions={windowActions}
-            onAction={(...args) => sessionAction(...args).catch(actionFailed(sessionActionErrorKind(args[0])))} onClose={closeMenu}
-            onDelete={() => setConfirmDelete(menu.data)}
-            onRename={() => setRename({ id: menu.data.id, name: menu.data.name || menu.data.preview || "" })} />
+          {/* cf74bc599 ZT (11900-12070) View options: the view items, then a separator and 'Keep computer awake' (only
+              for this session). Lifecycle items (rename, export, fork, archive, delete), Open in and Transcript view live in
+              the header session menu ('session-title'); zt clears them from this one. Its Debug submenu is gated off
+              (KT("")) and the session rail toggle has no local counterpart. c593f7513 kp (6759-6777) offers keepAwake
+              only for a session that is not archived; without it ZT renders neither the row nor its separator. */}
+          {!sessionArchived(menu.data) && <>
+            <SourceMenu.Separator />
+            <SessionKeepAwakeItem session={menu.data} metadata={sessionMetadata[menu.data.id]}
+              onAction={(...args) => sessionAction(...args).catch(actionFailed(sessionActionErrorKind(args[0])))} />
+          </>}
+          {/* ZT ends with the pane items (wm It ← shared-21 Qse, kept by zt; only Om's title menu drops them): while
+              split, this pane's moves ($7, J7 labels) and Close split view, after a separator. */}
+          {(() => {
+            const items = paneMenuItems(splitStore.getState(), side);
+            return items.length > 0 && <>
+              <SourceMenu.Separator />
+              {items.map((item) => <SourceMenu.Item key={item.label} data-split-pane-item={item.kind}
+                onClick={() => (item.kind === "close" ? splitStore.close(side) : splitStore.move(side, item.target))}>{t(item.label)}</SourceMenu.Item>)}
+            </>;
+          })()}
         </>;
+      case "session-title":
+        // c593f7513 wm Rt → Om k (7740-7850, 8150-8210): the title's CaretDown and its context menu. canPin false, no
+        // readState, hideMoveToGroup, and Om drops keepAwake/paneItems: Open PR, Open in, Rename (onRenameStart: the
+        // inline title edit, deferred 100ms), Export, Share/Copy link, Fork, then the Transcript view submenu (xm),
+        // then Archive/Delete.
+        return <SourceSidebarSessionMenu header session={menu.data} metadata={sessionMetadata[menu.data.id]} state={state} editors={editors} shareable={sessionsShareable} windowActions={windowActions}
+          unarchiving={unarchiving.has(menu.data.id)} settingsItems={transcriptViewSubmenu(menu.data?.id)}
+          onAction={(...args) => sessionAction(...args).catch(actionFailed(sessionActionErrorKind(args[0])))} onClose={closeMenu}
+          onFork={(target) => sessionAction("fork", target).catch(actionFailed("fork"))} forkUnavailable={unsupportedCommand("fork", commandContext) || undefined}
+          onDelete={() => setConfirmDelete(menu.data)}
+          onRename={() => { const id = menu.data.id; setTimeout(() => setTitleRenameRequest((last) => ({ id, token: (last?.token ?? 0) + 1 })), RENAME_START_DELAY_MS); }} />;
       case "session":
         return <>
           {transcriptViewSubmenu(menu.data?.id)}
           <SourceMenu.Separator />
           <SourceSidebarSessionMenu session={menu.data} metadata={sessionMetadata[menu.data.id]} customGroups={customGroups} state={state} editors={editors} shareable={sessionsShareable} windowActions={windowActions}
+            unarchiving={unarchiving.has(menu.data.id)}
             onAction={(...args) => sessionAction(...args).catch(actionFailed(sessionActionErrorKind(args[0])))} onClose={closeMenu}
             onDelete={() => setConfirmDelete(menu.data)}
-            onRename={() => setRename({ id: menu.data.id, name: menu.data.name || menu.data.preview || "" })} />
+            onRename={() => setRename(renameDialogFor(menu.data))} />
         </>;
       case "account":
         // sidebar-rows.js:16155-16432 $B (J.Popup side top, pw's w-[17rem]): tV Header (IO identity, then
@@ -4629,26 +5542,118 @@ function App({ side = 0, initialSession = null }) {
     const row = current ? (sessions.find((thread) => thread.id === current) ?? session) : null;
     if (!row) return;
     const fail = actionFailed(command === "fork-session" ? "fork" : "session-action");
-    if (command === "pin-session") void updateSessionMetadata(row.id, { pinned: !row.pinned }).catch(fail);
-    else if (command === "rename-session") setRename({ id: row.id, name: row.name || row.preview || "" });
+    // The sidebar's pin / unread state lives in the session metadata (source-sidebar.jsx metadata.pinned / .unread).
+    const meta = sessionMetadata[row.id] ?? {};
+    if (command === "pin-session") void updateSessionMetadata(row.id, { pinned: !(meta.pinned ?? row.pinned) }).catch(fail);
+    else if (command === "rename-session") setRename(renameDialogFor(row));
     else if (command === "archive-session") void sessionAction("archive", row).catch(actionFailed("archive"));
-    else if (command === "unread-session") void updateSessionMetadata(row.id, { unread: !row.unread }).catch(fail);
+    else if (command === "unread-session") void updateSessionMetadata(row.id, { unread: !(meta.unread ?? row.unread) }).catch(fail);
     else if (command === "fork-session") void sessionAction("fork", row).catch(actionFailed("fork"));
+    // cf74bc599 wO it(t) && xe: ⌥⌘G opens the session's PR (its core binding, else the git band's gh lookup), else nothing.
+    else if (command === "open-session-pr") {
+      const url = sessionPullRequestUrl(row, bandBranchPr);
+      if (url) void sessionAction("open-pr", row, { url }).catch(actionFailed("open-link"));
+    }
+  };
+  // ⌘K Actions (sidebar-palette-model.mjs paletteActions): the open session's commands (cf74bc599 wO B(id, G && … ? fn :
+  // undefined)), its panes' toggles and Close pane (c11959232 Ud, the View menu's pane report), the prompt jumps (only
+  // with a prompt to land on), Keyboard shortcuts and Add files or photos, each through the handler its chord uses.
+  const paletteCommands = () => {
+    if (settings) return null;
+    const inSession = paneMenuAvailable && !!current;
+    const row = inSession ? (sessions.find((thread) => thread.id === current) ?? session) : null;
+    const meta = row ? sessionMetadata[row.id] ?? {} : {};
+    const busy = !!(row && state.active?.[row.id]);
+    const archived = !!row && sessionArchived(row);
+    const pane = (entry) => entry ? { enabled: !!entry.enabled, shown: !!entry.open } : null;
+    return {
+      session: row ? {
+        // wO c = t?.title: the rows name the session as the sidebar shows it (sessionName without its fallback);
+        // Unarchive is left out while one is in flight (f_ isUnarchiving).
+        title: row.name?.trim() || row.preview?.trim() || "", unarchiving: unarchiving.has(row.id),
+        archived, pinned: !!(meta.pinned ?? row.pinned), canArchive: !busy, canDelete: !busy, canRename: true,
+        canFork: !busy && !archived && !!boot?.connected && !unsupportedCommand("fork", commandContext),
+        onAction: (command) => {
+          if (command === "archive" || command === "unarchive") void sessionAction(command, row).catch(actionFailed(command));
+          else if (command === "delete") setConfirmDelete(row);
+          else if (command === "rename") sessionChordRef.current?.("rename-session");
+          else if (command === "pin") sessionChordRef.current?.("pin-session");
+          else if (command === "fork") sessionChordRef.current?.("fork-session");
+          else if (command === "new-from-current") newSessionFromCurrent();
+        },
+      } : null,
+      panes: { terminal: pane(menuState.panes.terminal), changes: pane(menuState.panes.changes), files: pane(menuState.panes.files),
+        preview: pane(menuState.panes.preview), sideChat: pane(menuState.panes.sideChat) },
+      onTogglePane: (kind) => {
+        if (kind === "terminal") toggleTerminalPane();
+        else if (kind === "sideChat") setSideChat((value) => ({ open: !value.open, pending: null }));
+        else paneShortcutRef.current?.(kind);
+      },
+      onClosePane: menuState.closePane.enabled ? () => menuCommandRef.current?.({ kind: "close-pane" }) : undefined,
+      prompts: { available: inSession && !!transcriptRef.current?.getContent?.()?.querySelector?.('[data-cds="UserMessage"]'), onJump: jumpToPrompt },
+      onShortcuts: openShortcuts,
+      onFileUpload: section === "new" ? () => attachRef.current?.() : undefined,
+    };
   };
   // A session's row or titlebar menu: Open in split view / Close split view / Open in new window (official lE/uE, cE).
-  const windowActions = {
+  // B27 agent window layout (agent-tools/window.mjs → main.cjs → "layout-command"; c2189a16b runLayoutCommand): this
+  // window decides from what it shows (layout-command-model.mjs), applies the change and answers with the layout.
+  // layoutOpenedBy: the split panes an agent opened (pane key → its session), the only ones close_split may close.
+  const layoutOpenedBy = useRef({});
+  function layoutCommandSnapshot(event) {
+    const split = splitStore.getState();
+    const panes = split.panes.map((pane, at) => ({ key: pane.key, sessionId: split.sides[at + 1]?.current ?? null, col: pane.pos.col, row: pane.pos.row }));
+    for (const key of Object.keys(layoutOpenedBy.current)) if (!panes.some((pane) => String(pane.key) === key)) delete layoutOpenedBy.current[key];
+    const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    // c2189a16b E: a text field, an editable node, a frame or a terminal holds the cursor.
+    const typing = !!active && (active.isContentEditable || active instanceof HTMLTextAreaElement || active instanceof HTMLIFrameElement || !!active.closest?.(".xterm")
+      || (active instanceof HTMLInputElement && !["button", "checkbox", "color", "file", "image", "radio", "range", "reset", "submit"].includes(active.type)));
+    const paneNode = active?.closest?.(".dframe-pane-extra[data-pos]");
+    const focusedPane = paneNode ? panes.findIndex((pane) => posKey({ col: pane.col, row: pane.row }) === paneNode.getAttribute("data-pos")) + 1 || null : null;
+    // shared-16 $i: a new pane fits (a free column, or a free cell under the focused one).
+    const room = splitRoomState(split);
+    return {
+      primary: split.sides[0]?.current ?? null, panes, focused: split.active, popout: SESSION_POPOUT, windowHidden: event.windowHidden === true || document.visibilityState === "hidden",
+      sidebarCollapsed: NO_SIDEBAR || collapsedRef.current || narrowViewport, sidebarConstrained: narrowViewport, sidebarFocused: !!active?.closest?.(".source-sidebar, .dframe-sidebar"),
+      dialogOpen: !!(settings || actionDialog || rename || whatsNew || layerOpen()), typing, focusedPane, openedBy: { ...layoutOpenedBy.current },
+      hasRoom: room.newRight || room.newBelow,
+      popoutSessionIds: Array.isArray(event.popoutSessionIds) ? event.popoutSessionIds : [], otherPopoutCount: event.otherPopoutCount ?? 0,
+    };
+  }
+  function runLayoutCommandHere(event) {
+    const command = event.command ?? {};
+    const caller = command.callerSessionId;
+    const { result, effect } = runLayoutCommand(command, layoutCommandSnapshot(event));
+    let response = result, openWindow = null;
+    if (effect?.kind === "open-split") {
+      splitStore.open(effect.sessionId);
+      splitStore.focus(effect.keepFocus);
+      const after = splitStore.getState(), at = after.sides.findIndex((value, index) => index > 0 && value.current === effect.sessionId);
+      if (at === -1) response = { outcome: "failed", reason: "no_room" };
+      else { layoutOpenedBy.current[String(after.panes[at - 1].key)] = caller; response = { ...result, paneIndex: at }; }
+    } else if (effect?.kind === "focus") splitStore.focus(effect.index);
+    else if (effect?.kind === "navigate") { splitStore.focus(0); navigate(effect.sessionId); }
+    else if (effect?.kind === "close") { const key = splitStore.getState().panes[effect.index - 1]?.key; splitStore.close(effect.index); if (key !== undefined) delete layoutOpenedBy.current[String(key)]; }
+    else if (effect?.kind === "sidebar") setSidebarCollapsed(effect.collapsed);
+    else if (effect?.kind === "open-window") openWindow = effect.sessionId;
+    const layout = layoutSnapshot(layoutCommandSnapshot(event), caller);
+    call("layout-command-result", { requestId: event.requestId, response: { ...response, layout }, ...(openWindow ? { openWindow } : {}) }).catch(() => {});
+  }
+  const runLayoutCommandRef = useRef(null);
+  runLayoutCommandRef.current = runLayoutCommandHere;
+  // A session popout (B27) has no split view and is the session's own window: its header menu offers neither.
+  const windowActions = SESSION_POPOUT ? { splitItem: () => null } : {
     splitItem: (id) => sessionSplitItem(splitView, id),
     onOpenSplit: (row) => splitStore.open(row.id),
     onCloseSplit: (index) => splitStore.close(index),
-    // ⌃⌘W (View › Split View › Close Split View) closes the focused side: its row carries the chord.
-    closeSplitShortcut: (index) => (splitView.open && splitView.active === index ? "ctrl+cmd+w" : undefined),
-    onOpenWindow: (row) => {
-      call("window-open", { sessionId: row.id }).catch((e) => { const message = cleanErrorReason(e?.message || "") || t("Couldn’t open a new window."); if (toasts) toasts.add(message, { variant: "danger" }); else setError(message); });
+    // position: a row torn off the sidebar (source-sidebar-drag.jsx, shared-19 DY initialPosition) opens its window there.
+    onOpenWindow: (row, { position } = {}) => {
+      call("window-open", { sessionId: row.id, ...(position ? { position } : {}) }).catch((e) => { const message = cleanErrorReason(e?.message || "") || t("Couldn’t open a new window."); if (toasts) toasts.add(message, { variant: "danger" }); else setError(message); });
     },
   };
-  // A clicked web link from a reply or the terminal (preview-links-model.mjs webLinkRoute): a plain click on a page on
-  // this computer opens in this session's Preview pane, anything else in the default browser. Stable for the
-  // WebLinkContext consumers; the ref reads this render's session.
+  // Code links use the current source chooser and per-origin browser tabs. Other surfaces
+  // retain their existing route until their own source capability paths are integrated.
+  // WebLinkContext consumers keep a stable callback that reads this render's session.
   const webLinkRef = useRef(null);
   // "Open links in preview" is the profile's preference (config.previewLinks): every window and side reads it.
   const savedPreviewLinks = boot?.config?.previewLinks;
@@ -4658,8 +5663,32 @@ function App({ side = 0, initialSession = null }) {
     if (!boot?.config) return;
     previewLinksStore.connect(typeof savedPreviewLinks === "boolean" ? savedPreviewLinks : undefined, (value) => savePreviewLinksRef.current(value));
   }, [savedPreviewLinks, !!boot?.config]);
+  const savedPreviewChooserSeen = boot?.config?.previewLinksChooserSeen;
+  useEffect(() => {
+    if (!boot?.config) return;
+    previewChooserStore.connect(savedPreviewChooserSeen, value => updatePreferences({ previewLinksChooserSeen: value }));
+  }, [savedPreviewChooserSeen, !!boot?.config]);
+  const linkRoutingHost = useRef(null);
+  linkRoutingHost.current = {
+    openPreview: (sessionId, url) => call('preview-link-open', { sessionId, url }),
+    reveal: sessionId => openPaneTile('preview', sessionId),
+    openExternal: url => call('external', { url }).catch(actionFailed('open-link')),
+  };
+  const [linkRouter] = useState(() => createPreviewLinkRouter({
+    linksEnabled: previewLinksStore.getSnapshot, chooserSeen: previewChooserStore.getSnapshot,
+    openPreview: (...args) => linkRoutingHost.current.openPreview(...args),
+    reveal: (...args) => linkRoutingHost.current.reveal(...args),
+    openExternal: (...args) => linkRoutingHost.current.openExternal(...args),
+  }));
+  useLayoutEffect(() => { linkRouter.setOwner(mode === 'code' && previewAvailable ? current : null); }, [linkRouter, current, mode, previewAvailable]);
+  useEffect(() => () => linkRouter.dispose(), [linkRouter]);
+  const pendingPreviewLink = useSyncExternalStore(linkRouter.subscribe, linkRouter.getSnapshot, linkRouter.getSnapshot);
   webLinkRef.current = (url, event) => {
-    if (webLinkRoute(url, event, { previewAvailable, enabled: previewLinksStore.getSnapshot() }) === "preview") {
+    if (mode === 'code') {
+      void Promise.resolve(linkRouter.request(url, event, previewAvailable && !!current)).catch(actionFailed('open-link'));
+      return;
+    }
+    if (webLinkRoute(url, event, { previewAvailable: previewAvailable && !!current, enabled: previewLinksStore.getSnapshot() }) === "preview") {
       openPaneTile("preview", current);
       call("preview-navigate", { sessionId: current, url }).catch(actionFailed("open-link"));
       return;
@@ -4668,6 +5697,8 @@ function App({ side = 0, initialSession = null }) {
   };
   const openWebLink = useCallback((url, event) => webLinkRef.current?.(url, event), []);
   const transcriptActions = {
+    threadId: current,
+    onSideChatContext: current && commandContext.sideQuestions ? text => { sideChatStore.stageContext(current, text); setSideChat({ open: true, pending: null }); } : null,
     cwd: workdir || cwd,
     resolveMessage: (itemId) => messageItemText(shownUserItem(items.find((item) => item.id === itemId))),
     onAttachText: composerAttachable ? (text) => attachQuoteToDraft(text, "transcript") : null,
@@ -4677,7 +5708,7 @@ function App({ side = 0, initialSession = null }) {
     onCopyPath: (text) => { if (text) copyWithToast(text, t("Copied to clipboard.")); },
     onOpenLink: (href) => { call("external", { url: href }).catch(actionFailed("open-link")); },
     // Open in Browser pane (a link to a page on this computer): this session's Preview pane opens on it.
-    onOpenInPreview: previewAvailable ? (href) => { openPaneTile("preview", current); call("preview-navigate", { sessionId: current, url: href }).catch(actionFailed("open-link")); } : null,
+    onOpenInPreview: previewAvailable && current ? (href) => { openPaneTile("preview", current); call("preview-navigate", { sessionId: current, url: href }).catch(actionFailed("open-link")); } : null,
     // Rewind to here / Fork from here (transcript-context-menu-model.mjs): only for a finished turn of an idle, live
     // session whose core serves the request.
     resolveTurn: (itemId) => {
@@ -4685,15 +5716,58 @@ function App({ side = 0, initialSession = null }) {
       if (!row?.turnId || row.turnId === state.active[current]) return null;
       return { turnId: row.turnId, user: row.type === "userMessage" };
     },
+    // onRewindToMessage (cc43287c9 :33905): the message's own rewind request, no picker.
     onRewindTo: current && !running && !session?.archived && boot?.connected && !unsupportedMethods?.includes("thread/revert")
-      ? (turnId) => { rewindPreselect.current = turnId; void executeCommand("rewind", "", undefined); } : null,
+      ? (turnId) => requestRewind(current, turnId, rewindChoices(shownTurns([{ id: turnId, items: items.filter((item) => item.turnId === turnId) }]))[0]?.text ?? "", items) : null,
     // capabilities.forkAtTurn false (MiniMax): the core forks only whole conversations, so no 'Fork from here'.
     onForkFrom: current && !running && !session?.archived && boot?.connected && !unsupportedMethods?.includes("thread/fork") && boot?.core?.capabilities?.forkAtTurn !== false
       ? (turnId) => void sessionAction("fork", session ?? { id: current }, { lastTurnId: turnId }).catch(actionFailed("fork")) : null,
+    // Pin as chapter / Unpin chapter (TI): an assistant message of an open session; the heading goes before it.
+    resolvePin: (itemId) => {
+      const row = current ? items.find((item) => item.id === itemId) : null;
+      if (row?.type !== "agentMessage" && row?.type !== "plan") return null;
+      return { pinned: chapterSession.userChapters.some((chapter) => chapter.afterId === itemId) };
+    },
+    onTogglePin: current ? (itemId, text) => toggleChapterPin(itemId, text) : null,
   };
   // Files pane tree-row and tab menus (file-context-menu-model.mjs, Mn): Attach as context through the same
   // path attachment as the Changes header and the transcript, Show in Finder through the session-scoped reveal IPC.
-  const filePaneActions = { onAttachFile: transcriptActions.onAttachFile, onRevealFile: transcriptActions.onRevealFile,
+  const fileContextOwner=useMemo(()=>({}),[current]);
+  const filePaneActions = {
+    onDragFiles: composerAttachable ? (event,paths,directories)=>startFileContextDrag(event,fileContextOwner,paths,()=>attachFilePaths(paths,directories)) : null,
+    onAttachFiles: composerAttachable ? attachFilePaths : null,
+    onAskAbout: current && commandContext.sideQuestions ? question => setSideChat({ open: true, pending: question }) : null,
+    onSaveComment: composerAttachable ? (entry,{viaKeyboard,submit}) => {
+      const text=serializeLineComment({...entry,text:entry.body});
+      const snippet=makeSnippet(text,{key:entry.key,label:entry.start===entry.end?`${entry.path}:L${entry.start}`:`${entry.path}:L${entry.start}-L${entry.end}`});
+      setAttachments(entries=>addSnippet(entries,snippet));
+      if(viaKeyboard)requestAnimationFrame(()=>{textarea.current?.focus();if(submit)textarea.current?.closest('form')?.requestSubmit();});
+    } : null,
+    onDeleteComment: entry=>setAttachments(entries=>removeSnippetByKey(entries,entry.key)),
+    onAttachSelection: composerAttachable ? (text, label) => {
+      const snippet = makeSnippet(text, { label, sourceFile: label });
+      if (!snippet) return;
+      setAttachments(entries => addSnippet(entries, snippet));
+      requestAnimationFrame(() => textarea.current?.focus());
+    } : null,
+    onAttachFile: transcriptActions.onAttachFile, onRevealFile: transcriptActions.onRevealFile,
+    // B32 viewer cards (cd2efac6e Gl / tp / pp): Show in Finder for a session file, the outside-root folder offer and
+    // its Add folder, which grants the folder to this session as /add-dir does (main 'folder' approves it).
+    onShowSessionFile: current ? (filePath) => call("file:reveal-session", { sessionId: current, cwd: workdir || cwd, path: filePath }) : null,
+    suggestFolder: current ? (filePath) => call("file:folder-offer", { sessionId: current, cwd: workdir || cwd, path: filePath }) : null,
+    onAddFolder: current ? async (folder) => {
+      const owner = current;
+      const dir = await call("folder", { additional: true, path: folder, cwd: workdir || cwd });
+      if (!dir || currentRef.current !== owner) return false;
+      const next = [...new Set([...additionalFolders, dir])];
+      setAdditionalFolders(next);
+      // A refused grant takes the folder back (as addFolderPaths does); the card then toasts "Couldn’t add {folder}…".
+      try { await updateSessionMetadata(owner, { additionalFolders: next }); }
+      catch (error) { if (currentRef.current === owner && !additionalFolders.includes(dir)) setAdditionalFolders((list) => list.filter((entry) => entry !== dir)); throw error; }
+      if (running && livePermissions && boot?.connected && resumed.current.has(owner) && currentRef.current === owner)
+        rpc("codeDesktop/thread/permissions", { threadId: owner, ...turnPermissionParams({ permission: effectivePermission, mode, cwd: workdir || cwd, additionalFolders: next, ...permissionHints() }) }).catch((e) => setError(e.message));
+      return true;
+    } : null,
     editors, onOpenInEditor: editors.length ? openInEditor : null,
     // A folder row's "Open in terminal": a tab in this side's terminal pane, in that folder.
     onOpenInTerminal: terminalAvailable ? (dir) => void openTerminalIn(dir).catch((e) => setError(terminalError(e, t("Failed to open terminal tab")))) : null };
@@ -4701,6 +5775,18 @@ function App({ side = 0, initialSession = null }) {
   const toolRuns = withWorkflowToolRuns(items, workflows);
   const shownRows =groupFileTools(withLocalCommandRows(withModelWorkflowRows(toolRuns.items),[...(localCommandRows[current]||[]),...toolRuns.rows]),transcriptView);
   shownRowCount.current = { id: current, count: shownRows.length };
+  // Iwe/Fwe: the Session chapters rail's list, kept while nothing moved.
+  const chapterList = current ? reuseChapters(chapterListRef.current?.id === current ? chapterListRef.current.list : null,
+    sessionChapters(shownRows, chapterSession, { sessionStartTitle: t("Session start"), chapterOf })) : null;
+  chapterListRef.current = current ? { id: current, list: chapterList } : null;
+  // H6e: a finished turn's footer pins its first shown assistant row (the footer's reply text seeds the title).
+  const turnChapterPin = (turnId, text) => {
+    // qL is view-independent (thinking counts): skip only rows no view shows, so toggling Thinking keeps the anchor.
+    const anchor = current ? turnPinAnchor(shownRows, turnId, (row) => isHiddenTranscriptItem(row, "verbose")) : undefined;
+    if (!anchor) return null;
+    return { pinned: chapterSession.userChapters.some((chapter) => chapter.afterId === anchor),
+      onToggle: () => toggleChapterPin(anchor, text || rowSeedText(shownRows.find((row) => row.id === anchor))) };
+  };
   // approval-entry-current.js:4211-4233: xu (load failure) and Cl ("No messages
   // yet") replace the whole transcript scroller, so no status row is drawn with them.
   const emptyPane = current && !loading && shownRows.length === 0 && !pendingSends[current]?.length
@@ -4710,14 +5796,177 @@ function App({ side = 0, initialSession = null }) {
       : !running && !sending && turnRequested !== current && !state.errors[current] && approvals.length === 0 ? "empty" : null)
     : null;
   const trafficLightSpacer = trafficLightSpacerWidth(zoomFactor);
+  const renderMainComposer = () => (
+    <SourceComposer
+      fastMode={fastEnabled}
+      speedLabel={activeTier?.name ?? null}
+      fastAvailable={!!fastTier}
+      // Dynamic workflows (Claude Code's prompt input): the keyword's notice (alt+w ignores it for this prompt) and
+      // ultracode's status line; the keyword is highlighted while it counts.
+      workflowKeyword={keywordMatches.length ? { ignored: keywordIgnored, onToggle: () => setKeywordIgnored((value) => !value) } : null}
+      ultracode={ultracodeOn}
+      commandContext={commandContext} onCommand={executeCommand} commandScope={current}
+      // cc43287c9 :28625-28628 historyResetKey `${draftKey}:${sessionId}` only for an existing
+      // session (the New draft has no history); getHumanPrompts = OE over the open thread.
+      historyResetKey={current ? `${mode}:${current}` : projectDraftId ? homeDraftKey : undefined}
+      getHumanPrompts={() => humanPrompts(shownUserItems(items))}
+      // F12: no onDismiss in commit mode; the counts toggle Changes (git-status-card 5024-5045 Zn toggle:true);
+      // a revisited session shows its held snapshot until its own status arrives.
+      // '!' shell mode (shell-mode-model.mjs) is the composer's own bash mode (Claude's bashModeAvailable): the purple
+      // 'bash' badge and ring, no note above the card.
+      shellMode={mode === "code" ? shellModeKind(boot?.core, shellOptions) : null}
+      // B08: an existing PR (bandPrView) sets view/merged/queued mode; with it a clean tree offers no primary action
+      // (cd5a31703 Te null), a dirty one keeps Commit changes. The chips' menus add Open branch on GitHub and Open in
+      // terminal (c0a531389 T, cd5a31703 Hle/bt).
+      beforeComposer={mode === 'code' && current && (bandStatus ? <SourceGitStatus status={bandStatus}
+        prMode={bandPrView ? bandPrMode(bandPrView) : bandPr ? bandPr.mode : "commit"} pr={bandPr} prView={bandPrView}
+        prHint={bandPr?.hint ? { cause: bandPr.hint, onInstall: (url) => call("external", { url }).catch(actionFailed("open-link")),
+          onRunInTerminal: terminalAvailable ? (command) => { runInTerminal(command, "sh").catch((e) => setError(e.message)); } : null } : null}
+        prWarning={prStatusWarning(bandLookup)}
+        // B34 cd5a31703 ORe (:36446, Mee = the desktop git engine, always local here): ArrowDown + count, "{count} commits
+        // behind {base}", for a checked-out branch other than its base that is behind it (git-status.cjs comparison).
+        behind={behindIndicator(bandStatus.comparison, bandStatus.detached ? null : bandStatus.branch)} showBehind
+        branchUrl={bandBranchUrl} onOpenBranch={(url) => call("external", { url }).catch(actionFailed("open-link"))}
+        onOpenTerminal={() => openTerminalIn(workdir).catch((e) => setError(terminalError(e, t("Failed to open terminal tab"))))}
+        onOpenFolder={() => call("reveal-folder", { cwd: gitStatus?.cwd || workdir }).catch(actionFailed("reveal"))}
+        onCopyPath={path => copyWithToast(path || gitStatus?.cwd || workdir, t("Path copied to clipboard."))}
+        onCopyBranch={branch => copyWithToast(branch || gitStatus?.branch || "", t("Branch name copied to clipboard."))}
+        onOpenChanges={() => togglePaneTile("changes")} onMeasured={rememberBandHeight}
+        onAction={bandPrView && !commitDirty ? undefined : sendCommitTurn} actionLabel={t("Commit changes")} actionDisabled={commitDisabled} actionDisabledReason={commitDisabledReason} />
+        : bandHold ? <SourceGitStatus stale status={bandHold.status} heightPx={bandHold.heightPx} prMode="commit"
+          onAction={sendCommitTurn} actionLabel={t("Commit changes")} /> : null)}
+      showPet={mode === "code" && !current && !error && !draft.startsWith("/")}
+      showContext={mode === "code" && !current}
+      // B29 j0 (cc43287c9 :33440 draft && folder): the folder's put-away suggested tasks; taking one puts its prompt in
+      // the message box (j0 C: a blank box takes it as is, otherwise it follows a blank line; never in bash mode).
+      afterComposer={mode === "code" && !current && section !== "projects" && workdir ? <SourceTaskBacklog folder={workdir} call={call}
+        onError={(message) => toasts ? toasts.add(message, { variant: "danger" }) : setError(message)}
+        onFocusComposer={() => textarea.current?.focus()}
+        onTake={(prompt) => {
+          const text = liveComposer.current?.text ?? draft;
+          const next = insertTakenPrompt(text, prompt, { bashMode: shellModeActive(text, boot?.core, shellOptions) });
+          if (!next) return false;
+          setDraft(next.draft);
+          requestAnimationFrame(() => { const node = textarea.current; node?.focus(); try { node?.setSelectionRange?.(next.caret, next.caret); } catch { /* not a text control */ } });
+          return true;
+        }} /> : null}
+      // cc43287c9 :28686 placeholder Yn ? 'Type / for commands' : 'Describe a task or ask a question'
+      // (Yn = Pn?.id ?? null, :27454) — composer-placeholder.mjs; chat mode keeps its own copy.
+      placeholder={section === 'projects' ? t('What would you like to work on in this project?') : composerPlaceholder({ sessionId: current, mode, firstRun: composerFirstRun({ sessionsLoaded, sessionCount: sessions.length + (hiddenSessions?.otherEngine || 0) + (hiddenSessions?.missing || 0), stats: statsSnapshot }) })}
+      suggestion={current && boot?.config?.promptSuggestions !== false ? promptSuggestions[current] ?? null : null}
+      onAcceptSuggestion={() => setPromptSuggestions((all) => ({ ...all, [current]: null }))}
+      draft={draft}
+      setDraft={setDraft}
+      textarea={textarea}
+      attachments={attachments}
+      // ca80fca8d pk: the draft's agent (an @ Agents pick or the Mode menu's agent) and GitHub issue pills.
+      contextPills={current ? [] : [
+        ...(primaryAgents && agentChoices[""] ? [{ kind: "agent", label: agentChoices[""], icon: "Agent",
+          onRemove: () => setAgentChoices((choices) => { const { [""]: _dropped, ...rest } = choices; return rest; }) }] : []),
+        ...(draftIssue ? [{ kind: "issue", label: draftIssue.label, icon: "Placeholder", loading: draftIssue.bodyStatus === "loading", content: true,
+          onOpen: draftIssue.url ? () => call("external", { url: draftIssue.url }).catch(actionFailed("open-link")) : undefined,
+          onRemove: () => setDraftIssue(null) }] : []),
+      ]}
+      onRemoveAttachment={removeComposerAttachment}
+      // R06 pill click (c099c328d Gl :3542-3550, adapted): a file opens in the Files pane (F11 viewer), a directory is revealed.
+      onOpenAttachmentFile={(entry, action) => action === "reveal" ? transcriptActions.onRevealFile?.(entry.path)
+        : openFileRef({ path: pathChoices(entry.path, workdir)?.relative || entry.path })}
+      onStageFiles={(files, options) => void stageComposerIntake(files, options)}
+      onAddFolders={addFolderFiles}
+      fileContextOwner={fileContextOwner}
+      searchFiles={searchMentionFiles}
+      onMention={rememberMention}
+      queueEnabled={!!current && running && !!boot?.connected && !session?.archived}
+      onSubmit={(...args) => { if (section === 'projects') setSection('new'); return send(...args); }}
+      // cc43287c9 :28620 stayOnDraftHint (cn === 'draft' && !Yn): ⌘⏎ on Home is 'Send and stay here'.
+      stayOnDraft={!current}
+      // ca80fca8d vP v enableForkSubmit: the Send tooltip's ⌘⌥⏎ 'Send in a forked session' row, where send(priority 'fork')
+      // can run /fork with the draft (an open, live session whose core serves thread/fork).
+      forkAvailable={mode === "code" && !!current && !session?.archived && !!boot?.connected && !unsupportedCommand("fork", commandContext)}
+      running={running}
+      sending={sending || actionPending}
+      stopping={stopping}
+      // cc43287c9-BMbiZYzF.js:27612 Jr / :28636-28638: the editor stays typeable while the session loads or
+      // the core is away (only an archived session locks it); sending waits for both (send() checks too).
+      // Jr also holds `c > 0`: Home stays locked while a 'Send and stay here' spawn is in flight.
+      editable={!session?.archived && !(backgroundSpawns > 0 && !current)}
+      canSubmit={!!boot?.connected && !loading}
+      // Enter while sending is gated: say why under the composer (still starting, or a session loading).
+      connectingHint={!boot?.connected && (loading || !initSettled) ? t("Still connecting to DeepSeek. Try again in a moment.")
+        : boot?.connected && loading ? t("Wait for the session to load") : undefined}
+      // Escape belongs to the topmost local layer (the window handler above) before it stops a turn.
+      // A pending approval, plan or question card claims it too: Esc answers the card (Deny, Revise…) through
+      // its document hotkeys, and when the card does not take it (a draft here) it must not stop the turn.
+      escapeClaimed={!!(settings || actionDialog || rename || whatsNew || workflowLaunch || bypassMode.confirming || confirmDelete || worktreeQueue.length || localEnvOpen || showSearch || (effectiveCollapsed && peek.hovering)
+        || (current && shownApprovals.length > 0 && !!boot?.connected && !loading))}
+      // Esc Esc (code-workspace.js Gl → openRewindPicker): Rewind for an idle, live session whose core serves
+      // thread/revert and that has a turn to go back to, as the message menu's 'Rewind to here'.
+      onRewind={current && !running && !session?.archived && boot?.connected && !unsupportedMethods?.includes("thread/revert")
+        && items.some((item) => item.type === "userMessage" && item.turnId && item.turnId !== state.active[current])
+        ? () => { void executeCommand("rewind", "", undefined); } : null}
+      // c099c328d :11162-11188 / cc43287c9 :28653 onEmptyArrowUp = handleDequeueLastQueued (:31152-31156).
+      onEmptyArrowUp={() => {
+        const last = queue.threadId === current ? lastDequeueable(queue) : null;
+        if (!last) return false;
+        queueEdit(last.id);
+        return true;
+      }}
+      mentions={mentions}
+      mentionActions={mentionActions}
+      // A DeepSeek core without a key: the warning row stands in for the sign-in gate (send() refuses), and
+      // its Add key opens the same key step as the home key card's.
+      warning={boot !== null && boot?.connected === false && !loading ? t("Connection to {core} lost.", { core: coreName(boot?.core) })
+        : boot?.connected && boot.account?.deepseek && !boot.account.account ? t("Add a DeepSeek API key to start a session.")
+        : signInRequired ? t("Sign in to {name} to start a session.", { name: signInPrompt.name }) : undefined}
+      // A missing sign-in's action is the sign-in itself (send() starts it too); a missing DeepSeek key's is
+      // Add key, setup's Connect a model step like the home key card's (it saves the key and restarts the
+      // core); any other sign-in prompt re-reads account/read; a lost connection reconnects.
+      onReconnect={signInRequired ? startCoreSignIn : boot?.connected && boot.account?.deepseek && !boot.account.account ? () => setOnboarding("connect")
+        : boot?.connected && signInPrompt ? () => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message)) : reconnect}
+      reconnectLabel={signInRequired ? t("Sign in") : boot?.connected && boot.account?.deepseek && !boot.account.account ? t("Add key") : undefined}
+      onStop={stop}
+      workdir={workdir}
+      workspaceInfo={workspaceInfo}
+      gitRequired={mode === "code" && !current && worktree && !workspaceInfo?.isRepo && workspaceInfo?.gitUnavailable ? gitWarning(workspaceInfo.gitUnavailable) : undefined}
+      onMenu={openMenu}
+      model={chosen}
+      effort={effort}
+      // Before init() settles the saved mode is unknown: null makes the chip a neutral "Mode" placeholder.
+      permission={boot || initSettled ? effectivePermission : null}
+      permissionOpen={menu?.kind === "permission"}
+      modelOpen={menu?.kind === "model"}
+      modelsLoading={boot === null}
+      menuKind={menu?.kind}
+      worktree={worktree}
+      setWorktree={setWorktree}
+      usage={state.usage[current]} planUsage={planUsage}
+      // c360a9e1c hd Y: with no session (sessionRef null) the trigger reads 'Context 0'.
+      usageFresh={!current}
+      mode={mode}
+      onCodeMode={mode === "chat" ? () => switchMode("code") : undefined}
+      onMode={switchMode} surfaceFolder={current ? workdir : boot?.config?.surfaceFolders?.[mode]}
+      surfaceFolderLabel={boot?.config?.localProjects?.find(project => project.id === (current ? sessionMetadata[current]?.projectId : projectDraftId))?.name}
+      surfacePreviewPrompt={!current && mode === 'cowork' && section === 'new' ? homeIdeaPreview : undefined}
+      onClearSurfacePreview={() => setHomeIdeaPreview(undefined)}
+      onFolder={folder}
+      folderMenu={!recentFolderList.browseDirectly}
+      additionalFolders={additionalFolders}
+      onAddFolder={() => call("folder", { additional: true }).then(dir => { if (dir && dir !== cwd) setAdditionalFolders(list => [...new Set([...list, dir])]); }).catch(e => setError(e.message))}
+      onRemoveFolder={dir => setAdditionalFolders(list => list.filter(item => item !== dir))}
+      draftGroup={mode === "code" && !current && draftGroupId ? customGroups.find((group) => group.id === draftGroupId) ?? null : null}
+      onClearDraftGroup={() => setDraftGroup(null)}
+    />
+  );
   return (
     <div
       className={
         // R01: collapsed by the stored preference or the narrow viewport (sidebar-main.js:15367-15372).
-        "desktop-app dframe-root " + (effectiveCollapsed ? "sidebar-collapsed" : "") + (side === 1 ? " split-secondary" : "")
+        "desktop-app dframe-root " + (effectiveCollapsed ? "sidebar-collapsed" : "") + (side > 0 ? " split-secondary" : "")
       }
       data-variant="web"
       data-frame-mode={mode}
+      data-session-popout={SESSION_POPOUT || undefined}
+      data-pane-window={PANE_WINDOW?.pane}
       data-fullscreen={fullScreen || undefined}
       // sidebar-main.js:15304-15320 dR mirrors the peek store onto the root (F08).
       data-hovering={effectiveCollapsed && peek.hovering || undefined}
@@ -4727,8 +5976,13 @@ function App({ side = 0, initialSession = null }) {
       style={{ "--df-sidebar-width": effectiveSidebarWidth(sidebarWidth, sidebarFloor) + "px", "--df-traffic-light-spacer": trafficLightSpacer + "px",
         "--df-peek-top": peek.top + "px", "--df-peek-left": peek.left + "px", "--df-peek-bridge-top": (peek.bridge ?? peek.top - 8) + "px" }}
     >
-      {side === 0 && <SourceSidebar
+      {/* shared-21 lK / shared-22 15368-15373: a sidebar render error shows "Sidebar failed to load." with Try again
+          (remount) instead of taking the window down. */}
+      {side === 0 && !NO_SIDEBAR && <SourceSidebarBoundary>
+      <SourceSidebar
         windowActions={windowActions}
+        paletteCommands={paletteCommands}
+        models={models}
         repoIdentities={repoIdentities}
         editors={editors}
         shareable={sessionsShareable}
@@ -4737,7 +5991,7 @@ function App({ side = 0, initialSession = null }) {
         peekOpen={effectiveCollapsed && peek.hovering}
         onPeekEnter={peekEnter}
         onPeekLeave={peekLeave}
-        sessions={sessions}
+        sessions={sidebarSessions}
         sidebarPreferences={sidebarPreferences}
         onSidebarPreferencesChange={updateSidebarPreferences}
         sessionMetadata={shownSessionMetadata}
@@ -4745,8 +5999,14 @@ function App({ side = 0, initialSession = null }) {
         pinnedOrder={pinnedOrder}
         knownFolders={groups.map(([dir]) => dir)}
         fallbackCwd={cwd}
-        loading={!boot}
-        onSessionAction={sessionAction}
+        // shared-21 BQ/VQ/HQ: the skeleton while the first list read is pending (init, or a reconnect/Try again);
+        // once init settled without a list (core not connected, or the read failed) "Couldn’t load your sessions"
+        // with Try again: read the list again on a live core, else reconnect (which reads it).
+        loading={!sessionsLoaded && (!initSettled || loading)}
+        loadFailed={!sessionsLoaded && initSettled}
+        onRetryLoad={() => boot?.connected ? loadSessions(boot).catch((error) => setError(error.message)) : reconnect()}
+        unarchiving={unarchiving}
+        onSessionAction={sessionAction} onConfirmDelete={(target) => setConfirmDelete(target)}
         engine={boot?.core || engine}
         hiddenSessions={hiddenSessions}
         // 'N sessions could not be loaded': read them again, or drop the ones that still fail from the list.
@@ -4769,6 +6029,7 @@ function App({ side = 0, initialSession = null }) {
         travel={travel}
         mode={mode}
         onMode={switchMode}
+        modeBusy={sending}
         onNew={() => openInFocusedSide(null)}
         groups={groups}
         current={splitView.open ? splitView.sides[splitView.active].current : current}
@@ -4802,10 +6063,9 @@ function App({ side = 0, initialSession = null }) {
         cdsFont={cdsFont}
         section={section}
         // Customize opens its real pages (Settings › Customize: Skills, Connectors, Plugins), not an empty surface.
-        setSection={(key) => { if (key === "customize") { setMenu(null); setSettings("customize-skills"); } else setSection(key); }}
-      />}
-      <SourceSplitHost side={side} chrome={effectiveCollapsed ? <SourceCollapsedChrome onExpand={expandSidebar} peekOpen={peek.hovering}
-        onPeekEnter={peekEnter} onPeekLeave={peekLeave} historyAt={historyAt} historyLength={history.length} travel={travel} /> : null}>
+        setSection={(key) => { if (key === "customize") { setMenu(null); setSettings("customize-skills"); } else { setRoutineSelection(null); setSection(key); } }}
+      /></SourceSidebarBoundary>}
+      <SourceSplitHost side={side}>
       <main
         ref={mainRef}
         className="workspace epitaxy-root cds-root"
@@ -4813,25 +6073,67 @@ function App({ side = 0, initialSession = null }) {
         data-font={cdsFont}
         data-platform="desktop"
       >
+        {/* c11959232 Ed: the split-view tip is a fixed 420px neutral Banner (shared-frame wC, icon null, role none) at the
+            window's bottom right, above the session (z-index uc 9000), with Open in split view (sm Button) and the
+            Banner's ghost X (Dismiss). */}
+        {side === 0 && !SESSION_POPOUT && current && splitTip && !splitView.open && splitTip.partner !== current && sessions.some((thread) => thread.id === splitTip.partner) && (
+          <div className="draggable-none fixed bottom-[calc(var(--dev-dashboard-height,0px)_+_var(--session-expiry-banner-height,0px)_+_1rem)] w-[420px] max-w-[calc(100vw-2rem)] right-[calc(var(--launch-drawer-width,0px)_+_1rem)]"
+            style={{ zIndex: 9000 }} data-testid="epitaxy-split-suggestion">
+            <div data-cds="Banner" data-icon-layout="first-line" data-cta-layout="inline" data-action-align="first-line"
+              className="flex items-start gap-xs py-md font-sans text-body font-normal px-lg rounded-card bg-surface-1 text-primary shadow-card-ring [--cds-prose-code-color:var(--cds-text-danger)] [--cds-prose-marker-color:var(--cds-text-secondary)]">
+              <div className="flex min-w-0 flex-wrap items-start gap-y-sm gap-x-md flex-1">
+                <div className="max-w-full min-w-0 flex-auto">
+                  <div className="flex flex-col items-start gap-2">
+                    {t("See multiple sessions side by side in split view.")}
+                    <SourceSettingsButton size="sm" onClick={() => { const partner = splitTip.partner; closeSplitTip("accepted"); splitStore.open(partner); }}>{t("Open in split view")}</SourceSettingsButton>
+                  </div>
+                </div>
+              </div>
+              <span data-step={themeDensity(boot?.config) === "comfortable" ? "3" : "2"} className="-me-[calc(var(--cds-pad-md)-2px)] flex h-[1lh] shrink-0 items-center">
+                <SourceSettingsButton variant="ghost" iconOnly icon="X" aria-label={t("Dismiss")} onClick={() => closeSplitTip("dismissed")} />
+              </span>
+            </div>
+          </div>
+        )}
         <WebLinkContext.Provider value={openWebLink}>
-        <SourceTileLayout layout={displayLayout} onLayoutChange={changeTileLayout} tiles={tileDefs} hasPane={hasPane} onTileTearOff={tearOffTile} restoreKey={tileOwner} onRestoreLayout={restoreTileLayout}
+        <SourcePreviewLinkChooser isOpen={!!pendingPreviewLink} armKey={pendingPreviewLink?.url}
+          onConfirmed={() => linkRouter.confirm()} onClose={() => { void Promise.resolve(linkRouter.close()).catch(actionFailed('open-link')); }} />
+        {/* B27 side chat window (cd377abb5 _i → c5638815a ut → cccc2cf0a kT onReattach): the session's side chat fills
+            the window; its X closes the side chat with the window, Open in main window docks it back. */}
+        {PANE_WINDOW?.pane === "side-chat" ? (
+          <SourceSideChat windowed threadId={PANE_WINDOW.sessionId} open={paneWindowSeed !== undefined} rpc={rpc}
+            assistantName={coreName(boot?.core)} searchFiles={searchSideMentionFiles} mentionActions={mentionActions}
+            onClose={() => dockPaneWindow({ close: true })}
+            windowControls={{ onDock: () => dockPaneWindow(), alwaysOnTop: popoutPinned, onTogglePin: togglePaneWindowPin }} />
+        ) : (
+        <SourceTileLayout layout={displayLayout} onLayoutChange={PANE_WINDOW ? () => {} : changeTileLayout} tiles={tileDefs} hasPane={hasPane} onTileTearOff={PANE_WINDOW ? () => false : tearOffTile} restoreKey={tileOwner} onRestoreLayout={restoreTileLayout}
           renderTile={(tileId, tileApi) => tileId === "preview" ? (
-            current ? <SourcePreviewPane key={current} sessionId={current} desktop={api} headerCenter={tileApi.dragHandle} onError={setError} onClose={() => closePaneTile("preview")}
+            previewOwner ? <SourcePreviewPane key={previewOwner} sessionId={previewOwner} desktop={api} headerCenter={tileApi.dragHandle} onError={setError} onClose={() => closePaneTile("preview")}
               onAttachScreenshot={(file) => stageComposerFiles([file], { imagesOnly: true })}
+              onAttachElement={current ? stageSelectedElement : undefined}
               // Settings › Code › Preview › 'Let {assistant} use the preview' off: the agent has no preview tools, so the pane
               // neither promises them nor asks the agent to call them.
               agentUsesPreview={boot?.config?.agentPreview !== false}
-              onAskAgent={boot?.connected && !session?.archived && boot?.config?.agentPreview !== false ? (text) => { void sendFixedTurn(text); } : null}
+              onTurnOnAgentPreview={() => { call("settings", { agentPreview: true }).catch(actionFailed("save-preference")); }}
+              onAskAgent={current && boot?.connected && !session?.archived && boot?.config?.agentPreview !== false ? (text) => sendFixedTurn(text) : null}
+              // cf580efe9 wr: the running tool the "Setting up preview" state names while the agent starts a server.
+              runningToolLabel={running ? previewRunningToolLabel(items) : null}
               controls={<SourcePaneControls tileId="preview" paneName={PANE_NAMES.preview} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "preview"}
                 onMoveToEdge={edge => moveTileEdge("preview", edge)} onToggleExpand={() => toggleExpandTile("preview")} onClose={() => closePaneTile("preview")} />} /> : null
           ) : tileId === "terminal" ? (
+            // A pane window (B27) shows its session's terminal once that session is open, never the Home folder's.
+            PANE_WINDOW && current !== PANE_WINDOW.sessionId ? null :
             <SourceTerminalPane sessionId={current ?? null} homeWorkspace={current ? null : workdir} cwd={workdir} focusRequest={terminalFocus || null}
-              headerCenter={tileApi.dragHandle} onOpenFile={openFileRef} onOpenExternal={openWebLink}
+              headerCenter={tileApi.dragHandle} onOpenFile={openFileRef} onOpenExternal={PANE_WINDOW ? (url) => { call("external", { url }).catch(() => {}); } : openWebLink}
               onClosePane={() => closePaneTile("terminal", current ?? HOME_TILE_KEY)}
-              onAttachSelection={attachTerminalOutput}
-              controls={<SourcePaneControls tileId="terminal" paneName={PANE_NAMES.terminal} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "terminal"}
-                onMoveToEdge={edge => moveTileEdge("terminal", edge)} onToggleExpand={() => toggleExpandTile("terminal")} onClose={() => closePaneTile("terminal")} />} />
+              // A popped-out Terminal pane (B27) has no composer: a selection goes to the window showing the session.
+              onAttachSelection={PANE_WINDOW ? (text, meta) => { call("popout-add-to-prompt", { text, label: meta?.label, terminalTabId: meta?.terminalTabId }).catch((reason) => setError(reason.message)); } : attachTerminalOutput} fileDragOwner={fileContextOwner}
+              controls={PANE_WINDOW ? <SourcePopoutControls paneName={PANE_NAMES.terminal} onDock={() => dockPaneWindow()} alwaysOnTop={popoutPinned} onToggleAlwaysOnTop={togglePaneWindowPin} />
+                : <SourcePaneControls tileId="terminal" paneName={PANE_NAMES.terminal} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "terminal"}
+                onMoveToEdge={edge => moveTileEdge("terminal", edge)} onToggleExpand={() => toggleExpandTile("terminal")}
+                onPopOut={api && current && !popoutKeys.has(`${current}:terminal`) ? () => popoutTile("terminal") : undefined} onClose={() => closePaneTile("terminal")} />} />
           ) : tileId === "tasks" ? (
+            PANE_WINDOW && current !== PANE_WINDOW.sessionId ? null :
             <SourceTasksPane transcriptView={transcriptView} state={state} sessionId={current} views={tileEntry?.taskViews || []} background={<SourceBackgroundTasks key={current} tasks={tasks} sessionId={current} renderWorkflow={task=><WorkflowCard run={task.run} warningLimits={workflowWarningLimits} onStop={()=>stopBackgroundTask(task)} onMember={isModelWorkflow(task.run)?(agent,action)=>rpc('codeDesktop/workflow/member',{threadId:current,runId:task.run.runId??task.run.id,attemptId:task.run.attemptId,seq:Number(agent.id),action}).then(r=>{if(r?.accepted===false)throw Error(t('This agent can’t be retried or skipped right now.'));}):(agent,action)=>call('workflow-member',{id:task.run.id,memberId:agent.id,action})}
               onPause={isModelWorkflow(task.run)?(task.run.pauseControls===true?paused=>rpc('codeDesktop/workflow/pause',{threadId:current,runId:task.run.runId??task.run.id,paused}):undefined):paused=>call('workflow-pause',{id:task.run.id,paused})}
               onResume={isModelWorkflow(task.run)&&task.run.resumable===true?()=>rpc('codeDesktop/workflow/resume',{threadId:current,runId:task.run.runId??task.run.id}):undefined}
@@ -4842,8 +6144,10 @@ function App({ side = 0, initialSession = null }) {
               canMessage={id=>!!boot?.connected&&state.threads?.[id]?.canAcceptDirectInput===true&&!!state.threads?.[id]?.parentThreadId}
               onMessage={(id,text)=>rpc('turn/start',{threadId:id,input:[{type:'text',text,text_elements:[]}]}).catch(error=>{throw new Error(subAgentMessageError(error));})}
               onBack={() => changeTileView({taskViews:(tileEntry?.taskViews || []).slice(0,-1)})} onClose={() => closePaneTile("tasks")}
-              headerCenter={tileApi.dragHandle} controls={<SourcePaneControls tileId="tasks" paneName={PANE_NAMES.tasks} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "tasks"}
-                onMoveToEdge={edge => moveTileEdge("tasks",edge)} onToggleExpand={() => toggleExpandTile("tasks")} onClose={() => closePaneTile("tasks")} />}
+              headerCenter={tileApi.dragHandle} controls={PANE_WINDOW ? <SourcePopoutControls paneName={PANE_NAMES.tasks} onDock={() => dockPaneWindow()} alwaysOnTop={popoutPinned} onToggleAlwaysOnTop={togglePaneWindowPin} />
+                : <SourcePaneControls tileId="tasks" paneName={PANE_NAMES.tasks} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "tasks"}
+                onMoveToEdge={edge => moveTileEdge("tasks",edge)} onToggleExpand={() => toggleExpandTile("tasks")}
+                onPopOut={api && current && !popoutKeys.has(`${current}:tasks`) ? () => popoutTile("tasks") : undefined} onClose={() => closePaneTile("tasks")} />}
               renderItem={(childItem,childId,placement) => <Message item={childItem} agentNested agentContext={{state,onOpen:openAgent}} sessionKey={childId} reasoningPlacement={placement}
                 isStreaming={isItemStreaming(state,childId,childItem)} cwd={state.threads[childId]?.cwd || workdir}
                 onOpenFileRef={openFileRef} transcriptView={transcriptView} pendingApprovalItemIds={pendingApprovalItems} />} />
@@ -4853,18 +6157,30 @@ function App({ side = 0, initialSession = null }) {
               sessionId={current ?? null}
               searchPane="main"
               tab={tileId}
+              nuxAllowed={nuxAllowed}
               plan={state.plans[current]}
               planDocument={state.planDocs?.[current] ?? null}
-              diff={gitStatus?.isRepo ? gitDiff : sessionDiff}
+              planCommentsEnabled={tileId === "plan" && planCommentsOpen(current)}
+              planHistory={tileId === "plan" && current ? { loading, failed: loadError?.id === current, onRetry: () => openSession(current, { retry: true }) } : null}
+              diff={gitStatus?.isRepo ? shownGitDiff.diff : sessionDiff}
               diffScope={diffScope.param}
               diffScopeControl={tileId === "changes" ? diffScope.control : null}
-              loading={tileId === "changes" && !!current && !gitStatusError && (gitStatus === null || gitStatus.isRepo && gitDiff === null)}
+              diffStale={tileId === "changes" && gitStatus?.isRepo && shownGitDiff.carriedOver ? { scope: shownGitDiff.scope } : null}
+              diffCommits={tileId === "changes" ? diffScope.commits : null}
+              diffRetrying={diffRetrying}
+              loading={tileId === "changes" && !!current && !gitStatusError && (gitStatus === null || gitStatus.isRepo && shownGitDiff.diff === null)}
               diffError={gitStatusError || gitDiffError}
               onClose={() => closePaneTile(tileId)}
               onRefresh={refreshChanges}
               openRequest={tileId === "files" ? fileRequest : null}
               onOpenRequestHandled={consumeFileRequest}
-              diffFileActions={tileId === "changes" ? diffFileActions : null}
+              filesInvalidate={tileId === "files" ? filesInvalidate : null}
+              // B14: Changes line comments are saved like Files comments (a keyed composer snippet; delete detaches it).
+              // B16: the Changes header / Changed files row menus' Open in ▸ editors and Show in Finder (renderFileMenuItems),
+              // folder attach and row drag reuse the Files pane's targets (reveal is scoped to the session folder).
+              diffFileActions={tileId === "changes" ? { ...diffFileActions, onSaveComment: filePaneActions.onSaveComment, onDeleteComment: filePaneActions.onDeleteComment,
+                editors: filePaneActions.editors, onOpenInEditor: filePaneActions.onOpenInEditor, onRevealFile: filePaneActions.onRevealFile, revealRoot: workdir || cwd,
+                onAttachFiles: filePaneActions.onAttachFiles, onDragFiles: filePaneActions.onDragFiles } : null}
               review={tileId === "changes" && current ? { items: state.items[current], active: !!running, onSend: boot?.connected && !session?.archived ? (text) => sendFixedTurn(text) : null, onRerun: () => { void executeCommand("review"); } } : null}
               fileActions={tileId === "files" ? filePaneActions : null}
               treeToggleRef={tileId === "files" ? fileTreeToggleRef : tileId === "changes" ? diffTreeToggleRef : null}
@@ -4879,26 +6195,34 @@ function App({ side = 0, initialSession = null }) {
                 onClose={() => closePaneTile(tileId)} />}
             />
           ) : (
-          <div className="source-chat-tile-content">
-            <SourceTitlebar collapsed={effectiveCollapsed} onExpand={expandSidebar} section={section}
+          <div className="source-chat-tile-content" data-surface={mode} data-section={section} data-home={!current && section === "new" || undefined}>
+            {!artifactPreviewOpen && <SourceTitlebar surface={mode} activityOpen={surfaceActivity[current] ?? mode === "cowork"}
+              onToggleActivity={() => setSurfaceActivity(value => ({ ...value, [current]: !(value[current] ?? mode === "cowork") }))} collapsed={effectiveCollapsed && !SESSION_POPOUT} onExpand={expandSidebar} section={section}
+              sectionLabel={mode !== 'code' && section === 'routines' ? t('Scheduled') : undefined}
               peekOpen={effectiveCollapsed && peek.hovering} onPeekEnter={peekEnter} onPeekLeave={peekLeave}
-              session={session} panes={openPanes} onTogglePane={(kind) => (kind === "terminal" ? toggleTerminalPane() : togglePaneTile(kind))} onMenu={openMenu} menuKind={menu?.kind} loading={loading}
+              session={session} panes={openPanes} onTogglePane={(kind) => (kind === "terminal" ? toggleTerminalPane() : togglePaneTile(kind))} onMenu={openMenu} menuKind={menu?.kind} menuAtPointer={!!menu?.point} loading={loading}
               terminalAvailable={terminalAvailable} terminalBusy={terminalBusy}
               previewAvailable={previewAvailable} previewRunning={previewRunning}
-              onRename={renameSession} onWhatsNew={() => setWhatsNew(true)}
-              showWhatsNew={side === 0 && whatsNewVisible({ version: clientVersion, hasNotes: whatsNewHasNotes, seen: whatsNewSeen, open: whatsNew })}
+              onRename={renameSession} renameRequest={titleRenameRequest} onWhatsNew={() => setWhatsNew(true)}
+              showWhatsNew={mode === "code" && side === 0 && whatsNewVisible({ version: clientVersion, hasNotes: whatsNewHasNotes, seen: whatsNewSeen, open: whatsNew })}
               historyAt={historyAt} historyLength={history.length} travel={travel}
               changesDirty={!!(gitStatus?.isRepo && gitStatus.hasChanges)}
-              onCloseSplit={splitView.open ? () => splitStore.close(side) : undefined}
-              closeSplitShortcut={splitView.open && splitView.active === side ? "ctrl+cmd+w" : undefined} />
+              onCloseSplit={side !== 0 && splitView.open ? () => splitStore.close(side) : undefined}
+              popoutWindow={SESSION_POPOUT ? { alwaysOnTop: popoutPinned, onDock: dockSessionPopout, onTogglePin: toggleSessionPopoutPin } : null} />}
             <div className="source-chat-body">
-          <div className="conversation">
-            {section === "new" ? (
-              <>
+          <div className={`conversation ${!current && mode !== 'code' && section === 'new' ? homeScrollClass : ''}`}>
+            {section === "new" && mode === 'cowork' && boot?.coworkEnabled !== true ? <SourceCoworkComingSoon onMode={switchMode} /> : section === "new" ? (
+              <SourceSurfaceHome active={!current && mode !== 'code'}>
                 {/* sidebar-main.js:20491: ZB is app-level, outside the per-session
                     transcript, so a session switch keeps the bar and its query and
                     recounts against the new transcript (scope and reveal are read
                     through transcriptRef at call time). */}
+                {!current && mode !== 'code' && <SourceSurfaceGreeting name={boot?.config?.displayName} />}
+                {/* B29 (cc43287c9 :45280-45288): the Code draft's greeting (nz) sits in a div.relative above the scroller, so it
+                    stays under the titlebar however many Action Center rows scroll below it. */}
+                {!current && mode === "code" && <div className="home-greeting-slot">
+                  <SourceGreeting displayName={displayName} landingClear={homeLandingClear} />
+                </div>}
                 <SourceFindBar ref={findBarRef} shortcuts={splitActive} sessionKey={current ?? "draft"}
                   getScope={() => transcriptRef.current?.getContent?.()}
                   scroll={{ reveal: (rect) => transcriptRef.current?.reveal?.(rect) ?? false }} />
@@ -4906,6 +6230,10 @@ function App({ side = 0, initialSession = null }) {
                     task's prompt in its folder, as the ⌘K 'Start a session' row does; nothing runs before that. */}
                 {current && <SourceSuggestedTasks key={`suggested:${current}`} items={state.items[current]} sessionId={current} cwd={workdir || null}
                   disabled={!boot?.connected || !!settings}
+                  // B29 (asar fileBackgroundTasksForLater 'dismissed'): a suggestion put away without starting it goes to its
+                  // folder's backlog, which Home lists under the composer (source-task-backlog.jsx).
+                  onDismiss={(task) => { void call("task-backlog-file", { sessionId: current, source: "dismissed", tasks: [{ taskId: task.id, title: task.title,
+                    tldr: task.tldr, prompt: task.prompt, cwd: task.cwd || undefined, suggestedAt: task.suggestedAt }] }).catch(() => {}); }}
                   onStart={(task) => { const folder = task.cwd || knownThread(current)?.cwd || workdir || cwd; startSessionFromSearch(task.prompt); if (folder) setCwd(folder); }} />}
                 <SourceTranscript
                   key={current ?? "draft"}
@@ -4918,15 +6246,16 @@ function App({ side = 0, initialSession = null }) {
                   messageActions={transcriptActions}
                   responding={running}
                   onFeedEscape={() => textarea.current?.focus()}
+                  chapters={chapterList}
+                  chapterSessionId={current}
                 >
-                  {!current && (
+                  {!current && mode === "code" && (
                     <div className="welcome">
-                      <SourceGreeting displayName={displayName} landingClear={homeLandingClear} />
                       {/* Official Zk: landing clear → stats card (hidden when the
                           stats read failed, $O undefined); otherwise the Action
                           Center; while sessions load, the remembered shape. */}
                       {remembered && (homeLoading && !homeLandingClear
-                        ? <SourceActionCenterPlaceholder counts={remembered} limit={sessionsRowLimit} />
+                        ? <SourceActionCenterPlaceholder counts={remembered} limit={sessionsRowLimit} prLimit={pullRequestsRowLimit} />
                         : homeLandingClear
                           ? statsSnapshot === null ? null : (
                             <div className="home-content" aria-busy={statsSnapshot === undefined || undefined}>
@@ -4936,7 +6265,15 @@ function App({ side = 0, initialSession = null }) {
                               onOpen={(item) => navigate(item.id)}
                               onDismiss={(item) => ackSession(item).catch((e) => setError(e.message))}
                               onMarkAllRead={(list) => Promise.all(list.map((item) => updateSessionMetadata(item.id, { unread: false }))).catch((e) => setError(e.message))}
-                              onContextMenu={(item, anchor) => openMenu("session", anchor, item)} />)}
+                              onContextMenu={(item, anchor) => openMenu("session", anchor, item)}
+                              // iz onOpenPr (cc43287c9 :5103-5126): ⌘/Ctrl-click opens the PR (dR); a click opens the session
+                              // with its changes (the official diff-pane fallback where no PR pane exists).
+                              prRows={pullRequestRows} prLimit={pullRequestsRowLimit}
+                              onOpenPr={(entry, _category, event) => {
+                                if (event?.metaKey || event?.ctrlKey) { call("external", { url: entry.pr.url }).catch(actionFailed("open-link")); return; }
+                                openPaneTile("changes", entry.session.id);
+                                navigate(entry.session.id);
+                              }} />)}
                       {/* Zk (cc43287c9-BMbiZYzF.js:5104-5180) has no connection card: nothing shows
                           while the core starts, and a lost connection is the composer's warning
                           row (data-cds-composer-warning + Retry). The key card is the local stand-in
@@ -4964,7 +6301,7 @@ function App({ side = 0, initialSession = null }) {
                           <div className="sh-card is-outline connection-card" data-testid="core-sign-in-card" data-core-sign-in={signInPrompt.action}>
                             <div className="connection-card-copy">
                               <span className="connection-card-title">{t("Sign in to {name}", { name: signInPrompt.name })}</span>
-                              <span className="connection-card-body">{signInPrompt.action === "login" ? (signInBrowser?.label ? t(signInBrowser.label) : t("Sign in in your browser to continue.")) : t("Sign in or add an API key in Settings › Preferences › Account so {name} can answer.", { name: signInPrompt.name })}</span>
+                              <span className="connection-card-body">{signInPrompt.action === "login" ? (signInBrowser?.label ? t(signInBrowser.label) : t("Sign in in your browser to continue.")) : t("Sign in or add an API key in Settings › General › Account so {name} can answer.", { name: signInPrompt.name })}</span>
                             </div>
                             <div className="connection-card-actions">
                               {signInPrompt.action === "login"
@@ -4997,6 +6334,9 @@ function App({ side = 0, initialSession = null }) {
                     if(item.localCommand)return <div key={item.id} data-local-command="status"><div className="source-user-bubble"><SourceUserText text="/status" nonInteractive/></div><SessionStatusDialog {...item} inline readStatus={readSessionStatus} onClose={()=>setLocalCommandRows(rows=>({...rows,[current]:(rows[current]||[]).filter(row=>row.id!==item.id)}))}/></div>;
                     const footer = turnFooters.get(item.toolGroup?.at(-1)?.id || item.id);
                     return <React.Fragment key={`${current}:${item.id}`}>
+                      {/* Pinned chapters (KL/CX) head the row they were pinned at. */}
+                      {pinnedChaptersForRow(chapterSession, item).map((chapter) => <SourceChapterHeading key={`chapter:${chapter.id}`}
+                        id={chapter.id} title={chapter.title} sessionId={current} source="user" />)}
                       {item.workflowRun ? <WorkflowRow run={item.workflowRun} warningLimits={workflowWarningLimits} onOpen={()=>openWorkflow(workflowKey({...item.workflowRun,itemId:item.id}))}/> :
                       <Message item={item} isInterrupting={stopping} agentContext={{state,onOpen:openAgent,onTask:openBackgroundTask,onTaskEvent:openTaskEvent}} sessionKey={current} isStreaming={isItemStreaming(state, current, item)} turnStart={!!item.turnId && item.turnId !== displayedItems[index - 1]?.turnId}
                         cwd={workdir} onOpenFileRef={openFileRef} onOpenChanges={() => { if (!canViewChanges) return false; setPanel("changes"); return true; }} transcriptView={transcriptView} pendingApprovalItemIds={pendingApprovalItems}
@@ -5013,15 +6353,19 @@ function App({ side = 0, initialSession = null }) {
                         return <SourceTurnFooter sessionKey={current} turnId={footer.turnId}
                           text={footer.text} completedAtMs={turnSecondsToMs(state.turnTimes?.[current]?.[footer.turnId]?.completedAt)} {...turnInteraction.forTurn(footer.turnId)}
                           onFork={transcriptActions.onForkFrom ? () => transcriptActions.onForkFrom(footer.turnId) : null}
+                          pin={turnChapterPin(footer.turnId, footer.text)}
                           rating={replyId ? { value: messageRatings[current]?.[replyId]?.rating ?? null, onRate: (value) => rateReply(current, replyId, value).catch((e) => toasts?.add?.(e.message, { variant: "danger" })) } : null} />;
                       })()}
                       {item.turnId && editsByTurn.has(item.turnId) && displayedItems.findLastIndex(row => row.turnId === item.turnId) === index && (() => {
                         const edits = editsByTurn.get(item.turnId);
                         const canUndo = item.turnId === latestTurnId && !running && !loading && !sending && !!boot?.connected && !session?.archived && !misalignedTurn;
-                        return <SourceTurnEdits edits={edits} turnId={item.turnId}
+                        return <SourceTurnEdits edits={edits} turnId={item.turnId} sessionKey={current}
                           onUndo={canUndo ? () => void sendUndoTurn(edits.files) : undefined}
-                          onView={canViewChanges ? () => setPanel("changes") : undefined}
-                          onViewFile={canViewChanges ? (path) => { requestDiffReveal(path); setPanel("changes"); } : undefined} />;
+                          // v2e f / x2e (cd5a31703 :71830-71838, :71980-71997) with the Yg probe: the header reveals the
+                          // first file the shown Changes diff lists, else opens the pane; a row reveals its file there when
+                          // listed, else opens it in the Files pane ($g).
+                          onView={canViewChanges ? () => { const hit = edits.files.find((file) => turnFileInChanges(file.path)); if (hit) requestDiffReveal(hit.path); setPanel("changes"); } : undefined}
+                          onViewFile={current ? (path) => { if (turnFileInChanges(path)) { requestDiffReveal(path); setPanel("changes"); } else openFileRef({ path: pathChoices(path, workdir)?.relative || path }); } : undefined} />;
                       })()}
                       {item.turnId && taskEventsByTurn.has(item.turnId) && displayedItems.findLastIndex(row => row.turnId === item.turnId) === index
                         && <SourceTaskEvent events={taskEventsByTurn.get(item.turnId)} itemId={`task-events:${item.turnId}`} onOpen={openTaskEvent} />}
@@ -5124,6 +6468,7 @@ function App({ side = 0, initialSession = null }) {
                     turnId={state.active[current]} turnStats={state.turnStats?.[current]}
                     items={state.items[current]} itemPhases={state.itemPhases?.[current]}
                     connected={!!boot?.connected} running={running} stopping={stopping} retrying={retryStatus} sending={sending && !running}
+                    spawnLabel={!current && spawnPhase ? spawnPhaseLabel(spawnPhase.phase) : null}
                     onOpenLink={(url) => call("external", { url }).catch(actionFailed("open-link"))}
                     waiting={approvals.length > 0} approvalVisible={approvals.length > 0}
                     /* Xhe :58739-58800: runningTaskCount (Gb) and the tasks-pane toggle only when side
@@ -5158,7 +6503,7 @@ function App({ side = 0, initialSession = null }) {
                   onClear={nativeGoals ? () => goalAction(null) : undefined}
                   onEdit={nativeGoals && state.goals[current].status !== "complete" ? () => { setDraft(`/goal edit ${state.goals[current].objective}`); requestAnimationFrame(() => textarea.current?.focus()); } : undefined} />}
                 <SourceSessionNotices
-                  notices={[...(hooksNotice ? [hooksNotice] : []), ...(bufferingNotice ? [bufferingNotice] : []), ...(upsellNotice ? [upsellNotice] : []), ...(upgradeNotice ? [upgradeNotice] : []), ...(headlineNotice ? [headlineNotice] : []),
+                  notices={[...(workflowSizeNotice ? [workflowSizeNotice] : []), ...(hooksNotice ? [hooksNotice] : []), ...(bufferingNotice ? [bufferingNotice] : []), ...(upsellNotice ? [upsellNotice] : []), ...(upgradeNotice ? [upgradeNotice] : []), ...(headlineNotice ? [headlineNotice] : []),
                     ...(usageNotice ? [{ ...usageNotice, actions: [{ label: t("View usage"), run: () => setSettings("usage") }] }] : []),
                     ...sessionNotices({ notices: state.notices, warnings: (current && state.warnings[current]) || [], threadNotices: (current && state.threadNotices?.[current]) || [] })
                       // A bridge core's 'ignores this folder's … until you trust the folder' (Gemini's folder trust): gone once
@@ -5181,13 +6526,6 @@ function App({ side = 0, initialSession = null }) {
                     : ({compact:t("Compacting conversation…"), review:t("Reviewing code…"), fork:t("Forking session…")}[operation.operation])}</span>
                   {!actionPending && <button aria-label={t("Dismiss session action")} onClick={() => dispatch({type:"dismiss-operation", id:current})}><Icon name="X" size={12}/></button>}
                 </div>}
-                {current && splitTip && !splitView.open && splitTip.partner !== current && sessions.some((thread) => thread.id === splitTip.partner) && <div className="sqm-band epitaxy-band-enter" data-testid="epitaxy-split-suggestion" role="status">
-                  <div className="sqm-row sqm-single">
-                    <span className="sqm-preview sqm-tip-text">{t("See multiple sessions side by side in split view.")}</span>
-                    <button type="button" className="sc-button sqm-tip-action" onClick={() => { const partner = splitTip.partner; closeSplitTip("accepted"); splitStore.open(partner); }}>{t("Open in split view")}</button>
-                    <button type="button" aria-label={t("Dismiss")} data-cds="Button" className="sc-button sc-icon-button sqm-ghost" onClick={() => closeSplitTip("dismissed")}><Icon name="X" size={12}/></button>
-                  </div>
-                </div>}
                 {current && pendingSteers[current]?.length > 0 && <div className="sqm-band epitaxy-band-enter" data-pending-steers="" data-count={pendingSteers[current].length} role="status">
                   <div className="sqm-row sqm-single">
                     <span className="sqm-count">{tn(pendingSteers[current].length, "Sending after the next step", "{count} messages sending after the next step", { count: pendingSteers[current].length })}</span>
@@ -5196,127 +6534,26 @@ function App({ side = 0, initialSession = null }) {
                 </div>}
                 {current && queue.threadId === current && queue.entries.length > 0 && (
                   <SourceQueuedMessages key={`${current}:queued`} entries={queue.entries} lockedIds={queue.lockedIds}
+                    steeringId={queueSteering} coreName={coreName(boot?.core)} onSteer={running ? queueSteer : undefined}
+                    sendNow={(id) => canSendNow(queue, id, { turnId: state.active[current], connected: !!boot?.connected, archived: !!session?.archived, steeringId: queueSteering })}
                     onCancel={queueCancel} onEdit={queueEdit} onReorder={queueReorder} />
                 )}
                 {/* Computer use: while the agent controls the computer, the latest screenshot, the action and Stop. */}
                 {current && running && <SourceComputerUseBanner active={activeComputerUse(items, item => ["inProgress", "running"].includes(item?.status))}
                   coreName={coreName(boot?.core)} onStop={() => void stop()} stopping={stopping} />}
-                <SourceComposer
-                  fastMode={fastEnabled}
-                  speedLabel={activeTier?.name ?? null}
-                  fastAvailable={!!fastTier}
-                  // Dynamic workflows (Claude Code's prompt input): the keyword's notice (alt+w ignores it for this prompt) and
-                  // ultracode's status line; the keyword is highlighted while it counts.
-                  workflowKeyword={keywordMatches.length ? { ignored: keywordIgnored, onToggle: () => setKeywordIgnored((value) => !value) } : null}
-                  ultracode={ultracodeOn}
-                  commandContext={commandContext} onCommand={executeCommand} commandScope={current}
-                  // cc43287c9 :28625-28628 historyResetKey `${draftKey}:${sessionId}` only for an existing
-                  // session (the New draft has no history); getHumanPrompts = OE over the open thread.
-                  historyResetKey={current ? `${mode}:${current}` : undefined}
-                  getHumanPrompts={() => humanPrompts(shownUserItems(items))}
-                  // F12: no onDismiss in commit mode; the counts toggle Changes (git-status-card 5024-5045 Zn toggle:true);
-                  // a revisited session shows its held snapshot until its own status arrives.
-                  // '!' shell mode (shell-mode-model.mjs) is the composer's own bash mode (Claude's bashModeAvailable): the purple
-                  // 'bash' badge and ring, no note above the card.
-                  shellMode={shellModeKind(boot?.core, shellOptions)}
-                  beforeComposer={current && (bandStatus ? <SourceGitStatus status={bandStatus} prMode={bandPr ? "create" : "commit"} pr={bandPr}
-                    onOpenFolder={() => call("reveal-folder", { cwd: gitStatus?.cwd || workdir }).catch(actionFailed("reveal"))}
-                    onCopyPath={path => copyWithToast(path || gitStatus?.cwd || workdir, t("Path copied to clipboard."))}
-                    onCopyBranch={branch => copyWithToast(branch || gitStatus?.branch || "", t("Branch name copied to clipboard."))}
-                    onOpenChanges={() => togglePaneTile("changes")} onMeasured={rememberBandHeight}
-                    onAction={sendCommitTurn} actionLabel={t("Commit")} actionDisabled={commitDisabled} actionDisabledReason={commitDisabledReason} />
-                    : bandHold ? <SourceGitStatus stale status={bandHold.status} heightPx={bandHold.heightPx} prMode="commit"
-                      onAction={sendCommitTurn} actionLabel={t("Commit")} /> : null)}
-                  showPet={!current && !error && !draft.startsWith("/")}
-                  showContext={!current}
-                  // cc43287c9 :28686 placeholder Yn ? 'Type / for commands' : 'Describe a task or ask a question'
-                  // (Yn = Pn?.id ?? null, :27454) — composer-placeholder.mjs; chat mode keeps its own copy.
-                  placeholder={composerPlaceholder({ sessionId: current, mode })}
-                  suggestion={current && boot?.config?.promptSuggestions !== false ? promptSuggestions[current] ?? null : null}
-                  onAcceptSuggestion={() => setPromptSuggestions((all) => ({ ...all, [current]: null }))}
-                  draft={draft}
-                  setDraft={setDraft}
-                  textarea={textarea}
-                  attachments={attachments}
-                  onRemoveAttachment={removeComposerAttachment}
-                  // R06 pill click (c099c328d Gl :3542-3550, adapted): a file opens in the Files pane (F11 viewer), a directory is revealed.
-                  onOpenAttachmentFile={(entry, action) => action === "reveal" ? transcriptActions.onRevealFile?.(entry.path)
-                    : openFileRef({ path: pathChoices(entry.path, workdir)?.relative || entry.path })}
-                  onStageFiles={stageComposerFiles}
-                  searchFiles={searchMentionFiles}
-                  onMention={rememberMention}
-                  queueEnabled={!!current && running && !!boot?.connected && !session?.archived}
-                  onSubmit={send}
-                  // cc43287c9 :28620 stayOnDraftHint (cn === 'draft' && !Yn): ⌘⏎ on Home is 'Send and stay here'.
-                  stayOnDraft={!current}
-                  running={running}
-                  sending={sending || actionPending}
-                  stopping={stopping}
-                  // cc43287c9-BMbiZYzF.js:27612 Jr / :28636-28638: the editor stays typeable while the session loads or
-                  // the core is away (only an archived session locks it); sending waits for both (send() checks too).
-                  // Jr also holds `c > 0`: Home stays locked while a 'Send and stay here' spawn is in flight.
-                  editable={!session?.archived && !(backgroundSpawns > 0 && !current)}
-                  canSubmit={!!boot?.connected && !loading}
-                  // Enter while sending is gated: say why under the composer (still starting, or a session loading).
-                  connectingHint={!boot?.connected && (loading || !initSettled) ? t("Still connecting to DeepSeek. Try again in a moment.")
-                    : boot?.connected && loading ? t("Wait for the session to load") : undefined}
-                  // Escape belongs to the topmost local layer (the window handler above) before it stops a turn.
-                  // A pending approval, plan or question card claims it too: Esc answers the card (Deny, Revise…) through
-                  // its document hotkeys, and when the card does not take it (a draft here) it must not stop the turn.
-                  escapeClaimed={!!(settings || actionDialog || rename || whatsNew || workflowLaunch || bypassMode.confirming || confirmDelete || showSearch || (effectiveCollapsed && peek.hovering)
-                    || (current && shownApprovals.length > 0 && !!boot?.connected && !loading))}
-                  // Esc Esc (code-workspace.js Gl → openRewindPicker): Rewind for an idle, live session whose core serves
-                  // thread/revert and that has a turn to go back to, as the message menu's 'Rewind to here'.
-                  onRewind={current && !running && !session?.archived && boot?.connected && !unsupportedMethods?.includes("thread/revert")
-                    && items.some((item) => item.type === "userMessage" && item.turnId && item.turnId !== state.active[current])
-                    ? () => { rewindPreselect.current = null; void executeCommand("rewind", "", undefined); } : null}
-                  // c099c328d :11162-11188 / cc43287c9 :28653 onEmptyArrowUp = handleDequeueLastQueued (:31152-31156).
-                  onEmptyArrowUp={() => {
-                    const last = queue.threadId === current ? lastDequeueable(queue) : null;
-                    if (!last) return false;
-                    queueEdit(last.id);
-                    return true;
-                  }}
-                  mentions={mentions}
-                  mentionActions={mentionActions}
-                  // A DeepSeek core without a key: the warning row stands in for the sign-in gate (send() refuses), and
-                  // its Add key opens the same key step as the home key card's.
-                  warning={boot !== null && boot?.connected === false && !loading ? t("Connection to {core} lost.", { core: coreName(boot?.core) })
-                    : boot?.connected && boot.account?.deepseek && !boot.account.account ? t("Add a DeepSeek API key to start a session.")
-                    : signInRequired ? t("Sign in to {name} to start a session.", { name: signInPrompt.name }) : undefined}
-                  // A missing sign-in's action is the sign-in itself (send() starts it too); a missing DeepSeek key's is
-                  // Add key, setup's Connect a model step like the home key card's (it saves the key and restarts the
-                  // core); any other sign-in prompt re-reads account/read; a lost connection reconnects.
-                  onReconnect={signInRequired ? startCoreSignIn : boot?.connected && boot.account?.deepseek && !boot.account.account ? () => setOnboarding("connect")
-                    : boot?.connected && signInPrompt ? () => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message)) : reconnect}
-                  reconnectLabel={signInRequired ? t("Sign in") : boot?.connected && boot.account?.deepseek && !boot.account.account ? t("Add key") : undefined}
-                  onStop={stop}
-                  workdir={workdir}
-                  workspaceInfo={workspaceInfo}
-                  onMenu={openMenu}
-                  model={chosen}
-                  effort={effort}
-                  // Before init() settles the saved mode is unknown: null makes the chip a neutral "Mode" placeholder.
-                  permission={boot || initSettled ? effectivePermission : null}
-                  permissionOpen={menu?.kind === "permission"}
-                  modelOpen={menu?.kind === "model"}
-                  modelsLoading={boot === null}
-                  menuKind={menu?.kind}
-                  worktree={worktree}
-                  setWorktree={setWorktree}
-                  usage={state.usage[current]} planUsage={planUsage}
-                  // c360a9e1c hd Y: with no session (sessionRef null) the trigger reads 'Context 0'.
-                  usageFresh={!current}
-                  mode={mode}
-                  onCodeMode={mode === "chat" ? () => switchMode("code") : undefined}
-                  onFolder={folder}
-                  folderMenu={!recentFolderList.browseDirectly}
-                  additionalFolders={additionalFolders}
-                  onAddFolder={() => call("folder", { additional: true }).then(dir => { if (dir && dir !== cwd) setAdditionalFolders(list => [...new Set([...list, dir])]); }).catch(e => setError(e.message))}
-                  onRemoveFolder={dir => setAdditionalFolders(list => list.filter(item => item !== dir))}
-                />
-              </>
-            ) : (
+                {renderMainComposer()}
+                {!current && mode === 'cowork' && <SourceCoworkHome call={call} sessions={sessions} metadata={sessionMetadata} state={state} ready={sessionsLoaded}
+                  onOpenRoutine={id => { setRoutineSelection(id); setSection('routines'); }}
+                  onOpen={navigate} onClearActive={rows => Promise.all(rows.map(row => updateSessionMetadata(row.sessionId, { unread: false })))}
+                  onPrompt={setDraft} onPreviewPrompt={setHomeIdeaPreview} onFocusInput={() => requestAnimationFrame(() => textarea.current?.focus())}
+                  onError={error => setError(error.message)} />}
+
+              </SourceSurfaceHome>
+            ) : section === 'routines' && mode !== 'code' ? <SourceRoutines call={call} onSession={navigate} selectedId={routineSelection} onSelect={setRoutineSelection}
+              onBack={() => setRoutineSelection(null)}
+              models={models} bypassEnabled={bypassMode.available} executionProfile={{ model, permission: effectivePermission }} sessions={sessions} sessionMetadata={sessionMetadata} state={state} /> : section === 'artifacts' && mode !== 'code' ? <SourceArtifactLibrary call={call} onSession={navigate} onPreviewChange={setArtifactPreviewOpen}
+              viewerNavigation={effectiveCollapsed ? <SourceCollapsedChrome onExpand={expandSidebar} peekOpen={peek.hovering} onPeekEnter={peekEnter} onPeekLeave={peekLeave} historyAt={historyAt} historyLength={history.length} travel={travel} /> : null}
+              viewerWindowActions={splitView.open ? <ToolButton icon="X" label={t("Close split view")} onClick={() => splitStore.close(side)} /> : null} onCreate={async () => { await switchMode('cowork'); navigate(null, { surface: 'cowork' }); textarea.current?.focus(); }} /> : section === 'projects' ? <SourceProjects call={call} onOpen={openLocalProject} composer={renderMainComposer()} sessions={sessions} sessionMetadata={sessionMetadata} onSession={navigate} onBack={() => { navigate(null, { surface: mode }); setSection('projects'); }} onUpdated={project => setBoot(value => ({ ...value, config: { ...value.config, localProjects: value.config.localProjects.map(entry => entry.id === project.id ? project : entry) } }))} /> : (
               <div className="section-surface">
                 <header>
                   <h1>{t(section[0].toUpperCase() + section.slice(1))}</h1>
@@ -5347,24 +6584,31 @@ function App({ side = 0, initialSession = null }) {
                     sessionId={current ?? null}
                     searchPane="artifacts"
                     tab="files"
+                    nuxAllowed={nuxAllowed}
                     onClose={() => setSection("new")}
                   />
                 )}
               </div>
             )}
           </div>
+              {mode !== 'code' && (surfaceActivity[current] ?? mode === 'cowork') && current && section === 'new' && <SourceCoworkProgress key={current} sessionId={current} plan={state.plans[current]} items={items} cwd={workdir}
+                running={running} waiting={approvals.length > 0} onOpenFile={openFileRef} onOpenFolder={() => togglePaneTile('files')} />}
             </div>
           </div>
           )} />
+        )}
         </WebLinkContext.Provider>
       </main>
       </SourceSplitHost>
+      {/* cc43287c9 J$: the draft folder's issues through the user's gh; a pick becomes the draft's issue pill. */}
+      {issuePicker && issueFolder && <SourceGithubIssuePicker open onClose={() => { setIssuePicker(false); requestAnimationFrame(() => textarea.current?.focus()); }} onSelect={pickIssue}
+        load={(query) => call("github-issues", { operation: "list", cwd: issueFolder, query })} />}
       {shownBypass.value && <SourceBypassDialog key={`bypass-${shownBypass.key}`} open={shownBypass.open} onExited={shownBypass.onExited} cwd={workdir || cwd} guide={bypassGuide(coreForEngine(boot?.core?.engine))} onConfirm={bypassMode.confirm} onClose={bypassMode.cancel}/> }
-      {menu?.kind === "model" ? <SourceModelMenu key={menu.token ?? "model"} anchor={menu.anchor} models={models} selected={model} onSelect={m => { Promise.resolve(chooseModel({model:m.model, effort:m.defaultReasoningEffort})).catch(e=>setError(e.message)); }} scopeNote={current ? t("Changed for this session only. New sessions use the model from Settings.") : null} fastTier={fastTier} fastMode={fastEnabled} speedTiers={speedTiers} speed={activeTier?.key ?? STANDARD_SPEED} onSpeedChange={value=>changeSpeed(value).catch(e=>setError(e.message))} fastDisabled={fastSaving || running || sending || !boot?.connected} fastSaving={fastSaving} onFastModeChange={value=>changeFastMode(value).catch(e=>setError(e.message))} onClose={closeMenu} initialHighlight={menu.entry} /> : menu?.kind === "permission" ? <SourcePermissionMenu key={menu.token ?? "permission"} anchor={menu.anchor} value={effectivePermission} defaultValue={permission} bypassEnabled={bypassMode.available}
+      {menu?.kind === "model" ? <SourceModelMenu key={menu.token ?? "model"} anchor={menu.anchor} models={models} selected={model} defaultModel={boot?.config?.model || null} onSelect={m => { Promise.resolve(chooseModel({model:m.model, effort:m.defaultReasoningEffort})).catch(e=>setError(e.message)); }} scopeNote={current ? t("Changed for this session only. New sessions use the model from Settings.") : null} fastTier={fastTier} fastMode={fastEnabled} speedTiers={speedTiers} speed={activeTier?.key ?? STANDARD_SPEED} onSpeedChange={value=>changeSpeed(value).catch(e=>setError(e.message))} fastDisabled={fastSaving || sending || !boot?.connected} fastSaving={fastSaving} onFastModeChange={value=>changeFastMode(value).catch(e=>setError(e.message))} onClose={closeMenu} initialHighlight={menu.entry} /> : menu?.kind === "permission" ? <SourcePermissionMenu key={menu.token ?? "permission"} anchor={menu.anchor} value={effectivePermission} defaultValue={permission} bypassEnabled={bypassMode.available}
         bypassOffer={bypassOffer({ enabled: bypassOptIn && !bypassRefusal, availability: bypassOptIn ? bypassRefusal : bypassRequirements })}
         onEnableBypass={() => { closeMenu(); setSettings("code#bypass"); }} onChange={value => bypassMode.select(value)} onClose={closeMenu} onSelectComplete={() => textarea.current?.focus()} initialHighlight={menu.entry}
         agents={primaryAgents?.rows ?? null} agentValue={agentChoice ?? primaryAgents?.defaultAgent ?? null} defaultAgent={primaryAgents?.defaultAgent ?? null}
-        onAgentChange={(name) => setAgentChoices((choices) => ({ ...choices, [current || ""]: name }))} /> : ["session", "titlebar"].includes(menu?.kind) ? <SourceSidebarMenu key={menu.token ?? menu.kind} anchor={menu.anchor} kind={menu.kind} label={t("Session menu")} onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceSidebarMenu> : menu?.kind === "account" ? <SourceMenu.Popup key={menu.token ?? "account"} anchor={menu.anchor} side="top" align="start" label={t("Account menu")} className="account-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "add" ? <SourceMenu.Popup key={menu.token ?? "add"} anchor={menu.anchor} side="top" align="start" label={t("Add")} className="add-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "effort" ? <SourceEffortPopover key={menu.token ?? "effort"} anchor={menu.anchor} levels={efforts} value={effort}
+        onAgentChange={(name) => setAgentChoices((choices) => ({ ...choices, [current || ""]: name }))} /> : ["session", "session-title", "titlebar"].includes(menu?.kind) ? <SourceSidebarMenu key={menu.token ?? menu.kind} anchor={menu.anchor} point={menu.point} kind={menu.kind} label={t("Session menu")} onClose={closeMenu} initialHighlight={menu.entry} align={menu.kind === "session-title" ? "start" : undefined}>{menuContent()}</SourceSidebarMenu> : menu?.kind === "account" ? <SourceMenu.Popup key={menu.token ?? "account"} anchor={menu.anchor} side="top" align="start" label={t("Account menu")} className="account-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "add" ? <SourceMenu.Popup key={menu.token ?? "add"} anchor={menu.anchor} side="top" align="start" label={t("Add")} className="add-menu" onClose={closeMenu} initialHighlight={menu.entry}>{menuContent()}</SourceMenu.Popup> : menu?.kind === "effort" ? <SourceEffortPopover key={menu.token ?? "effort"} anchor={menu.anchor} levels={markDefaultEffort(efforts, chosen?.defaultReasoningEffort)} value={effort}
         onChange={value => { if (currentRef.current) { setEffort(value); Promise.resolve(chooseModel({ effort: value })).catch(e => setError(e.message)); } else if (workflowState.enabled && isUltracodeTier(value)) setEffort(value); else preference("effort", value); }} onClose={closeMenu}
         plan={planEffort ? { ...planEffort, onChange: (value) => { setPlanEffort((old) => old && { ...old, saving: true }); call("plan-effort", { op: "write", value }).then((next) => setPlanEffort({ ...next, saving: false }), (e) => { setPlanEffort((old) => old && { ...old, saving: false }); setError(e.message); }); } } : null} />
       : menu?.kind === "usage" ? <SourceUsagePopover key={menu.token ?? "usage"} anchor={menu.anchor} usage={state.usage[current]} fresh={!current}
@@ -5374,19 +6618,33 @@ function App({ side = 0, initialSession = null }) {
         // (performOperation('compact') through executeCommand). Tw's inputs: replying, detached, compacting.
         onCompact={current && !session?.archived && !unsupportedMethods?.includes("thread/compact/start") ? () => { closeMenu(); executeCommand("compact"); } : undefined}
         compactState={{ running: running || (actionPending && operation?.operation !== "compact"), connected: !!boot?.connected,
-          compacting: operation?.operation === "compact" && actionPending, autoCompactPct: autoCompactPercent(boot?.core, state.usage[current]) }} />
+          compacting: operation?.operation === "compact" && actionPending, autoCompact: autoCompactHint(boot?.core, state.usage[current]) }} />
       : ENV_MENUS[menu?.kind] ? <SourceMenu.Popup key={menu.token ?? menu.kind} anchor={menu.anchor} {...ENV_MENUS[menu.kind]} label={t(ENV_MENUS[menu.kind].label)}
         onClose={closeMenu} initialHighlight={menu.kind === "branch" ? null : menu.entry}>{menuContent()}</SourceMenu.Popup>
       : null}
+      {/* c3f9f1667 Ae → Ne/Pe: "Edit local environment". A save reaches the core when it next starts (local-environment.cjs):
+          an idle, connected core reconnects at once; with a turn running the save waits for a restart. */}
+      {localEnvOpen && <SourceLocalEnvironmentDialog onClose={() => setLocalEnvOpen(false)}
+        load={() => call("local-environment", { op: "get" })}
+        save={(variables) => call("local-environment", { op: "save", variables })}
+        onSaved={(result) => {
+          if (!result?.changed || !boot?.connected) return;
+          // hasLiveWork, as Settings' coreBusy: a finished turn leaves an explicit null in state.active.
+          if (hasLiveWork(state) || sending || actionPending) { toasts?.add(t("Saved. Restart the core to apply.")); return; }
+          toasts?.add(t("Environment saved. Reconnecting to apply it…"));
+          reconnect().catch((error) => setError(error.message));
+        }}
+        onError={(message) => { if (toasts) toasts.add(message, { variant: "danger" }); else setError(message); }} />}
       {/* R05 GR (cc43287c9 :28413-28421 mounted with ge): onResolved → D(le) records the target; Cancel keeps the branch. */}
       {shownBranchSwitch.value && <SourceBranchSwitchDialog key={`branch-switch-${shownBranchSwitch.key}`} open={shownBranchSwitch.open} onExited={shownBranchSwitch.onExited}
         currentBranch={shownBranchSwitch.value.currentBranch} targetBranch={shownBranchSwitch.value.targetBranch} status={shownBranchSwitch.value.status}
+        otherSessionCount={otherSessionCount(sessions, shownBranchSwitch.value.cwd, { exclude: current })}
         onResolve={(mode) => call("branch-switch-resolve", { cwd: shownBranchSwitch.value.cwd, mode, currentBranch: shownBranchSwitch.value.currentBranch })}
         onResolved={() => { const { targetBranch, currentBranch } = shownBranchSwitch.value;
           recordBranch(targetBranch, currentBranch); setBranchSwitch(null); refreshChanges(); }}
         onCancel={() => setBranchSwitch(null)}
         onError={() => { if (toasts) toasts.add(t(WORKING_TREE_ERROR), { variant: "danger" }); else setError(t(WORKING_TREE_ERROR)); }} />}
-      {shownActionDialog.value?.kind === "shortcuts" && <KeyboardShortcutsDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("shortcuts")} fastMode={models.some(m => speedTiersForModel(m).length > 0)} sideChat={commandContext.sideQuestions !== false} onClose={()=>setActionDialog(null)}/>}
+      {shownActionDialog.value?.kind === "shortcuts" && <KeyboardShortcutsDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("shortcuts")} fastMode={models.some(m => speedTiersForModel(m).length > 0)} sideChat={commandContext.sideQuestions !== false} rewind={!unsupportedMethods?.includes("thread/revert")} onClose={()=>setActionDialog(null)}/>}
       {shownActionDialog.value?.kind === "sign-out" && <SourceConfirmDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("sign-out")}
         title={t("Sign out")} body={signOutConfirmText(boot?.core)} confirmLabel={t("Confirm sign out")} onClose={() => setActionDialog(null)}
         onConfirm={() => call("account-auth", { operation: "logout", confirmed: true })} />}
@@ -5400,11 +6658,10 @@ function App({ side = 0, initialSession = null }) {
       {shownActionDialog.value?.kind === "goal-replace" && <SourceConfirmDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("goal-replace")}
         title={t("Replace goal?")} body={t("The current goal “{current}” isn’t finished. Replace it with “{objective}” and start that now?", { current: shownActionDialog.value.current.length > 200 ? `${shownActionDialog.value.current.slice(0, 200)}…` : shownActionDialog.value.current, objective: shownActionDialog.value.objective.length > 200 ? `${shownActionDialog.value.objective.slice(0, 200)}…` : shownActionDialog.value.objective })}
         confirmLabel={t("Replace goal")} onClose={() => setActionDialog(null)} onConfirm={() => shownActionDialog.value.run()} />}
-      {shownActionDialog.value?.kind === "worktree-dirty" && <SourceConfirmDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("worktree-dirty")}
-        title={shownActionDialog.value.action === "delete" ? t("Delete session with uncommitted changes?") : t("Archive session with uncommitted changes?")}
-        body={tn(shownActionDialog.value.status.changes, "This session’s worktree has {count} uncommitted change. It is removed with the session; commit or copy what you want to keep first.", "This session’s worktree has {count} uncommitted changes. It is removed with the session; commit or copy what you want to keep first.")}
-        danger confirmLabel={shownActionDialog.value.action === "delete" ? t("Delete anyway") : t("Archive anyway")} onClose={() => setActionDialog(null)}
-        onConfirm={() => { const { action, target, payload, status } = shownActionDialog.value; return sessionAction(action, target, { ...payload, worktreeChecked: true, worktree: status }); }} />}
+      {shownWorktreeConfirm.value && <SourceWorktreeDirtyDialog key={`worktree-${shownWorktreeConfirm.key}`} open={shownWorktreeConfirm.open} onExited={shownWorktreeConfirm.onExited}
+        action={shownWorktreeConfirm.value.action} status={shownWorktreeConfirm.value.status}
+        more={worktreeQueue.slice(1).some((entry) => entry.status?.changes > 0)} guardSince={worktreeQueueAdvanced.current}
+        onClose={() => settleWorktreeConfirm(shownWorktreeConfirm.value, false)} onConfirm={() => settleWorktreeConfirm(shownWorktreeConfirm.value, true)} />}
       {shownActionDialog.value?.kind === "help" && <SlashHelp key={`action-${shownActionDialog.key}`} {...actionDialogProps("help")} onClose={()=>setActionDialog(null)}
         commands={matchCommands("", commandContext)} coreLabel={commandContext.coreName} docsUrl={runningCore ? coreForEngine(typeof runningCore === "string" ? runningCore : runningCore.engine).homepage ?? null : null}
         onShortcuts={() => setActionDialog({ kind: "shortcuts" })} onSettings={(page) => setSettings(page)} onWhatsNew={() => setWhatsNew(true)}
@@ -5419,16 +6676,21 @@ function App({ side = 0, initialSession = null }) {
         cwds={[workdir || cwd].filter(Boolean)} onDone={() => { void customizeStore?.loadSkills?.({ cwd: workdir || cwd, force: true }); void customizeStore?.loadMcp?.({ cwd: workdir || cwd, threadId: current ?? null, force: true }); }} onClose={() => setActionDialog(null)} />}
       {shownActionDialog.value?.kind === "feedback-share" && <FeedbackShareDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("feedback-share")} text={shownActionDialog.value.text}
         onConfirm={async () => { const run = shownActionDialog.value.run; setActionDialog(null); await run(); }} onClose={() => setActionDialog(null)} />}
-      {shownActionDialog.value?.kind === "rewind" && <RewindDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("rewind")} turns={shownActionDialog.value.turns} preselected={shownActionDialog.value.preselected} canRestoreFiles={boot?.core?.capabilities?.rewindFiles === true} onConfirm={rewindConversation} onClose={()=>setActionDialog(null)}/>}
+      {shownActionDialog.value?.kind === "rewind" && <RewindPicker key={`action-${shownActionDialog.key}`} {...actionDialogProps("rewind")} turns={shownActionDialog.value.turns}
+        onSelect={(turn) => { const picker = shownActionDialog.value; setActionDialog(null); requestRewind(picker.threadId, turn.id, turn.text, picker.rows); }} onClose={()=>setActionDialog(null)}/>}
+      {shownActionDialog.value?.kind === "rewind-confirm" && <RewindConfirmDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("rewind-confirm")} targetText={shownActionDialog.value.text}
+        preview={shownActionDialog.value.preview} restoreItems={rewindRestoreItems()} onConfirm={(choice) => confirmRewind(shownActionDialog.value, choice)} onClose={()=>setActionDialog(null)}/>}
       {shownActionDialog.value?.kind === "review" && <ReviewDialog key={`action-${shownActionDialog.key}`} {...actionDialogProps("review")} initialInstructions={shownActionDialog.value.instructions} workspaceInfo={workspaceInfo} core={boot?.core} permission={effectivePermission}
         onClose={() => setActionDialog(null)} onSubmit={async target => { const dialog = actionDialog; await performOperation("review", {target}); setActionDialog(value => value === dialog ? null : value); }} />}
       {shownWhatsNew.value && <LocalReleaseNotes key={`whats-new-${shownWhatsNew.key}`} open={shownWhatsNew.open} onExited={shownWhatsNew.onExited} onClose={() => setWhatsNew(false)} />}
       {languagePicker && <SourceLanguagePicker open onClose={() => setLanguagePicker(false)} onSave={updatePreferences} />}
-      {current && <SourceSideChat threadId={current} open={sideChat.open} rpc={rpc}
-        contextCount={items.filter(item => item?.type === "userMessage" || item?.type === "agentMessage").length}
-        pending={sideChat.pending} onPendingTaken={() => setSideChat(value => ({ ...value, pending: null }))}
-        onClose={closeSideChat}
-        onBranch={(text) => { setSideChat({ open: false, pending: null }); navigate(null); setDraft(text); }} />}
+      {current && !PANE_WINDOW && <SourceSideChat threadId={current} open={sideChat.open && !sideChatPoppedOut} rpc={rpc}
+        assistantName={coreName(boot?.core)} searchFiles={searchSideMentionFiles} mentionActions={mentionActions}
+        pending={sideChatPoppedOut ? null : sideChat.pending} onPendingTaken={() => setSideChat(value => ({ ...value, pending: null }))}
+        // B27 (cccc2cf0a AT H → openPopout {type: "side-chat", initialBounds}): the conversation moves into its own window.
+        // Not from a session popout: AT w gates onDetach on !xn() (shared-frame Wa: rendered outside the main window).
+        onPopOut={api && boot?.connected && !SESSION_POPOUT ? popOutSideChat : null}
+        onClose={closeSideChat} />}
       {workflowLaunch&&<WorkflowLaunch initial={workflowLaunch} onClose={()=>setWorkflowLaunch(null)} onPick={()=>call('workflow-pick')} onStart={async options=>{const run=await call('workflow-start',{...options,threadId:workflowLaunch.threadId,model:workflowLaunch.model,effort:workflowLaunch.effort,cwd:workflowLaunch.cwd,permission:workflowLaunch.permission,mode:workflowLaunch.mode,after:workflowLaunch.after});setWorkflowRuns(old=>mergeWorkflow(old,run));if(currentRef.current===run.threadId)openWorkflow(run.id);}}/>}
       {onboarding && <SourceOnboarding key={onboarding} startAt={onboarding} desktopCall={call} onDone={finishOnboarding} onSkip={skipOnboarding} onCoreChosen={chooseOnboardingCore}
         signIn={signInCore?.login ? { core: signInCore, auth: boot?.auth, account: boot?.account?.account ?? null, connected: !!boot?.connected,
@@ -5446,44 +6708,45 @@ function App({ side = 0, initialSession = null }) {
         onFolder={async()=>{const dir=await call("folder");if(dir){setBoot(b=>({...b,config:{...b.config,cwd:dir}}));setCwd(dir);navigate(null);}}}
         onReconnect={reconnect} onSwitchCore={switchCore} onLogin={(type, extra) => call("login", { type, ...extra })} onAccountAction={p=>call("account-auth",p)} onRefreshAccount={()=>call("account-auth",{operation:"refresh"})}
         onReveal={target=>call("reveal-settings",{target})} />}
-      {shownConfirmDelete.value && <SourceConfirmDialog key={`confirm-delete-${shownConfirmDelete.key}`} open={shownConfirmDelete.open} onExited={shownConfirmDelete.onExited}
+      {/* B29 nY: a worktree start without a working git (send() catch) says why and offers the download. */}
+      {shownGitDialog.value && <SourceGitRequiredDialog key={`git-${shownGitDialog.key}`} failure={shownGitDialog.value} open={shownGitDialog.open} onExited={shownGitDialog.onExited}
+        platform={/Win/i.test(navigator.platform) ? "win32" : /Linux/i.test(navigator.platform) ? "linux" : "darwin"}
+        onDownload={(url) => call("external", { url }).catch(actionFailed("open-link"))} onClose={() => setGitDialog(null)}
+        // KJ (dM 'error_fix'): a tab of this side's terminal pane in the folder with the install command typed, not run.
+        onOpenTerminal={terminalAvailable ? async (command) => {
+          const sessionId = currentRef.current ?? null, homeWorkspace = sessionId ? null : workdir, owner = ownerKeyOf(sessionId, homeWorkspace);
+          await terminalStore().load(owner, sessionId, homeWorkspace).catch(() => null);
+          const info = await terminalStore().create(owner, sessionId, homeWorkspace, {}, { cwd: workdir });
+          openPaneTile("terminal");
+          terminalStore().input(info.id, command);
+          setTerminalFocus(nextTerminalFocusRequest());
+          return true;
+        } : undefined} />}
+      {/* shared-19 FK/IK + BK: one "Delete session?" confirm that checks the session's worktree on Delete and turns into
+          the uncommitted-changes copy and file list in place (source-worktree-dispose-dialog.jsx). */}
+      {shownConfirmDelete.value && <SourceSessionDeleteDialog key={`confirm-delete-${shownConfirmDelete.key}`} open={shownConfirmDelete.open} onExited={shownConfirmDelete.onExited}
         {...deleteConfirmCopy([shownConfirmDelete.value], { engine: boot?.core || engine })} onClose={() => setConfirmDelete(null)}
-        onConfirm={() => sessionAction("delete", shownConfirmDelete.value)} />}
-      {/* Rename on the shared Dialog (source-dialog.jsx): size sm, title, the name field (initial focus) and a
-          Qf footer with CDS Buttons; Escape, the backdrop and Close dismiss it. */}
+        showChecking={!!sessionMetadata[shownConfirmDelete.value.id]?.originCwd}
+        probe={() => call("worktree-status", { threadId: shownConfirmDelete.value.id })}
+        onDelete={({ probe }) => sessionAction("delete", shownConfirmDelete.value, { worktreeChecked: true, worktree: probe?.worktree ?? null })} />}
+      {/* shared-16 Jd (5027-5120): the shared Dialog at size sm with a header and no close button (showClose false),
+          a form whose field is labelled 'Rename session' (initial focus; its first focus selects the whole name), and a
+          footer with Cancel and Save (disabled while the name is blank). Escape and the backdrop dismiss it. */}
       {shownRename.value && renameShown && (
         <SourceDialog key={`rename-${shownRename.key}`} open={shownRename.open} onExited={shownRename.onExited} size="sm" title={t("Rename session")}
-          initialFocusRef={renameInput} onClose={() => setRename(null)} className="rename-session-dialog">
-          <form
-            className="rename-session-form"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!rename?.name.trim()) return;
-              try {
-                await rpc("thread/name/set", {
-                  threadId: rename.id,
-                  name: rename.name,
-                });
-                setSessions((s) =>
-                  s.map((t) =>
-                    t.id === rename.id ? { ...t, name: rename.name } : t,
-                  ),
-                );
-                setRename(null);
-              } catch (e) {
-                setError(e.message);
-              }
-            }}
-          >
+          showClose={false} initialFocusRef={renameInput} onClose={() => setRename(null)} className="rename-session-dialog">
+          <form className="rename-session-form" onSubmit={(e) => { e.preventDefault(); submitRenameDialog(); }}>
             <input
               ref={renameInput}
-              aria-label={t("Session name")}
+              data-testid="name-session"
+              aria-label={t("Rename session")}
               value={renameShown.name}
               onChange={(e) => setRename((current) => current && { ...current, name: e.target.value })}
+              onFocus={(e) => { if (!renameSelected.current) { renameSelected.current = true; e.target.select(); } }}
             />
             <SourceDialogFooter>
               <SourceSettingsButton onClick={() => setRename(null)}>{t("Cancel")}</SourceSettingsButton>
-              <SourceSettingsButton type="submit" variant="primary" disabled={!renameShown.name.trim()}>{t("Save")}</SourceSettingsButton>
+              <SourceSettingsButton type="submit" variant="primary" data-testid="name-session-submit" disabled={!renameSubmittable(renameShown.name)}>{t("Save")}</SourceSettingsButton>
             </SourceDialogFooter>
           </form>
         </SourceDialog>
@@ -5504,14 +6767,27 @@ function PopoutApp({ sessionId, pane, cwd }) {
   const [sessionDiff, setSessionDiff] = useState(null);
   const [gitError, setGitError] = useState("");
   const [gitDismissedKey, setGitKey] = useState(0);
+  // The saved appearance (main.cjs popout-state, then every config-updated emitConfig also sends this window).
+  const [appearanceConfig, setAppearanceConfig] = useState(null);
+  // eE: the header pin toggles setPopoutAlwaysOnTop for this window; main answers with the stored value. popout-state
+  // seeds it, so a pinned window restored at launch shows the pin pressed (shared-18 mx/hx).
+  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   useEffect(() => {
     let live = true;
+    call("popout-state").then((state) => {
+      if (!live || !state) return;
+      // config-updated carries the whole shared config, so one that arrived first is newer than this read.
+      if (state.config && typeof state.config === "object") setAppearanceConfig((value) => value ?? state.config);
+      if (typeof state.alwaysOnTop === "boolean") setAlwaysOnTop(state.alwaysOnTop);
+    }).catch(() => {});
     call("init").then((boot) => {
       if (!live) return;
       setConnected(!!boot?.connected);
       if (boot?.error) setError(boot.error);
     }).catch((reason) => { if (live) { setConnected(false); setError(reason.message); } });
     const unsubscribe = api?.onEvent((event) => {
+      // Replaced, not merged: a reset custom theme is a key the saved config no longer has (preferences.mjs deletes it).
+      if (event.kind === "config-updated" && event.config && typeof event.config === "object") setAppearanceConfig(event.config);
       if (event.kind === "popout-data" && event.pane === "plan") setPlan(event.data ?? null);
       if (event.kind === "popout-data" && event.pane === "changes") setSessionDiff(typeof event.data?.diff === "string" && event.data.diff ? event.data.diff : null);
       if (event.kind === "popout-refresh") setGitKey((value) => value + 1);
@@ -5532,18 +6808,20 @@ function PopoutApp({ sessionId, pane, cwd }) {
   // F12: the popped-out Changes pane has its own zm diff scope (default "All changes vs {base}").
   const popoutScope = useDiffScope({ call, cwd, sessionId, status: gitStatus, active: pane === "changes", refreshKey: gitDismissedKey });
   const popoutScopeKey = JSON.stringify([popoutScope.param ?? null, popoutScope.base ?? null]);
-  const popoutShownScope = useRef(null);
+  // B15: as the main pane, the previous scope's comparison stays (dimmed) while the new scope loads.
+  const [popoutLoadedScope, setPopoutLoadedScope] = useState(null);
   useEffect(() => {
     if (pane !== "changes" || !cwd || !gitStatus?.isRepo) return undefined;
     let live = true;
-    if (popoutShownScope.current !== popoutScopeKey) { popoutShownScope.current = popoutScopeKey; setGitDiff(null); }
+    const loaded = { key: popoutScopeKey, param: popoutScope.param };
     call("workspace-git-diff", { cwd, sessionId, completeContext: true, scope: popoutScope.param, ...(popoutScope.base ? { base: popoutScope.base } : {}) })
-      .then((diff) => { if (live) setGitDiff(diff); })
+      .then((diff) => { if (live) { setGitDiff(diff); setPopoutLoadedScope(loaded); } })
       .catch((reason) => { if (live) setGitError(t("Could not read repository changes: {reason}", { reason: reason.message })); });
     return () => { live = false; };
     // gitStatus is a fresh object per status read (popout-refresh / Refresh), which re-reads the diff as before.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane, cwd, sessionId, gitStatus, popoutScopeKey]);
+  const popoutDiff = carriedOverDiff(gitDiff, popoutLoadedScope, popoutScopeKey);
   // The pane window has no preference state of its own: main sets
   // nativeTheme.themeSource from the saved theme, so this window's
   // prefers-color-scheme is the app's resolved mode and follows every change.
@@ -5553,17 +6831,38 @@ function PopoutApp({ sessionId, pane, cwd }) {
     update(); media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-  const dock = () => call("popout-dock", { sessionId, pane }).catch((reason) => setError(reason.message));
-  // eE: the header pin toggles setPopoutAlwaysOnTop for this window; main answers with the stored value.
-  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  // GL2 (cd377abb5 Yn: a popout mirrors the opener's html attributes and code-theme/diff properties): this window is
+  // its own renderer, so it writes the same appearance from the same saved preferences as App does: interface and code
+  // fonts, code themes, Reduce motion, transcript size/width, and the custom theme.
+  const appearance = appearancePreferences(appearanceConfig ?? {});
+  useEffect(() => {
+    if (!appearanceConfig) return;
+    applyAppearanceRoot(document.documentElement, appearance, { setThemes: setCodeThemes, colors: codeThemeColors });
+    window.dispatchEvent(new Event("local-motion-change"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appearanceConfig !== null, JSON.stringify(appearance)]);
+  useEffect(() => { if (appearanceConfig) applyCustomTheme(document, appearanceConfig); }, [JSON.stringify(appearanceConfig?.customTheme ?? null), appearanceConfig !== null]);
+  // D1: 'Add to prompt' in this window (a changed-line comment, plan comments) has no composer here; main relays it to
+  // the main window showing this session (popout-add-to-prompt). Taking the event tells the pane the comment landed.
+  useEffect(() => {
+    const relay = (event) => {
+      const text = typeof event?.detail?.text === "string" ? event.detail.text.trim() : "";
+      if (!text || event.defaultPrevented) return;
+      event.preventDefault();
+      call("popout-add-to-prompt", { text }).catch((reason) => setError(reason.message));
+    };
+    window.addEventListener(ADD_TO_PROMPT_EVENT, relay);
+    return () => window.removeEventListener(ADD_TO_PROMPT_EVENT, relay);
+  }, [setError]);
+  const dock = () => { if (guardFileEdits(dock, { sessionId })) return; return call("popout-dock", { sessionId, pane }).catch((reason) => setError(reason.message)); };
   const toggleAlwaysOnTop = () => call("popout-always-on-top", { value: !alwaysOnTop })
     .then((value) => setAlwaysOnTop(value === true)).catch((reason) => setError(reason.message));
   useEffect(() => { document.title = `${PANE_NAMES[pane] ?? t("Pane")} — OpenClaude Desktop`; }, [pane]);
   return (
     <div className="popout-root" data-popout-pane={pane} data-popout-session={sessionId} data-connected={connected}>
-      <main className="workspace epitaxy-root cds-root popout-workspace" data-density="compact" data-platform="desktop">
+      <main className="workspace epitaxy-root cds-root popout-workspace" data-density={appearanceConfig ? themeDensity(appearanceConfig) : "compact"} data-font={cdsFontFor(appearance)} data-platform="desktop">
         {error && <p className="source-panel-error popout-error" role="alert">{error}</p>}
-        <div className="popout-tile source-side-tile">
+        <div data-pane-root="" className="popout-tile source-side-tile">
           <FilePanel
             cwd={cwd}
             sessionId={sessionId}
@@ -5571,13 +6870,20 @@ function PopoutApp({ sessionId, pane, cwd }) {
             tab={pane}
             plan={plan?.plan ?? null}
             planDocument={plan?.document ?? null}
-            diff={gitStatus?.isRepo ? gitDiff : sessionDiff}
+            planCommentsEnabled={plan?.commentsEnabled === true}
+            diff={gitStatus?.isRepo ? popoutDiff.diff : sessionDiff}
             diffScope={popoutScope.param}
             diffScopeControl={popoutScope.control}
-            loading={pane === "changes" && !gitError && (gitStatus === null || (gitStatus.isRepo && gitDiff === null))}
+            diffStale={gitStatus?.isRepo && popoutDiff.carriedOver ? { scope: popoutDiff.scope } : null}
+            // B34 View image in the popped-out Changes pane (same IPC as the docked pane, POPOUT_ACTIONS).
+            diffFileActions={pane === "changes" && gitStatus?.isRepo ? { root: gitStatus.cwd, fetchImage: ({ path, side }) => call("workspace-git-image",
+              { cwd, sessionId, path, side, scope: popoutScope.param, ...(popoutScope.base ? { base: popoutScope.base } : {}) }) } : null}
+            diffCommits={pane === "changes" ? popoutScope.commits : null}
+            loading={pane === "changes" && !gitError && (gitStatus === null || (gitStatus.isRepo && popoutDiff.diff === null))}
             diffError={gitError}
             onClose={dock}
             onRefresh={() => { setGitError(""); setGitKey((value) => value + 1); }}
+            closeIfRestoredGone={false}
             paneControls={({ menuSections, leading }) => <SourcePopoutControls paneName={PANE_NAMES[pane]} menuSections={menuSections} leading={leading} onDock={dock}
               alwaysOnTop={alwaysOnTop} onToggleAlwaysOnTop={toggleAlwaysOnTop} />}
           />
@@ -5589,7 +6895,8 @@ function PopoutApp({ sessionId, pane, cwd }) {
 const popoutQuery = new URLSearchParams(window.location.search);
 const popoutSession = popoutQuery.get("popout");
 createRoot(document.getElementById("root")).render(
-  <SourceToastProvider>{popoutSession && PANE_KINDS.includes(popoutQuery.get("pane"))
+  // Files, Changes and Plan windows run PopoutApp; a pane window (B27: Tasks, Terminal, Side chat) runs App.
+  <SourceToastProvider><SourceFileEditGuard />{popoutSession && !PANE_WINDOW && PANE_KINDS.includes(popoutQuery.get("pane"))
     ? <PopoutApp sessionId={popoutSession} pane={popoutQuery.get("pane")} cwd={popoutQuery.get("cwd") || ""} />
     : <SourceSplitRoot renderSide={(side, secondary) => <App side={side} initialSession={secondary?.sessionId ?? null} />} />}</SourceToastProvider>,
 );

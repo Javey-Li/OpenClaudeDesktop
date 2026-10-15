@@ -228,7 +228,7 @@ test('Theme page: groups, rows and controls per the settings IA', () => {
   for (const label of ['Theme preset', 'Font size', 'Corner radius']) assert.match(html, new RegExp(`role="combobox" aria-label="${label}"`));
   for (const label of ['Light code theme', 'Dark code theme', 'Code font family']) assert.ok(!html.includes(`aria-label="${label}"`), `${label} lives on the Code page`);
   for (const label of ['Accent color picker', 'Accent color hex', 'Custom interface font']) assert.ok(html.includes(`aria-label="${label}"`), label);
-  for (const text of ['Open Preferences', 'Open Code settings', 'Interface font settings']) assert.ok(html.includes(`>${text}<`), text);
+  for (const text of ['Open General settings', 'Open Code settings', 'Interface font settings']) assert.ok(html.includes(`>${text}<`), text);
   for (const label of ['Density']) assert.ok(html.includes(`role="radiogroup" aria-label="${label}"`), label);
   for (const label of ['Font size', 'Corner radius']) assert.ok(!html.includes(`role="radiogroup" aria-label="${label}"`), `${label} is a select`);
   for (const text of ['Import…', 'Export…', 'Reset to default', 'Clear', '100%', 'Default', 'Comfortable']) assert.ok(html.includes(`>${text}<`), text);

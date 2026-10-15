@@ -52,6 +52,7 @@ const TITLES = {
   // ccd_session_mgmt parity (agent-tools/sessions.mjs): "Listing sessions" / "Looking up session" / "Renaming session".
   list_sessions: (args) => ({ verbs: [t("Listing sessions"), t("Listed sessions"), t("Failed to list sessions")], meta: clip(args.query, 60) }),
   get_session: () => ({ verbs: [t("Looking up session"), t("Looked up session"), t("Failed to look up session")], meta: null }),
+  list_events: () => ({ verbs: [t("Reading session"), t("Read session"), t("Failed to read session")], meta: null }),
   set_session_title: (args) => ({ verbs: [t("Renaming session"), t("Renamed session"), t("Failed to rename session")], meta: clip(args.title, 80) }),
   // ccd_host parity (agent-tools/host.mjs): "Showing in file manager" / "Opening in editor".
   reveal_path: (args) => ({ verbs: [t("Showing in file manager"), t("Shown in file manager"), t("Failed to show in file manager")], meta: str(args.path) ? baseName(args.path) : null }),
@@ -204,7 +205,10 @@ export function suggestedTasks(items, dismissed = null) {
     const prompt = str(call.args.prompt).trim();
     if (!id || !prompt || withdrawn.has(id)) continue;
     const cwd = str(call.args.cwd).trim();
-    out.push({ id, itemId: item.id, title: str(call.args.title).replace(/\s+/g, " ").trim() || prompt.slice(0, 60), tldr: str(call.args.tldr).trim(), prompt, ...(cwd ? { cwd } : {}) });
+    // suggestedAt: when the call finished (the item's completion time), for the backlog's 30-day window.
+    const suggestedAt = Number.isFinite(item.completedAtMs) ? item.completedAtMs : Number.isFinite(item.startedAtMs) ? item.startedAtMs : undefined;
+    out.push({ id, itemId: item.id, title: str(call.args.title).replace(/\s+/g, " ").trim() || prompt.slice(0, 60), tldr: str(call.args.tldr).trim(), prompt, ...(cwd ? { cwd } : {}),
+      ...(suggestedAt !== undefined ? { suggestedAt } : {}) });
   }
   return out.reverse().slice(0, 20);
 }

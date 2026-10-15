@@ -93,7 +93,7 @@ try{
  report.metrics.empty=centre;assert.ok(Math.abs(centre.delta)<=2,`vertically centred (${centre.delta})`);assert.ok(centre.scroll<=1,'no overflow');
  assert.equal(await page.locator('[data-testid=code-transcript-status]').count(),0,'Cl replaces the scroller: no transcript status row under the empty state');
  await shot('empty-light');
- await composer().fill('hello');await page.getByRole('button',{name:'Send message',exact:true}).click();
+ await composer().fill('hello');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
  await page.locator('.source-transcript-content').getByText('hello',{exact:true}).first().waitFor();await empty.waitFor({state:'detached'});
  report.checks.push('EMPTY (0 turns): exactly one "No messages yet", vertically centred in the transcript viewport (±2px) without overflow or a transcript status row; sending "hello" replaces it with the user row');
  assert.deepEqual(report.rendererErrors,[]);await integrity();report.passed=true;

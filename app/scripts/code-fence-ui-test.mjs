@@ -133,9 +133,11 @@ try {
   await second.getByRole("button", { name: "Copy code", exact: true }).click();
   await second.getByRole("status").filter({ hasText: "Copied" }).waitFor({ state: "attached" });
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), spaced);
+  // A trusted Shift+Tab records keyboard modality for the DOM focus that follows (a Tab inside the transcript moves
+  // to the composer, cc43287c9 :45157-45164, so Tab / Shift+Tab no longer round-trips between fence buttons).
   await first.getByRole("button", { name: "Copy code", exact: true }).focus();
-  await page.keyboard.press("Tab");
   await page.keyboard.press("Shift+Tab");
+  await first.getByRole("button", { name: "Copy code", exact: true }).focus();
   assert.notEqual(await first.locator("button").evaluate((button) => getComputedStyle(button).boxShadow), "none");
   await first.locator("button").press("Enter");
   await first.getByRole("button", { name: "Copied", exact: true }).waitFor();
@@ -293,7 +295,7 @@ try {
     observer.observe(document.body, { subtree: true, childList: true, characterData: true });
   });
   await fillComposer(page,page.getByRole("textbox",{name:"Message DeepSeek",exact:true}),"fixture:code-fence-stream");
-  await page.locator(".sc-input").press("Enter");
+  await page.locator("form.sc-composer .sc-input").press("Enter");
   const live = page.locator(".source-assistant-message").filter({ hasText: "CLOSED_PRIOR" });
   // The unfinished language line intentionally renders an empty, zero-height
   // aria-hidden pre. Attachment, not visibility, is the observable contract.
@@ -314,16 +316,16 @@ try {
   await page.waitForFunction(() => document.querySelector(".source-transcript-frame")?.dataset.following === "false");
   const jump = page.locator('[data-testid="jump-to-latest"][data-visible="true"]');
   await jump.waitFor();
-  assert.equal(await page.getByRole("button", { name: "Stop response", exact: true }).isVisible(), true, "The stream must still be active when resuming follow");
+  assert.equal(await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').isVisible(), true, "The stream must still be active when resuming follow");
   await jump.click();
   await page.waitForFunction(() => {
     const viewport = document.querySelector(".transcript");
     return viewport?.closest(".source-transcript-frame")?.dataset.following === "true"
       && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 3;
   });
-  assert.equal(await page.getByRole("button", { name: "Stop response", exact: true }).isVisible(), true, "Later deltas must remain after the explicit jump");
+  assert.equal(await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').isVisible(), true, "Later deltas must remain after the explicit jump");
   await live.getByText('const final = "FENCE_STREAM_DONE";', { exact: false }).waitFor();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   await growing.getByRole("button", { name: "Copy code", exact: true }).waitFor();
   assert.equal(await growing.getAttribute("data-frontier"), null);
   await page.waitForFunction(() => {

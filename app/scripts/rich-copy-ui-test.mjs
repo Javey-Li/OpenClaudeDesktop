@@ -262,8 +262,9 @@ try {
   await contextMenu.waitFor();
   metrics.contextMenuItems = await contextMenu.locator('[role="menuitem"]').evaluateAll(nodes => nodes.map(node => node.dataset.label));
   // The fixture core serves thread/fork, so an idle session's assistant message also offers Fork from here
-  // (after its own separator; Rewind to here is for user messages only).
-  assert.deepEqual(metrics.contextMenuItems, ["Copy message", "Copy message as Markdown", "Attach message as context", "Fork from here"]);
+  // (after its own separator; Rewind to here is for user messages only). B11: an assistant message also offers
+  // Pin as chapter right after Attach (cd5a31703 TI :25645-25651), inside the same group.
+  assert.deepEqual(metrics.contextMenuItems, ["Copy message", "Copy message as Markdown", "Attach message as context", "Pin as chapter", "Fork from here"]);
   assert.equal(await contextMenu.locator('[role="separator"]').count(), 2);
   await contextMenu.getByRole("menuitem", { name: "Copy message", exact: true }).click();
   await contextMenu.waitFor({ state: "detached" });
@@ -296,7 +297,7 @@ try {
   checks.push("Mouse user Copy keeps byte-exact plain text (trailing newline) while text/html escapes <b>x</b> and drops the javascript: href; user row geometry unchanged");
 
   // 3. User Copy by the real keyboard route (Shift+Tab from the composer to the prose prompt).
-  await page.locator(".sc-input").focus();
+  await page.locator(".sc-input.epitaxy-prompt-input").focus(); // the main composer; the side chat field is also .sc-input
   await page.mouse.move(100, 700);
   let reached = false;
   for (let i = 0; i < 40 && !reached; i++) {

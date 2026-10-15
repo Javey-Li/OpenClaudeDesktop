@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SourceEmptyState } from "./source-transcript-states.jsx";
 import "./source-pane-states.css";
 import { t } from "../electron/i18n/index.mjs";
+import { SourceSettingsButton } from "./source-settings-button.jsx";
+import { fileTreeGuideStyle } from "./file-tree-row-model.mjs";
 
 // Changes/Plan pane body states (2.2553.1). Class strings are the source strings;
-// every utility they name is in the loaded original /assets/v1/c6a992d55-Vcbdv79k.css.
+// every utility they name is in the loaded original /assets/v1/c6a992d55-C0zTICcS.css.
 
 // Spinner xo (readable/shared-frame-C_2npUJq.js:2300-2360, imported as La): bo
 // sizes {sm 12/1.5, md 16/1.75, lg 20/2} through Wi (:1589, px/16 rem times
@@ -44,17 +46,24 @@ export function SourceLoadingPane({ label, className = "h-full w-full", delay = 
 // ke (readable/panes-diff-states-current.js:54-92): loading -> rh "Loading
 // changes"; otherwise div[data-diff-pane-body][tabIndex=-1].h-full.w-full
 // .outline-none around EmptyState P — failed: role=alert, icon Warning and the
-// fixed retry copy (no error detail); else "No uncommitted changes" when
+// fixed copy (no error detail); else "No uncommitted changes" when
 // uncommittedOnly, "No changes to show" otherwise.
+// B15, 2.31226.0 cb61be3a2 ze/W (readable :114-180): failed reads "Couldn’t load the changes" with a
+// secondary "Try again" (busy, labelled "Loading changes", while the refetch runs) that runs the
+// pane's Refresh. A local session's read never retries on its own, so the source's
+// "…It will try again on its own." variant (remote sessions) does not apply.
 export const CHANGES_LOADING_LABEL = t("Loading changes");
-export const CHANGES_FAILED_TITLE = t("Couldn’t load the changes. Close and reopen this pane to try again.");
+export const CHANGES_FAILED_TITLE = t("Couldn’t load the changes");
+export const CHANGES_RETRY_LABEL = t("Try again");
 export function changesEmptyTitle(uncommittedOnly) { return uncommittedOnly ? t("No uncommitted changes") : t("No changes to show"); }
-export function SourceChangesState({ state, uncommittedOnly = false }) {
+export function SourceChangesState({ state, uncommittedOnly = false, onRetry = null, retrying = false }) {
   if (state === "loading") return <SourceLoadingPane label={CHANGES_LOADING_LABEL} />;
   const failed = state === "failed";
   return <div data-diff-pane-body="" tabIndex={-1} className="h-full w-full outline-none source-pane-state">
     <SourceEmptyState role={failed ? "alert" : undefined} icon={failed ? "Warning" : undefined}
-      title={failed ? CHANGES_FAILED_TITLE : changesEmptyTitle(uncommittedOnly)} />
+      title={failed ? CHANGES_FAILED_TITLE : changesEmptyTitle(uncommittedOnly)}
+      actions={failed && onRetry ? <SourceSettingsButton variant="secondary" busy={retrying} aria-label={retrying ? CHANGES_LOADING_LABEL : undefined}
+        onClick={onRetry}>{CHANGES_RETRY_LABEL}</SourceSettingsButton> : undefined} />
   </div>;
 }
 
@@ -63,8 +72,45 @@ export function SourceChangesState({ state, uncommittedOnly = false }) {
 // the body: Codex, not Claude, writes the plan (turn/plan/updated) while it works.
 export const PLAN_EMPTY_TITLE = t("No plan yet");
 export const PLAN_EMPTY_BODY = t("DeepSeek writes the plan here as it works. Keep chatting.");
-export function SourcePlanEmpty() {
+// Jh (2.31226.0 cccc2cf0a :1361-1410) before the empty state: while the session's history loads (Os isPending /
+// backfilling / reading earlier) div[role=status].animate-placeholder-reveal.h-full keyed by the session around
+// EmptyState {Spinner md, "Loading…"}; when it failed, the role=alert EmptyState {Warning, "Couldn’t load earlier
+// messages", body} with Hh: the Jm retry ("Loading earlier messages" while busy) that re-reads the session.
+export const PLAN_LOADING_TITLE = t("Loading…");
+export const PLAN_HISTORY_FAILED_TITLE = t("Couldn’t load earlier messages");
+export const PLAN_HISTORY_FAILED_BODY = t("If DeepSeek wrote a plan earlier in this session, it can’t be shown here.");
+export const PLAN_HISTORY_RETRY_BUSY = t("Loading earlier messages");
+export function SourcePlanEmpty({ loading = false, failed = false, onRetry = null, sessionKey = null }) {
+  if (loading) return <div key={sessionKey ?? undefined} role="status" className="animate-placeholder-reveal h-full source-plan-state">
+    <SourceEmptyState icon={<SourceSpinner size="md" />} title={PLAN_LOADING_TITLE} />
+  </div>;
+  if (failed) return <SourceEmptyState textRole="alert" icon="Warning" title={PLAN_HISTORY_FAILED_TITLE} body={PLAN_HISTORY_FAILED_BODY}
+    actions={typeof onRetry === "function" ? <SourcePaneRetry onRetry={onRetry} busyLabel={PLAN_HISTORY_RETRY_BUSY} failedLabel={PLAN_HISTORY_FAILED_TITLE} /> : undefined} />;
   return <SourceEmptyState icon="Checklist" title={PLAN_EMPTY_TITLE} body={PLAN_EMPTY_BODY} />;
+}
+// Hh (cccc2cf0a :1245-1268) around Jm: when the retry succeeds and the button unmounts with focus in it, the pane's
+// [data-pane-retry-body] (else the nearest focusable pane ancestor) takes the focus (tabindex -1 until it blurs).
+function SourcePaneRetry(props) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    return () => {
+      const doc = node?.ownerDocument;
+      if (!node || !doc || !node.contains(doc.activeElement)) return;
+      const target = node.closest("[data-pane-retry-body]") ?? node.closest(".source-file-panel");
+      queueMicrotask(() => {
+        if (!target?.isConnected || (doc.activeElement && doc.activeElement !== doc.body)) return;
+        const owned = !target.hasAttribute("tabindex");
+        if (owned) {
+          target.setAttribute("tabindex", "-1");
+          const release = () => { if (doc.hasFocus()) { target.removeAttribute("tabindex"); target.removeEventListener("blur", release); } };
+          target.addEventListener("blur", release);
+        }
+        target.focus({ preventScroll: true });
+      });
+    };
+  }, []);
+  return <span ref={ref} className="contents"><SourceTreeRetry {...props} /></span>;
 }
 
 // Files pane tree states (2.2553.1 panes-tile-current.js Ig :5496-5512), all in
@@ -80,13 +126,62 @@ export const FILES_TREE_LOADING_LABEL = t("Loading");
 // the tree body of a pane without a working directory.
 export const FILES_NO_WORKING_DIRECTORY = t("No working directory for this session");
 const FILES_TREE_STATE_CLASS = "flex items-center justify-center px-lg py-2.5 text-body text-muted";
-export function SourceFilesTreeState({ state }) {
+// Oy (2.31226.0 cccc2cf0a :5556-5590) around a local root that failed to list: "flex flex-col items-center gap-sm"
+// with the error copy, then Jm (c30c42d34 f :45-67): a sm "Try again" button, busy "Listing this folder" while the
+// re-list runs; when it fails again a counter re-keys an sr-only role=status span so the failed label is announced
+// once per attempt. onRetry resolves true when the retry failed.
+export const FILES_TREE_RETRY_LABEL = t("Try again");
+export const FILES_TREE_RETRY_BUSY = t("Listing this folder");
+// Jm: busyLabel names the busy button (Files: "Listing this folder"); failedLabel is announced once per failed retry.
+export function SourceTreeRetry({ onRetry, failedLabel = FILES_FOLDER_ERROR, busyLabel = FILES_TREE_RETRY_BUSY }) {
+  const [busy, setBusy] = useState(false);
+  const [failures, setFailures] = useState(0);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const retry = () => {
+    setBusy(true);
+    Promise.resolve().then(onRetry).then((failed) => failed === true, () => true).then((failed) => {
+      if (!live.current) return;
+      setBusy(false);
+      if (failed) setFailures((value) => value + 1);
+    });
+  };
+  return <>
+    <SourceSettingsButton size="sm" busy={busy} aria-label={busy ? busyLabel : undefined} onClick={retry}>{FILES_TREE_RETRY_LABEL}</SourceSettingsButton>
+    <span role="status" className="sr-only">{failures > 0 && <span key={failures}>{failedLabel}</span>}</span>
+  </>;
+}
+export function SourceFilesTreeState({ state, onRetry }) {
   if (state === "loading") return <div role="status" className={`${FILES_TREE_STATE_CLASS} source-files-tree-state`} data-tree-state="loading">
     <SourceSpinner size="sm" /><span className="sr-only">{FILES_TREE_LOADING_LABEL}</span>
   </div>;
-  return <div className={`${FILES_TREE_STATE_CLASS} source-files-tree-state`} data-tree-state={state}>
+  const body = <div className={`${FILES_TREE_STATE_CLASS} source-files-tree-state`} data-tree-state={state}>
     {state === "error" ? FILES_FOLDER_ERROR : state === "no-cwd" ? FILES_NO_WORKING_DIRECTORY : FILES_FOLDER_EMPTY}
   </div>;
+  if (state !== "error" || typeof onRetry !== "function") return body;
+  return <SourceTreeRetryState onRetry={onRetry}>{body}</SourceTreeRetryState>;
+}
+// Oy Uv(a, treeEl) (cccc2cf0a :4757-4765) + Jm u(p) (c30c42d34 :15-39): when a retry succeeds the wrapper and its
+// button unmount; focus that was inside moves to the tree (the file tree column's role="tree"), else to the nearest
+// tabindex=-1 ancestor, instead of falling to <body>.
+function SourceTreeRetryState({ onRetry, children }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    return () => {
+      const doc = node?.ownerDocument;
+      if (!node || !doc || !node.contains(doc.activeElement)) return;
+      const column = node.closest(".source-files-tree");
+      const fallbacks = [];
+      for (let el = node.parentElement?.closest('[tabindex="-1"]'); el && (fallbacks.push(el), el.tagName !== "ASIDE"); el = el.parentElement?.closest('[tabindex="-1"]'));
+      queueMicrotask(() => {
+        if (doc.activeElement && doc.activeElement !== doc.body) return;
+        const tree = column?.isConnected ? column.querySelector('[role="tree"]') : null;
+        (tree ?? fallbacks.find((el) => el.isConnected))?.focus({ preventScroll: true });
+      });
+    };
+  }, []);
+  return <div ref={ref} className="flex flex-col items-center gap-sm source-files-tree-retry">{children}<SourceTreeRetry onRetry={onRetry} /></div>;
 }
 
 // Lg (panes-tile-current.js:5547-5570): the only row Pg (:5335-5350) adds for a
@@ -94,10 +189,11 @@ export function SourceFilesTreeState({ state }) {
 // depth. A focusable (tabIndex -1) treeitem the roving keys reach, with no
 // [data-tree-primary] button, so Enter/Space/click do nothing; style ko(depth)
 // (c621b1e2d o) = paddingLeft 8 + depth * 8 over px-lg.
+// B33 (cccc2cf0a ky :5600-5617): the row also carries the Ec indent guides (style xc = padding + ce9ca5630 g).
 export function SourceTreeErrorRow({ depth }) {
   return <div role="treeitem" aria-level={depth + 1} data-tree-row="" tabIndex={-1}
-    className="source-tree-error flex items-center min-h-control px-lg text-body text-muted outline-none"
-    style={{ paddingLeft: 8 + depth * 8 }}>
+    className="source-tree-error source-tree-guided flex items-center min-h-control px-lg text-body text-muted outline-none"
+    style={{ paddingLeft: 8 + depth * 8, ...fileTreeGuideStyle(depth) }}>
     <span className="truncate">{FILES_FOLDER_ERROR}</span>
   </div>;
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_DIFF_SCOPE, UNCOMMITTED_DIFF_SCOPE, DIFF_SCOPE_COMMIT_LIMIT, branchSearchEmptyLabel, commitScopeLabel, compareAgainstBranches,
   diffScopeParam, diffScopeSections, diffScopeTrigger, filterSearchItems, resolveDiffScope, sameDiffScope,
+  carriedOverDiff, commitScopeGone, commitsSearchEmptyLabel, commitsSubmenuHint,
 } from '../src/diff-scope-model.mjs';
 
 // 2.2553.1 readable/panes-tile-current.js:2842-3117 (Fm, Im, zm, Bm) and
@@ -100,4 +101,47 @@ test('Compare against helpers: Fm order, Im empty labels, H search filter', () =
   assert.equal(branchSearchEmptyLabel({ loaded: true, count: 0 }), 'Loading branches…');
   assert.deepEqual(filterSearchItems([{ label: 'Main' }, { label: 'feature/x' }, { label: 'release' }], 'MA').map((row) => row.label), ['Main']);
   assert.equal(filterSearchItems([{ label: 'a' }], '').length, 1);
+});
+
+// B15: 2.31226.0 cccc2cf0a C_ (readable :3166-3230) Commits submenu row.
+test('Commits submenu: count hint (or the picked shortSha), "Search commits", the newest-50 empty label; the older row never matches a query', () => {
+  const commits = Array.from({ length: 51 }, (_, index) => commit(index + 1));
+  const row = diffScopeSections({ base: 'main', commits, commitTotal: 1234 })[2].items[0];
+  assert.equal(row.hint, '1,234');
+  assert.equal(row.searchLabel, 'Search commits');
+  assert.equal(row.searchEmptyLabel, 'No match in the newest 50 commits');
+  const few = diffScopeSections({ base: 'main', commits: commits.slice(0, 3) })[2].items[0];
+  assert.equal(few.hint, '3'); assert.equal(few.searchEmptyLabel, 'No commits match');
+  const picked = diffScopeSections({ scope: { kind: 'commit', sha: commits[1].sha }, base: 'main', commits })[2].items[0];
+  assert.equal(picked.hint, commits[1].shortSha);
+  assert.equal(commitsSubmenuHint({ kind: 'commit', sha: 'abcdef0123456789' }, [], 4), 'abcdef0', 'an unlisted commit shows its 7-character sha');
+  assert.equal(commitsSearchEmptyLabel(50), 'No commits match');
+  // H: rows whose label is a FormattedMessage in the source ("{n} older commits not shown") are filtered out by any query.
+  assert.deepEqual(filterSearchItems(row.items, 'older').map((item) => item.value), []);
+  assert.deepEqual(filterSearchItems(row.items, 'commit 5').map((item) => item.label), ['Commit 5', 'Commit 50']);
+  assert.equal(filterSearchItems(row.items, '').length, 51);
+});
+
+// B15: c44d00c7f Xc + cb61be3a2 Je Mt (carriedOver).
+test('carriedOverDiff: a loaded comparison of another scope stays (carried over) when it has a patch; empty → loading', () => {
+  const branch = { key: '["branch",null]', param: 'branch' };
+  assert.deepEqual(carriedOverDiff('diff --git a b\n', branch, '["branch",null]'), { diff: 'diff --git a b\n', carriedOver: false, scope: undefined });
+  assert.deepEqual(carriedOverDiff('diff --git a b\n', branch, '["uncommitted",null]'), { diff: 'diff --git a b\n', carriedOver: true, scope: 'branch' });
+  const payload = { patch: 'diff --git a b\n', completeContext: true };
+  assert.equal(carriedOverDiff(payload, branch, 'other').diff, payload);
+  assert.deepEqual(carriedOverDiff('', branch, 'other'), { diff: null, carriedOver: false, scope: undefined });
+  assert.deepEqual(carriedOverDiff({ patch: '  ' }, branch, 'other'), { diff: null, carriedOver: false, scope: undefined });
+  assert.deepEqual(carriedOverDiff(null, branch, 'other'), { diff: null, carriedOver: false, scope: undefined });
+  assert.equal(carriedOverDiff('x', null, 'other').carriedOver, false, 'an unkeyed value is the current one');
+});
+
+test('commitScopeGone (cccc2cf0a te): a picked sha missing from a complete list resets; truncated or failed lists keep it', () => {
+  const list = [commit(1), commit(2)];
+  const picked = { kind: 'commit', sha: commit(3).sha };
+  assert.equal(commitScopeGone(picked, { list, total: 2 }), true);
+  assert.equal(commitScopeGone({ kind: 'commit', sha: commit(2).sha }, { list, total: 2 }), false);
+  assert.equal(commitScopeGone(picked, { list, total: 140 }), false, 'the sha may be past the fetched rows');
+  assert.equal(commitScopeGone(picked, { list: [], total: 0, failed: true }), false);
+  assert.equal(commitScopeGone(picked, { list: [], total: 0 }), true, 'no commits ahead any more');
+  assert.equal(commitScopeGone(DEFAULT_DIFF_SCOPE, { list, total: 2 }), false);
 });

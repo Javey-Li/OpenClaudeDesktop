@@ -14,12 +14,15 @@ test("the open session's row is selected only while the session view shows it (n
   assert.doesNotMatch(sidebar, /const selected = current === session\.id \|\|/);
 });
 
-test("Local › Environment settings opens Code › Local sessions at Worktree location", async () => {
+// B28: the reference env menu (2.31226.0 cc43287c9 dX Ft) has no 'Environment settings' row: the Local row's trailing
+// Settings button / ArrowRight open "Edit local environment" (tests/local-environment.test.mjs). Code › Sessions keeps
+// the Worktree location row.
+test("Local has no plain 'Environment settings' row; Code › Sessions keeps Worktree location (reference DzP8HoeV hr heading)", async () => {
   const main = await read("main.jsx");
-  assert.match(main, /setSettings\("code#worktreeLocation"\)\}>\{t\("Environment settings"\)\}/);
-  assert.doesNotMatch(main, /setSettings\(true\)\}>\{t\("Environment settings"\)\}/);
+  assert.doesNotMatch(main, /\{t\("Environment settings"\)\}/);
+  assert.match(main, /setLocalEnvOpen\(true\)/);
   const settings = await read("source-settings.jsx");
-  assert.match(settings, /\{tab:'code',title:'Local sessions',rows:\[/);
+  assert.match(settings, /\{tab:'code',title:'Sessions',rows:\[/);
   assert.match(settings, /row\('worktreeLocation',/);
 });
 

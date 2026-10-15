@@ -74,9 +74,9 @@ function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { 
     { label: t("New Session"), accelerator: "CmdOrCtrl+N", click: (_item, window) => emit({ kind: "new-session" }, window) },
     // ⇧⌘N is Claude Desktop's "New session with current settings" (2.2553.1 palette new_code_session_from_current).
     { label: t("New Session with Current Settings"), accelerator: "CmdOrCtrl+Shift+N", click: (_item, window) => emit({ kind: "new-session-current" }, window) },
-    // Multi-window (window-registry.cjs): an empty main window with its own sidebar selection and layout (no
-    // accelerator: the official popouts have none). Disabled at window-registry.cjs MAX_WINDOWS, with the reason as
-    // its macOS tooltip, so the item never just does nothing.
+    // B27 (cd377abb5 si): a sidebar-less new-session popout (main.cjs openSessionPopout, a "code-draft") that becomes
+    // that session's popout on its first send (no accelerator: the official popouts have none). Disabled at
+    // window-registry.cjs MAX_SESSION_POPOUTS, with the reason as its macOS tooltip, so the item never just does nothing.
     { label: t("New Window"), enabled: newWindow !== false, ...(newWindow === false ? { toolTip: t("Close a window before opening another.") } : {}),
       click: (_item, window) => emit({ kind: "new-window" }, window) },
     SEPARATOR,
@@ -91,21 +91,23 @@ function fileMenuItems({ closePane, session = { open: false }, reopenClosed = { 
 // (CmdOrCtrl+G) and Find Previous (CmdOrCtrl+Shift+G, USr → the renderer's
 // step request). The renderer's find bar (source-find-bar.jsx, ZB) owns the
 // chords, so the accelerators are shown but not registered; a click emits
-// find-open / find-step. PSr's Find in Files… has no local counterpart.
-function findSubmenu(emit) {
+// find-open / find-step. Current Lli appends Find in Files… without an accelerator.
+function findSubmenu(emit, findInFiles) {
   return {
     label: t("Find"),
     submenu: [
       { label: t("Find…"), accelerator: "CmdOrCtrl+F", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-open" }, window) },
       { label: t("Find Next"), accelerator: "CmdOrCtrl+G", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-step", forward: true }, window) },
       { label: t("Find Previous"), accelerator: "CmdOrCtrl+Shift+G", registerAccelerator: false, click: (_item, window) => emit({ kind: "find-step", forward: false }, window) },
+      SEPARATOR,
+      { id: "find-in-files", label: t("Find in Files…"), enabled: findInFiles?.enabled === true, click: (_item, window) => emit({kind:"find-in-files"},window) },
     ],
   };
 }
 // ISr/FSr("mac") in place of the editMenu role: Undo/Redo, Cut/Copy/Paste,
 // Paste and Match Style (with the hidden CmdOrCtrl+Shift+V twin), Delete and
 // Select All, then a separator and the Find submenu. FSr has no Speech submenu.
-function editMenuItems(emit = () => {}) {
+function editMenuItems(emit = () => {}, findInFiles) {
   return [
     { label: t("Undo"), accelerator: "CmdOrCtrl+Z", role: "undo" },
     { label: t("Redo"), accelerator: "CmdOrCtrl+Shift+Z", role: "redo" },
@@ -118,7 +120,7 @@ function editMenuItems(emit = () => {}) {
     { label: t("Delete"), role: "delete" },
     { label: t("Select All"), accelerator: "CmdOrCtrl+A", role: "selectAll" },
     SEPARATOR,
-    findSubmenu(emit),
+    findSubmenu(emit, findInFiles),
   ];
 }
 // Go menu: index.chunk-D6ATlqeD.js gyr() = {label:_yr() "Go", submenu:
@@ -220,21 +222,24 @@ function viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, 
     { label: fullScreen ? t("Exit Full Screen") : t("Enter Full Screen"), accelerator: "Control+Command+F", click: (_item, window) => emit({ kind: "toggle-full-screen" }, window) },
   ];
 }
-// yNr: View › Split View with vNr's accelerators, enabled from the focused window's report (official
-// reportSplitViewMenuState; src/split-view-model.mjs splitMenuState). Each click is {kind:"split-view", command}
-// for that window. A two-column split has no rows, so New Session Below and Move Split View Up / Down are omitted.
+// Yxi (2.31226.0 asar index.chunk): View › Split View with Jxi's accelerators, enabled from the focused window's
+// report (official reportSplitViewMenuState; src/split-view-model.mjs splitMenuState). Each click is
+// {kind:"split-view", command} for that window.
 function splitViewSubmenu(state, emit) {
   const item = (label, command, enabled, accelerator) => ({ label, ...(accelerator ? { accelerator } : {}), enabled: enabled === true, click: splitDispatch(emit, command) });
   return {
     label: t("Split View"),
     submenu: [
       item(t("New Session on the Right"), "new-right", state.newRight, "Control+Command+\\"),
+      item(t("New Session Below"), "new-below", state.newBelow, "Control+Command+-"),
       SEPARATOR,
       item(t("Focus Next Split View"), "focus-next", state.split, "Control+]"),
       item(t("Focus Previous Split View"), "focus-previous", state.split, "Control+["),
       SEPARATOR,
       item(t("Move Split View Left"), "move-left", state.moveLeft),
       item(t("Move Split View Right"), "move-right", state.moveRight),
+      item(t("Move Split View Up"), "move-up", state.moveUp),
+      item(t("Move Split View Down"), "move-down", state.moveDown),
       SEPARATOR,
       item(t("Close Split View"), "close", state.split, "Control+Command+W"),
     ],
@@ -274,7 +279,7 @@ function appMenuTemplate({ sidebarOpen, canGoBack = false, canGoForward = false,
   return [
     appSubmenu(emit),
     { label: t("File"), submenu: fileMenuItems({ closePane: state.closePane.enabled, session: state.session, reopenClosed: state.reopenClosed, newWindow, emit }) },
-    { label: t("Edit"), submenu: editMenuItems(emit) },
+    { label: t("Edit"), submenu: editMenuItems(emit, state.findInFiles) },
     { label: t("View"), submenu: viewMenuItems({ sidebarOpen, zoomed, fullScreen, allowDevTools, state, splitState, emit }) },
     { label: t("Go"), submenu: goMenuItems({ canGoBack, canGoForward, emit }) },
     windowMenu(emit),
@@ -299,7 +304,7 @@ function navigationState(payload) {
 // anything but true reads as false.
 function menuState(payload) {
   const pane = (value) => ({ enabled: value?.enabled === true, open: value?.open === true });
-  return { panes: { changes: pane(payload?.panes?.changes), files: pane(payload?.panes?.files),
+  return { ...(payload?.findInFiles ? {findInFiles:{enabled:payload.findInFiles.enabled === true}} : {}), panes: { changes: pane(payload?.panes?.changes), files: pane(payload?.panes?.files),
     ...(payload?.panes?.terminal ? { terminal: pane(payload.panes.terminal) } : {}),
     ...(payload?.panes?.preview ? { preview: pane(payload.panes.preview) } : {}),
     ...(payload?.panes?.sideChat ? { sideChat: pane(payload.panes.sideChat) } : {}) }, closePane: { enabled: payload?.closePane?.enabled === true },
@@ -308,7 +313,8 @@ function menuState(payload) {
 }
 // The renderer's "split-menu-state" report (split-view-model.mjs splitMenuState): anything but true is false.
 function splitMenuState(payload) {
-  return { newRight: payload?.newRight === true, split: payload?.split === true, moveLeft: payload?.moveLeft === true, moveRight: payload?.moveRight === true };
+  return { newRight: payload?.newRight === true, newBelow: payload?.newBelow === true, split: payload?.split === true,
+    moveLeft: payload?.moveLeft === true, moveRight: payload?.moveRight === true, moveUp: payload?.moveUp === true, moveDown: payload?.moveDown === true };
 }
 // vSr/_Sr: the menu is rebuilt only when a reported flag changed.
 function sameMenuState(a, b) {

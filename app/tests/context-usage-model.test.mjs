@@ -93,3 +93,22 @@ test('compactAction names the running core, not DeepSeek', async (context) => {
   i18n.setLocale('zh-CN');
   assert.equal(compactAction({ contextPct: 94, running: true }).reason, 'OpenCode 完成本轮后可用');
 });
+
+// B30 ca80fca8d aH/oH/iH/nH (:21786-21842): the compact row's hint is the tokens left before auto-compact.
+test('autoCompactHint: limit − used, two significant digits, "soon" under 30k, none without a limit', async () => {
+  const { autoCompactHint, autoCompactHintText, autoCompactLimit, roundAutoCompactTokens } = await import('../src/context-usage-model.mjs');
+  assert.deepEqual([123456, 98765, 30000, 1234567].map(roundAutoCompactTokens), [120000, 98000, 30000, 1200000]);
+  const usage = (used, extra = {}) => ({ last: { totalTokens: used }, modelContextWindow: 200000, ...extra });
+  assert.equal(autoCompactLimit({ engine: 'codex' }, usage(0)), 180000, "Codex compacts at 90% of the window");
+  assert.equal(autoCompactLimit({ engine: 'opencode' }, usage(0, { codeDesktop: { autoCompactTokens: 150000 } })), 150000);
+  assert.equal(autoCompactLimit({ engine: 'opencode' }, usage(0, { codeDesktop: { autoCompactTokens: 250000 } })), null, 'a limit past the window is no limit (nH)');
+  assert.equal(autoCompactLimit({ engine: 'kimi' }, usage(0)), null);
+  assert.deepEqual(autoCompactHint({ engine: 'codex' }, usage(56789)), { kind: 'left', tokens: 120000 });
+  assert.equal(autoCompactHintText(autoCompactHint({ engine: 'codex' }, usage(56789))), '120k until auto-compact');
+  assert.deepEqual(autoCompactHint({ engine: 'codex' }, usage(160000)), { kind: 'soon' });
+  assert.equal(autoCompactHintText({ kind: 'soon' }), 'Auto-compacts soon');
+  assert.deepEqual(autoCompactHint({ engine: 'codex' }, usage(190000)), { kind: 'soon' }, 'past the limit still reads soon');
+  assert.deepEqual(autoCompactHint({ engine: 'kimi' }, usage(10)), { kind: 'none' });
+  assert.deepEqual(autoCompactHint({ engine: 'codex' }, { modelContextWindow: 200000 }), { kind: 'none' }, 'no usage yet');
+  assert.equal(autoCompactHintText({ kind: 'none' }), undefined);
+});

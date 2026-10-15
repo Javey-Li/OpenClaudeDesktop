@@ -11,7 +11,11 @@ function englishSources(text){
  if(sourceIndex?.table!==table){const map=new Map();for(const [source,shown] of Object.entries(table)){const list=map.get(shown);if(list)list.push(source);else map.set(shown,[source]);}sourceIndex={table,map};}
  return sourceIndex.map.get(text)||[];
 }
-const searchTexts=text=>{if(typeof text!=='string')return [text];const shown=t(text);return [...new Set([text,shown,...englishSources(text)])];};
+// A settings page or group name whose English is also a different word elsewhere ('System' is the theme choice
+// "follow the system" and, since shared-19 ZC, the This computer › System page): its own entry
+// ('settings heading: System' in zh-CN/settings.mjs) wins over the plain one.
+export function settingsHeading(text){if(typeof text!=='string')return text;const key=`settings heading: ${text}`,shown=t(key);return shown===key?t(text):shown;}
+const searchTexts=text=>{if(typeof text!=='string')return [text];const shown=t(text);return [...new Set([text,shown,settingsHeading(text),...englishSources(text)])];};
 // A section keyword ('dark mode', 'api key') as the reader's language shows it: its own entry ('settings keyword: dark
 // mode' in zh-CN/settings.mjs), so a short word never takes an unrelated translation of the same English ('agent').
 // An entry may list synonyms with '|' ('深色模式|暗色模式'): all are searched, the first is shown.
@@ -31,7 +35,7 @@ function searchSettingsRows(sections, groups, query) {
   return terms.every(term=>words.some((_,index)=>words.slice(index).join('').startsWith(term)))?2:3;
  };
  const rank=value=>searchTexts(value).reduce((best,text)=>{const score=rankOne(text);return score>=0&&(best<0||score<best)?score:best;},-1);
- const result=(section,kind='hit',row=null,extra={})=>({tab:section.id,section:t(section.label),icon:section.icon,kind,key:JSON.stringify([section.id,kind,row?.id||null]),label:row?.label||section.label,...(row?{id:row.id,via:row.label,subpathId:row.subpathId,focus:row.focus,targetSection:row.targetSection}:{}),...extra});
+ const result=(section,kind='hit',row=null,extra={})=>({tab:section.id,section:settingsHeading(section.label),icon:section.icon,kind,key:JSON.stringify([section.id,kind,row?.id||null]),label:row?.label||section.label,...(row?{id:row.id,via:row.label,subpathId:row.subpathId,focus:row.focus,targetSection:row.targetSection}:{}),...extra});
  if(!needle)return sections.map(section=>result(section));
  const ranked=sections.flatMap(section=>{
   const seen=new Set();

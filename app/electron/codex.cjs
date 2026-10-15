@@ -61,6 +61,16 @@ function setAgentToolsLaunch(launch) { agentToolsLaunch = typeof launch === "fun
 // first (the Home stats card, an account read, connect()), it never spawns with an unprepared launch.
 let beforeSpawnHook = null;
 function setBeforeSpawn(hook) { beforeSpawnHook = typeof hook === "function" ? hook : null; }
+// Code › Local › "Edit local environment" (local-environment.cjs launchEnv): the user's variables every core spawn gets,
+// after the inherited, proxy and shell variables and before the app's own (agent tools, the core's launch), so they
+// never replace what the app sets. A spawn with an explicit binary (a fixture client) gets none.
+let localEnvironmentLaunch = null;
+function setLocalEnvironment(launch) { localEnvironmentLaunch = typeof launch === "function" ? launch : null; }
+function currentLocalEnvironment() {
+  let env;
+  try { env = localEnvironmentLaunch?.() ?? null; } catch { env = null; }
+  return env && typeof env === "object" ? Object.fromEntries(Object.entries(env).filter(([, value]) => typeof value === "string")) : {};
+}
 function currentAgentTools(kind) {
   let launch = null;
   try { launch = agentToolsLaunch?.() ?? null; } catch { launch = null; }
@@ -262,6 +272,7 @@ class CodexClient extends EventEmitter {
           .filter(Boolean).join(":"),
         ...proxyEnv(process.env, shellProxy),
         ...shellVariables(process.env, shellEnv, names.length ? names : Object.keys(shellEnv ?? {})),
+        ...(this.options.binary ? {} : currentLocalEnvironment()),
         ...tools.env,
         ...core.env,
         ...this.options.env,
@@ -552,4 +563,4 @@ function stopAllCodexClients() {
   });
   return shutdownPromise;
 }
-module.exports = { CodexClient, stopAllCodexClients, resolveCore, coreKind, clientCoreName, reportedServerInfo, coreError, setCoreChoice, setCodexLaunch, codexBinary, stderrReason, deepseekCoreScript, bridgeScript, nodeBinary, setAgentToolsLaunch, setBeforeSpawn, foreignCoreEnv };
+module.exports = { CodexClient, stopAllCodexClients, resolveCore, coreKind, clientCoreName, reportedServerInfo, coreError, setCoreChoice, setCodexLaunch, codexBinary, stderrReason, deepseekCoreScript, bridgeScript, nodeBinary, setAgentToolsLaunch, setBeforeSpawn, setLocalEnvironment, foreignCoreEnv };

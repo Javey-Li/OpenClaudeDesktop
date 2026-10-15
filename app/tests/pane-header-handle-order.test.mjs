@@ -30,5 +30,6 @@ test('background tasks header renders the drag handle after its title and before
   const body = header('source-agent.jsx', '<header className="source-pane-header" data-pane-header="tasks">');
   const handle = body.indexOf('{headerCenter}');
   assert.ok(handle > body.indexOf('sag-pane-title'));
-  assert.ok(handle < body.indexOf('{controls}'));
+  // B21: rw "Clear finished tasks" leads the trailing controls through trailing(controls).
+  assert.ok(handle < body.search(/\{(?:trailing\()?controls\)?\}/));
 });

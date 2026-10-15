@@ -230,3 +230,8 @@ html[data-local-motion="reduce"] .source-spark-pulse { animation: none; }
 /* dT rows: flex items-center gap-1 tabular-nums; the dot is size-[6px] rounded-full shrink-0. */
 .sh-day-tooltip-row { display: flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
 .sh-day-tooltip-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+/* B29: the greeting's slot above the transcript scroller, in the transcript column (source-transcript.css
+   .source-transcript-content gutters; Home's content has no block reserve, so the header keeps its own 12/24). */
+.home-greeting-slot { position: relative; flex: 0 0 auto; min-width: 0; padding: 0 max(32px, calc((100% - 768px) / 2)); }
+html[data-local-transcript-width] .home-greeting-slot { padding-inline: max(32px, calc((100% - var(--local-transcript-width, 768px)) / 2)); }
+@media (max-width: 780px) { .home-greeting-slot, html[data-local-transcript-width] .home-greeting-slot { padding-inline: 20px; } }

@@ -170,3 +170,20 @@ test('model families: a relay id is named and described like the vendor model', 
   assert.deepEqual(Object.keys(providerModelEntry(relay, 'claude-sonnet-4-5').reasoningEfforts), ['off', 'low', 'medium', 'high', 'max']);
   assert.deepEqual(Object.keys(providerModelEntry(relay, 'deepseek-v4-pro').reasoningEfforts), ['off', 'low', 'high', 'max']);
 });
+
+test('a model’s context window is stored, validated against max output tokens and sent to the core', () => {
+  let settings = setModelParam(null, 'deepseek-v4-pro', 'contextWindow', 131072);
+  assert.deepEqual(settings.params, { 'deepseek-v4-pro': { contextWindow: 131072 } });
+  settings = setModelParam(settings, 'deepseek-v4-pro', 'maxTokens', 8000);
+  assert.deepEqual(modelParamsForCore(settings), { 'deepseek-v4-pro': { maxTokens: 8000, contextWindow: 131072 } });
+  assert.throws(() => setModelParam(settings, 'deepseek-v4-pro', 'maxTokens', 131072), /smaller than the context window/);
+  assert.throws(() => setModelParam(settings, 'deepseek-v4-pro', 'contextWindow', 4096), /smaller than the context window/);
+  assert.throws(() => setModelParam(settings, 'deepseek-v4-pro', 'contextWindow', 1000), /Context window must be/);
+  assert.throws(() => setModelParam(settings, 'deepseek-v4-pro', 'contextWindow', 1.5e8), /Context window must be/);
+  assert.match(modelParamError('contextWindow', 12.5), /whole number/);
+  assert.equal(modelParamError('contextWindow', 1024), null);
+  // Cleared, the model keeps only its other values; a valid saved table round-trips through validate().
+  assert.deepEqual(setModelParam(settings, 'deepseek-v4-pro', 'contextWindow', undefined).params, { 'deepseek-v4-pro': { maxTokens: 8000 } });
+  assert.deepEqual(validate({ params: { m: { contextWindow: 200000 } } }).params, { m: { contextWindow: 200000 } });
+  assert.deepEqual(normalize({ params: { m: { contextWindow: 10 } } }).params, {}, 'an out-of-range stored value is dropped');
+});

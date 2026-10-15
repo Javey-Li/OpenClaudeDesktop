@@ -97,19 +97,22 @@ try {
   const band = await row.evaluate(el => ({ height: el.offsetHeight, width: el.getBoundingClientRect().width,
     gap: document.querySelector(".sc-composer").getBoundingClientRect().top - el.getBoundingClientRect().bottom,
     repoMaxWidth: getComputedStyle(el.querySelector(".sg-repo")).maxWidth, repoChip: el.querySelector(".sg-repo").dataset.repoChip,
-    branchShrink: getComputedStyle(el.querySelector(".sg-branch")).flexShrink, behind: el.querySelectorAll(".sg-behind").length,
+    branchShrink: getComputedStyle(el.querySelector(".sg-branch")).flexShrink, behind: el.querySelectorAll(".sg-behind").length, behindLabel: el.querySelector(".sg-behind")?.getAttribute("aria-label") ?? null, behindCount: el.querySelector(".sg-behind-count")?.textContent ?? null,
     navOverflow: getComputedStyle(el.parentElement).overflowY, navOverscroll: getComputedStyle(el.parentElement).overscrollBehaviorY, navMaxHeight: getComputedStyle(el.parentElement).maxHeight,
     actionText: el.querySelector(".sg-action")?.textContent, actionDisabled: el.querySelector(".sg-action")?.disabled, actionBusy: el.querySelector(".sg-action")?.getAttribute("aria-busy"),
     actionTitle: el.querySelector(".sg-action")?.getAttribute("title"), actionReason: (() => { const wrap = el.querySelector(".sg-action")?.closest(".source-tooltip-disabled-trigger"), id = wrap?.getAttribute("aria-describedby"); return id ? document.getElementById(id)?.textContent ?? null : null; })(), spinners: el.querySelectorAll(".sg-spinner").length }));
   metrics.band = band;
   assert.equal(band.height, 40); assert.equal(band.width, 768); assert.equal(band.gap, 6);
   assert.equal(band.repoMaxWidth, "none"); assert.equal(band.repoChip, "unbounded"); assert.equal(band.branchShrink, "9999");
-  assert.equal(band.behind, 0, "official 2.2553.1 never renders behind (intl xq0t4i missing); local default off");
+  // B34 (cd5a31703 ORe): the main.jsx band passes showBehind. The fixture's main moved one commit after feature
+  // branched (m1.txt), so feature is one commit behind its base and the band shows ArrowDown 1.
+  assert.equal(band.behind, 1, "the band shows the behind indicator: feature is 1 commit behind its base");
+  assert.equal(band.behindCount, "1"); assert.match(band.behindLabel ?? "", /^1 commit behind \S+$/);
   assert.equal(band.navOverflow, "auto"); assert.equal(band.navOverscroll, "contain"); near(parseFloat(band.navMaxHeight), await page.evaluate(() => innerHeight) / 2, "nav max-height is 50vh");
-  assert.equal(band.actionText, "Commit"); assert.equal(band.actionDisabled, false); assert.equal(band.actionBusy, null);
+  assert.equal(band.actionText, "Commit changes"); assert.equal(band.actionDisabled, false); assert.equal(band.actionBusy, null);
   assert.equal(band.actionTitle, null, "no native title (CDS Fe tooltip only)"); assert.equal(band.actionReason, null, "enabled Commit carries no disabled reason (Hi/Fe reason only while disabled)"); assert.equal(band.spinners, 0);
   assert.equal(await page.getByRole("button", { name: "feature", exact: true }).count(), 1);
-  checks.push("Band keeps 40px/768px/6px; commit-mode repo chip has no max-width; branch shrink 9999; behind indicator absent by default; nav overflow-y auto / overscroll contain / max-height 50vh; Commit enabled");
+  checks.push("Band keeps 40px/768px/6px; commit-mode repo chip has no max-width; branch shrink 9999; behind indicator shows 1 commit behind (B34 ORe); nav overflow-y auto / overscroll contain / max-height 50vh; Commit enabled");
 
   // 2. Real comparison payload through the whitelisted IPC (scoped to the session cwd).
   const comparison = await page.evaluate(({ cwd, session }) => window.desktop.call("workspace-git-comparison", { cwd, sessionId: session }), { cwd, session: SESSION });
@@ -163,7 +166,7 @@ try {
   // 4. Turn end stops the interval; window focus refreshes once; the band survives both; the reason disappears.
   await page.getByRole("button", { name: "Allow once", exact: true }).click();
   await page.waitForFunction(() => { const action = document.querySelector(".sg-action"); return !!action && !action.disabled; });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   await sleep(2500); // the running→idle refetch settles
   const idleBase = await statusCalls(), idleDiff = await diffCalls();
   await sleep(15000);
@@ -296,7 +299,7 @@ try {
   near(panel.valueRightGap, panel.padXs, "value sits at the right padding edge", 1);
   assert.equal(panel.factMinHeight, "28px"); assert.equal(panel.factHeight, 28); near(panel.factPaddingLeft, panel.padXs, "fact padding-inline = --cds-pad-xs"); near(panel.factGap, panel.gapMd, "fact gap = --cds-gap-md");
   assert.equal(panel.action.minHeight, "28px"); assert.equal(panel.action.marginTop, "2px"); near(panel.action.gap, panel.action.gapXs, "action row gap = --cds-gap-xs"); near(panel.action.paddingLeft, panel.padXs, "action row padding = --cds-pad-xs");
-  assert.equal(panel.action.button, "Commit"); assert.equal(panel.action.flex, "1"); assert.equal(panel.action.disabled, false);
+  assert.equal(panel.action.button, "Commit changes"); assert.equal(panel.action.flex, "1"); assert.equal(panel.action.disabled, false);
   await nav.locator('[data-rail-group="facts"] .sgr-fact').click();
   await nav.locator(".sgr-action").click();
   assert.deepEqual(await page.evaluate(() => window.gitRailFixtureLog.slice(-2)), ["rail:A:changes", "rail:A:commit"]);
@@ -426,7 +429,7 @@ try {
   const report = { schemaVersion: 1, suite: "git-rail-ui", passed: !failure, startedAt, at: new Date().toISOString(), fixture: true, realGit: true, directory, profileRemoved,
     build: build ? { version: build.version, builtAt: build.builtAt, sourceSha256: build.sourceSha256, verifiedSourceFiles: build.sources?.length } : null,
     runtime, testSourceHashes, executablePath, checks, metrics, rendererErrors,
-    notes: ["Official 2.2553.1 never renders the behind indicator: intl id xq0t4i has no defaultMessage and is in no ion-dist/i18n catalog; the fixture forces showBehind on to verify markup only.",
+    notes: ["2.31226 renders the behind indicator (cd5a31703 ORe, 3nAhFAuOAD) behind the desktop git engine; main.jsx passes showBehind with behindIndicator (B34). The fixture sets showBehind on one row to verify the markup.",
       "The rail layout is exercised in an isolated component fixture because this app has no EpitaxySessionRail host (official rail is growth-flag gated); it is not presented as the official rail."],
     ...(failure ? { error: failure.stack || String(failure), viteLog: viteLog.slice(-4000) } : {}) };
   await fs.writeFile(path.join(directory, "report.json"), JSON.stringify(report, null, 2));

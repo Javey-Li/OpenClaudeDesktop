@@ -154,7 +154,7 @@ try{
  assert.match(report.metrics.developerCodex,/Codex core[\s\S]*Runs Codex\.[\s\S]*\/codex-home\/config\.toml/);
  assert.equal(/DeepSeek Harness|DeepSeek API key/.test(report.metrics.developerCodex),false,'no DeepSeek Harness copy on Codex');
  await page.screenshot({path:path.join(directory,'developer-codex-light.png')});await dark('developer-codex-dark.png');
- const preferencesPage=await openSection('Preferences');await preferencesPage.getByRole('heading',{name:'Codex account',exact:true}).waitFor();
+ const preferencesPage=await openSection('General');await preferencesPage.getByRole('heading',{name:'Codex account',exact:true}).waitFor();
  assert.equal(await preferencesPage.getByRole('heading',{name:'DeepSeek account',exact:true}).count(),0);
  report.checks.push('On Codex, Developer › Local engine reads “Codex core” / “Runs Codex.” with its CODEX_HOME config.toml and no DeepSeek Harness copy; Preferences shows a “Codex account” group');
 
@@ -178,7 +178,7 @@ try{
  const log=async file=>{try{return (await fs.readFile(path.join(profile,file),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);}catch(e){if(e.code==='ENOENT')return [];throw e;}};
  const turns=async()=>(await log('fixture-requests.jsonl')).filter(x=>x.method==='turn/start'),history=()=>log('fixture-history.jsonl');
  const input=name=>page.getByRole('textbox',{name:`Message ${name}`,exact:true}),trigger=()=>page.getByRole('button',{name:'Permission mode',exact:true});
- const modeMenu=()=>page.getByRole('menu',{name:'Mode',exact:true}),bypassDialog=()=>page.getByRole('dialog',{name:'Bypass all permissions?',exact:true});
+ const modeMenu=()=>page.getByRole('menu',{name:'Mode',exact:true}),bypassDialog=()=>page.getByRole('alertdialog',{name:'Bypass all permissions?',exact:true});
  const mode=label=>poll(async()=>await trigger().textContent()===label,'mode '+label);
  const pick=async value=>{await trigger().click();await modeMenu().waitFor();await modeMenu().locator(`[data-permission-value="${value}"]`).click();await modeMenu().waitFor({state:'detached'});};
  const confirmBypass=async()=>{await pick('bypass');await bypassDialog().waitFor();await bypassDialog().getByRole('button',{name:'Bypass permissions',exact:true}).click();await bypassDialog().waitFor({state:'detached'});await mode('Bypass permissions');};
@@ -186,7 +186,7 @@ try{
  const desktop=(action,payload)=>page.evaluate(([a,p])=>window.desktop.call(a,p).then(value=>({value}),error=>({error:error.message})),[action,payload]);
  const live=async()=>{const {value}=await desktop('init');return {connectionId:value?.approvalSnapshot?.connectionId,bypassCarry:value?.bypassCarry};};
  const switchTo=async(id,label)=>{await mark();await (await openCores()).locator(`[data-core-use=${id}]`).click();await reloaded(label);};
- const send=async(name,text)=>{const before=(await turns()).length;await fillComposer(page,input(name),text);await page.getByRole('button',{name:'Send message',exact:true}).click();await poll(async()=>(await turns()).length===before+1,'turn sent');const request=(await turns()).at(-1);await poll(async()=>{const db=await readJson('fixture-threads.json');return db.threads[request.params.threadId]?.turns.at(-1)?.status==='completed';},'fixture completed');await poll(async()=>await trigger().isEnabled(),'composer settled');return request;};
+ const send=async(name,text)=>{const before=(await turns()).length;await fillComposer(page,input(name),text);await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();await poll(async()=>(await turns()).length===before+1,'turn sent');const request=(await turns()).at(-1);await poll(async()=>{const db=await readJson('fixture-threads.json');return db.threads[request.params.threadId]?.turns.at(-1)?.status==='completed';},'fixture completed');await poll(async()=>await trigger().isEnabled(),'composer settled');return request;};
  // (a) Opt-in off: no Bypass entry, and main mints nothing even for a select and reconnect that ask to carry.
  await trigger().click();await modeMenu().waitFor();assert.equal(await modeMenu().locator('[data-permission-value=bypass]').count(),0);
  // On Codex the opt-in is still discoverable from the Mode menu (Claude Desktop's 'Bypass permissions · Enable' row).

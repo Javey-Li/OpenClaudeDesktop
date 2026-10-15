@@ -23,8 +23,13 @@ function Lit({ segments, text }) {
   return <bdi>{segments.map((segment, index) => segment.lit ? <mark key={index} className="smd-match">{segment.text}</mark> : <React.Fragment key={index}>{segment.text}</React.Fragment>)}</bdi>;
 }
 
-export function SourceMentionDropdown({ options = [], highlighted = 0, caret, onSelect, onHover, onClose, container }) {
+export function SourceMentionDropdown({ options = [], highlighted = 0, caret, onSelect, onClose, container }) {
   const list = useRef(null);
+  // Current shared-frame $T keeps hover separate from the editor's keyboard
+  // selection. Leaving the list restores that selection; a fresh result list
+  // drops the old hover without changing which option Enter will accept.
+  const [hover, setHover] = useState(null);
+  const paintedIndex = (hover?.options === options ? hover.index : null) ?? highlighted;
   const width = mentionWidth(options);
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   useEffect(() => {
@@ -47,16 +52,16 @@ export function SourceMentionDropdown({ options = [], highlighted = 0, caret, on
     <div className="cds-root smd-positioner" role="presentation" data-testid="mention-dropdown"
       style={{ left: box.left, bottom: box.bottom, width: box.width, maxHeight: box.maxHeight }}>
       <div ref={list} data-cds="MentionDropdown" role="listbox" aria-label={t("Mention suggestions")} tabIndex={-1} className="smd-list"
-        onMouseLeave={() => onHover?.(null)}>
+        onMouseLeave={() => setHover(null)}>
         {options.map((option, index) => {
           const lit = optionHighlights(option);
-          const selected = index === highlighted;
+          const selected = index === paintedIndex;
           return (
             <SourceTooltip key={option.id} content={mentionTooltip(option)} multiline={!!option.description}
               className={option.description ? "smd-tooltip-wide" : ""} side="right" sideOffset={8} delay={200}>
               <button type="button" role="option" aria-selected={selected} data-option-index={index}
                 data-highlighted={selected ? "" : undefined} className="smd-option"
-                onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(option)} onMouseEnter={() => onHover?.(index)}>
+                onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(option)} onMouseEnter={() => setHover({ options, index })}>
                 <span aria-hidden="true" className="smd-leading"><Icon name={option.icon || (option.isDirectory ? "Folder" : fileKindIcon(option.label))} size={16} /></span>
                 <span className="smd-text">
                   <span className={`smd-label ${option.description ? "smd-label--shrink" : ""}`} data-has-matches={lit.label ? "" : undefined}><Lit segments={lit.label} text={option.label} /></span>

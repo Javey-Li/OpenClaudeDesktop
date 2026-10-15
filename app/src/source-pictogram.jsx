@@ -1,5 +1,6 @@
 import React from "react";
 import * as DEFS from "./pictogram-defs.mjs";
+import { e as HandBlocks } from "./generated/chat/cbcaf521a-CrWJ5SHy.js";
 
 // CDS Pictogram (2.2553.1 shared-6 ZR, re-exported as St and wrapped by
 // shared-7 tV/nV). ZR draws a 500×500 viewBox SVG at GR {sm:64, md:96}: the
@@ -12,7 +13,7 @@ import * as DEFS from "./pictogram-defs.mjs";
 export const PICTOGRAM_SIZES = Object.freeze({ sm: 64, md: 96 });
 
 export function SourcePictogram({ name, size = "md", className }) {
-  const def = DEFS[name];
+  const def = name === "HandBlocks" ? HandBlocks : DEFS[name];
   if (!def) return null;
   const px = typeof size === "number" ? size : PICTOGRAM_SIZES[size];
   return (

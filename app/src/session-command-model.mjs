@@ -25,7 +25,7 @@ export const sessionCommands = [
   {id:'usage',aliases:['stats','cost','usage-credits','extra-usage','credits'],label:t('Usage'),description:t('Show plan usage, credits and rate limits')},
   {id:'diff',label:t('Show changes'),description:t('Show or hide this session’s changes'),session:true},
   {id:'workflow',label:t('Run workflow'),description:t('Run a local dynamic workflow'),argumentHint:'[path] [--plan] [--resume run-id] [--args JSON]',session:true},
-  {id:'workflows',label:t('Workflows'),description:t('Show workflows in background tasks'),session:true},
+  {id:'workflows',label:t('Workflows'),description:t('Browse workflow history (running and completed)'),session:true},
   {id:'tasks',aliases:['bashes'],label:t('Background tasks'),description:t('Show this session’s background tasks'),session:true},
   {id:'config',aliases:['settings'],label:t('Settings'),description:t('Open Code settings')},
   {id:'theme',label:t('Appearance'),description:t('Set the appearance (system, light, or dark)'),argumentHint:'[system|light|dark]'},
@@ -98,7 +98,7 @@ export function slashCustomCommands(customCommands=[]) {
   for(const row of Array.isArray(customCommands)?customCommands:[]){
     const name=typeof row?.name==='string'?row.name:'',key=name.toLowerCase();
     if(!CUSTOM_NAME.test(name)||row.shadowedBy||findCommand(key)||seen.has(key))continue;
-    seen.add(key);out.push({name,description:row.description||'',argumentHint:row.argumentHint||'',body:typeof row.body==='string'?row.body:'',scope:row.scope==='project'?'project':'global',path:row.path||''});
+    seen.add(key);out.push({name,description:row.description||'',argumentHint:row.argumentHint||'',body:typeof row.body==='string'?row.body:'',scope:row.scope==='project'?'project':'global',path:row.path||'',overrides:row.hidesSkill===true});
   }
   return out;
 }
@@ -227,6 +227,56 @@ export function slashQuery(text) {
   const value=String(text);
   return value.startsWith('/')&&!/^\/\s/.test(value)&&value.length<=51&&!/[\r\n]/.test(value)?value.slice(1):null;
 }
+// The '/' suggestion under the caret, anywhere in the draft (2.31226.0 shared-5 mS/yS 'slash-command-suggestion', the
+// tiptap Suggestion with char '/', allowSpaces, allowedPrefixes [' '], startOfLine false; ca80fca8d :15416-15424 the
+// Code composer sets midMessageNeedsName). The text run is the text before the caret back to `boundary` (the start of
+// its line, or the end of the chip/mention atom before it — PM's nodeBefore text). Of the '/…' matches in it
+// (/\/.*?(?=\s\/|$)/g) the last one is taken; the char before its '/' must be a space or the run start, the caret must
+// sit inside it, and after the caret comes whitespace or the end. yS allow(): at most 51 chars, the query does not
+// start with a space, mid-message the query starts with a letter, digit or '_' (a bare '/' opens only at the very
+// start), and a trigger dismissed with Escape (dismissedAt) stays closed. {start,end,query} in text offsets, or null.
+export function slashToken(text, caret, {boundary=null,dismissedAt=null,midMessageNeedsName=true}={}) {
+  const value=String(text??'');
+  if(!Number.isInteger(caret)||caret<0||caret>value.length)return null;
+  const lineStart=value.lastIndexOf('\n',caret-1)+1;
+  const from=Number.isInteger(boundary)&&boundary>=lineStart&&boundary<=caret?boundary:lineStart;
+  const run=value.slice(from,caret);
+  if(!run)return null;
+  const match=[...run.matchAll(/\/.*?(?=\s\/|$)/g)].pop();
+  if(!match)return null;
+  if(match.index>0&&run[match.index-1]!==' ')return null;
+  // The last match runs to the caret (a later ' /' would have started another one).
+  const start=from+match.index,end=start+match[0].length;
+  if(!(start<caret&&end>=caret))return null;
+  const query=match[0].slice(1);
+  if(end-start>51||query.startsWith(' ')||dismissedAt===start)return null;
+  if(midMessageNeedsName&&start>0&&!/^[\p{L}\p{N}_]/u.test(query))return null;
+  if(caret<value.length&&value[caret].trim()!=='')return null;
+  return {start,end:caret,query};
+}
+// c5cd1b4dc :3661-3666 subtitle on an overriding row ('Custom command', 66djAf//ud).
+export const CUSTOM_COMMAND_SUBTITLE='Custom command';
+// The '/' list's states (c5cd1b4dc :3586-3600, :3609-3625; ccc334009 z/L): a skeleton row while a command list it shows
+// still loads, and the 'Some commands didn't load. Type / again to retry.' header when one failed. The menu draws
+// headers first, then the rows, then the skeleton (the source's rankingPending branch appends it after the rows).
+export const SLASH_RETRY_HEADER='Some commands didn\u2019t load. Type / again to retry.';
+export const SLASH_PRESESSION_HEADER='More commands available once the session is running';
+export function slashMenuEntries(commands=[],{preSession=false,loading=false,failed=false}={}){
+  const entries=[];
+  if(preSession)entries.push({type:'header',label:SLASH_PRESESSION_HEADER});
+  if(failed)entries.push({type:'header',label:SLASH_RETRY_HEADER});
+  commands.forEach((command,index)=>entries.push({type:'row',command,index}));
+  if(loading)entries.push({type:'loading'});
+  return entries;
+}
+// Whether a '/' list is still loading or failed: the skills (customize-store skills: idle|loading|ready|error) and the
+// custom commands (custom-commands-store entry: loading|ready|error). Rows already shown keep showing while a list
+// reloads; only a first load counts as loading, and only a list with nothing to show counts as failed.
+export function slashListState({skills=null,customCommands=null}={}){
+  const pending=entry=>!!entry&&(entry.status==='loading'||entry.loading===true)&&entry.status!=='ready';
+  const failed=entry=>!!entry&&entry.status==='error';
+  return {loading:pending(skills)||pending(customCommands),failed:failed(skills)||failed(customCommands)};
+}
 export function matchCommands(query, context={}) {
   const value=String(query).replace(/^\//,'').toLowerCase();
   if(value.length>50)return [];
@@ -237,8 +287,10 @@ export function matchCommands(query, context={}) {
   const commands=sessionCommands.filter(c=>!commandUnavailable(c,context)&&(!q||[c.id,...c.aliases||[]].some(n=>n.includes(q))))
     .sort((a,b)=>rank(a)-rank(b)).map(c=>({...c,description:sessionCommandDescription(c,context),argumentHint:sessionCommandHint(c,context),matchedAlias:q&&!c.id.includes(q)?c.aliases?.find(n=>n.includes(q)):null}));
   // Skill rows follow the host commands: {id: name, description, argumentHint, kind:'skill', path}.
-  // Custom rows sit between them (the menu draws a 'Custom' header before the first): kind 'custom'.
-  const custom=slashCustomCommands(context.customCommands).map(command=>({id:command.name,description:command.description,argumentHint:command.argumentHint,kind:'custom',scope:command.scope,matchedAlias:null}))
+  // Custom rows sit between them: kind 'custom'. c5cd1b4dc :3640-3680: no group header; a row that takes the name of
+  // another command (here: a custom command hiding a same-name skill, custom-commands-model hidesSkill) carries the
+  // right-hand 'Custom command' subtitle.
+  const custom=slashCustomCommands(context.customCommands).map(command=>({id:command.name,description:command.description,argumentHint:command.argumentHint,kind:'custom',scope:command.scope,matchedAlias:null,...(command.overrides?{subtitle:CUSTOM_COMMAND_SUBTITLE}:{})}))
     .filter(command=>!q||command.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));
   const skills=slashSkills(context.skills,context.customCommands).map(skill=>({id:skill.name,description:skill.description,argumentHint:skill.argumentHint,kind:'skill',path:skill.path,matchedAlias:null}))
     .filter(skill=>!q||skill.id.toLowerCase().includes(q)).sort((a,b)=>rank({id:a.id.toLowerCase()})-rank({id:b.id.toLowerCase()}));

@@ -1,6 +1,7 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SourceMenu } from "./source-menu.jsx";
+import { SourceTranscriptSelection } from "./source-transcript-selection.jsx";
 import { SourceTableScope } from "./source-response-table.jsx";
 import { useTranscriptScroll } from "./use-transcript-scroll";
 import { pathChoices } from "./file-tool-model.mjs";
@@ -8,6 +9,9 @@ import { clipboardEnvironment, writeClipboardPayload } from "./clipboard-payload
 import { markdownToClipboardHtml } from "./rich-copy-html.mjs";
 import { attachSelectionChord, attachableSelection, fileRefMenu, linkTarget, messageMenu } from "./transcript-context-menu-model.mjs";
 import { useTranscriptFeedNav } from "./use-transcript-feed-nav.js";
+import { SourceChapterToc } from "./source-chapters.jsx";
+import { ResponseImageMenuContext } from "./source-response-image.jsx";
+import { chapterAnchorId } from "./session-chapters-model.mjs";
 import "./source-transcript.css";
 import { t } from "../electron/i18n/index.mjs";
 
@@ -27,18 +31,22 @@ function codeTargetOf(target) {
 }
 
 function MenuEntries({ entries, run }) {
+  const prefix = useId();
   return entries.map((entry, index) => {
     if (entry.type === "separator") return <SourceMenu.Separator key={`separator-${index}`} />;
     if (entry.submenu) return <SourceMenu.Submenu key={entry.id}>
       <SourceMenu.SubmenuTrigger>{entry.label}</SourceMenu.SubmenuTrigger>
       <SourceMenu.Popup label={entry.label}><MenuEntries entries={entry.submenu} run={run} /></SourceMenu.Popup>
     </SourceMenu.Submenu>;
-    return <SourceMenu.Item key={entry.id} shortcut={entry.shortcut} onClick={() => run(entry.id)}>{entry.label}</SourceMenu.Item>;
+    // zNe: Rewind to here / Fork from here carry a second line; the item is named by its label, described by that line.
+    const described = entry.description ? { label: entry.label, description: entry.description, labelId: `${prefix}-${entry.id}-label`,
+      descriptionId: `${prefix}-${entry.id}-description`, "aria-labelledby": `${prefix}-${entry.id}-label`, "aria-describedby": `${prefix}-${entry.id}-description` } : null;
+    return <SourceMenu.Item key={entry.id} shortcut={entry.shortcut} {...described} onClick={() => run(entry.id)}>{entry.label}</SourceMenu.Item>;
   });
 }
 
 export const SourceTranscript = forwardRef(function SourceTranscript(
-  { sessionKey, ready = true, pendingInput = false, interactionHandlers, messageActions = null, responding = false, onFeedEscape = null, findBarRef = null, children },
+  { sessionKey, ready = true, pendingInput = false, interactionHandlers, messageActions = null, responding = false, onFeedEscape = null, findBarRef = null, chapters = null, chapterSessionId = null, children },
   ref,
 ) {
   const scroll = useTranscriptScroll({ sessionKey, ready });
@@ -61,38 +69,50 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
   // native menu (F04) closed. Rows without message text keep the native menu.
   function onContextMenu(event) {
     interactionHandlers?.onContextMenu?.(event);
-    const current = actions.current;
-    if (!current || event.defaultPrevented) return;
-    const viewport = event.currentTarget;
+    if (event.defaultPrevented) return;
     const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
-    if (!target || !viewport.contains(target) || target.closest(EDITABLE)) return;
-    const point = { x: event.clientX, y: event.clientY };
+    if (openMessageMenu(target, { x: event.clientX, y: event.clientY })) event.preventDefault();
+  }
+  // dI / TI: the menu for what is under the pointer. image: a response image of the message (its src, file name and own
+  // Copy image / Save image), which puts the image items first. Returns whether a menu opened.
+  function openMessageMenu(target, point, image = null) {
+    const current = actions.current, viewport = scroll.viewportRef.current;
+    if (!current || !viewport) return false;
+    if (!target || !viewport.contains(target) || target.closest(EDITABLE)) return false;
     const fileNode = target.closest("[data-file-ref]");
     if (fileNode && viewport.contains(fileNode)) {
       const path = fileNode.dataset.fileRef, choices = pathChoices(path, current.cwd);
       const entries = fileRefMenu({ absolute: choices?.absolute, relative: choices?.relative, filename: choices?.filename || path,
         canAttach: !!current.onAttachFile, canOpen: !!current.onOpenFile, canReveal: !!current.onRevealFile && !!choices?.relative });
-      event.preventDefault();
       setMenu({ kind: "file", point, entries, path, choices,
         line: fileNode.dataset.fileLine ? Number(fileNode.dataset.fileLine) : undefined,
         endLine: fileNode.dataset.fileEndLine ? Number(fileNode.dataset.fileEndLine) : undefined });
-      return;
+      return true;
     }
     const row = target.closest("[data-transcript-item-id]");
-    if (!row || !viewport.contains(row)) return;
+    if (!row || !viewport.contains(row)) return false;
     const text = current.resolveMessage?.(row.dataset.transcriptItemId);
-    if (typeof text !== "string") return;
+    if (typeof text !== "string") return false;
     const selectionText = viewport.ownerDocument.getSelection()?.toString() ?? "";
     const link = linkTarget(target.closest("a[href]")?.href);
     const code = codeTargetOf(target);
     // The row's turn (resolveTurn): Rewind to here on a user message, Fork from here on any message of a finished turn.
     const turn = current.resolveTurn?.(row.dataset.transcriptItemId) ?? null;
-    const entries = messageMenu({ selectionText: selectionText.trim() ? selectionText : null, codeTarget: code,
+    // Pin as chapter / Unpin chapter (resolvePin: an assistant message of a session with a chapter store).
+    const pin = current.resolvePin?.(row.dataset.transcriptItemId) ?? null;
+    const entries = messageMenu({ imageTarget: image, selectionText: selectionText.trim() ? selectionText : null, codeTarget: code,
       ...link, canOpenInPreview: link.canOpenInPreview && !!current.onOpenInPreview, messageText: text, canAttach: !!current.onAttachText,
+      canPin: !!(pin && current.onTogglePin), pinned: !!pin?.pinned,
       canRewind: !!(turn?.user && current.onRewindTo), canFork: !!(turn?.turnId && current.onForkFrom) });
-    event.preventDefault();
-    setMenu({ kind: "message", point, entries, text, code, link: link.linkHref, selectionText, turnId: turn?.turnId ?? null });
+    setMenu({ kind: "message", point, entries, text, code, link: link.linkHref, selectionText, turnId: turn?.turnId ?? null,
+      itemId: row.dataset.transcriptItemId, image });
+    return true;
   }
+
+  // One stable opener for the images below (they re-render only with their own props).
+  const openMenuRef = useRef(openMessageMenu);
+  openMenuRef.current = openMessageMenu;
+  const openImageMenu = useCallback((target, point, image) => openMenuRef.current(target, point, image), []);
 
   function run(id) {
     const current = actions.current, viewport = scroll.viewportRef.current;
@@ -111,6 +131,8 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
       return;
     }
     switch (id) {
+      case "copy-image": menu.image?.copy(); break;
+      case "save-image": menu.image?.save(); break;
       case "copy-selection": void write(menu.selectionText); break;
       case "copy-code": void write(menu.code.text); break;
       case "open-link": current.onOpenLink?.(menu.link); break;
@@ -126,6 +148,7 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
       case "copy-markdown": void write(menu.text); break;
       case "rewind": if (menu.turnId) current.onRewindTo?.(menu.turnId); break;
       case "fork": if (menu.turnId) current.onForkFrom?.(menu.turnId); break;
+      case "pin": current.onTogglePin?.(menu.itemId, menu.text); break;
       // S: a live selection of at least 2 characters wins over the message.
       case "attach": {
         const selection = viewport?.ownerDocument.getSelection();
@@ -136,6 +159,22 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
       }
     }
   }
+
+  // tb E (cf74bc599 :3320-3333): Session start scrolls to the top, any other chapter brings its heading (scroll-mt 56px)
+  // to the top smoothly; following is released first, as the find bar's reveal does. A heading that is not shown
+  // falls back to its row (scrollToChapter's entry).
+  const jumpToChapter = useCallback((chapter) => {
+    const viewport = scroll.viewportRef.current;
+    if (!viewport || !chapter) return;
+    scroll.api.release?.();
+    if (chapter.source === "session") { viewport.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    const target = viewport.querySelector(`#${CSS.escape(chapterAnchorId(chapter.id))}`)
+      ?? [...viewport.querySelectorAll("[data-transcript-item-id]")].find((node) => node.dataset.transcriptItemId === chapter.entryId);
+    if (!target) return;
+    const margin = Number.parseFloat(viewport.ownerDocument.defaultView?.getComputedStyle(target).scrollMarginTop ?? "") || 0;
+    const top = target.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - margin;
+    viewport.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, [scroll.viewportRef, scroll.api]);
 
   // cf74bc599 df: cmd+shift+L attaches a selection made inside the transcript.
   const canAttach = !!messageActions?.onAttachText;
@@ -160,7 +199,7 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
   }, [canAttach, sessionKey]);
 
   return (
-    <SourceTableScope scopeKey={sessionKey}><div
+    <SourceTableScope scopeKey={sessionKey}><ResponseImageMenuContext.Provider value={openImageMenu}><div
       className="source-transcript-frame"
       data-following={scroll.following}
       data-scroll-fade={scroll.showFade}
@@ -168,6 +207,9 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
       <div
         ref={scroll.viewportRef}
         className="transcript supports-[animation-timeline:scroll()]:[--epitaxy-top-fade-height:32px]"
+        // ca1d33d05 ft: the code conversation (its feed) is the "conversation" region. F6 never lands on it (bn drops
+        // it); while it shows, D gives "main" up to the session title's "header" stop.
+        data-focus-region="conversation"
         {...interactionHandlers}
         {...feed.feedProps}
         onContextMenu={onContextMenu}
@@ -230,10 +272,14 @@ export const SourceTranscript = forwardRef(function SourceTranscript(
           </button>
         </div>
       )}
+      {/* cf74bc599 tb (mounted beside the scroller, :6399-6412): the Session chapters rail in the left gutter. */}
+      {sessionKey && ready && chapters && <SourceChapterToc sessionId={chapterSessionId} chapters={chapters} viewportRef={scroll.viewportRef}
+        scrollKey={sessionKey} onJump={jumpToChapter} />}
+      <SourceTranscriptSelection containerRef={scroll.viewportRef} actions={messageActions} hidden={!!menu}/>
       {menu && <SourceMenu.Popup anchor={scroll.viewportRef.current} point={menu.point} dataCds="ContextMenu" layer="contextmenu"
         label={menu.kind === "file" ? t("File actions") : t("Message actions")} onClose={() => setMenu(null)}>
         <MenuEntries entries={menu.entries} run={run} />
       </SourceMenu.Popup>}
-    </div></SourceTableScope>
+    </div></ResponseImageMenuContext.Provider></SourceTableScope>
   );
 });

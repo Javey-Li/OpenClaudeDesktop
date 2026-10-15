@@ -62,9 +62,9 @@ try {
   await editor.focus(); await page.keyboard.press("Meta+,");
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await settings.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Code", exact: true }).click();
-  // Claude 2.2553.1 c71860c77: the Dynamic workflows switch sits in Local sessions straight after Bypass; the workflow
+  // Claude 2.2553.1 c71860c77: the Dynamic workflows switch sits in Sessions (B23: hr titles it 'Sessions') straight after Bypass; the workflow
   // rows nest beneath it (indented).
-  const group = settings.locator("section.ss-group").filter({ has: page.getByRole("heading", { name: "Local sessions", exact: true }) });
+  const group = settings.locator("section.ss-group").filter({ has: page.getByRole("heading", { name: "Sessions", exact: true }) });
   await group.waitFor();
   const allRowIds = async () => group.locator("[data-settings-row]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-setting-id")));
   const rowIds = async () => (await allRowIds()).filter((id) => /^(dynamicWorkflows|workflow)/.test(id));
@@ -110,7 +110,7 @@ try {
   await page.evaluate(() => window.desktop.call("settings", { theme: "light" }));
   await advanced.click();
   await page.keyboard.press("Escape"); await settings.waitFor({ state: "detached" });
-  checks.push("Settings: the master row right after Bypass in Local sessions, engine/keyword/size indented beneath, Advanced collapsed; numeric row saves, refuses out of range, clears; light/dark/narrow screenshots without overflow");
+  checks.push("Settings: the master row right after Bypass in Sessions, engine/keyword/size indented beneath, Advanced collapsed; numeric row saves, refuses out of range, clears; light/dark/narrow screenshots without overflow");
 
   // --- The "ultracode" keyword: highlight, notice, alt+w, the turn's hidden reminder
   await fillComposer(page, editor, "fixture:complete ultracode fix the auth bug");
@@ -124,7 +124,7 @@ try {
   await notice.getByText("Dynamic workflow requested for this turn · ⌥W to ignore", { exact: true }).waitFor();
   assert.equal(await editor.evaluate((node) => node.value), "fixture:complete ultracode fix the auth bug", "alt+w types nothing");
   const before = (await turnStarts()).length;
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   const keywordTurn = await poll(async () => (await turnStarts())[before], "keyword turn");
   assert.equal(keywordTurn.params.input[0].text, "fixture:complete ultracode fix the auth bug");
   assert.match(keywordTurn.params.input[1]?.text ?? "", /^<system-reminder>\nThe user included the keyword "ultracode", opting this turn into multi-agent orchestration — use the Workflow tool to fulfill the request\.\n<\/system-reminder>$/);
@@ -135,15 +135,15 @@ try {
   await fillComposer(page, editor, "fixture:complete ultracode, but ignored");
   await editor.focus(); await page.keyboard.press("Alt+KeyW");
   const ignoredAt = (await turnStarts()).length;
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   const ignoredTurn = await poll(async () => (await turnStarts())[ignoredAt], "ignored keyword turn");
   await idle();
   assert.equal(ignoredTurn.params.input.length, 1, "alt+w: no reminder");
   checks.push("Keyword: highlighted, notice, alt+w toggles without typing, reminder only when not ignored, hidden in the transcript");
 
   // --- Ultracode mode: xhigh + the standing reminder, then off
-  const send = async (text) => { await idle(); const at = (await turnStarts()).length; await fillComposer(page, editor, text); await page.getByRole("button", { name: "Send message", exact: true }).click(); const turn = await poll(async () => (await turnStarts())[at], `turn ${text}`); await idle(); return turn; };
-  const runCommand = async (text) => { await fillComposer(page, editor, text); await page.getByRole("button", { name: "Send message", exact: true }).click(); };
+  const send = async (text) => { await idle(); const at = (await turnStarts()).length; await fillComposer(page, editor, text); await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click(); const turn = await poll(async () => (await turnStarts())[at], `turn ${text}`); await idle(); return turn; };
+  const runCommand = async (text) => { await fillComposer(page, editor, text); await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click(); };
   await runCommand("/effort ultracode");
   await page.locator('.sc-workflow-notice[data-workflow-notice="ultracode"]').waitFor();
   assert.match(await page.locator(".sc-workflow-notice").textContent(), /ultracode · xhigh effort \+ dynamic workflows for maximum thoroughness/);
@@ -164,7 +164,7 @@ try {
   const script = 'export const meta={name:"ui-run",description:"UI workflow",phases:[{title:"Go"}]};\nphase("Go"); return await agent("FAST")';
   await idle(); const workflowAt = (await turnStarts()).length;
   await fillComposer(page, editor, `fixture:workflow-tool ${JSON.stringify({ script, args: { n: 1 } })}`);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await poll(async () => (await turnStarts())[workflowAt], "workflow-tool turn");
   const workflowCard = page.locator(".sac-card").filter({ has: page.locator('[data-approval-action="accept"]') }).last();
   await workflowCard.waitFor();

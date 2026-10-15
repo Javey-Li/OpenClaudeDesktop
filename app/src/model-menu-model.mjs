@@ -48,6 +48,36 @@ export function withUltracodeLevel(levels, workflowsEnabled) {
   if (!levels.some((level) => effortId(level) === "xhigh")) return levels;
   return [...levels, { reasoningEffort: ULTRACODE_EFFORT, description: ultracodeDescription() }];
 }
+// Effort slider badges (c8e04f916 C :150-187, :384-391; slider c2d9b9a76 b :160-170, :424-440). A catalog level may
+// carry badge {message, variant}: the first non-warning badge marks its stop (a 9px tall stop and the label under
+// the track) and its value text reads '{name} ({badge})'; a warning badge (Max on Claude: 'High usage') puts the
+// warning note under the slider for the committed level. Locally the model's default effort (Codex
+// defaultReasoningEffort, or the Settings › Models default) is the 'Default' badge, as Claude's catalog marks it.
+export function markDefaultEffort(levels, defaultEffort) {
+  if (!Array.isArray(levels) || !defaultEffort) return levels;
+  return levels.map((level) => {
+    if (effortId(level) !== defaultEffort) return level;
+    const entry = typeof level === "string" ? { reasoningEffort: level } : level;
+    return entry.badge ? entry : { ...entry, badge: { message: t("Default"), variant: "neutral" } };
+  });
+}
+/** The marked stop: the first level whose badge is not a warning (q/J), or null. */
+export function effortMark(options) {
+  const index = Array.isArray(options) ? options.findIndex((option) => option?.badge?.message && option.badge.variant !== "warning") : -1;
+  return index >= 0 ? { index, label: options[index].badge.message } : null;
+}
+/** K/ve: the stop's name ('Level {position} of {total}' for a nameless one), '{name} ({badge})' on the marked stop. */
+export function effortValueText(options, index, mark = effortMark(options)) {
+  const list = Array.isArray(options) ? options : [];
+  const name = list[index]?.name || t("Level {position} of {total}", { position: index + 1, total: list.length });
+  return mark && index === mark.index ? t("{name} ({badge})", { name, badge: mark.label }) : name;
+}
+/** Q/Ee: a warning-badged level's note (its tooltip, else the High usage copy); undefined otherwise. */
+export function effortWarning(option) {
+  if (option?.badge?.variant !== "warning") return undefined;
+  return option.tooltip?.content || t("DeepSeek thinks longer with Max effort and uses your limits faster than High.");
+}
+
 /** The effort a core receives: ultracode runs at xhigh; every other level is the core's own. */
 export const coreEffort = (value) => value === ULTRACODE_EFFORT ? "xhigh" : value;
 /** The effort a session keeps on disk for a picked level. Ultracode is this app run only (Claude Code: interactive
@@ -69,8 +99,15 @@ export function durableEffort(value, levels, workflowsEnabled) {
 export const MODEL_SEARCH_THRESHOLD = 12;
 export const MODEL_PRIMARY_CAP = 8;
 export const MODEL_SEARCH_LIMIT = 60;
+// A 'deprecated' row (shapeModelCatalog's unsupported current model) follows the main rows, as shared-8 Hk
+// T = [...main, deprecated row of the current model] (:13830-13833), never in More models and never searched.
 export function modelMenuSections({ models = [], fastTier = null, selected = null } = {}) {
-  const available = (Array.isArray(models) ? models : []).filter((model) => typeof modelKey(model) === "string");
+  const listed = (Array.isArray(models) ? models : []).filter((model) => typeof modelKey(model) === "string");
+  const deprecated = listed.filter((model) => model.section === "deprecated" && modelKey(model) === selected);
+  const result = catalogSections({ models: listed.filter((model) => model.section !== "deprecated"), fastTier, selected });
+  return deprecated.length ? { ...result, primary: [...result.primary, ...deprecated] } : result;
+}
+function catalogSections({ models: available, fastTier, selected }) {
   const showFast = !!fastTier;
   if (available.some((model) => model.section === "main" || model.section === "overflow")) {
     let primary = available.filter((model) => model.section !== "overflow");
@@ -84,6 +121,20 @@ export function modelMenuSections({ models = [], fastTier = null, selected = nul
     return { primary, overflow, showFast, ...(available.length > MODEL_SEARCH_THRESHOLD ? { searchable: true } : {}) };
   }
   return { primary: available.slice(0, 4), overflow: available.slice(4), showFast, ...(available.length > MODEL_SEARCH_THRESHOLD ? { searchable: true } : {}) };
+}
+
+/** c593f7513 lp I (:6011-6111): the catalog the Code model menu shows.
+ * - defaultModel (lp hostDefaultModel: the model new sessions use, Settings' saved model) gets a neutral 'Default'
+ *   badge unless the catalog already badges that row;
+ * - a selected model the catalog no longer lists (c: `a && e?.unsupported && N.models.length > 0`) is appended as a
+ *   disabled 'deprecated' row named 'Unsupported model' (ap: a known display name, else that label).
+ * The 'Preset' badge (environmentModelId) has no local source: no environment pins a model. */
+export function shapeModelCatalog({ models = [], selected = null, defaultModel = null } = {}) {
+  const list = Array.isArray(models) ? models : [];
+  const shaped = list.map((model) => defaultModel && modelKey(model) === defaultModel && !model.badge
+    ? { ...model, badge: { message: t("Default"), variant: "neutral" } } : model);
+  if (!selected || !list.length || list.some((model) => modelKey(model) === selected)) return shaped;
+  return [...shaped, { id: selected, model: selected, displayName: t("Unsupported model"), section: "deprecated", disabled: true, unsupported: true }];
 }
 
 /** The models whose name, description (OpenCode: the provider) or id hold every word of the query, best first. */

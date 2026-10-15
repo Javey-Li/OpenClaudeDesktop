@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import {
-  activityCounts, aggregateStats, bookSentence, buildChart, chartLabelStep, classifyAttention, compactTokens, formatDayKey,
+  acknowledgementTime, activityCounts, aggregateStats, bookSentence, buildChart, chartLabelStep, classifyAttention, compactTokens, formatDayKey,
   greetingName, greetingText, heatmapLightness, heatmapWeeks, landingClear, modelColor, narrowRelativeTime, niceTicks,
-  rangeCutoff, rowLimit, sessionsLimit, sessionTimestampMs, sortAttention,
+  rangeCutoff, rowLimit, sessionsLimit, sessionTimestampMs, sortAttention, unackedError,
 } from "../src/home-model.mjs";
 
 test("greeting name: trimmed preferred name, e-mail local part, nothing invented", () => {
@@ -30,6 +30,42 @@ test("attention classification follows Pk: pinned/archived/acked/responding excl
   assert.equal(classifyAttention({ ...base, unread: true, ackedAt: 1000 }), null, "acked at the same timestamp");
   assert.equal(classifyAttention({ ...base, hasApproval: true, ackedAt: 999 }), "blocked", "a newer timestamp re-lists");
   assert.equal(classifyAttention(base), null);
+});
+
+test("B29 zR: a failed session is Needs input until acknowledged after the failure", () => {
+  const base = { archived: false, pinned: false, hasApproval: false, running: false, unread: false, ackedAt: undefined, timestamp: 1000 };
+  assert.equal(classifyAttention({ ...base, errorAt: 1200 }), "blocked");
+  assert.equal(classifyAttention({ ...base, errorAt: 1200, unread: true }), "blocked", "the error outranks unread");
+  assert.equal(classifyAttention({ ...base, errorAt: 1200, ackedAt: 1100 }), "blocked", "acked before the failure");
+  assert.equal(classifyAttention({ ...base, errorAt: 1200, ackedAt: 1200 }), null, "Pk: ackedAt >= errorAt");
+  assert.equal(classifyAttention({ ...base, errorAt: 900, ackedAt: 1000 }), null, "acked at the session timestamp covers an older failure");
+  assert.equal(classifyAttention({ ...base, errorAt: 1200, running: true }), null, "a new turn is responding");
+  assert.equal(classifyAttention({ ...base, errorAt: 1200, pinned: true }), null);
+  assert.equal(classifyAttention({ ...base, errorAt: 1200, archived: true }), null);
+  assert.equal(classifyAttention({ ...base, errorAt: Number.NaN }), null);
+  assert.equal(acknowledgementTime(1000, 1200), 1200, "O6: max(timestamp, errorAt)");
+  assert.equal(acknowledgementTime(1000, undefined), 1000);
+  assert.equal(unackedError({ errorAt: 1200, timestamp: 1000 }), true);
+  assert.equal(unackedError({ errorAt: 1200, ackedAt: 1200, timestamp: 1300 }), false);
+  assert.equal(unackedError({ errorAt: 1200, ackedAt: 1300, timestamp: 1300 }), false);
+  assert.equal(unackedError({ errorAt: 1200, ackedAt: 1100, timestamp: 1000 }), true, "the failure is newer than the acknowledgement");
+  assert.equal(unackedError({ errorAt: 900, ackedAt: 1000, timestamp: 1000 }), false, "acked at the session timestamp");
+  assert.equal(unackedError({ errorAt: 1200, ackedAt: 900, timestamp: 1000 }), true);
+  assert.equal(unackedError({ errorAt: 1200, archived: true }), false);
+  assert.equal(unackedError({}), false);
+});
+
+test("B29 session-attention.cjs: failures mark errorAt; a new turn clears it", () => {
+  const require = createRequire(import.meta.url);
+  const { sessionErrorPatch } = require("../electron/session-attention.cjs");
+  const failed = { method: "turn/completed", params: { threadId: "t", turn: { id: "1", status: "failed", error: { message: "boom" } } } };
+  assert.deepEqual(sessionErrorPatch({ pinned: true }, failed, 5), { pinned: true, errorAt: 5 });
+  assert.equal(sessionErrorPatch({}, { method: "turn/completed", params: { turn: { id: "1", status: "completed" } } }, 5), null);
+  assert.equal(sessionErrorPatch({}, { method: "turn/completed", params: { turn: { id: "1", status: "interrupted", error: { message: "x" } } } }, 5), null);
+  assert.deepEqual(sessionErrorPatch(undefined, { method: "error", params: { threadId: "t", error: { message: "x" }, willRetry: false } }, 7), { errorAt: 7 });
+  assert.equal(sessionErrorPatch({}, { method: "error", params: { threadId: "t", error: { message: "x" }, willRetry: true } }, 7), null, "a retry is not a failure");
+  assert.deepEqual(sessionErrorPatch({ errorAt: 5, ackedAt: 3 }, { method: "turn/started", params: { turn: { id: "2" } } }), { ackedAt: 3 });
+  assert.equal(sessionErrorPatch({ ackedAt: 3 }, { method: "turn/started", params: {} }), null);
 });
 
 test("blocked rows precede unread rows regardless of timestamps; each group newest first", () => {
@@ -208,4 +244,38 @@ test("narrow relative time and day-key formatting", () => {
   assert.equal(sessionTimestampMs({ updatedAt: 1758326400 }), 1758326400000);
   assert.equal(sessionTimestampMs({ createdAt: 1758326400000 }), 1758326400000);
   assert.equal(sessionTimestampMs({}), 0);
+});
+
+test("B08 Action Center › Pull requests: active non-draft PRs, newest first, one row per URL; hR pills; cz urgent first", async () => {
+  const { activePullRequestEntries, classifyPullRequest, sortPullRequestRows, pullRequestRepoSlug, sessionPullRequest } = await import("../src/home-model.mjs");
+  const { prStateLabel } = await import("../src/git-rail-model.mjs");
+  const url = (n) => `https://github.com/acme/widget/pull/${n}`;
+  const sessions = [
+    { id: "a", updatedAt: 100, prInfo: { number: 1, url: url(1), state: "open", title: "First", checks: null } },
+    { id: "b", updatedAt: 300, prInfo: { number: 2, url: url(2), state: "approved", title: null, checks: { passed: 2, failed: 0, pending: 0, skipped: 0, total: 2 } } },
+    { id: "c", updatedAt: 200, prInfo: { number: 3, url: url(3), state: "draft" } },
+    { id: "d", updatedAt: 250, prInfo: { number: 4, url: url(4), state: "merged" } },
+    { id: "e", updatedAt: 400, codeDesktop: { pr: { url: url(1) } }, prState: "open", prLink: url(1) },
+    { id: "f", updatedAt: 500, archived: true, prInfo: { number: 5, url: url(5), state: "open" } },
+    { id: "g", updatedAt: 150, prInfo: { number: 6, url: url(6), state: "open", checks: { passed: 1, failed: 1, pending: 0, skipped: 0, total: 2 } } },
+  ];
+  const entries = activePullRequestEntries(sessions, { archived: (session) => session.archived === true });
+  assert.deepEqual(entries.map((entry) => entry.session.id), ["e", "b", "g"], "draft/merged/archived dropped; #1 kept once for the newest session");
+  assert.equal(entries[0].repoSlug, "acme/widget");
+  assert.deepEqual(sessionPullRequest(sessions[4]), { number: 1, url: url(1), state: "open", title: null, checks: null });
+  const rows = entries.map((entry) => classifyPullRequest(entry, prStateLabel));
+  assert.deepEqual(rows.map((row) => [row.category, row.pill.tone, row.pill.label]), [
+    ["inReview", "neutral", "Ready for review"],
+    ["readyToMerge", "green", "Ready to merge"],
+    ["needsAttention", "red", "CI failing"],
+  ]);
+  assert.deepEqual(sortPullRequestRows(rows).map((row) => row.entry.session.id), ["b", "g", "e"]);
+  const pending = classifyPullRequest({ pr: { state: "open", checks: { passed: 1, failed: 0, pending: 2, skipped: 0, total: 3 } } }, prStateLabel);
+  assert.deepEqual(pending.pill, { tone: "neutral", label: "CI 1/3" });
+  assert.deepEqual(classifyPullRequest({ pr: { state: "conflicting" } }, prStateLabel).pill, { tone: "orange", label: "Merge conflicts" });
+  assert.deepEqual(classifyPullRequest({ pr: { state: "changesRequested" } }, prStateLabel).pill, { tone: "closed", label: "Changes requested" });
+  assert.deepEqual(classifyPullRequest({ pr: { state: "approved", checks: { passed: 0, failed: 0, pending: 1, skipped: 0, total: 1 } } }, prStateLabel),
+    { entry: { pr: { state: "approved", checks: { passed: 0, failed: 0, pending: 1, skipped: 0, total: 1 } } }, category: "inReview", pill: { tone: "green", label: "Approved" } });
+  assert.equal(pullRequestRepoSlug("https://gitlab.com/a/b/-/merge_requests/1"), undefined);
+  assert.equal(landingClear({ sessions: 0, projects: 0, prs: 1 }), false, "$R: a PR alone keeps the Action Center");
 });

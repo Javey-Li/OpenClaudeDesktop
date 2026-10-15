@@ -2,6 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import fs from 'node:fs';
 
 // Fidelity F14: server-render the Settings shell (portals rendered inline; effects do not run, so the desktop
 // snapshot and build-info are still loading) and check the original's rows, options and chrome.
@@ -54,25 +55,29 @@ test('Code: Banners and keep-awake by default, per-type level options, Draw atte
   assert.ok(html.includes('the app isn’t focused.'));
 });
 
-test('chrome: nav without Usage, search field without a clear button, every close button named Close; Usage opens stacked', () => {
+test('chrome: General / Usage / This computer › System nav, search field without a clear button, every close button named Close; Usage opened directly is stacked', () => {
   const html = page('preferences');
   const nav = html.slice(html.indexOf('<nav class="ss-nav"'), html.indexOf('</nav>'));
-  assert.ok(nav.includes('<span>Preferences</span>') && nav.includes('<span>Code</span>'));
-  assert.equal(nav.includes('<span>Usage</span>'), false);
+  // B23 shared-19 ZC/BC: Settings (General first, Usage listed), This computer (System, Developer…), Customize.
+  assert.deepEqual([...nav.matchAll(/<p>([^<]+)<\/p>/g)].map(match => match[1]), ['Settings', 'This computer', 'Customize']);
+  assert.deepEqual([...nav.matchAll(/<span>([^<]+)<\/span><\/button>/g)].map(match => match[1]).slice(0, 11),
+    ['General', 'Usage', 'Theme', 'Code', 'Instructions', 'Commands', 'Profiles', 'Models', 'System', 'Developer', 'Cores']);
+  assert.match(nav, /<button aria-current="page"><span[^>]*>[^<]*<\/span><span>General<\/span>/);
   assert.match(nav, /<div class="ss-search"><span[^>]*data-cds="Icon"[^>]*>[^<]*<\/span><input aria-label="Search settings"[^>]*\/><\/div>/, 'icon + input only');
   assert.equal(html.includes('Clear settings search'), false);
   assert.deepEqual([...html.matchAll(/aria-label="(Close[^"]*)"/g)].map(match => match[1]), ['Close']);
   const usage = page('usage');
   assert.match(usage, /<header class="ss-usage-header"><h2 class="text-heading-semibold" aria-hidden="true">Usage<\/h2><button type="button" class="ss-close" aria-label="Close">/);
   assert.equal(usage.includes('ss-nav'), false);
+  assert.match(usage, /data-usage="true"/);
   globalThis.innerWidth = 700;
   try {
     const narrow = page('preferences');
     const tabs = [...narrow.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]);
-    // Customization pages (C1–C6) join the Settings and Desktop app groups; Customize stays last.
+    // Customization pages (C1–C6) join the Settings and This computer groups; Customize stays last.
     // Harness (DeepSeek Harness profile overlays) is listed only on a core with harnessProfile; the fixture is Codex.
     // Hooks (hooks/list) is listed on a core with hooksList: the Codex fixture lists it, the DeepSeek core doesn't.
-    assert.deepEqual(tabs, ['Preferences', 'Theme', 'Code', 'Instructions', 'Commands', 'Profiles', 'Models', 'General', 'Developer', 'Cores', 'Skills', 'Connectors', 'Plugins', 'Hooks']);
+    assert.deepEqual(tabs, ['General', 'Usage', 'Theme', 'Code', 'Instructions', 'Commands', 'Profiles', 'Models', 'System', 'Developer', 'Cores', 'Skills', 'Connectors', 'Plugins', 'Hooks']);
     const deepseek = page('preferences', {}, { boot: { connected: true, models: [], core: { engine: 'deepseek', capabilities: {} } } });
     assert.ok([...deepseek.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]).includes('Harness'));
     assert.equal([...deepseek.matchAll(/role="tab"[^>]*>([^<]+)</g)].map(match => match[1]).includes('Hooks'), false);
@@ -139,4 +144,73 @@ test('Models: capability-driven — the DeepSeek bridge keeps its connection and
   const deepseek = page('models', {}, { boot: { connected: true, models: [], core: { engine: 'deepseek-harness', capabilities: {} } }, onQuickSetup() {} });
   assert.ok(deepseek.includes('aria-label="API provider"') && deepseek.includes('Quick setup') && deepseek.includes('Advanced'));
   assert.equal(deepseek.includes('aria-label="Codex provider"'), false);
+});
+
+// B23: c71860c77-C_7Gqn1u Qn — the System page's group is 'System'; c71860c77-DzP8HoeV hr — 'Sessions'; Kr — 'Browser'
+// with Browser tools, then (while on) Open links in built-in browser (cdc95db1a f) and the 220px Keep cookies select (Wr).
+test('Code › Browser: Browser tools gates Open links and Keep cookies; Sessions heading; System heading', () => {
+  const html = page('code', { previewStorage: 'session' });
+  const headings = [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3>/g)].map(match => match[1]);
+  assert.ok(headings.includes('Sessions') && headings.includes('Browser'));
+  for (const gone of ['Local sessions', 'Preview']) assert.equal(headings.includes(gone), false, gone);
+  const ids = settingIds(html), at = ids.indexOf('agentPreview');
+  // B39: then Allowed sites (cdc95db1a m) with its secondary sm Manage button.
+  assert.deepEqual(ids.slice(at, at + 4), ['agentPreview', 'previewLinks', 'previewStorage', 'previewAllowedSites']);
+  assert.match(html, /Sites where DeepSeek can use its Browser tools without a permission prompt\./);
+  assert.match(html, /without a permission prompt\.[\s\S]*?<button[^>]*data-variant="secondary"[^>]*data-size="sm"[^>]*>(?:(?!<\/button>)[\s\S])*Manage/);
+  assert.match(control(html, 'Browser tools'), /aria-checked="true"/);
+  assert.match(control(html, 'Open links in built-in browser'), /aria-checked="true"/);
+  const cookies = /<div class="sselect[^"]*"[^>]*>(?:(?!<\/div>)[\s\S])*?aria-label="Keep cookies"[\s\S]*?<\/button>/.exec(html)?.[0] ?? '';
+  assert.match(cookies, /data-value="session"/);
+  assert.match(cookies, /Per session/);
+  const off = page('code', { agentPreview: false });
+  assert.match(control(off, 'Browser tools'), /aria-checked="false"/);
+  assert.equal(['previewLinks', 'previewStorage', 'previewAllowedSites'].some(id => settingIds(off).includes(id)), false);
+  // An older saved keep-cookies switch reads as Shared until the preview service answers.
+  assert.match(/aria-label="Keep cookies"[\s\S]*?<\/button>/.exec(page('code', { previewKeepCookies: true }))?.[0] ?? '', /data-value="shared"/);
+  assert.match(page('general'), /<h3[^>]*>System<\/h3>/);
+});
+
+// B23: c71860c77-DzP8HoeV cr — Prompt suggestions follows keep-awake, on a core that sends codeDesktop/promptSuggestion.
+test('Code › Sessions › Prompt suggestions: listed after keep-awake only for a promptSuggestion core; unset reads as on', () => {
+  const plain = page('code');
+  assert.equal(settingIds(plain).includes('promptSuggestions'), false);
+  const boot = { connected: true, models: [], core: { engine: 'mimo', capabilities: { promptSuggestion: true } } };
+  const html = page('code', {}, { boot });
+  const ids = settingIds(html);
+  assert.equal(ids[ids.indexOf('promptSuggestions') - 1], 'keepAwakeOnBattery');
+  assert.equal(ids[ids.indexOf('promptSuggestions') + 1], 'archiveInactiveDays');
+  assert.match(control(html, 'Prompt suggestions'), /aria-checked="true"/);
+  assert.ok(html.includes('Show a suggested next prompt in the message box after MiMo replies. Suggestions add a little to your usage.') || html.includes('Show a suggested next prompt in the message box after DeepSeek replies.'));
+  assert.match(control(page('code', { promptSuggestions: false }, { boot }), 'Prompt suggestions'), /aria-checked="false"/);
+});
+
+// B23: shared-19 BD — zy.Tabs activateOnFocus:false: a narrow tab is chosen by click (Enter/Space on the button), never on focus.
+test('narrow tabs select on click only', () => {
+  const text = fs.readFileSync(path.join(app, 'src/source-settings.jsx'), 'utf8');
+  const tablist = text.slice(text.indexOf('<div role="tablist"'), text.indexOf('</div></header>', text.indexOf('<div role="tablist"')));
+  assert.ok(tablist.length > 0);
+  assert.equal(tablist.includes('onFocus'), false);
+  assert.match(tablist, /<button role="tab" aria-selected=\{tab===t\.id\}[^>]*onClick=\{\(\)=>\{selectTab\(t\.id\);/);
+  // B23 review: the roving tab stop follows the arrowed (highlighted) tab, as Base UI's composite does.
+  assert.match(tablist, /setTabHighlight\(navTabs\[next\]\?\.id\?\?null\);controls\[next\]\.focus\(\)/);
+  assert.match(tablist, /tabIndex=\{rovingTab===t\.id\?0:-1\}/);
+  assert.match(text, /const rovingTab=navTabs\.some\(entry=>entry\.id===tabHighlight\)\?tabHighlight:tab;/);
+  assert.match(text, /useEffect\(\(\)=>setTabHighlight\(null\),\[tab\]\);/);
+  const css = fs.readFileSync(path.join(app, 'src/source-settings.css'), 'utf8');
+  assert.match(css, /\.ss-settings-dialog:not\(\[data-usage\]\) \{ max-width:max\(1024px,min\(1280px,calc\(100vw - 6rem\)\)\); max-height:max\(50rem,min\(60rem,calc\(100dvh - 6rem\)\)\); \}/);
+});
+
+// B36 (c71860c77-C_7Gqn1u bn): the Code session details carry the code actions (flex gap-xs under the kinds), and the
+// App cache details a secondary sm 'Clear cache and restart…' — shown even with no app bytes measured.
+test('Storage: code actions under Code session details and Clear cache and restart under App cache details', async () => {
+  const pages = await server.ssrLoadModule('/src/source-settings-pages.jsx');
+  const value = { computedAt: Date.now(), bytes: 0, incomplete: false, areas: [
+    { id: 'code', label: 'Code sessions and worktrees', bytes: 0, sessionCount: 2, worktreeCount: 0, kinds: [] },
+    { id: 'app', label: 'App caches and logs', bytes: 0, kinds: [{ id: 'web', label: 'Web cache', bytes: 0 }] }] };
+  const actions = React.createElement('button', { type: 'button' }, 'Clean up inactive sessions…');
+  const html = render(React.createElement(pages.StorageRows, { value, codeActions: actions, onClearCache() {} }));
+  assert.deepEqual([...html.matchAll(/aria-label="([^"]+ details)"/g)].map(match => match[1]), ['Code session details', 'App cache details']);
+  const bare = render(React.createElement(pages.StorageRows, { value }));
+  assert.deepEqual([...bare.matchAll(/aria-label="([^"]+ details)"/g)].map(match => match[1]), [], 'nothing measured and no actions: no Details');
 });

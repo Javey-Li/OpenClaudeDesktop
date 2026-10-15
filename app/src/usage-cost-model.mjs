@@ -13,6 +13,8 @@ import { compactTokens, formatDayKey } from "./home-model.mjs";
 import { t } from "../electron/i18n/index.mjs";
 
 export const COST_DAILY_DAYS = 30;
+// c71860c77-29nOu6oI B: the Usage page's Time range (7d / 30d / 90d) over the per-day history the core reports.
+export const USAGE_RANGE_DAYS = Object.freeze([7, 30, 90]);
 // English sources, rendered through t() (zh-CN keeps the original Chinese copy).
 export const COST_FOOTNOTE = "Estimated at DeepSeek’s official peak and off-peak prices; your DeepSeek Platform bill is authoritative.";
 // account/usage/read deepseek.customPrices: the estimate used the prices from Settings › Models.
@@ -78,13 +80,15 @@ const share = (part, whole) => (whole > 0 ? Math.max(0, Math.min(1, part / whole
  *   categories: {key: string, label: string, tokens: number, cost: number | null, share: number}[],
  *   categoryBasis: 'cost' | 'tokens',
  *   models: {key: string, name: string, tokens: number, cost: number | null, share: number}[],
- *   daily: {date: string, label: string, tokens: number, cost: number | null, share: number}[],
+ *   daily: {date: string, label: string, tokens: number, cost: number | null, share: number, costShare: number}[],
+ *   range: 7 | 30 | 90, dailyPriced: boolean,
  *   partial: boolean, customPrices: boolean, usageUrl: string | null,
  * }}
  *   priced: the source carries costs (false: tokens only, the page hides the cost columns).
  *   usageUrl: the DeepSeek Platform usage page for the `deepseek` source, else null.
  */
-export function usageCostPresentation(data, { todayKey, locale } = {}) {
+export function usageCostPresentation(data, { todayKey, locale, days: rangeDays = COST_DAILY_DAYS } = {}) {
+  const range = USAGE_RANGE_DAYS.includes(rangeDays) ? rangeDays : COST_DAILY_DAYS;
   const usage = data?.tokenUsage;
   const kind = isRecord(usage?.deepseek) ? "deepseek" : isRecord(usage?.breakdown) ? "breakdown" : null;
   if (!kind) return null;
@@ -109,13 +113,14 @@ export function usageCostPresentation(data, { todayKey, locale } = {}) {
       tokens: count(entry.tokens), cost: costField(entry, "", currency) }))
     .sort((left, right) => right.tokens - left.tokens);
   const modelMax = models.reduce((max, entry) => Math.max(max, entry.tokens), 0);
-  const cutoff = dayCutoff(todayKey, COST_DAILY_DAYS);
+  const cutoff = dayCutoff(todayKey, range);
   const days = (Array.isArray(source.daily) ? source.daily : [])
     .filter((entry) => isRecord(entry) && typeof entry.date === "string" && DAY_KEY.test(entry.date) && count(entry.tokens) > 0
       && (cutoff === null || (entry.date >= cutoff && entry.date <= todayKey)))
     .sort((left, right) => (left.date < right.date ? 1 : left.date > right.date ? -1 : 0))
-    .slice(0, COST_DAILY_DAYS);
+    .slice(0, range);
   const dayMax = days.reduce((max, entry) => Math.max(max, count(entry.tokens)), 0);
+  const dayCostMax = days.reduce((max, entry) => Math.max(max, costField(entry, "", currency) ?? 0), 0);
   const usageUrl = kind !== "deepseek" ? null
     : typeof data?.account?.deepseek?.links?.usageUrl === "string" && /^https:\/\/platform\.deepseek\.com\//.test(data.account.deepseek.links.usageUrl)
       ? data.account.deepseek.links.usageUrl : DEEPSEEK_USAGE_URL;
@@ -127,7 +132,11 @@ export function usageCostPresentation(data, { todayKey, locale } = {}) {
     categories,
     categoryBasis,
     models: models.map((entry) => ({ ...entry, share: share(entry.tokens, modelMax) })),
-    daily: days.map((entry) => ({ date: entry.date, label: formatDayKey(entry.date, locale), tokens: count(entry.tokens), cost: costField(entry, "", currency), share: share(count(entry.tokens), dayMax) })),
+    daily: days.map((entry) => ({ date: entry.date, label: formatDayKey(entry.date, locale), tokens: count(entry.tokens), cost: costField(entry, "", currency),
+      share: share(count(entry.tokens), dayMax), costShare: share(costField(entry, "", currency) ?? 0, dayCostMax) })),
+    // The time range shown, and whether any day in it carries a cost (W v: else the Cost metric is disabled).
+    range,
+    dailyPriced: priced && days.some((entry) => costField(entry, "", currency) !== null),
     partial: priced && all.unpricedTokens > 0,
     customPrices: source.customPrices === true,
     usageUrl,

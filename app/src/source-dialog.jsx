@@ -25,8 +25,9 @@ import "./source-dialog.css";
  * Local adaptations: the popup is a child of the backdrop (flex-centred, as every local modal and the
  * UI suites expect), so the backdrop fades its colour and blur rather than its opacity, which would
  * fade the popup too. #root is inert while open (modal-inert.mjs); a closing dialog releases it and
- * returns focus at once while its exit transition runs. Dialogs keep role=dialog (AlertDialog's popup
- * is role=alertdialog) because the UI suites select confirms by role "dialog".
+ * returns focus at once while its exit transition runs. An alert dialog's popup is role=alertdialog, as
+ * Base UI AlertDialog's (2.31226.0 shared-frame-DVFSKIcx _g :7375-7378, the AlertDialog.Popup the
+ * ConfirmationDialog renders); every other dialog is role=dialog.
  */
 
 export const MODAL_LAYER = { base: 100, z: 140 }; // shared-frame al("modal"): Zc 100 + tl.modal 40
@@ -88,7 +89,7 @@ export function SourceDialog({ open = true, onExited, ...props }) {
 
 function DialogPopup({
   presence, open, onClose, title, description, descriptionClassName = "", size = "md", alert = false,
-  showClose = true, bleed = false, footer, initialFocusRef, density, className = "", children, onKeyDown, layer = MODAL_LAYER, ...rest
+  sourceVersion, showClose = true, bleed = false, footer, initialFocusRef, density, className = "", children, onKeyDown, layer = MODAL_LAYER, ...rest
 }) {
   const popup = presence.popup, titleId = useId(), descriptionId = useId();
   const close = useRef(onClose);
@@ -179,7 +180,7 @@ function DialogPopup({
         </header>;
 
   return createPortal(
-    <div className="sdlg-portal cds-root" data-cds-portal="" {...portalAttributes(density)}
+    <div className="sdlg-portal cds-root" data-cds-portal="" data-chat-source-version={sourceVersion} {...portalAttributes(density)}
       style={{ "--cds-portal-z": layer.z, "--cds-layer-base": layer.base }}>
       <div className="sdlg-backdrop" role="presentation" data-starting-style={starting ? "" : undefined} data-ending-style={ending ? "" : undefined}
         onMouseDown={(event) => {
@@ -188,7 +189,7 @@ function DialogPopup({
           event.preventDefault();
           if (!alert && open) close.current?.("outside-press");
         }}>
-        <section {...rest} ref={popup} role="dialog" aria-modal="true" aria-labelledby={titleId}
+        <section {...rest} ref={popup} role={alert ? "alertdialog" : "dialog"} aria-modal="true" aria-labelledby={titleId}
           aria-describedby={description ? descriptionId : rest["aria-describedby"]} tabIndex={-1}
           data-cds={alert ? "ConfirmationDialog" : "Dialog"} data-dialog-size={size} data-alert={alert ? "" : undefined}
           data-open={open && presence.visible ? "" : undefined} data-closed={ending ? "" : undefined}
@@ -212,13 +213,16 @@ function DialogPopup({
 export function SourceConfirmationDialog({
   open = true, title, body, confirmLabel = t("Confirm"), cancelLabel = t("Cancel"), confirmVariant = "primary",
   pending = false, onConfirm, onCancel, onExited, className = "", descriptionClassName, layer, children,
+  initialFocus = "confirm", cancelRef,
 }) {
-  const confirm = useRef(null);
+  const confirm = useRef(null), cancelButton = useRef(null);
+  // cancelRef: the caller's handle on Cancel (BK moves focus there when the dirty-worktree copy appears).
+  const setCancel = (node) => { cancelButton.current = node; if (typeof cancelRef === "function") cancelRef(node); else if (cancelRef) cancelRef.current = node; };
   const cancel = () => { if (!pending) onCancel?.(); };
   return <SourceDialog open={open} onExited={onExited} alert size="sm" showClose={false} title={title} description={body}
-    descriptionClassName={descriptionClassName} initialFocusRef={confirm} onClose={cancel} className={className} layer={layer}
+    descriptionClassName={descriptionClassName} initialFocusRef={initialFocus === "cancel" ? cancelButton : confirm} onClose={cancel} className={className} layer={layer}
     footer={<>
-      <SourceSettingsButton variant="secondary" disabled={pending} onClick={cancel}>{cancelLabel}</SourceSettingsButton>
+      <SourceSettingsButton ref={setCancel} variant="secondary" disabled={pending} onClick={cancel}>{cancelLabel}</SourceSettingsButton>
       <SourceSettingsButton ref={confirm} variant={confirmVariant} busy={pending} onClick={() => { if (!pending) onConfirm?.(); }}>{confirmLabel}</SourceSettingsButton>
     </>}>
     {children}

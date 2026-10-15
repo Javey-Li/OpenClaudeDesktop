@@ -31,7 +31,7 @@ test('model/list: catalog descriptions only; the configured default is isDefault
   assert.equal(flash.isDefault, true)
   assert.equal(pro.isDefault, false)
   assert.equal(pro.description, '', 'Claude-style menu: names only')
-  assert.equal(flash.badge?.message, flash.isDefault ? 'Default' : undefined)
+  assert.equal(flash.badge, undefined, "Code's model menu shows names only: no 'Default' badge")
   assert.deepEqual(flash.supportedReasoningEfforts, EFFORTS.map((option) => ({ reasoningEffort: option.id, description: option.description })))
   assert.deepEqual([flash.inputModalities, pro.inputModalities], [['text', 'image'], ['text']])
   assert.deepEqual(catalog.defaultRoute(), { provider: 'deepseek-official', model: 'deepseek-flash' })

@@ -56,6 +56,7 @@
  * @module @code-desktop/dsh-codex-app-server
  */
 
+import { installContextWindows } from './model-params.js'
 import { AssistantUsageFold } from './assistant-response.js'
 
 import { createWorkflowExecutions } from './workflow-execution.js'
@@ -134,7 +135,7 @@ const DSH_VERSION = '0.2.0-rc.2'
 // (commands.js; an empty list when the profile mounts no dsh-commands registry); codeDesktop/commands/changed re-lists.
 // execute requires turn/start's permission params (a command can start a model turn) and applies them first.
 // sideQuestion: codeDesktop/sideQuestion answers /btw from the transcript (side-question.js), cancellable.
-// modelParams: customization.modelParams (max tokens, temperature) reach every request (model-params.js).
+// modelParams: customization.modelParams (max tokens, temperature, context window) reach every request (model-params.js).
 // sandboxNetwork 'always': the Seatbelt runner (sandbox-shell.js) confines writes only, so sandboxPolicy.networkAccess
 // changes nothing here.
 // thread/fork and thread/backgroundTerminals/* are served (fork.js, jobs.js), so they are not listed as unsupported;
@@ -158,6 +159,8 @@ export function apply(ctx, config) {
   const logger = ctx.logger('codex-app-server')
   const fallback = { provider: config.provider, model: config.model }
   const catalog = new ModelCatalog(ctx.llm, fallback)
+  // Settings › Models context windows (model-params.js): every exact model info the llm service resolves carries them.
+  ctx.on('dispose', installContextWindows(ctx.llm, catalog))
   // Bridge metadata lives with the Harness home it belongs to ($DSH_HOME aware).
   const stateDir = config.stateDir || process.env.CODE_DESKTOP_CORE_STATE || `${resolveDshHome()}/code-desktop`
   const store = new ThreadStore(stateDir)

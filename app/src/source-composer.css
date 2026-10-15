@@ -39,7 +39,8 @@
 .sc-composer.composer { min-height: 40px; border-radius: var(--cds-radius-composer, 12px); }
 .sc-composer .sc-surface { padding: 8px; border-radius: inherit; background: var(--cds-surface-3); cursor: text; box-shadow: 0 .25rem 1.25rem rgb(0 0 0 / 3.5%), 0 0 0 var(--cds-ring-hairline, .5px) hsl(60 2% 12% / .15); transition: box-shadow 200ms; }
 .sc-composer .sc-input-row { display: flex; align-items: flex-end; gap: 6px; min-height: 24px; }
-.sc-composer .sc-input { display: block; width: 100%; flex: 1; min-width: 0; min-height: 24px; max-height: calc(24rem * var(--cds-rem-scale, 1)); margin: 0; padding: 2px 0 2px 4px; border: 0; outline: none; resize: none; background: transparent; color: var(--cds-text-primary); font-family: var(--cds-font-sans, anthropic-sans); font-size: 14px; line-height: 20px; }
+/* ca80fca8d yP editor maxHeight 'min(24rem, 40svh)': a short window caps a long draft at 40% of its height. */
+.sc-composer .sc-input { display: block; width: 100%; flex: 1; min-width: 0; min-height: 24px; max-height: min(calc(24rem * var(--cds-rem-scale, 1)), 40svh); margin: 0; padding: 2px 0 2px 4px; border: 0; outline: none; resize: none; background: transparent; color: var(--cds-text-primary); font-family: var(--cds-font-sans, anthropic-sans); font-size: 14px; line-height: 20px; }
 .sc-composer .sc-input::placeholder { color: var(--cds-text-muted); opacity: 1; }
 .sc-composer .sc-submit { width: 24px; height: 24px; min-height: 24px; align-self: flex-end; }
 .sc-submit-slot { display: inline-flex; flex-shrink: 0; align-self: flex-end; }
@@ -99,7 +100,9 @@ html[data-reduce-motion="true"] .sc-composer .sc-submit-layer[data-leaving] { tr
 .sc-zone .sc-chin { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 0; min-height: 20px; padding: 0 10px 0 7px; font-size: 12px; font-weight: 400; line-height: 15px; color: var(--cds-text-secondary); }
 /* shared-11 cu leading slot 'flex items-center self-start' (no gap): Add (Us) and Mode (Ie span) touch. The
    gap-xs in c360a9e1c:4894 belongs to the dictation bH cluster between them, which is empty:hidden here. */
-.sc-chin-leading { display: flex; align-items: center; flex-shrink: 0; gap: 0; }
+/* ca80fca8d G$/O$ (:28800-28907): the Mode trigger is 'inline-flex min-w-0' around a 'min-w-0 shrink' button whose
+   label truncates, so in a narrow split 'Bypass permissions' gives way beside the model pill instead of pushing it. */
+.sc-chin-leading { display: flex; align-items: center; flex-shrink: 1; min-width: 0; gap: 0; }
 .sc-chin-trailing { display: flex; align-items: center; min-width: 0; gap: 4px; margin-left: auto; padding-left: 8px; }
 .sc-chin .sc-button { height: 20px; min-width: 20px; padding: 0 6px; border-radius: 5px; font-size: 12px; font-weight: 400; line-height: 15px; }
 /* Purple top tier on the chip (a local extension of the shared-14 :6565 'text-pro font-medium' menu row; the
@@ -112,7 +115,7 @@ html[data-reduce-motion="true"] .sc-composer .sc-submit-layer[data-leaving] { tr
 .sc-chin .sc-add { width: 20px; height: 20px; }
 .sc-chin .sc-add [data-cds="Icon"] { font-size: 16px !important; }
 /* The model pill gives way first in a cramped chin (split view, a pane open) but keeps a few characters and the
-   ellipsis ("Tes…") rather than shrinking to a bare dot; the leading chips and Effort never shrink. */
+   ellipsis ("Tes…") rather than shrinking to a bare dot; Add and Effort never shrink, the Mode label truncates too. */
 .sc-chin .sc-model-trigger { min-width: 4em; flex-shrink: 1; }
 .sc-model-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-chin .sc-usage-trigger { color: var(--cds-text-muted); }
@@ -200,6 +203,19 @@ html[data-reduce-motion="true"] .sc-spinner { animation: none; }
 .sc-effort-lit-field canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .sc-slider-stops { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; pointer-events: none; }
 .sc-slider-stops > span { display: block; width: 3px; height: 3px; border-radius: 50%; background: var(--cds-slider-stop-dot); }
+/* c2d9b9a76 N: the marked stop is h-[9px] w-[3px] rounded-full; the mark row (:424-440) sits gap-xs under the
+   control: 'pointer-events-none flex w-full whitespace-nowrap text-footnote font-normal' with px h-control/2-0.5px,
+   justify-end past the middle, text-secondary on the marked stop and text-muted elsewhere. */
+.sc-slider-stops > span[data-marked] { width: 3px; height: 9px; border-radius: 9999px; }
+.sc-slider-mark-row { display: flex; width: 100%; margin-top: calc(var(--cds-gap-xs, 4px) - 8px); padding-inline: calc(var(--cds-h-control, 24px) / 2 - 0.5px); pointer-events: none; white-space: nowrap; font-size: var(--cds-font-size-footnote, 12px); line-height: var(--cds-leading-footnote, 15px); font-weight: 400; color: var(--cds-text-muted); }
+.sc-slider-mark-row[data-current] { color: var(--cds-text-secondary); }
+.sc-slider-mark-row[data-far], .sc-slider-mark-row[data-far] > .sc-slider-mark-span { justify-content: flex-end; }
+.sc-slider-mark-span { display: flex; }
+.sc-slider-mark-label { flex-shrink: 0; margin-inline: auto; }
+/* c8e04f916 Q: 'flex items-start gap-xs text-footnote text-warning', Warning xs icon mt-0.5 shrink-0. */
+.sc-effort-warning { display: flex; align-items: flex-start; gap: var(--cds-gap-xs, 4px); font-size: var(--cds-font-size-footnote, 12px); line-height: var(--cds-leading-footnote, 15px); color: var(--cds-text-warning); }
+.sc-effort-warning > [data-cds="Icon"] { flex-shrink: 0; margin-top: 2px; }
+.sc-effort-warning > span { min-width: 0; text-wrap: pretty; overflow-wrap: break-word; }
 .sc-slider-carriage { position: absolute; inset: 0 var(--sc-slider-inset); pointer-events: none; }
 .sc-slider-handle { position: absolute; top: 2px; left: calc(100% * var(--sc-slider-position)); width: 16px; height: 20px; transform: translateX(-50%); border-radius: 6px; background: var(--cds-slider-handle); box-shadow: 0 0 0 1px var(--cds-slider-handle-shadow-outer), 0 0 12px var(--cds-slider-handle-shadow-depth); transition: left 120ms ease-out, scale 120ms cubic-bezier(.34,1.56,.64,1); }
 .sc-slider[data-dragging] .sc-slider-handle { scale: 1.12; }
@@ -216,7 +232,15 @@ html[data-reduce-motion="true"] .sc-effort-swap, html[data-reduce-motion="true"]
 html[data-reduce-motion="true"] .sc-effort-glow:not([data-r="0"]), html[data-reduce-motion="true"] .sc-effort-swap[data-leaving] { display: none; }
 html[data-reduce-motion="true"] .sc-effort-lit-ground, html[data-reduce-motion="true"] .sc-effort-lit-ground[data-on] { opacity: 0; transition: none !important; }
 
-.sc-chin .sc-permission { line-height: 17px; }
+.sc-chin .sc-permission { line-height: 17px; min-width: 0; flex-shrink: 1; }
+/* A$: 'grid grid-cols-[minmax(0,1fr)]' > 'overflow-x-clip text-ellipsis whitespace-nowrap' (+ text-warning for Manual). */
+.sc-permission-label { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.sc-permission-text { overflow-x: clip; text-overflow: ellipsis; white-space: nowrap; }
+.sc-chin .sc-permission .sc-permission-text[data-warning] { color: var(--cds-text-warning); }
+/* W$: the label stays in place invisibly (it keeps the trigger's width) under an absolute inset-0 skeleton bar. */
+.sc-permission-loading { position: relative; display: block; }
+.sc-permission-invisible { visibility: hidden; }
+.sc-permission-loading > .sc-permission-skeleton { position: absolute; inset: 0; display: flex; align-items: center; height: auto; margin-block: 2px; }
 /* Chat mode: a read-only reminder in the chin, accent-tinted like a status pill, theme tokens only. */
 .sc-chin .sc-chat-mode { line-height: 17px; gap: 4px; color: var(--cds-text-accent, var(--cds-text-secondary)); }
 .sc-chin .sc-chat-mode:hover:not(:disabled) { background: var(--cds-fill-ghost-hover); }
@@ -289,6 +313,14 @@ html[data-reduce-motion="true"] .sc-usage-plan-fill { transition: none; }
 
 /* Env pill menu (cc43287c9 :21036 Z.Popup '!min-w-[200px]'). */
 .smenu-popup.sc-env-menu { min-width: 200px; }
+/* The Local row's trailing settings button (ca80fca8d DJ → EJ icon Settings): 'pointer-events-none flex size-icon shrink-0
+   items-center justify-center rounded-sm text-muted opacity-0 hover:bg-alpha-2 hover:text-primary', shown and pressable on
+   the highlighted row ([[data-highlighted]_&]) and on a coarse pointer. */
+.sc-env-settings { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: var(--cds-icon); height: var(--cds-icon);
+  padding: 0; border: 0; border-radius: calc(var(--cds-radius) - 2px); background: transparent; color: var(--cds-text-muted); opacity: 0; pointer-events: none; cursor: default; }
+.sc-env-settings:hover { background: var(--cds-alpha-2); color: var(--cds-text-primary); }
+.smenu-item[data-highlighted] .sc-env-settings { opacity: 1; pointer-events: auto; }
+@media (pointer: coarse) { .sc-env-settings { opacity: 1; pointer-events: auto; } }
 
 /* Branch picker (cd2687f9f N, side top): list, h-1 spacer, then the search field 'relative flex items-center gap-xs
    mx-1 px-md h-control shrink-0 rounded bg-alpha-1 has-[input:focus-visible]:shadow-focus mb-1'; popup
@@ -366,3 +398,8 @@ html[data-reduce-motion="true"] .sc-history-search-hints { transition: none; }
    top-tier color), and the keyword itself in the editor. */
 .sc-warning-row[data-tone="workflow"] { color: var(--cds-text-muted); }
 .sc-workflow-notice .sc-ultracode-word { color: var(--cds-text-pro); font-weight: 500; }
+/* B29 rY line: text-footnote text-danger select-text. */
+.sc-git-required { padding: 0 var(--cds-pad-xs, 4px) var(--cds-pad-xs, 4px); color: var(--cds-text-danger); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); user-select: text; }
+/* B29 jZ: the label is whitespace-nowrap and only the group name (HY) truncates. */
+.sc-extra-folder > span.sc-draft-group-label { max-width: none; overflow: visible; white-space: nowrap; display: inline-flex; min-width: 0; }
+.sc-draft-group-name { display: inline-block; max-width: 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }

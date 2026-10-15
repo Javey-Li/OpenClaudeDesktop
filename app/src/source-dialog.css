@@ -29,6 +29,9 @@
 .sdlg-popup[data-dialog-size="sm"] { max-width: 400px; }
 .sdlg-popup[data-dialog-size="md"] { max-width: 520px; }
 .sdlg-popup[data-dialog-size="lg"] { max-width: 720px; }
+/* 2.31226 shared-frame tg adds xl 880 / 2xl 1024 (the Changes "View image" dialog is 2xl). */
+.sdlg-popup[data-dialog-size="xl"] { max-width: 880px; }
+.sdlg-popup[data-dialog-size="2xl"] { max-width: 1024px; }
 /* Yf: mb-pad-md flex items-start gap-2; the title column is -mt-1 flex-col gap-1. */
 .sdlg-header { display: flex; flex-shrink: 0; align-items: flex-start; gap: 8px; margin: 0 0 var(--cds-pad-md); }
 .sdlg-heading { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; margin-top: -4px; }

@@ -139,7 +139,8 @@ try {
   assert.equal(await popup.locator('[data-permission-value="bypass"]').count(), 0);
   assert.deepEqual(await popup.locator('[data-permission-action="enable-bypass"]').evaluate(node => [node.getAttribute("role"), node.querySelector(".smenu-label").textContent, node.querySelector(".sp-permission-enable-text").textContent, !!node.querySelector(".smenu-check")]),
     ["menuitem", "Bypass permissions", "Enable", false]);
-  // wy() (ion-dist cf6ae6197): the configured default mode gets a trailing neutral xxs Badge 'Default'.
+  // B30 ca80fca8d fz "inline" (:19299-19322): the configured default mode's neutral xxs Badge 'Default' sits in the
+  // label after the name (flex min-w-0 gap-sm), not at the trailing edge; the row is still named by the mode alone.
   metrics.defaultBadge = await popup.locator('[data-cds="Badge"]').evaluate(node => {
     const css = getComputedStyle(node), item = node.closest('[role="menuitemradio"]');
     const probe = document.createElement("span"); probe.style.color = "var(--cds-text-secondary)"; node.append(probe);
@@ -155,7 +156,7 @@ try {
   assert.equal(metrics.defaultBadge.color, metrics.defaultBadge.secondary); assert.notEqual(metrics.defaultBadge.background, "rgba(0, 0, 0, 0)");
   assert.equal(metrics.defaultBadge.radius, "4px"); assert.equal(metrics.defaultBadge.padding, "4px");
   assert.equal(metrics.defaultBadge.pointer, "none"); assert.equal(metrics.defaultBadge.step, "1");
-  assert.equal(metrics.defaultBadge.inTrailing, true); assert.equal(metrics.defaultBadge.beforeCheck, true);
+  assert.equal(metrics.defaultBadge.inTrailing, false); assert.equal(metrics.defaultBadge.beforeCheck, true);
   metrics.light = await measureMenu();
   assertBounds(metrics.light);
   assert.equal(metrics.light.headingHeight, 23);
@@ -173,7 +174,7 @@ try {
   assert.equal(metrics.light.radius, "10px");
   assert.notEqual(metrics.light.shadow, "none");
   await page.screenshot({ path: path.join(evidence, "permission-source-light.png") });
-  checks.push("Current chin DOM menu: Mode header, Auto/Manual/Accept edits/Plan in the nE order with the aE copy, radio/check/number semantics, a trailing xxs neutral Default badge on the saved mode, compact source dimensions");
+  checks.push("Current chin DOM menu: Mode header, Auto/Manual/Accept edits/Plan in the nE order with the aE copy, radio/check/number semantics, an inline xxs neutral Default badge on the saved mode, compact source dimensions");
 
   // Before the Bypass opt-in the last row is 'Bypass permissions · Enable' (approval-shared-current.js :8781-8799):
   // reachable by keyboard, but it has no digit and selects no mode.
@@ -193,8 +194,10 @@ try {
   await picked("acceptEdits", "Accept edits");
   assert.equal(await trigger().innerText(), "Accept edits", "the chin shows the full label");
   await openMenu();
-  // The menu choice is the saved default here (one preference), so the badge follows it.
-  assert.equal(await menu().locator('[data-cds="Badge"]').evaluate(node => node.closest('[role="menuitemradio"]').dataset.permissionValue), "acceptEdits");
+  // The menu choice is the saved default here (one preference), so the badge follows it; with Auto no longer current,
+  // Auto carries 'Recommended' (dz, An = Ie && St !== "auto").
+  assert.equal(await menu().locator('[data-permission-badge="default"]').evaluate(node => node.closest('[role="menuitemradio"]').dataset.permissionValue), "acceptEdits");
+  assert.deepEqual(await menu().locator('[data-permission-badge="recommended"]').evaluate(node => [node.textContent, node.closest('[role="menuitemradio"]').dataset.permissionValue]), ["Recommended", "auto"]);
   await page.keyboard.press("4");
   await picked("plan", "Plan");
   assert.equal((await requests()).length, 0, "Changing preference does not pretend to mutate a live server mode");
@@ -243,13 +246,13 @@ try {
     await select(value, label);
     const text = `fixture:complete permission-${value}`;
     await input().fill(text);
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
     await waitUntil(async () => {
       const db = JSON.parse(await fs.readFile(path.join(profile, "fixture-threads.json"), "utf8"));
       return Object.values(db.threads).some((thread) => thread.turns.some((turn) =>
         turn.status === "completed" && turn.items.some((item) => item.content?.[0]?.text === text)));
     }, `Fixture ${value} turn completed`);
-    await page.waitForFunction(() => !document.querySelector('.sc-spinner') && !document.querySelector('[aria-label="Stop response"]:not([inert] *)'));
+    await page.waitForFunction(() => !document.querySelector('.sc-spinner') && !document.querySelector('[data-testid="code-prompt-stop"]:not([inert] *)'));
     const request = (await requests()).find((request) => request.method === "turn/start" && request.params.input[0].text === text);
     assert.ok(request);
     assert.equal(request.params.approvalPolicy, policy);
@@ -311,12 +314,12 @@ try {
   await fs.writeFile(path.join(profile, "fixture-core.json"), JSON.stringify({ engine: "deepseek-harness" }));
   await launch();
   const planCard = () => page.locator('.sac-card[data-approval-kind="plan"]');
-  const settled = () => page.waitForFunction(() => !document.querySelector('[aria-label="Stop response"]:not([inert] *)'));
+  const settled = () => page.waitForFunction(() => !document.querySelector('[data-testid="code-prompt-stop"]:not([inert] *)'));
   async function planTurn(text) {
     await select("acceptEdits", "Accept edits");
     await select("plan", "Plan");
     await input().fill(text);
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
     await planCard().waitFor();
     await planCard().scrollIntoViewIfNeeded();
     await page.waitForTimeout(450);

@@ -58,3 +58,24 @@ test('R04 tab copy follows customizeCore (Claude → DeepSeek) and connector ite
   // Explicit descriptions win (customizeCore copy passed by PluginDetail).
   assert.equal(pluginDetailTabs({ skills: [{ name: 's' }] }, 'p', [], { descriptions: { skills: 'X' } })[0].description, 'X');
 });
+
+test('B24 c24c8737b / c99ed1520: Commands (skills of type command), Monitors and Agents tabs when plugin/read reports them', () => {
+  const detail = {
+    skills: [{ name: 'review' }, { name: 'ship', type: 'command', description: 'Ship it' }],
+    commands: [{ name: 'deploy' }, { nope: true }],
+    agents: [{ name: 'tester', model: 'sonnet' }, { name: 'Auditor', description: 'Audits code' }, 'untrusted'],
+    monitors: [{ command: 'tail -f log', when: 'on-skill-invoke:review', description: 'Logs' }, { name: 'watch', when: 'always' }, null],
+  };
+  const tabs = pluginDetailTabs(detail, 'p');
+  assert.deepEqual(tabs.map(tab => tab.id), ['skills', 'commands', 'monitors', 'agents'], 'source tab order');
+  assert.deepEqual(tabs[0].items.map(item => item.label), ['/review'], 'a command is not a skill');
+  assert.deepEqual(tabs[1].items.map(item => [item.label, item.path]), [['/deploy', null], ['/ship', null]]);
+  assert.deepEqual(tabs[2].items.map(item => [item.label, item.description, item.command]), [
+    ['Monitor 1', 'When the review skill is first invoked (Logs)', 'tail -f log'],
+    ['watch', 'Every session, from session start', ''],
+  ], 'monitors keep their order; an unnamed one is numbered');
+  assert.deepEqual(tabs[3].items.map(item => [item.label, item.description]), [['Auditor', 'Audits code'], ['tester', 'Model: sonnet']]);
+  assert.equal(tabs[3].description, 'Specialized AI assistants that can be invoked to handle specific types of tasks.');
+  assert.equal(tabs[2].description, 'Background commands that run automatically during your session.');
+  assert.equal(pluginDetailView(tabs, 'agents').tab.id, 'agents');
+});

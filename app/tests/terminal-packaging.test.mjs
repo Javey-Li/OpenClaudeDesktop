@@ -83,7 +83,7 @@ test('a production-like app.asar loads node-pty from the unpacked prebuild and r
       fs.chmodSync(path.join(stage, relative), stat.mode);
     };
     await copy('node_modules/node-pty');
-    for (const file of ['terminal-service.cjs', 'terminal-model.mjs', 'proxy-env.cjs']) await copy(path.join('electron', file));
+    for (const file of ['terminal-service.cjs', 'terminal-model.mjs', 'proxy-env.cjs', 'terminal-shell-integration.cjs', 'generated/terminal-shell.cjs']) await copy(path.join('electron', file));
     assert.ok(!fs.existsSync(path.join(stage, 'node_modules/node-pty/src')));
     fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({ name: 'probe', main: 'probe.cjs' }));
     fs.writeFileSync(path.join(stage, 'probe.cjs'), `
@@ -94,7 +94,7 @@ test('a production-like app.asar loads node-pty from the unpacked prebuild and r
       const folder = process.argv[2];
       const events = [];
       const sender = { send: (_channel, event) => events.push(event), isDestroyed: () => false, once() {} };
-      const service = createTerminalService({ resolveOwner: () => folder, shell: "/bin/sh", shellProxy: null,
+      const service = createTerminalService({ resolveOwner: () => folder, shell: "/bin/zsh", shellProxy: null, shellIntegrationDir: path.join(folder,"integration"),
         baseEnv: { PATH: "/usr/bin:/bin", HOME: folder, PS1: "$ " } });
       (async () => {
         const info = await service.call("create", { sessionId: "s1", cols: 90, rows: 20 }, sender);
@@ -102,7 +102,7 @@ test('a production-like app.asar loads node-pty from the unpacked prebuild and r
         const started = Date.now();
         while (Date.now() - started < 10000 && !events.some((event) => event.kind === "state" && event.info.status === "exited")) await new Promise((r) => setTimeout(r, 50));
         const output = events.filter((event) => event.kind === "data").map((event) => event.data).join("");
-        console.log(JSON.stringify({ backend: info.backend, dir: path.relative(__dirname, require.resolve("node-pty")), output, asar: __dirname.endsWith(".asar") }));
+        console.log(JSON.stringify({ backend: info.backend, shellIntegration: info.shellIntegration, dir: path.relative(__dirname, require.resolve("node-pty")), output, asar: __dirname.endsWith(".asar") }));
         await service.dispose();
       })();`);
     const { createPackageWithOptions } = await asar();
@@ -120,6 +120,8 @@ test('a production-like app.asar loads node-pty from the unpacked prebuild and r
     assert.equal(run.status, 0, run.stderr || run.stdout);
     const result = JSON.parse(run.stdout.trim().split('\n').pop());
     assert.equal(result.backend, 'pty');
+    assert.equal(result.shellIntegration, 'zsh');
+    assert.ok(result.output.includes('\x1b]133;A;'));
     assert.equal(result.asar, true, 'the probe ran from inside app.asar');
     assert.match(result.dir, /^node_modules\/node-pty\//);
     assert.match(result.output, /from-asar-42/);

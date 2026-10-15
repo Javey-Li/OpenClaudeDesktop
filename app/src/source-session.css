@@ -875,6 +875,23 @@ html[data-local-motion="reduce"] .source-tree-row > .source-tree-caret { transit
 .source-tree-item[aria-current] > .source-tree-row {
   background: var(--cds-fill-ghost-selected, var(--cds-alpha-2));
 }
+/* B33 (cccc2cf0a My, ce9ca5630 c/l/g): rows below the root carry an absolutely placed guide layer (and the Lg
+   error row its own background) whose --file-tree-guides gradient paints while the tree (group/file-tree, the
+   scroller) is hovered or holds focus. */
+.source-tree-row { position: relative; }
+.source-tree-guides { position: absolute; inset: 0; pointer-events: none; }
+.source-tree-content:is(:hover, :focus-within) :is(.source-tree-guides, .source-tree-guided) {
+  background-image: var(--file-tree-guides);
+}
+/* My: a non-openable link row (aria-disabled) keeps its name muted. */
+.source-tree-row > .source-tree-name[data-inert] { color: var(--cds-text-muted); }
+/* My + yn(): the revealed row flashes data-[highlighted]:bg-fill-ghost-hover with transition-colors duration-300. */
+.source-tree-row[data-reveal-target] {
+  transition: background-color 300ms var(--default-transition-timing-function, cubic-bezier(0.4, 0, 0.2, 1));
+}
+.source-tree-item > .source-tree-row[data-highlighted] {
+  background: var(--cds-fill-ghost-hover, var(--cds-alpha-1));
+}
 /* Ig/Jg root tree states (panes-tile-current.js:5496-5512, :6101-6110) and the
    Lg subfolder error row (:5547-5570), restated unlayered with the tokens the
    source utilities resolve to (px-lg, py-2.5, text-body, text-muted,
@@ -1021,6 +1038,20 @@ html[data-reduce-motion="true"] .source-step-caret { transition: none; }
 .popout-error {
   margin: 0 0 8px;
 }
+/* B27 pane window (main.jsx PANE_WINDOW: the Tasks or Terminal pane popped out, run by the session's App): its one tile
+   fills the window under the same 8px inset and traffic-light clearance as the pane popouts above. */
+.dframe-root[data-pane-window]:not([data-pane-window="side-chat"]) .workspace {
+  padding: 36px 8px 8px;
+  background: var(--cds-surface-1);
+  -webkit-app-region: drag;
+}
+.dframe-root[data-pane-window]:not([data-pane-window="side-chat"]) .workspace > * {
+  -webkit-app-region: no-drag;
+}
+/* The side chat window: the panel (source-side-chat.css [data-windowed]) is the whole window. */
+.dframe-root[data-pane-window="side-chat"] .workspace {
+  padding: 0;
+}
 
 /* Pc/Kn/Bn: keyboard file chips in response Markdown; no link inside a link. */
 .source-markdown .smd-file-ref { display:inline-block; border-radius:4px; cursor:var(--cds-cursor-interactive,default); }
@@ -1075,3 +1106,7 @@ html[data-reduce-motion="true"] .source-step-caret { transition: none; }
 .source-diagnostics li { display: flex; gap: 8px; min-width: 0; }
 .source-diagnostics-where { flex: none; color: var(--cds-text-secondary); font-family: var(--cds-font-mono); }
 .source-diagnostics-message { min-width: 0; color: var(--cds-text-primary); overflow-wrap: anywhere; }
+
+/* 2.31226.0 cfe7c4b3b: deleted file names are struck through in both tab surfaces. */
+.source-file-tab[data-deleted] .source-file-tab-label > span,
+.source-file-overflow-label[data-deleted] { text-decoration: line-through; }

@@ -4,7 +4,40 @@
 // footnote. Text may hold [[keys]] (keycaps) and `code` spans (I, :5071-5094).
 // OpenClaude Desktop is a frame for many agent cores, so the notes are core-neutral: DeepSeek Harness appears only as
 // the built-in core (a product name), never as "the assistant" every user runs.
+// Every shipped version needs its entry (scripts/verify-release-notes.mjs fails the build otherwise), or the What’s new
+// nudge never comes back after an update.
 export const RELEASE_NOTES = Object.freeze([
+  {
+    version: "0.2.186",
+    date: "2026-10-15",
+    items: [
+      { kind: "feat", text: "Split view arranges up to ten sessions in a grid, and a session, the Tasks pane or the terminal can open in its own window." },
+      { kind: "feat", text: "Long sessions get chapters: jump between them from the rail beside the transcript, or pin any turn as a chapter." },
+      { kind: "feat", text: "Comment on lines in the Changes pane and on plan text; your comments go to the message box." },
+      { kind: "feat", text: "Run a code block’s command in the terminal and watch its output under the block." },
+      { kind: "feat", text: "The Changes pane lists the branch’s commits, and the git band shows the branch’s pull request when the GitHub CLI is installed." },
+      { kind: "feat", text: "Drag sessions in the sidebar to pin them, reorder them or move them between groups." },
+      { kind: "feat", text: "Rewind shows the messages you can go back to and which files would change." },
+      { kind: "improvement", text: "Open files and the file tree follow changes on disk; HTML, SVG and PDF files show a rendered preview." },
+      { kind: "improvement", text: "Preview finds your dev server, explains a failed or stopped server, and remembers the sites you allow." },
+      { kind: "improvement", text: "Settings are grouped into General, This computer and Customize; Skills and Plugins are lists you can filter and sort, and the command palette lists session actions." },
+    ],
+  },
+  {
+    version: "0.2.185",
+    date: "2026-10-13",
+    items: [
+      { kind: "feat", text: "The app is now called OpenClaude Desktop. Your sessions and settings carry over." },
+      { kind: "feat", text: "Choose a speed (Standard, Fast or Ultrafast) for models that offer faster tiers, from the model menu or Settings; `/fast` takes a tier name." },
+      { kind: "feat", text: "`/clear` starts a fresh session in the same folder with the same model and settings, and archives the old conversation." },
+      { kind: "feat", text: "Ask a side question with `/btw` while a session keeps working." },
+      { kind: "feat", text: "The app is available in Simplified Chinese: choose the language in Settings." },
+      { kind: "feat", text: "Suggested tasks you put away come back under the message box on Home for their folder; pick one to put its prompt in the message box." },
+      { kind: "improvement", text: "Home’s Action Center lists sessions whose last turn failed as Needs input, and hovering one shows what it is waiting for." },
+      { kind: "improvement", text: "A new worktree session first refreshes its branch from origin and says which step it is on; without a working Git, a dialog explains how to install it." },
+      { kind: "improvement", text: "Starting a new session from a custom sidebar group shows the group it will be added to, with an X to keep it out." },
+    ],
+  },
   {
     version: "0.2.130",
     date: "2026-10-01",

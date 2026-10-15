@@ -3,7 +3,8 @@
 // first, stacked when there are more: "Suggested task · in {dir}", the title, the tldr (the prompt on hover), X to
 // dismiss, "{position} of {count}" to step through them, and Start, which starts a new session with the task's prompt
 // in its folder. Nothing runs until the user clicks Start. A dismissed or started task stays gone for this viewer
-// (browser storage: a per-viewer convenience); dismiss_task withdraws one for everyone.
+// (browser storage: a per-viewer convenience); dismiss_task withdraws one for everyone. B29: X also files the task in
+// its folder's backlog (onDismiss → main task-backlog-file), which Home lists under its composer.
 import React, { useMemo, useState } from "react";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { suggestedTasks } from "./agent-tool-titles.mjs";
@@ -23,7 +24,7 @@ function writeDismissed(sessionId, list) {
 }
 const folderName = (dir) => String(dir ?? "").split("/").filter(Boolean).pop() || String(dir ?? "");
 
-export function SourceSuggestedTasks({ items, sessionId, cwd = null, disabled = false, onStart }) {
+export function SourceSuggestedTasks({ items, sessionId, cwd = null, disabled = false, onStart, onDismiss }) {
   const [dismissed, setDismissed] = useState(() => (sessionId ? readDismissed(sessionId) : []));
   const [index, setIndex] = useState(0);
   const tasks = useMemo(() => suggestedTasks(items, dismissed), [items, dismissed]);
@@ -52,7 +53,7 @@ export function SourceSuggestedTasks({ items, sessionId, cwd = null, disabled = 
             {task.tldr && <span className="sst-tldr" title={task.prompt}>{task.tldr}</span>}
           </div>
           <SourceSettingsButton variant="ghost" icon="X" iconOnly className="sst-dismiss" aria-label={t("Dismiss suggestion")}
-            onClick={() => withdraw(task.id)} />
+            onClick={() => { withdraw(task.id); onDismiss?.(task); }} />
         </div>
         <div className="sst-actions">
           {count > 1 && <span className="sst-nav">

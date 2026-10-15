@@ -230,7 +230,14 @@ async function send(text) {
   await page
     .getByRole("textbox", { name: "Message DeepSeek", exact: true })
     .fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  // B27 (c11959232 yd/Ed): switching between the same two sessions shows the split-view tip, a fixed 420px banner at
+  // the bottom right (shared-frame wC) that sits over the Send button; dismiss it the way a user would.
+  const splitTip = page.locator('[data-testid="epitaxy-split-suggestion"]');
+  if (await splitTip.isVisible()) {
+    await splitTip.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await splitTip.waitFor({ state: "detached" });
+  }
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator(".source-working").waitFor();
   await page.waitForTimeout(230);
 }
@@ -243,7 +250,7 @@ async function wheelUp() {
 }
 async function openFiles() {
   await page
-    .getByRole("button", { name: "Session options", exact: true })
+    .getByRole("button", { name: "View options", exact: true })
     .click();
   await page
     .getByRole("menuitemcheckbox", { name: "Files", exact: true })
@@ -482,12 +489,19 @@ try {
       viewport.focus({ preventScroll: true });
       return viewport.scrollTop;
     });
+  // Space on the blank viewport (not a button-like target) is type-to-focus: the session pane listener prevents the
+  // native page scroll and focusAndInsert puts the space in the composer (cc43287c9 :45166-45175, main.jsx paneKey).
   await page.keyboard.press("Space");
-  await page.waitForFunction(
-    (top) => document.querySelector(".transcript").scrollTop > top + 2,
-    blankSpaceTop,
+  const spaceComposer = page.getByRole("textbox", { name: "Message DeepSeek", exact: true });
+  await page.waitForFunction(() => !!document.activeElement?.closest('[data-cds="ChatComposerEditor"]'));
+  await page.waitForTimeout(300);
+  assert.ok(
+    Math.abs((await page.locator(".transcript").evaluate((viewport) => viewport.scrollTop)) - blankSpaceTop) <= 2,
+    "blank viewport Space does not scroll the transcript (the pane listener prevents it)",
   );
-  await page.waitForTimeout(500);
+  assert.equal((await spaceComposer.textContent()).replace(/ /g, " "), " ", "blank viewport Space types into the composer");
+  await spaceComposer.fill("");
+  await page.waitForTimeout(200);
   await page.locator(".transcript").evaluate((viewport) => {
     viewport.scrollTop = viewport.scrollHeight;
   });
@@ -516,7 +530,7 @@ try {
   );
   await composerInput.fill("");
   checks.push(
-    "Historical tool Space releases before activation; blank viewport Space still scrolls, and explicit keep-pin/editable targets keep their semantics",
+    "Historical tool Space releases before activation; blank viewport Space types into the composer without scrolling (type-to-focus), and explicit keep-pin/editable targets keep their semantics",
   );
 
   await send("fixture:scroll-approval");

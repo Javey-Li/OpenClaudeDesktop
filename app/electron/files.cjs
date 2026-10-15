@@ -79,7 +79,21 @@ function mediaKind(name) {
   if (IMAGE_EXTENSIONS.has(at < 0 ? "" : name.slice(at + 1).toLowerCase())) return "image";
   if (/\.(mp4|webm|mov|m4v|ogv)$/i.test(name)) return "video";
   if (/\.(mp3|m4a|aac|wav|flac|opus|ogg|oga)$/i.test(name)) return "audio";
+  // B13: a PDF opens in Chromium's built-in viewer from its file:// URL (the stand-in for the desktop native preview,
+  // c6e1d8764 On), so it is classified like the media kinds and never read.
+  if (/\.pdf$/i.test(name)) return "pdf";
   return null;
+}
+// B32 (2.31226.0 c4e0cfada k :78-92 `creatable`, read by cd2efac6e bp/Cp/wp :5195-5198): whether the viewer's
+// "Create file" can make a missing file — the same rule as file-editor.cjs writeFile with no prior hash: no
+// dangling link at the path, and its parent folder exists, really, inside the workspace.
+async function missingCreatable(realRoot, lexical) {
+  if (await fs.lstat(lexical).then(() => true, () => false)) return false;
+  try {
+    const parent = await fs.realpath(path.dirname(lexical));
+    if (parent !== realRoot && !parent.startsWith(realRoot + path.sep)) return false;
+    return (await fs.stat(parent)).isDirectory();
+  } catch { return false; }
 }
 async function readFile(root, relative, { force = false } = {}) {
   const requested = relative;
@@ -89,11 +103,13 @@ async function readFile(root, relative, { force = false } = {}) {
   } catch (error) {
     if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
       // A missing path that lexically leaves the workspace is still refused as outside.
+      let creatable;
       try {
         const realRoot = await fs.realpath(root), lexical = path.resolve(realRoot, relative);
         if (lexical !== realRoot && !lexical.startsWith(realRoot + path.sep)) return { path: requested, unavailable: "outside_root" };
+        creatable = await missingCreatable(realRoot, lexical);
       } catch { return { path: requested, unavailable: "read_error" }; }
-      return { path: requested, unavailable: "missing" };
+      return { path: requested, unavailable: "missing", creatable };
     }
     if (/outside the selected workspace/.test(error?.message ?? "")) return { path: requested, unavailable: "outside_root" };
     return { path: requested, unavailable: "read_error" };

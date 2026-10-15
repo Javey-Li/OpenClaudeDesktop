@@ -307,3 +307,39 @@ test('unrepresentable filenames are reported, never silently queried under repla
   assert.equal(result.error.code, 'PATH_ENCODING');
   assert.equal(result.matches.length, 0);
 });
+
+// B33 (cccc2cf0a Fv): a filter ending in '/' lists the folder's direct children (folders first, numeric name
+// order), then deeper matches, then the rest; folder rows only when the Files pane asks for them.
+test('Fv orders a folder query: direct children in tree order, then deeper, then other matches', () => {
+  const rows = [
+    { path: 'lib/src/x.js', name: 'x.js', directory: false },
+    { path: 'src/b10.js', name: 'b10.js', directory: false },
+    { path: 'src/deep/c.js', name: 'c.js', directory: false },
+    { path: 'Src/b9.js', name: 'b9.js', directory: false },
+    { path: 'src/deep', name: 'deep', directory: true },
+  ];
+  assert.deepEqual(matcher.orderFolderQuery(rows, 'src/').map(row => row.path),
+    ['src/deep', 'Src/b9.js', 'src/b10.js', 'src/deep/c.js', 'lib/src/x.js']);
+});
+
+test('a trailing-slash query with folders lists real folders, scoped and safe', async t => {
+  const f = await fixture(t), api = service(t);
+  await f.file('src/main/App.ts');
+  await f.file('src/util.ts');
+  await f.file('docs/src-notes.md');
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'files-search-outside-'));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  await fs.writeFile(path.join(outside, 'leak.ts'), 'x');
+  await fs.symlink(outside, path.join(f.root, 'src', 'linked'));
+  const folders = await api.search({ ...request(f.root, 'src/'), folders: true });
+  assert.equal(folders.error, null);
+  const rows = folders.matches.map(match => `${match.directory ? 'd' : 'f'}:${match.path}`);
+  assert.deepEqual(rows.slice(0, 2), ['d:src/main', 'f:src/util.ts']);
+  assert.ok(rows.includes('f:src/main/App.ts'));
+  assert.ok(!rows.some(row => row.includes('linked')), 'a symlinked folder is never listed');
+  for (const match of folders.matches) assert.equal(match.name, match.path.split('/').at(-1));
+  const plain = await api.search(request(f.root, 'src/'));
+  assert.ok(plain.matches.every(match => match.directory === false), 'without the Files pane flag only files');
+  const noSlash = await api.search({ ...request(f.root, 'src'), folders: true });
+  assert.ok(noSlash.matches.every(match => match.directory === false), 'folders only for a query ending in /');
+});

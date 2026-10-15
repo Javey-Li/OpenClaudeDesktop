@@ -66,7 +66,9 @@ await fs.writeFile(path.join(profile, "fixture-threads.json"), JSON.stringify({ 
   [A]: thread(A, "Composer states A"),
   [B]: thread(B, "Archived composer", { archived: true, updatedAt: now - 10 }),
   [C]: thread(C, "Delayed start", { turnStartDelayMs: 900, updatedAt: now - 5 }),
-  [D]: thread(D, "Delayed interrupt", { interruptDelayMs: 600, updatedAt: now - 6 }),
+  // 1500 ms: the interrupting tooltip must be read before the interrupt lands; once idle, the open session's Send tooltip
+  // rightly gains the ⌥⌘⏎ fork row (ca80fca8d vP), so a 600 ms window made step 11b racy.
+  [D]: thread(D, "Delayed interrupt", { interruptDelayMs: 1500, updatedAt: now - 6 }),
   // 0.2.110 prompt history: two real user turns, oldest first.
   [E]: thread(E, "Prompt history", { updatedAt: now - 7, turns: [
     { id: `${E}-turn-0`, status: "completed", items: [userItem(`${E}-user-0`, "First history prompt."), textItem(`${E}-answer-0`, "First answer.")] },
@@ -178,8 +180,8 @@ async function usageRing() {
       accent: resolve("--cds-fill-accent"), alpha2: resolve("--cds-alpha-2") };
   });
 }
-const stopButton = () => page.getByRole("button", { name: "Stop response", exact: true });
-const sendButton = () => page.getByRole("button", { name: "Send message", exact: true });
+const stopButton = () => page.locator('[data-testid="code-prompt-stop"]:not([inert] *)');
+const sendButton = () => page.locator('[data-testid="code-prompt-send"]:not([inert] *)');
 // 0.2.112 c099c328d sm crossfade: the outgoing Send/Stop layer stays mounted (inert, aria-hidden, om)
 // until its own visibility transition ends. Role locators already skip it; raw DOM probes and CSS
 // locators must target the active layer (a correction for the shared cell, not a loosening).
@@ -284,7 +286,7 @@ try {
   // its ArrowReturn turns --cds-text-disabled, aria-keyshortcuts nn('enter') = 'Enter', and the
   // non-compact jh ::before extends the hit box 10px up/right/down without changing the 40px card.
   metrics.disabledSend = await page.evaluate(() => {
-    const cell = document.querySelector(".sc-submit-cell"), button = cell.querySelector('[aria-label="Send message"]'), before = getComputedStyle(button, "::before");
+    const cell = document.querySelector(".sc-submit-cell"), button = cell.querySelector('[data-testid="code-prompt-send"]'), before = getComputedStyle(button, "::before");
     const probe = document.createElement("span"); probe.style.color = "var(--cds-text-disabled)"; document.body.appendChild(probe); const disabledColor = getComputedStyle(probe).color; probe.remove();
     return { layers: cell.querySelectorAll(":scope > .sc-submit-layer").length, entering: cell.querySelector("[data-entering]") !== null, grid: getComputedStyle(cell).display,
       disabled: button.disabled, busy: button.getAttribute("aria-busy"), keys: button.getAttribute("aria-keyshortcuts"), opacity: getComputedStyle(button).opacity,
@@ -548,6 +550,9 @@ try {
   // Fidelity F05 (c099c328d-CbkcmYSW.js:10502-10520 Vr; shared-13-Bl2X1oob.js:7882-7958 Aw): the pick is an atomic
   // [data-mention] chip showing the basename in --cds-text-accent with title = the path; the draft text is unchanged.
   const mentionChip = () => page.locator('.sc-input [data-mention]');
+  // By now earlier turns have made sessions whose titles start with 'fixture:', and the reference Sessions provider
+  // (ca80fca8d vN, listed before the files provider in Yt :15373) puts them ahead of the files, so pick the file row.
+  const pickFileMention = () => dropdown.locator('[role="option"]').filter({ has: page.locator(".smd-label", { hasText: /^fixture-[ab]\.txt$/ }) }).first().click();
   metrics.mentionChip = await mentionChip().evaluate((node) => {
     const label = node.querySelector(".sc-mention-chip-label"), probe = document.createElement("span"); probe.style.color = "var(--cds-text-accent)"; document.body.appendChild(probe);
     const accent = getComputedStyle(probe).color; probe.remove();
@@ -616,30 +621,32 @@ try {
 
   // 8. Queue/steer while a turn runs.
   await fillComposer(page,editor(),"fixture:hold");
-  await armSwap("Send message");
+  await armSwap("Send");
   await page.keyboard.press("Enter");
   await stopButton().waitFor();
   // 0.2.112 sm swap Send → Stop: the entering Stop layer runs am (cds-fade-in 0.12s ease-out 0.08s
   // backwards); the Send layer stays mounted inert + aria-hidden with om (opacity 0, opacity 80ms
   // ease-out + visibility 0s linear 80ms) and is dropped only on its visibility transitionend.
   metrics.swapToStop = await swapSnapshot();
-  assert.deepEqual(metrics.swapToStop.entering, { label: "Stop response", entering: true, inert: false, animation: "cds-fade-in", duration: "0.12s", delay: "0.08s", fill: "backwards", easing: "ease-out" });
-  assert.deepEqual(metrics.swapToStop.leaving, { label: "Send message", inert: true, hidden: "true", transition: "opacity 0.08s ease-out, visibility 0s linear 0.08s",
+  assert.deepEqual(metrics.swapToStop.entering, { label: "Stop", entering: true, inert: false, animation: "cds-fade-in", duration: "0.12s", delay: "0.08s", fill: "backwards", easing: "ease-out" });
+  assert.deepEqual(metrics.swapToStop.leaving, { label: "Send", inert: true, hidden: "true", transition: "opacity 0.08s ease-out, visibility 0s linear 0.08s",
     property: "opacity, visibility", duration: "0.08s, 0s", delay: "0s, 0.08s", pointer: "none", opacity: "0", visibility: "visible", held: ["visibility"] });
   metrics.swapToStopRelease = await releaseSwap();
   assert.deepEqual(metrics.swapToStopRelease, { present: true, last: "visibility", layers: 1 }, "opacity / bubbled transitionends keep the layer; its own visibility one unmounts it");
-  // Ih = Icon 'Stop' size sm text-secondary; aria-keyshortcuts nn('escape') = 'Escape' (nothing claims Escape); jh ::before.
+  // 2.31226.0 ca80fca8d vP (:13038-13160, B05): Icon 'StopCircle', aria-label 'Stop' (Send: 'Send'), data-testid
+  // code-prompt-stop / code-prompt-send; aria-keyshortcuts 'Escape' (nothing claims Escape); jh ::before.
+  assert.deepEqual([await stopButton().getAttribute("aria-label"), await page.getByRole("button", { name: "Stop", exact: true }).and(stopButton()).count()], ["Stop", 1], "the Stop control's accessible name is 'Stop'");
   metrics.stopControl = await stopButton().evaluate(node => {
     const probe = document.createElement("span"); probe.style.color = "var(--cds-text-secondary)"; document.body.appendChild(probe); const secondary = getComputedStyle(probe).color; probe.remove();
     const icon = node.querySelector('[data-cds="Icon"]'), before = getComputedStyle(node, "::before");
     return { glyph: icon.textContent.codePointAt(0), fontSize: getComputedStyle(icon).fontSize, color: getComputedStyle(icon).color === secondary, keys: node.getAttribute("aria-keyshortcuts"),
       before: [before.left, before.top, before.right, before.bottom], size: [node.getBoundingClientRect().width, node.getBoundingClientRect().height] };
   });
-  assert.deepEqual(metrics.stopControl, { glyph: glyphs.Stop, fontSize: "16px", color: true, keys: "Escape", before: ["0px", "-10px", "-10px", "-10px"], size: [24, 24] });
-  await page.locator(".sc-composer").screenshot({ path: path.join(directory, "stop-control.png") });
+  assert.deepEqual(metrics.stopControl, { glyph: glyphs.StopCircle, fontSize: "16px", color: true, keys: "Escape", before: ["0px", "-10px", "-10px", "-10px"], size: [24, 24] });
+  await page.locator("form.sc-composer").screenshot({ path: path.join(directory, "stop-control.png") });
   const glyph = metrics.stopControl.glyph;
-  // 0.2.112: the source Stop glyph is Ih 'Stop' (57578); the earlier 'StopCircle' expectation encoded the local deviation this batch removes.
-  assert.equal(glyph, 57578, "Stop glyph (c099c328d Ih)");
+  // 2.31226.0 vP draws 'StopCircle' (57579); 0.2.112's c099c328d Ih was the plain 'Stop' square (57578).
+  assert.equal(glyph, 57579, "StopCircle glyph (ca80fca8d vP)");
   checks.push("0.2.112 Send → Stop crossfade (c099c328d sm/am/om): entering Stop layer animates cds-fade-in 0.12s ease-out 0.08s backwards; the Send layer stays inert + aria-hidden with pointer-events none, opacity 0 and 'opacity 0.08s ease-out, visibility 0s linear 0.08s', survives its opacity transitionend and unmounts on the visibility one; Stop is Ih 'Stop' 16px text-secondary with aria-keyshortcuts 'Escape' and the 10px jh hit box");
   const activeTurn = (await readThreads()).threads[A].turns.at(-1);
   assert.equal(activeTurn.status, "inProgress");
@@ -656,7 +663,7 @@ try {
   await dropdown.waitFor();
   await page.waitForFunction(() => document.querySelector('[data-cds="MentionDropdown"] .smd-description'));
   // With content in the editor the Send control has replaced Stop (Ki); the turn itself keeps running.
-  assert.equal(await page.locator(".sc-composer").getAttribute("data-busy"), "true", "the card stays busy while the mention popup is open");
+  assert.equal(await page.locator("form.sc-composer").getAttribute("data-busy"), "true", "the card stays busy while the mention popup is open");
   assert.equal((await readThreads()).threads[A].turns.at(-1).status, "inProgress", "the turn keeps running while the mention popup is open");
   await page.keyboard.press("Escape");
   await dropdown.waitFor({ state: "detached" });
@@ -706,7 +713,8 @@ try {
   assert.equal(metrics.queueSingle.radius, "10px"); assert.equal(metrics.queueSingle.background, metrics.queueSingle.alpha1); assert.equal(metrics.queueSingle.gap, "5px");
   assert.equal(metrics.queueSingle.count, "1 message queued"); assert.equal(metrics.queueSingle.countSize, "13px"); assert.equal(metrics.queueSingle.countLine, "19px"); assert.equal(metrics.queueSingle.countWeight, "500");
   assert.equal(metrics.queueSingle.preview, "later one"); assert.equal(metrics.queueSingle.transition, "0.12s");
-  assert.deepEqual(metrics.queueSingle.buttons, [{ label: "Edit in composer", width: 24, height: 24 }, { label: "Remove from queue", width: 24, height: 24 }]);
+  // B05 C3 (2.31226.0 cf74bc599 oS): while the turn runs the single row leads with aS 'Send now' (ArrowReturn), then Edit, X.
+  assert.deepEqual(metrics.queueSingle.buttons, [{ label: "Send now", width: 24, height: 24 }, { label: "Edit in composer", width: 24, height: 24 }, { label: "Remove from queue", width: 24, height: 24 }]);
   await fillComposer(page,editor(),"later two");
   await page.keyboard.press("Meta+Enter");
   await waitCount("thread/queue/add", 2);
@@ -762,20 +770,36 @@ try {
   await bar.waitFor({ state: "detached" });
   await page.waitForFunction(() => document.querySelector(".sc-input").value === "later four");
   await fillComposer(page,editor(),"");
+  // B05 C3 Send now (cf74bc599 oS/aS; cc43287c9 :38930-38946 queueBarSendNow): the entry leaves the queue
+  // (thread/queue/delete) and is steered into the running turn (turn/steer with its own input and clientUserMessageId).
+  await fillComposer(page,editor(),"later now");
+  await page.keyboard.press("Meta+Enter");
+  await waitCount("thread/queue/add", 5);
+  await bar.waitFor();
+  const sendNowQueued = (await requests("thread/queue/add"))[4].params;
+  await page.getByRole("button", { name: "Send now", exact: true }).click();
+  await waitCount("thread/queue/delete", 5);
+  await waitCount("turn/steer", 2);
+  await bar.waitFor({ state: "detached" });
+  const promoted = (await requests("turn/steer"))[1].params;
+  assert.equal(promoted.threadId, A); assert.equal(promoted.expectedTurnId, activeTurn.id); assert.equal(promoted.input[0].text, "later now");
+  assert.equal(promoted.clientUserMessageId, sendNowQueued.clientUserMessageId, "the promoted entry keeps its clientUserMessageId");
+  assert.deepEqual((await readThreads()).threads[A].queue, []);
+  checks.push("B05 Send now: the queued row's ArrowReturn button deletes the entry from the Codex queue and steers its input into the running turn");
   // Reduced motion removes the band transition (a fresh bar must be mounted to read it).
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await armSwap("Stop response");
+  await armSwap("Stop");
   await fillComposer(page,editor(),"later five");
   // 0.2.112: without motion-safe the entering layer has no am animation and om keeps only
   // [transition:visibility_0s_linear_80ms] — the outgoing Stop is at opacity 0 at once.
   metrics.swapReduced = await swapSnapshot();
   // (duration is the design-system.css:1423 reduced-motion `animation-duration:0.01ms !important` clamp on *, not this contract.)
-  assert.deepEqual({ ...metrics.swapReduced.entering, duration: undefined }, { label: "Send message", entering: true, inert: false, animation: "none", duration: undefined, delay: "0s", fill: "none", easing: "ease" });
-  assert.deepEqual(metrics.swapReduced.leaving, { label: "Stop response", inert: true, hidden: "true", transition: "visibility 0s linear 0.08s", property: "visibility", duration: "0s", delay: "0.08s", pointer: "none", opacity: "0", visibility: "visible", held: ["visibility"] });
+  assert.deepEqual({ ...metrics.swapReduced.entering, duration: undefined }, { label: "Send", entering: true, inert: false, animation: "none", duration: undefined, delay: "0s", fill: "none", easing: "ease" });
+  assert.deepEqual(metrics.swapReduced.leaving, { label: "Stop", inert: true, hidden: "true", transition: "visibility 0s linear 0.08s", property: "visibility", duration: "0s", delay: "0.08s", pointer: "none", opacity: "0", visibility: "visible", held: ["visibility"] });
   metrics.swapReducedRelease = await releaseSwap();
   assert.deepEqual(metrics.swapReducedRelease, { present: true, last: "visibility", layers: 1 });
   await page.keyboard.press("Meta+Enter");
-  await waitCount("thread/queue/add", 5);
+  await waitCount("thread/queue/add", 6);
   await bar.waitFor();
   assert.equal(await bar.evaluate(node => getComputedStyle(node).transitionDuration), "0s");
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -806,8 +830,8 @@ try {
   await stopButton().waitFor();
   await fillComposer(page,editor(),"steer a review");
   await page.keyboard.press("Enter");
-  await waitCount("turn/steer", 2);
-  await waitCount("thread/queue/add", 6);
+  await waitCount("turn/steer", 3);
+  await waitCount("thread/queue/add", 7);
   await bar.waitFor();
   assert.equal(await bar.locator(".sqm-preview").textContent(), "steer a review");
   await page.getByRole("button", { name: "Remove from queue", exact: true }).click();
@@ -819,17 +843,17 @@ try {
   // 11. Busy send state on a delayed turn/start.
   await open(C, `${C}-answer-0`);
   await fillComposer(page,editor(),"busy send probe");
-  await armSwap("Stop response");
+  await armSwap("Stop");
   await page.keyboard.press("Enter");
-  await page.waitForFunction(() => document.querySelector('.sc-submit-cell [aria-label="Send message"]:not([inert] *)')?.getAttribute("aria-busy") === "true");
+  await page.waitForFunction(() => document.querySelector('.sc-submit-cell [data-testid="code-prompt-send"]:not([inert] *)')?.getAttribute("aria-busy") === "true");
   metrics.busy = await sendButton().evaluate(node => ({ busy: node.getAttribute("aria-busy"), disabled: node.disabled, spinner: !!node.querySelector(".sc-spinner"), sr: node.querySelector(".sc-sr-only")?.textContent ?? null, glyph: node.querySelector('[data-cds="Icon"]')?.textContent ?? null, cardBusy: node.closest(".sc-composer").getAttribute("data-busy") }));
   assert.deepEqual(metrics.busy, { busy: "true", disabled: true, spinner: true, sr: "Sending", glyph: null, cardBusy: "true" });
-  await page.waitForFunction(() => document.querySelector('.sc-submit-cell [aria-label="Send message"]:not([inert] *)')?.getAttribute("aria-busy") !== "true");
+  await page.waitForFunction(() => document.querySelector('.sc-submit-cell [data-testid="code-prompt-send"]:not([inert] *)')?.getAttribute("aria-busy") !== "true");
   await page.locator(".assistant-message").filter({ hasText: "Delayed fixture response" }).waitFor();
   // 0.2.112 reverse swap when the turn completes: Stop leaves with om, Send enters with am.
   metrics.swapOnComplete = await swapSnapshot();
-  assert.deepEqual(metrics.swapOnComplete.entering, { label: "Send message", entering: true, inert: false, animation: "cds-fade-in", duration: "0.12s", delay: "0.08s", fill: "backwards", easing: "ease-out" });
-  assert.deepEqual(metrics.swapOnComplete.leaving, { label: "Stop response", inert: true, hidden: "true", transition: "opacity 0.08s ease-out, visibility 0s linear 0.08s",
+  assert.deepEqual(metrics.swapOnComplete.entering, { label: "Send", entering: true, inert: false, animation: "cds-fade-in", duration: "0.12s", delay: "0.08s", fill: "backwards", easing: "ease-out" });
+  assert.deepEqual(metrics.swapOnComplete.leaving, { label: "Stop", inert: true, hidden: "true", transition: "opacity 0.08s ease-out, visibility 0s linear 0.08s",
     property: "opacity, visibility", duration: "0.08s, 0s", delay: "0s, 0.08s", pointer: "none", opacity: "0", visibility: "visible", held: ["visibility"] });
   metrics.swapOnCompleteRelease = await releaseSwap();
   assert.deepEqual(metrics.swapOnCompleteRelease, { present: true, last: "visibility", layers: 1 });
@@ -847,13 +871,14 @@ try {
   await stopButton().click();
   await stopButton().waitFor({ state: "detached" });
   await waitCount("turn/interrupt", interruptsBefore + 1);
-  metrics.interrupting = await sendButton().evaluate(node => ({ disabled: node.disabled, busy: node.getAttribute("aria-busy"), glyph: node.querySelector('[data-cds="Icon"]')?.textContent.codePointAt(0) ?? null, spinner: !!node.querySelector(".sc-spinner"), cardBusy: node.closest(".sc-composer").getAttribute("data-busy"), stops: document.querySelectorAll('.sc-submit-cell [aria-label="Stop response"]:not([inert] *)').length }));
+  metrics.interrupting = await sendButton().evaluate(node => ({ disabled: node.disabled, busy: node.getAttribute("aria-busy"), glyph: node.querySelector('[data-cds="Icon"]')?.textContent.codePointAt(0) ?? null, spinner: !!node.querySelector(".sc-spinner"), cardBusy: node.closest(".sc-composer").getAttribute("data-busy"), stops: document.querySelectorAll('.sc-submit-cell [data-testid="code-prompt-stop"]:not([inert] *)').length }));
   assert.equal((await readThreads()).threads[D].turns.at(-1).status, "inProgress", "the fixture interrupt is still pending");
   assert.deepEqual(metrics.interrupting, { disabled: true, busy: null, glyph: 57359, spinner: false, cardBusy: "true", stops: 0 });
   await page.mouse.move(100, 700);
   await activeSlot().hover();
   await page.locator(".source-tooltip-popup").waitFor();
   metrics.interruptingTooltip = await page.locator(".source-tooltip-popup").evaluate(node => [...node.querySelectorAll(".source-tooltip-label-line")].map(line => ({ label: line.querySelector(".source-tooltip-label").textContent, shortcut: (chip => chip && [...chip.querySelectorAll("kbd")].map(kbd => (kbd.querySelector('[aria-hidden="true"]') ?? kbd).textContent).join(""))(line.querySelector(".source-tooltip-shortcut")) ?? null })));
+  assert.equal(await page.locator("form.sc-composer").getAttribute("data-busy"), "true", "the tooltip was read while the interrupt was still pending");
   assert.deepEqual(metrics.interruptingTooltip, [{ label: "Send", shortcut: "⏎" }], "no 'Queue for later' hint while interrupting");
   await page.mouse.move(900, 120);
   await page.waitForFunction(() => !document.querySelector(".sc-composer").hasAttribute("data-busy"));
@@ -868,7 +893,7 @@ try {
   await filterMenu.waitFor({ state: "detached" });
   await page.locator(`[data-source-session-id="${B}"] .source-session-open`).click();
   await page.getByRole("button", { name: "Restore session", exact: true }).waitFor();
-  metrics.archived = await page.evaluate(() => ({ card: document.querySelector(".sc-composer").hasAttribute("data-disabled"), editor: !document.querySelector(".sc-input").isContentEditable, send: document.querySelector('.sc-submit-cell [aria-label="Send message"]:not([inert] *)').disabled, cursor: getComputedStyle(document.querySelector(".sc-surface")).cursor }));
+  metrics.archived = await page.evaluate(() => ({ card: document.querySelector(".sc-composer").hasAttribute("data-disabled"), editor: !document.querySelector(".sc-input").isContentEditable, send: document.querySelector('.sc-submit-cell [data-testid="code-prompt-send"]:not([inert] *)').disabled, cursor: getComputedStyle(document.querySelector(".sc-surface")).cursor }));
   assert.deepEqual(metrics.archived, { card: true, editor: true, send: true, cursor: "default" });
   checks.push("An archived session marks the card data-disabled with a disabled editor and Send");
   await page.getByRole("button", { name: /^Filter(?: \(active\))?$/ }).click();
@@ -887,7 +912,9 @@ try {
       color: getComputedStyle(row).color, warning: (() => { const probe = document.createElement("span"); probe.style.color = "var(--cds-text-warning)"; document.body.appendChild(probe); const value = getComputedStyle(probe).color; probe.remove(); return value; })(),
       card: document.querySelector(".sc-composer").hasAttribute("data-disabled"), editor: !document.querySelector(".sc-input").isContentEditable };
   });
-  assert.equal(metrics.disconnected.text, "Connection to DeepSeek lost."); assert.equal(metrics.disconnected.retry, "Retry");
+  // The warning names boot.core (coreName): the fixture app-server reports no engine, which core-registry coreForEngine
+  // reads as Codex (main.jsx keeps boot.core across the disconnect); the composer copy stays the chosen core's.
+  assert.equal(metrics.disconnected.text, "Connection to Codex lost."); assert.equal(metrics.disconnected.retry, "Retry");
   assert.equal(metrics.disconnected.size, "12px"); assert.equal(metrics.disconnected.gap, "8px"); assert.equal(metrics.disconnected.color, metrics.disconnected.warning);
   // Fidelity F05 (cc43287c9-BMbiZYzF.js:27612 Jr / :28636-28638): a lost connection only gates sending; the editor stays
   // typeable (no data-disabled) and Enter sends nothing. This replaces the earlier disabled-card expectation on purpose.
@@ -1457,7 +1484,7 @@ try {
   await fs.writeFile(scratchFile, "untracked\n");
   await pickBranch("main");
   await branchLabel("main");
-  metrics.branchCarryOver = { dialogs: await page.getByRole("dialog", { name: "Uncommitted changes on feature/login", exact: true }).count(), checkedOut: checkedOut() };
+  metrics.branchCarryOver = { dialogs: await page.getByRole("alertdialog", { name: "Uncommitted changes on feature/login", exact: true }).count(), checkedOut: checkedOut() };
   assert.deepEqual(metrics.branchCarryOver, { dialogs: 0, checkedOut: "feature/login" }, "a non-conflicting dirty tree only records the pick");
   await pickBranch("feature/login");
   await branchLabel("feature/login");
@@ -1465,7 +1492,7 @@ try {
   // A dirty tree: GR asks how to handle the changes; Cancel keeps the branch.
   await fs.appendFile(path.join(pickerRepo, "README.md"), "uncommitted line\n");
   await pickBranch("zeta-topic");
-  const switchDialog = page.getByRole("dialog", { name: "Uncommitted changes on feature/login", exact: true });
+  const switchDialog = page.getByRole("alertdialog", { name: "Uncommitted changes on feature/login", exact: true });
   await switchDialog.waitFor();
   await page.waitForFunction(() => document.activeElement?.textContent === "Cancel");
   metrics.branchDialog = await switchDialog.evaluate((node) => ({ alert: node.hasAttribute("data-alert"), cds: node.dataset.cds,
@@ -1595,7 +1622,7 @@ try {
   await page.locator(".loading-state").waitFor();
   await editor().focus();
   await page.keyboard.type("abc");
-  metrics.heldResume = { loading: await page.locator(".loading-state").count(), value: await editor().evaluate(node => node.value), card: await page.locator(".sc-composer").getAttribute("data-disabled") };
+  metrics.heldResume = { loading: await page.locator(".loading-state").count(), value: await editor().evaluate(node => node.value), card: await page.locator("form.sc-composer").getAttribute("data-disabled") };
   assert.deepEqual(metrics.heldResume, { loading: 1, value: "abc", card: null }, "typed while thread/resume is held");
   await page.locator(`[data-transcript-item-id="${F}-answer-0"]`).waitFor();
   await page.locator(".loading-state").waitFor({ state: "detached" });
@@ -1682,7 +1709,7 @@ try {
   // 18e. Mention chip Backspace and Delete (shared-13 Aw; composer-editor-model selectCommandBefore).
   await fillComposer(page, editor(), "look @fix");
   await dropdown.waitFor();
-  await page.keyboard.press("Enter");
+  await pickFileMention();
   await dropdown.waitFor({ state: "detached" });
   await mentionChip().waitFor();
   const chipValue = await editor().evaluate(node => node.value);
@@ -1696,7 +1723,7 @@ try {
   assert.equal(await editor().evaluate(node => node.value), "look ");
   await page.keyboard.type("@fix");
   await dropdown.waitFor();
-  await page.keyboard.press("Enter");
+  await pickFileMention();
   await mentionChip().waitFor();
   // Light and dark: the label paints --cds-text-accent in both.
   metrics.mentionChipModes = {};
@@ -1704,7 +1731,7 @@ try {
     await page.evaluate((mode) => { document.documentElement.dataset.mode = mode; }, mode);
     metrics.mentionChipModes[mode] = await mentionChip().evaluate((node) => { const label = node.querySelector(".sc-mention-chip-label"), probe = document.createElement("span"); probe.style.color = "var(--cds-text-accent)"; node.closest(".sc-composer").appendChild(probe); const accent = getComputedStyle(probe).color; probe.remove(); return [getComputedStyle(label).color, accent]; });
     assert.equal(metrics.mentionChipModes[mode][0], metrics.mentionChipModes[mode][1], `${mode} chip uses --cds-text-accent`);
-    await page.locator(".sc-composer").screenshot({ path: path.join(directory, `mention-chip-${mode}.png`) });
+    await page.locator("form.sc-composer").screenshot({ path: path.join(directory, `mention-chip-${mode}.png`) });
   }
   assert.notEqual(metrics.mentionChipModes.dark[0], metrics.mentionChipModes.light[0], "the accent follows the mode");
   await mentionChip().click();
@@ -1761,7 +1788,7 @@ try {
   await open(E, `${E}-answer-1`);
   await fillComposer(page, editor(), "fixture:complete keep me @fix");
   await dropdown.waitFor();
-  await page.keyboard.press("Enter");
+  await pickFileMention();
   await dropdown.waitFor({ state: "detached" });
   await mentionChip().waitFor();
   const keptDraft = await editor().evaluate(node => node.value);

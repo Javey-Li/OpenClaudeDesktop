@@ -3,14 +3,16 @@
    states come from the shared primitive. */
 .sp-permission-menu .sp-permission-item .smenu-shortcut { font-variant-numeric: tabular-nums; }
 
-/* wy() (ion-dist cf6ae6197) trailing Badge {variant neutral, size xxs, truncate,
-   pointer-events-none} inside the mapper's span.contents (cfca6870a). Badge Pa
+/* ca80fca8d fz "inline" (:19299-19322): the label becomes span 'flex min-w-0 items-center gap-sm' holding the
+   truncated name then the badge pz (variant neutral, size xxs, truncate, pointer-events-none). */
+.sp-permission-label-row { display: flex; min-width: 0; align-items: center; gap: var(--cds-gap-sm, 8px); }
+.sp-permission-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Badge Pa
    (shared-frame :1888-2000): inline-flex items-center gap-1 align-middle
    h-control-nested whitespace-nowrap rounded-chip px-sm font-sans text-caption
    font-medium leading-[round(1.25em,1px)] min-w-0 bg-neutral text-secondary; xxs is
    data-step=1 (16px / 4px / 10px through .cds-root [data-step="1"]) and its text span
    Ma: leading-[0.75rem] py-[0.125em] -my-[0.125em], truncated. */
-.sp-permission-badge-slot { display: contents; }
 .sp-permission-badge {
   display: inline-flex; min-width: 0; align-items: center; gap: 4px; vertical-align: middle;
   height: var(--cds-h-control-nested, 16px); padding: 0 var(--cds-pad-sm, 4px);

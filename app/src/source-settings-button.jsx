@@ -23,7 +23,7 @@ export const SourceSettingsButton = React.forwardRef(function SourceSettingsButt
     className={`${iconOnly ? '' : `ssb-icon-${iconPosition}`} ${densityClass}`}/>;
   // Ts: xs/xxs buttons resolve 'auto-sm' (shared-frame aa: one token below the
   // density size), i.e. 12px compact / 16px comfortable.
-  const glyph = !icon ? null : iconSize === 'auto'
+  const glyph = React.isValidElement(icon) ? icon : !icon ? null : iconSize === 'auto'
     ? <>{glyphAt(16, 'ssb-auto-compact')}{glyphAt(20, 'ssb-auto-comfortable')}</>
     : iconSize === 'auto-sm'
       ? <>{glyphAt(12, 'ssb-auto-compact')}{glyphAt(16, 'ssb-auto-comfortable')}</>

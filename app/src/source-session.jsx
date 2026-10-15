@@ -1,3 +1,12 @@
+import {useBlankTreeSelection} from "./use-blank-tree-selection.jsx";
+import {selectFileRange,selectAllFiles} from "./file-tree-selection.mjs";
+import { SourceFileMenuEntries } from "./source-file-menu-entries.jsx";
+import { fileSelectionLabel } from "./file-editor-commands.mjs";
+import { guardFileEdits, hasDirtyFileEdit } from "./file-edit-store.mjs";
+import { applyFileRead, readIsStale, tabLoaded, tabsForEdits, tabsForFolderChange, watchedDirs } from "./file-live-refresh-model.mjs";
+import { useFileViewSettings } from "./use-file-view-settings.mjs";
+import { fileViewMenu, fileBehaviorMenu } from "./file-view-settings.mjs";
+import { fileTreeVisible, peekOnFileOpen } from './file-tree-mode.mjs';
 import {advanceResponseBlocks,remarkPriorDefinitions,remarkResponseBlockQuotes} from './response-block-model.mjs';
 import {remarkFrontierDefinitions} from './frontier-definitions.mjs';
 import {rehypeResponseReveal} from './response-reveal-model.mjs';
@@ -29,6 +38,7 @@ import { previewTooLarge } from "./approval-card-model.mjs";
 import { SourceQuestionCard } from "./source-question-card.jsx";
 import { SourceArtifacts, SourceDeliverables, itemDeliverables } from "./source-deliverables.jsx";
 import { chapterOf } from "./agent-tool-titles.mjs";
+import { SourceClaudeChapter } from "./source-chapters.jsx";
 import "./source-suggested-tasks.css";
 import { localizeBridgeNote } from "./bridge-text-model.mjs";
 import { approvalIdentity, isPlanReviewRequest } from "./approval-draft-model.mjs";
@@ -63,10 +73,10 @@ import { ResponseTaskInput, ResponseTaskItem } from './source-response-task.jsx'
 import { Icon } from "./icons";
 import { SourceTooltip, SourceTooltipGroup } from "./source-tooltip.jsx";
 import { SourceMenu } from "./source-menu.jsx";
-import { FILE_TAB_LABELS, fileViewerMenuItems, insertFileTab, moveFileTab, tabDetail, tabMenuItems, tabRelativePath, tabTooltip } from "./file-tab-menu-model.mjs";
-import { fileContextMenu, fileCopyChoices, fileLinkLabel } from "./file-context-menu-model.mjs";
+import { FILE_TAB_LABELS, fileViewerMenuItems, fileTabsToRight, insertFileTab, moveFileTab, tabDetail, tabMenuItems, tabRelativePath, tabTooltip } from "./file-tab-menu-model.mjs";
+import { fileContextMenu, multiFileContextMenu, fileCopyChoices, fileLinkLabel } from "./file-context-menu-model.mjs";
 import { stableIds, tabOverflowLayout } from "./file-tab-overflow-model.mjs";
-import { SourceFileViewer, FILE_VIEWER_LABELS } from "./source-file-viewer.jsx";
+import { SourceSessionFileViewer, FILE_VIEWER_LABELS } from "./source-file-viewer.jsx";
 import { CONTEXT_MENU_ALIGN_OFFSET, CONTEXT_MENU_SIDE_OFFSET } from "./menu-model.mjs";
 import { menuTriggerProps } from "./source-menu.jsx";
 import { fileKindIcon } from "./file-kind-icon.mjs";
@@ -81,6 +91,8 @@ import { useDiffViewPreferences } from "./diff-view-store.mjs";
 import { changesMenuSections } from "./changes-menu-model.mjs";
 import { SourceChangesState, SourcePlanEmpty, SourceFilesTreeState, SourceTreeErrorRow, SourceFilesEmptyPreview } from "./source-pane-states.jsx";
 import { SourceUserText } from "./source-user-text.jsx";
+import { parseSelectedElementMessage } from './generated/code-editor/preview-element-parser.mjs';
+import { SourceSelectedElementTranscript } from './source-selected-element.jsx';
 import { SourceUserActions } from "./source-user-actions.jsx";
 import { notDeliveredLabel } from "./pending-send-model.mjs";
 import "./source-user-delivery.css";
@@ -94,6 +106,9 @@ import { SourceForgeRepoContext, SourceForgeRef } from './source-forge-ref.jsx';
 import { SourceFilesSearch } from "./source-files-search";
 import { useFileTreeReveal } from "./use-file-tree-reveal";
 import { revealChild } from "./files-search-model.mjs";
+import { singleChildFolderChain, treeEntryOpenable, fileTreeGuideStyle, onEnterReleased,
+  fileTreeCoachmarkEligible, fileTreeNuxDismissed, dismissFileTreeNux } from "./file-tree-row-model.mjs";
+import { SourceCoachmark } from "./source-coachmark.jsx";
 import { readMarkdownCodeBlock } from "./code-fence-model.mjs";
 import { detectSecrets, maskSecret, maskSecrets, secretLabel } from "./secret-redaction-model.mjs";
 import { showsThinking } from "./transcript-view-model.mjs";
@@ -146,7 +161,7 @@ function SourceMarkdownPre({ node, children, ...props }) {
   const scopeKey = JSON.stringify([ownerKey, Number.isInteger(offset) && offset >= 0
     ? ["offset", offset] : ["instance", instanceId]]);
   if (block?.language === 'math' && block.languageSettled) return <SourceResponseMath value={block.text} display fenced />;
-  return block ? <SourceCodeBlock {...block} scopeKey={scopeKey} /> : <SourceMarkdownContext.Provider value={{...context, nonInteractive: true, inPre: true}}><pre {...props}>{children}</pre></SourceMarkdownContext.Provider>;
+  return block ? <SourceCodeBlock {...block} scopeKey={scopeKey} runScope={context.messageKey ?? ownerKey} /> : <SourceMarkdownContext.Provider value={{...context, nonInteractive: true, inPre: true}}><pre {...props}>{children}</pre></SourceMarkdownContext.Provider>;
 }
 
 function SourceMarkdownTable({ node, children, ...props }) {
@@ -157,10 +172,10 @@ function SourceMarkdownTable({ node, children, ...props }) {
 // code-block-current.js:1043-1100 Dr: one masked secret inside inline code,
 // bullets for sighted readers, 'Redacted {label}' for assistive technology and
 // a 12px Eye/EyeSlash toggle ('Reveal {label}' / 'Hide {label}').
-function SourceRedactedSecret({ value, patternId }) {
+export function SourceRedactedSecret({ value, patternId, maskValue = maskSecret }) {
   const [revealed, setRevealed] = useState(false);
   const label = secretLabel(patternId);
-  const mask = useMemo(() => maskSecret(value), [value]);
+  const mask = useMemo(() => maskValue(value), [value, maskValue]);
   return <span data-redacted-secret="" className="smd-secret">
     <span className="smd-secret-value">{revealed ? value : <>
       <span data-find-omitted="" className="source-sr-only smd-secret-sr">{t("Redacted {label}", { label })}</span>
@@ -266,25 +281,38 @@ function SourceMarkdownImage({src,alt}) {
 }
 const RESPONSE_MARKDOWN_COMPONENTS = { img:SourceMarkdownImage, 'response-math': SourceResponseMath, span: ResponseRevealSpan, pre: SourceMarkdownPre, table: SourceMarkdownTable, code: SourceMarkdownCode, a: SourceMarkdownLink, input: ResponseTaskInput, li: ResponseTaskItem };
 
-export function SourceMarkdown({ text = "", isStreaming = false, paceReveal = false, isInterrupting = false, sessionKey = null, itemId, cwd = null, onOpenFileRef = null }) {
+// extension {rehypePlugins, components, skipAttributes} (the Plan pane's comment marks, B22): extra rehype plugins and
+// component overrides; the document renders as one block so a plugin sees the whole tree (flat-text offsets), and
+// skipAttributes wrap each <pre> and math node (cccc2cf0a Uh pre: div[data-plan-comment-skip]).
+export function SourceMarkdown({ text = "", isStreaming = false, paceReveal = false, isInterrupting = false, sessionKey = null, itemId, cwd = null, onOpenFileRef = null, extension = null }) {
   const instanceId = useId();
   const ownerKey = JSON.stringify([sessionKey, itemId ?? ["instance", instanceId]]);
-  return <OwnedSourceMarkdown key={ownerKey} {...{text,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef}}/>;
+  return <OwnedSourceMarkdown key={ownerKey} {...{text,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef,extension}}/>;
 }
-function OwnedSourceMarkdown({ text: rawText, isStreaming, paceReveal, isInterrupting, ownerKey, cwd, onOpenFileRef }) {
+function OwnedSourceMarkdown({ text: rawText, isStreaming, paceReveal, isInterrupting, ownerKey, cwd, onOpenFileRef, extension }) {
   // Codex review findings (::code-comment) as finding items, git receipts (::git-*) hidden, as the Codex TUI shows them.
   const sourceText = useMemo(() => rewriteAssistantDirectives(rawText, { cwd, streaming: isStreaming }), [rawText, cwd, isStreaming]);
   return <SourceResponseBoundary text={sourceText}>
-    <RichSourceMarkdown {...{sourceText,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef}}/>
+    <RichSourceMarkdown {...{sourceText,isStreaming,paceReveal,isInterrupting,ownerKey,cwd,onOpenFileRef,extension}}/>
   </SourceResponseBoundary>;
 }
-const SourceMarkdownBlock = React.memo(function SourceMarkdownBlock({block,ownerKey,cwd,onOpenFileRef,ledger}) {
-  const context=React.useMemo(()=>({text:block.text,isStreaming:block.frontier,ownerKey:JSON.stringify([ownerKey,block.start]),cwd,onOpenFileRef}),[block,ownerKey,cwd,onOpenFileRef]);
+function extensionComponents(extension) {
+  if (!extension?.components && !extension?.skipAttributes) return RESPONSE_MARKDOWN_COMPONENTS;
+  const skip = extension.skipAttributes;
+  const wrapped = skip ? {
+    pre: (props) => <div {...skip}><SourceMarkdownPre {...props} /></div>,
+    'response-math': (props) => <span {...skip}><SourceResponseMath {...props} /></span>,
+  } : {};
+  return { ...RESPONSE_MARKDOWN_COMPONENTS, ...wrapped, ...extension.components };
+}
+const SourceMarkdownBlock = React.memo(function SourceMarkdownBlock({block,ownerKey,cwd,onOpenFileRef,ledger,extension}) {
+  const context=React.useMemo(()=>({text:block.text,isStreaming:block.frontier,ownerKey:JSON.stringify([ownerKey,block.start]),messageKey:ownerKey,cwd,onOpenFileRef}),[block,ownerKey,cwd,onOpenFileRef]);
   const remarkPlugins=React.useMemo(()=>[remarkGfm,[remarkMath,{singleDollarTextMath:false}],remarkResponseMath,remarkResponseFootnotes,[remarkFrontierDefinitions,{enabled:block.frontier}],[remarkPriorDefinitions,{definitions:block.definitions}],[remarkStreamingInline,{enabled:block.frontier}],remarkResponseInlineAtoms,remarkResponseBlockQuotes,remarkResponseFlow],[block.definitions,block.frontier]);
-  const rehypePlugins=React.useMemo(()=>[rehypeResponseFlow,...(ledger?[[rehypeResponseReveal,{ledger,blockOffset:block.index}]]:[])],[ledger,block.index]);
+  const rehypePlugins=React.useMemo(()=>[rehypeResponseFlow,...(ledger?[[rehypeResponseReveal,{ledger,blockOffset:block.index}]]:[]),...(extension?.rehypePlugins??[])],[ledger,block.index,extension?.rehypePlugins]);
+  const components=React.useMemo(()=>extensionComponents(extension),[extension?.components,extension?.skipAttributes]);
   return <SourceMarkdownContext.Provider value={context}><Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}
     urlTransform={(value,key,node)=>(node.tagName==='a'&&value.startsWith('file:///'))||node.tagName==='img'&&['data','file'].includes(responseImageTarget(value,cwd).kind)?value:defaultUrlTransform(value)}
-    components={RESPONSE_MARKDOWN_COMPONENTS}>{block.text}</Markdown></SourceMarkdownContext.Provider>;
+    components={components}>{block.text}</Markdown></SourceMarkdownContext.Provider>;
 });
 function SourceMarkdownBlocks({text,isStreaming,ownerKey,cwd,onOpenFileRef,ledger}) {
   const [snapshot,setSnapshot]=React.useState(()=>advanceResponseBlocks(null,text,isStreaming));
@@ -292,7 +320,7 @@ function SourceMarkdownBlocks({text,isStreaming,ownerKey,cwd,onOpenFileRef,ledge
   if(snapshot.text!==text||snapshot.isStreaming!==isStreaming){state=advanceResponseBlocks(snapshot,text,isStreaming);setSnapshot(state);}
   return state.blocks.map(block=><React.Fragment key={block.index}>{block.index>0?'\n':null}<SourceMarkdownBlock {...{block,ownerKey,cwd,onOpenFileRef,ledger}}/></React.Fragment>);
 }
-function RichSourceMarkdown({ sourceText, isStreaming, paceReveal, isInterrupting, ownerKey, cwd, onOpenFileRef }) {
+function RichSourceMarkdown({ sourceText, isStreaming, paceReveal, isInterrupting, ownerKey, cwd, onOpenFileRef, extension }) {
   const [fallbackActive,setFallbackActive]=React.useState(false);
   const activateFallback=React.useCallback(()=>setFallbackActive(true),[]);
   const text=useResponsePacing(sourceText,{enabled:paceReveal&&isStreaming&&!fallbackActive,interrupting:isInterrupting&&isStreaming});
@@ -300,8 +328,9 @@ function RichSourceMarkdown({ sourceText, isStreaming, paceReveal, isInterruptin
   const open=React.useRef(onOpenFileRef);open.current=onOpenFileRef;
   const openFile=React.useCallback(file=>open.current?.(file),[]);
   return <ResponseRevealScope animations={reveal.animations}><SourceTableScope scopeKey={ownerKey}><SourceMarkdownSelection text={text}>
-    <SourceBlockBoundary onFallback={activateFallback} fallback={<SourceMarkdownBlock block={{index:0,start:0,text,definitions:'',frontier:isStreaming}} {...{ownerKey,cwd}} onOpenFileRef={onOpenFileRef?openFile:null} ledger={reveal.ledger}/>}>
-      <SourceMarkdownBlocks {...{text,isStreaming,ownerKey,cwd}} onOpenFileRef={onOpenFileRef?openFile:null} ledger={reveal.ledger}/>
+    <SourceBlockBoundary onFallback={activateFallback} fallback={<SourceMarkdownBlock block={{index:0,start:0,text,definitions:'',frontier:isStreaming}} {...{ownerKey,cwd,extension}} onOpenFileRef={onOpenFileRef?openFile:null} ledger={reveal.ledger}/>}>
+      {extension ? <SourceMarkdownBlock block={{index:0,start:0,text,definitions:'',frontier:isStreaming}} {...{ownerKey,cwd,extension}} onOpenFileRef={onOpenFileRef?openFile:null} ledger={reveal.ledger}/>
+        : <SourceMarkdownBlocks {...{text,isStreaming,ownerKey,cwd}} onOpenFileRef={onOpenFileRef?openFile:null} ledger={reveal.ledger}/>}
     </SourceBlockBoundary>
   </SourceMarkdownSelection></SourceTableScope></ResponseRevealScope>;
 }
@@ -564,13 +593,27 @@ function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFile
   // The attachment note a core without file mentions gets ("[Attached file: P]", live or joined into Codex history)
   // leaves the bubble and shows as the file's card (composer-attachments-model userMessageContent).
   const content = useMemo(() => userMessageContent(item.content || []), [item.content]);
-  const text = content
+  const rawText = content
     .filter((part) => part.type === "text" || part.text)
     .map((part) => part.text || "")
     .join("\n");
+  const selectedElements = useMemo(() => parseSelectedElementMessage(rawText), [rawText]);
+  const text = selectedElements.text;
   const attachments = content.filter(
     (part) => !part.text && (part.path || part.imageUrl || part.url || part.image_url),
   );
+  // The source associates each context with its preceding screenshot. Our
+  // protocol puts selected-element images before ordinary image attachments.
+  const elementImages = attachments.filter(part => isImagePart(part) || part.name === 'element-screenshot.png');
+  const usedElementImages = new Set();
+  let elementImageIndex = 0;
+  const elementCards = selectedElements.views.map(view => {
+    const part = view.hasScreenshot ? elementImages[elementImageIndex++] : null;
+    const src = part && attachmentSource(part);
+    if (src) usedElementImages.add(part);
+    return { view, screenshot: src ? { src, path: part.path, fileName: part.path ? basename(part.path) : undefined } : undefined };
+  });
+  const ordinaryAttachments = attachments.filter(part => !usedElementImages.has(part));
   const hasFileAttachments = attachments.some((part) => typeof part.path === "string" && part.path !== "");
   const [interacted, setInteracted] = useState(false);
   const latch = interacted ? undefined : () => setInteracted(true);
@@ -598,14 +641,15 @@ function SourceUserMessage({ item, turnStart, sessionKey, cwd = null, onOpenFile
           <Icon name="Clock" size={14} aria-hidden="true" />
           <span>{scheduledLabel(item.codeDesktop.origin.firedAt)}</span>
         </div>}
-        {attachments.length > 0 && (
+        {ordinaryAttachments.length > 0 && (
           <div className="source-user-attachments" data-cds="MessageAttachments">
-            {attachments.map((part, index) =>
+            {ordinaryAttachments.map((part, index) =>
               isImagePart(part) || !part.path
                 ? <UserImageTile key={index} part={part} index={index} />
                 : <UserFileCard key={index} part={part} />)}
           </div>
         )}
+        {elementCards.map(({ view, screenshot }, index) => <SourceSelectedElementTranscript key={index} view={view} screenshot={screenshot} />)}
         {text && <div className="source-user-bubble" ref={bubbleRef}><SourceUserText text={text} sessionKey={sessionKey} itemId={item.id}
           cwd={cwd} onOpenFileRef={onOpenFileRef} hasFileAttachments={hasFileAttachments} /></div>}
       </div>
@@ -755,10 +799,10 @@ export function SourceMessage({ isInterrupting = false, item, agentContext = nul
   if (computerUseAction(item))
     return <SourceComputerUseStep item={item} state={commandRowState(item, pendingApprovalItemIds.has(item.id))} Step={SourceStep} stepProps={stepDefaults} inToolGroup={inToolGroup} />;
   // `present` (the DeepSeek core's deliverables): file cards instead of a tool row.
-  // mark_chapter (OpenClaude Desktop's agent tools): the chapter heading, lifted out of the tool rows (cd5a31703 d2).
+  // mark_chapter (OpenClaude Desktop's agent tools): the chapter heading, lifted out of the tool rows (cd5a31703 d2);
+  // wX/CX (source-chapters.jsx): hidden or renamed from the Session chapters rail, renamed in place on double-click.
   const chapter = chapterOf(item);
-  if (chapter) return <h2 className="source-message source-chapter" data-transcript-item-id={item.id} data-chapter="" id={`chapter-${item.id}`}
-    title={chapter.summary || undefined}>{chapter.title}</h2>;
+  if (chapter) return <SourceClaudeChapter sessionId={sessionKey} id={chapter.id} title={chapter.title} itemId={item.id} />;
   if (itemDeliverables(item)) return <SourceDeliverables item={item} sessionKey={sessionKey} failed={item.status === "failed" || item.success === false} />;
   // A finished ReportFindings call (OpenClaude Desktop's agent tools) reads as the review it reported, like a review mode's
   // Review result (exitedReviewMode below); its findings also drive the Changes pane's findings bar.
@@ -1027,8 +1071,10 @@ export function treeFocusTarget(tree) {
     return rect.top >= box.top && rect.bottom <= box.bottom;
   }) ?? rows[0] ?? null;
 }
-export function treeKeyDown(event, tree, filterInput) {
-  if (event.nativeEvent?.isComposing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+// onEnterOpen(tree, activate): B33 cccc2cf0a oy — Enter (not repeated, no modifier) activates the row through
+// the pane, which hands focus to a file it opened once Enter is released.
+export function treeKeyDown(event, tree, filterInput, selection, onEnterOpen = null) {
+  if (event.nativeEvent?.isComposing || event.isComposing || event.altKey) return;
   const rows = treeRows(tree);
   if (rows.length === 0) return;
   const active = tree.ownerDocument.activeElement;
@@ -1038,16 +1084,23 @@ export function treeKeyDown(event, tree, filterInput) {
   const index = row ? rows.indexOf(row) : -1;
   const last = rows.length - 1;
   const first = () => rows.indexOf(treeFocusTarget(tree));
-  const go = (next) => focusTreeRow(rows[Math.max(0, Math.min(last, next))]);
+  const modified=event.metaKey||event.ctrlKey;
+  const go = next => {const at=Math.max(0,Math.min(last,next));focusTreeRow(rows[at]);const entry=selection?.nav.entryAt(at);if(entry&&!modified&&!event.shiftKey)selection.store.getState().moveAnchor(entry.absPath);};
+  if(selection){
+    if(modified&&event.key.toLowerCase()==='a'&&!event.shiftKey){event.preventDefault();selectAllFiles(selection.store,selection.nav);return;}
+    if(event.key==='Escape'&&!modified&&!event.shiftKey&&selection.store.getState().selected.size>1){event.preventDefault();event.stopPropagation();selection.store.getState().clear();return;}
+    if(event.key===' '&&(modified||event.shiftKey)&&index>=0){event.preventDefault();const entry=selection.nav.entryAt(index);if(modified){if(entry)selection.store.getState().toggle(entry);}else selectFileRange(selection.store,selection.nav,index,index);return;}
+  }
+  const extend=at=>{if(selection&&event.shiftKey&&index>=0)selectFileRange(selection.store,selection.nav,Math.max(0,Math.min(last,at)),index);};
   switch (event.key) {
     case "ArrowDown":
       event.preventDefault();
-      go(index < 0 ? first() : index + 1);
+      go(index < 0 ? first() : index + 1);extend(index+1);
       return;
     case "ArrowUp":
       event.preventDefault();
-      if (index === 0 && filterInput) { filterInput.focus(); return; }
-      go(index < 0 ? first() : index - 1);
+      if (index === 0 && filterInput && !modified && !event.shiftKey) { filterInput.focus(); return; }
+      go(index < 0 ? first() : index - 1);extend(index-1);
       return;
     case "Home":
       event.preventDefault();
@@ -1058,13 +1111,14 @@ export function treeKeyDown(event, tree, filterInput) {
       go(last);
       return;
     case "Tab":
-      if (event.shiftKey && row) tree.focus({ preventScroll: true });
+      if (event.shiftKey && row && !modified) tree.focus({ preventScroll: true });
       return;
     case "Enter":
     case " ":
       if (!row) return;
       event.preventDefault();
-      activateTreeRow(row);
+      if (event.key === "Enter" && !event.repeat && !modified && !event.shiftKey && onEnterOpen) onEnterOpen(tree, () => activateTreeRow(row));
+      else activateTreeRow(row);
       return;
     case "ArrowRight":
       if (!row) return;
@@ -1087,6 +1141,7 @@ export function treeKeyDown(event, tree, filterInput) {
   }
 }
 
+const FileTreeSelectionContext=React.createContext(null);
 function SourceTreeNode({
   entry,
   cwd,
@@ -1094,14 +1149,22 @@ function SourceTreeNode({
   onOpen,
   level = 0,
   refreshKey,
+  // B07 per-folder refresh counts ({[relative dir]: n}) from FilePane's folder watcher (cccc2cf0a mv refetches one listing).
+  dirRefresh = null,
   call,
   revealPath,
   revealGeneration = 0,
+  // B33: false for an explicit "Reveal in file tree" (centre + highlight flash), true for following the open file.
+  revealFollow = true,
   treeVisible = true,
   expandedPaths,
   onExpandedChange,
   fileMenu = null,
 }) {
+  const selection=React.useContext(FileTreeSelectionContext);
+  const selectionState=useSyncExternalStore(selection.store.subscribe,selection.store.getState,selection.store.getState);
+  const selectionEntry=useMemo(()=>({...entry,absPath:entry.path,relativePath:entry.path}),[entry]);
+  useLayoutEffect(()=>{selection.entries.set(entry.path,selectionEntry);return()=>{selection.entries.delete(entry.path);};},[selection,entry.path,selectionEntry]);
   const [localOpen, setLocalOpen] = useState(false);
   // Wr.Root ContextMenu (panes-tile-current.js:5701-5790): the point the menu opens at.
   const [menu, setMenu] = useState(null);
@@ -1113,13 +1176,30 @@ function SourceTreeNode({
     else setLocalOpen(value);
   }, [controlled, onExpandedChange, entry.path]);
   const rowRef = useRef(null);
-  useFileTreeReveal({ entry, revealPath, revealGeneration, treeVisible,
+  const reveal = useFileTreeReveal({ entry, revealPath, revealGeneration, revealFollow, treeVisible,
     expand: setOpen, rowRef });
+  // B33 cccc2cf0a My P = ol(e) (cd2efac6e Qo): a broken, circular or external link row stays inert.
+  const openable = treeEntryOpenable(entry);
+  // B33 cccc2cf0a ne/av (:5484-5503, :3970-3984): expanding a folder by hand also expands the chain of folders
+  // below it that are each their parent's only entry (16 levels), while this folder is still expanded.
+  const openNow = useRef(open), mountedNode = useRef(true);
+  openNow.current = open;
+  useEffect(() => { mountedNode.current = true; return () => { mountedNode.current = false; }; }, []);
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || !controlled || !entry.directory) return;
+    singleChildFolderChain(entry.path, (relative) => call("files", { cwd, relative })).then((chain) => {
+      if (!chain.length || !mountedNode.current || !openNow.current) return;
+      for (const path of chain) onExpandedChange?.(path, true);
+    });
+  };
   const [children, setChildren] = useState(null);
   const [error, setError] = useState(false);
   const includeChild = revealChild(entry.path, revealPath);
+  const folderRefresh = dirRefresh?.[entry.path] ?? 0;
   useEffect(() => {
-    if (!open || !entry.directory) return;
+    if (!open || !openable || !entry.directory) return;
     let live = true;
     // Keep keyed rows mounted during a refresh so expansion survives a clear.
     setError(false);
@@ -1129,7 +1209,7 @@ function SourceTreeNode({
     return () => {
       live = false;
     };
-  }, [cwd, entry.path, entry.directory, open, refreshKey, includeChild, call]);
+  }, [cwd, entry.path, entry.directory, open, openable, refreshKey, folderRefresh, includeChild, call]);
   // Hu (c44d00c7f ma :3872-3897) around the row: 700ms, bottom/start, not
   // hoverable; the name when it is clipped, or when the pointer is on a row that
   // has a detail (the Rg link text, else a file's folder); nothing while the
@@ -1142,28 +1222,47 @@ function SourceTreeNode({
     if (name && name.scrollWidth > name.clientWidth) return entry.name;
     return detail && pointerInside.current ? entry.name : null;
   };
-  const entries = menu && fileMenu ? fileMenu.entries(entry.path, { surface: "file_browser", directory: !!entry.directory, linkState: entry.link?.state }) : null;
+  const multi=menu?.selected?.length>1;
+  const entries = menu && fileMenu ? (multi?fileMenu.multiEntries(menu.selected.map(e=>e.path),{directories:menu.selected.filter(e=>e.directory).map(e=>e.path)}):fileMenu.entries(entry.path, { surface: "file_browser", directory: !!entry.directory, linkState: entry.link?.state })) : null;
+  function contextMenu(event){
+    if(!fileMenu||event.target.closest?.('[role="treeitem"]')!==event.currentTarget)return;
+    event.preventDefault();event.stopPropagation();
+    const state=selection.store.getState();if(state.selected.has(entry.path))state.reorder(selection.nav.indexOfKey);else state.selectOnly(selectionEntry);
+    const rect=rowRef.current.getBoundingClientRect(),keyboard=event.type==='keydown'||event.clientX===0&&event.clientY===0;
+    menuReturnFocus.current=event.currentTarget.ownerDocument.activeElement;
+    setMenu({point:keyboard?{x:rect.left,y:rect.bottom}:{x:event.clientX,y:event.clientY},keyboard,selected:[...selection.store.getState().selected.values()]});
+  }
+  function clickEntry(event){
+    setMenu(null);
+    if(event.metaKey||event.ctrlKey){selection.store.getState().toggle(selectionEntry);return;}
+    if(event.shiftKey){const index=selection.nav.indexOfKey(entry.path);selectFileRange(selection.store,selection.nav,index,index);return;}
+    selection.store.getState().selectOnly(selectionEntry);
+    if(!openable)return;
+    if(entry.directory)toggleOpen();else onOpen(entry,{preview:event.detail===1});
+  }
+  const expanded = open && openable;
   return (
     <div
       role="treeitem"
       data-tree-row=""
       aria-level={level + 1}
-      aria-expanded={entry.directory ? open : undefined}
-      aria-selected={activePath === entry.path}
+      aria-expanded={entry.directory ? expanded : undefined}
+      aria-selected={selectionState.selected.has(entry.path)}
       aria-current={activePath === entry.path ? "page" : undefined}
+      aria-disabled={!openable || undefined}
       tabIndex={-1}
       className="source-tree-item"
       data-popup-open={menu ? "" : undefined}
-      onContextMenu={fileMenu ? (event) => {
-        // Rows nest inside their parent treeitem: only the innermost row opens.
-        if (event.target.closest?.('[role="treeitem"]') !== event.currentTarget) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const rect = rowRef.current?.getBoundingClientRect();
-        const keyboard = event.clientX === 0 && event.clientY === 0 && rect;
-        menuReturnFocus.current = event.currentTarget.ownerDocument.activeElement;
-        setMenu(keyboard ? { x: rect.left, y: rect.bottom } : { x: event.clientX, y: event.clientY });
-      } : undefined}
+      draggable={!!fileMenu?.drag && openable}
+      onDragStart={event=>{
+        if(!openable){event.preventDefault();return;}
+        if(event.target.closest('[data-tree-row]')!==event.currentTarget)return;
+        const state=selection.store.getState();let entries=[selectionEntry];
+        if(state.selected.size>=2&&state.selected.has(entry.path)){state.reorder(selection.nav.indexOfKey);entries=[...selection.store.getState().selected.values()];}
+        fileMenu?.drag?.(event,entries);
+      }}
+      onContextMenu={contextMenu}
+      onKeyDown={event=>{if(event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey)contextMenu(event);}}
     >
       <SourceTooltip content={tooltipContent} detail={menu ? null : detail} side="bottom" align="start" delay={700} hoverable={false}>
       <button
@@ -1174,15 +1273,22 @@ function SourceTreeNode({
         tabIndex={-1}
         aria-label={entry.name}
         style={{ paddingLeft: 8 + level * 8 }}
-        onClick={() => (entry.directory ? setOpen(!open) : onOpen(entry))}
+        onClick={clickEntry}
+        onMouseDown={event=>{if(event.button===1&&!entry.directory&&openable)event.preventDefault();}}
+        onAuxClick={event=>{if(event.button===1&&!entry.directory&&openable){event.preventDefault();onOpen(entry,{preview:false});}}}
         onDoubleClick={() =>
-          !entry.directory && onOpen(entry, { preview: false })
+          !entry.directory && openable && onOpen(entry, { preview: false })
         }
         onPointerEnter={() => { pointerInside.current = true; }}
         onPointerLeave={() => { pointerInside.current = false; }}
         data-file-path={entry.path}
         data-link-state={entry.link?.state}
+        // B33 My: the reveal target flashes (data-highlighted 1200ms) with "transition-colors duration-300".
+        data-highlighted={reveal.highlighted ? "" : undefined}
+        data-reveal-target={reveal.target || undefined}
       >
+        {/* B33 My/ce9ca5630 g: below the root, the indent guides painted on tree hover or focus. */}
+        {level > 0 && <span aria-hidden="true" className="source-tree-guides" style={fileTreeGuideStyle(level)} />}
         {/* panes-tile-current.js:5692-5770: one xs (12px) text-muted glyph,
             ae = directory ? CaretRight (rotate-90 when open) : zr(name)
             (shared-14 cP); no native title on the row; a symlink adds the xs
@@ -1192,23 +1298,23 @@ function SourceTreeNode({
           size={12}
           className={entry.directory ? "source-tree-caret" : undefined}
         />
-        <span ref={nameRef} className="source-tree-name">{entry.name}</span>
+        <span ref={nameRef} className="source-tree-name" data-inert={!openable || undefined}>{entry.name}</span>
         {linkText && <Icon name="ArrowUpRight" size={12} role="img" aria-hidden={undefined} aria-label={linkText}
           data-testid="file-tree-link-mark" className="source-tree-link-mark" />}
       </button>
       </SourceTooltip>
       {entries && (
-        <SourceMenu.Popup anchor={rowRef.current} trigger={null} point={menu} side="bottom" align="start"
+        <SourceMenu.Popup anchor={rowRef.current} trigger={rowRef.current?.closest('[role="treeitem"]')} point={menu.point} initialHighlight={menu.keyboard?"first":"popup"} side="bottom" align="start"
           sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
           label={t("File actions")} onClose={() => setMenu(null)} finalFocus={() => {
             // Base UI returns focus to where it was before the context menu opened.
             const previous = menuReturnFocus.current;
             return previous?.isConnected && previous !== previous.ownerDocument.body ? previous : rowRef.current?.closest('[role="treeitem"]');
           }}>
-          <SourceFileMenuEntries entries={entries} onSelect={(item) => fileMenu.select(item, entry.path)} />
+          {multi?<SourceMenu.Group><SourceMenu.GroupLabel>{tn(menu.selected.length,'{count} item selected','{count} items selected')}</SourceMenu.GroupLabel><SourceFileMenuEntries entries={entries} onSelect={item=>fileMenu.select(item,entry.path)}/></SourceMenu.Group>:<SourceFileMenuEntries entries={entries} onSelect={(item) => fileMenu.select(item, entry.path)} />}
         </SourceMenu.Popup>
       )}
-      {open && entry.directory && (
+      {expanded && entry.directory && (
         <div role="group">
           {/* Pg (panes-tile-current.js:5335-5350): a subfolder without data adds
               only the Lg error row when its read failed; loading and empty add
@@ -1225,9 +1331,11 @@ function SourceTreeNode({
                 onOpen={onOpen}
                 level={level + 1}
                 refreshKey={refreshKey}
+                dirRefresh={dirRefresh}
                 call={call}
                 revealPath={revealPath}
                 revealGeneration={revealGeneration}
+                revealFollow={revealFollow}
                 treeVisible={treeVisible}
                 expandedPaths={expandedPaths}
                 onExpandedChange={onExpandedChange}
@@ -1241,37 +1349,29 @@ function SourceTreeNode({
   );
 }
 
-// Gg/Kg (panes-tile-current.js:6030-6085): items, Copy-style submenus (side
-// right, align start, sideOffset -4) and separators from file-context-menu-model.
-function SourceFileMenuEntries({ entries, onSelect }) {
-  return entries.map((entry, index) => entry.kind === "separator" ? <SourceMenu.Separator key={index} />
-    : entry.kind === "submenu" ? <SourceMenu.Submenu key={index}>
-        <SourceMenu.SubmenuTrigger>{entry.label}</SourceMenu.SubmenuTrigger>
-        <SourceMenu.Popup label={entry.label} side="right" align="start" sideOffset={-4}>
-          <SourceFileMenuEntries entries={entry.items} onSelect={onSelect} />
-        </SourceMenu.Popup>
-      </SourceMenu.Submenu>
-    : <SourceMenu.Item key={index} onClick={() => onSelect(entry)}>{entry.label}</SourceMenu.Item>);
-}
-
 // Tree container: single tab stop, focus lands on the current or first fully
 // visible row; row indices are refreshed whenever the subtree changes.
-function SourceTree({ children, busy, filterInputSelector }) {
+function SourceTree({ children, busy, filterInputSelector, selectionStore, active = true, onEnterOpen = null }) {
   const ref = useRef(null);
+  const selection=useMemo(()=>{const entries=new Map(),store=selectionStore;const rows=()=>treeRows(ref.current);const nav={get count(){return rows().length;},entryAt:index=>entries.get(rows()[index]?.querySelector('[data-tree-primary]')?.dataset.filePath),indexOfKey:key=>rows().findIndex(row=>row.querySelector('[data-tree-primary]')?.dataset.filePath===key)};return {entries,store,nav};},[selectionStore]);
+  const blankSelection=useBlankTreeSelection(()=>selection.store.getState().clear());
   useLayoutEffect(() => {
     const tree = ref.current;
     if (!tree) return undefined;
-    indexTreeRows(tree);
-    const observer = new MutationObserver(() => indexTreeRows(tree));
+    const refresh=()=>{if(!active)return;indexTreeRows(tree);selection.store.getState().retain(path=>selection.nav.indexOfKey(path)>=0);};
+    refresh();
+    const observer = new MutationObserver(refresh);
     observer.observe(tree, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-level", "hidden"] });
     return () => observer.disconnect();
-  }, []);
+  }, [active,selection]);
   return (
-    <div
+    <FileTreeSelectionContext.Provider value={selection}><div
       ref={ref}
+      {...blankSelection}
       role="tree"
       aria-label={t("Project files")}
       aria-busy={busy || undefined}
+      aria-multiselectable="true"
       tabIndex={0}
       className="source-tree-content"
       // Only a keyboard arrival from outside the tree is redirected to the
@@ -1288,11 +1388,11 @@ function SourceTree({ children, busy, filterInputSelector }) {
         const tree = event.currentTarget;
         if (!tree.contains(event.target)) return;
         const input = filterInputSelector ? tree.closest(".sfs-browser")?.querySelector(filterInputSelector) : null;
-        treeKeyDown(event, tree, input);
+        treeKeyDown(event, tree, input, selection, onEnterOpen);
       }}
     >
       {children}
-    </div>
+    </div></FileTreeSelectionContext.Provider>
   );
 }
 
@@ -1302,7 +1402,7 @@ function SourceTree({ children, busy, filterInputSelector }) {
 // SourceMenu stand in); pointer drag reorder is use-tab-drag-reorder.mjs. data-vtb-id is the strip
 // measure's key (_e); an overflowed tab stays laid out but invisible, a compact
 // one drops its close button and label mask (he :364-372, :463-466).
-function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize, hintId, moveHintId, overflowed = false, compact = false, fileMenu = null, onSelect, onClose, onCloseOthers, onCloseAll, onKeep, onKeyDown, onPointerDown }) {
+function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize, hintId, moveHintId, overflowed = false, compact = false, fileMenu = null, onSelect, onClose, onCloseOthers, onCloseRight, onCloseAll, onKeep, onKeyDown, onPointerDown }) {
   const root = useRef(null), tabRef = useRef(null), labelRef = useRef(null), returnFocus = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // he N/F/ie: a pointer-down on the tab hides its tooltip until the pointer leaves the tab.
@@ -1321,7 +1421,7 @@ function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize,
   }, [label, preview]);
   const tooltip = tabTooltip({ label, detail, clipped, suppressed: menuOpen || pressed });
   const fileEntries = menuOpen && fileMenu ? fileMenu.entries(file.path, { surface: "file_tab", unavailable: file.unavailable }) : null;
-  const actions = { keep: () => onKeep(file.path), close: () => onClose(file.path), "close-others": () => onCloseOthers(file.path), "close-all": () => onCloseAll() };
+  const actions = { keep: () => onKeep(file.path), close: () => onClose(file.path), "close-others": () => onCloseOthers(file.path), "close-right": () => onCloseRight(file.path), "close-all": () => onCloseAll() };
   // Base UI returns focus to where it was before the context menu opened; a
   // closed tab hands it to the tab that is selected afterwards.
   const restoreTarget = () => {
@@ -1338,6 +1438,7 @@ function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize,
       data-vtb-id={file.path}
       data-file-path={file.path}
       data-preview={preview || undefined}
+      data-deleted={file.unavailable === "missing" || undefined}
       data-selected={selected || undefined}
       data-compact={compact || undefined}
       data-overflowed={overflowed || undefined}
@@ -1392,6 +1493,7 @@ function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize,
             <span>
               {label}
               {preview && <span className="source-sr-only">, {FILE_TAB_LABELS.previewTabHint}</span>}
+              {file.unavailable === "missing" && <span className="source-sr-only">, {FILE_TAB_LABELS.deletedTabHint}</span>}
             </span>
           </span>
         </div>
@@ -1429,7 +1531,7 @@ function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize,
             <SourceFileMenuEntries entries={fileEntries} onSelect={(item) => fileMenu.select(item, file.path)} />
             <SourceMenu.Separator />
           </>}
-          {tabMenuItems({ preview, solo }).map((item) => (
+          {tabMenuItems({ preview, solo, hasTabsToRight: posinset < setsize }).map((item) => (
             <SourceMenu.Item key={item.action} onClick={actions[item.action]}>
               {item.label}
             </SourceMenu.Item>
@@ -1446,6 +1548,8 @@ function SourceFileTab({ file, cwd, selected, tabIndex, solo, posinset, setsize,
 // a caption, a pointer-only X "Close file", and ArrowRight closes the
 // highlighted row (sr-only "press right arrow to close").
 const EMPTY_STRIP = Object.freeze({ hiddenIds: [], compactIds: [], overflowing: false });
+// Re-opening a restored tab makes it an ordinary open tab (a later "missing" read shows the deleted card).
+const withoutRestored = ({ restored, ...file }) => file;
 const TREE_TOGGLE_SHORTCUT = "cmd+shift+y";
 function SourceFileTabOverflow({ tabs, cwd, onActivate, onClose }) {
   const [open, setOpen] = useState(null);
@@ -1476,8 +1580,9 @@ function SourceFileTabOverflow({ tabs, cwd, onActivate, onClose }) {
             <Icon name="X" size={12} />
           </span>}>
           <span className="source-file-overflow-copy">
-            <span className="source-file-overflow-label" data-preview={preview || undefined} title={label}>
+            <span className="source-file-overflow-label" data-deleted={file.unavailable === "missing" || undefined} data-preview={preview || undefined} title={label}>
               {label}{preview && <span className="source-sr-only">, {FILE_TAB_LABELS.previewTabHint}</span>}
+              {file.unavailable === "missing" && <span className="source-sr-only">, {FILE_TAB_LABELS.deletedTabHint}</span>}
             </span>
             {detail !== undefined && <span className="source-file-overflow-detail" title={detail}>{detail}</span>}
           </span>
@@ -1523,12 +1628,22 @@ function FilePane({
   plan,
   // R09: the latest proposed plan document (state.planDocs) for the Plan pane.
   planDocument = null,
+  // B22 (cccc2cf0a Xh/Jh): planCommentsEnabled = a plan review is pending or the session is in plan mode;
+  // planHistory {loading, failed, onRetry}: the session's history is still loading, or failed to load.
+  planCommentsEnabled = false,
+  planHistory = null,
   diff,
   diffScope,
   // F12: the zm "Diff scope: …" trigger (source-diff-scope.jsx) shown in place of the Changes title.
   diffScopeControl = null,
   diffError,
   loading = false,
+  // B15 (c44d00c7f Xc): {scope} of the previous comparison shown dimmed while the current scope loads.
+  diffStale = null,
+  // B15 (cb61be3a2 ze): the failed state's "Try again" is busy while the refetch it started runs.
+  diffRetrying = false,
+  // B15 (c44d00c7f Zr): useDiffScope().commits for the Commits section of the Changed files column.
+  diffCommits = null,
   onClose,
   onRefresh,
   openRequest = null,
@@ -1539,6 +1654,9 @@ function FilePane({
   // Files pane file actions from main.jsx: {onAttachFile(absolute), onRevealFile(absolute)};
   // each is null where it has no target (no composer, no session reveal IPC).
   fileActions = null,
+  // shared-5 Sy: the NUX queue shows nothing during onboarding or for a profile under a day old (main.jsx
+  // nuxAccountAged); pop-out windows never pass it.
+  nuxAllowed = false,
   // main.jsx's ⌘⇧Y (toggleDiffFileList) handle: FilePane registers its tree toggle here
   // (the Files tree for tab "files", the Changed files column for tab "changes").
   treeToggleRef = null,
@@ -1554,9 +1672,14 @@ function FilePane({
   paneControls = null,
   // Review findings in the Changes pane (hh / Rn): {items, active, onSend(text), onRerun()} from main.jsx.
   review = null,
+  // B07 (c4e0cfada Te/Ee): {paths, seq} from main.jsx when the agent's edits complete; open tabs for those paths re-read.
+  filesInvalidate = null,
+  // dropRestoredFileTab closePaneIfLast: a pop-out file window (xb) keeps its pane when its last restored tab is gone.
+  closeIfRestoredGone = true,
 }) {
   const toasts = useSourceToasts();
   const [diffPreferences, setDiffPreference] = useDiffViewPreferences();
+  const [fileViewSettings, setFileViewSetting] = useFileViewSettings();
   const diffView = diffPayload(diff);
   const [diffCanFitSplit, setDiffCanFitSplit] = useState(true);
   // requestDiffFoldAll (panes-state-current.js:2809-2821): {collapsed, seq}; each
@@ -1570,11 +1693,15 @@ function FilePane({
   const [diffTreeWidth, setDiffTreeWidth] = useViewState(diffTree, onDiffTreeChange, "diffTreeWidth", 240);
   const [diffFileTree, setDiffFileTree] = useViewState(diffTree, onDiffTreeChange, "diffFileTree", true);
   const [diffGroupByKind, setDiffGroupByKind] = useViewState(diffTree, onDiffTreeChange, "diffGroupByKind", false);
+  const [diffCommitsCollapsed, setDiffCommitsCollapsed] = useViewState(diffTree, onDiffTreeChange, "diffCommitsCollapsed", false);
   const [diffCanFitTree, setDiffCanFitTree] = useState(true);
   const [diffIsLarge, setDiffIsLarge] = useState(false);
   // uh: the toggle exists while the column can fit and the body is not empty
   // (diffBodyEmpty: the empty and failed states; loading still shows it).
-  const diffListAvailable = tab === "changes" && !diffError && (loading || !!diffView.patch) && diffCanFitTree;
+  // B15 (cccc2cf0a Xb Ie/ze): an empty "Uncommitted changes" scope while the branch has commits is not an empty
+  // body, so the column (and its Commits section) stays toggleable.
+  const diffEmptyWithCommits = tab === "changes" && !diffError && !loading && !diffView.patch && diffCommits?.list?.length > 0;
+  const diffListAvailable = tab === "changes" && !diffError && (loading || !!diffView.patch || (diffEmptyWithCommits && diffScope === "uncommitted")) && diffCanFitTree;
   const toggleDiffTree = useCallback(() => setDiffShowTree((shown) => !shown), [setDiffShowTree]);
   // ke failed shows no error detail; keep the raw reason in the console, once per message.
   const warnedDiffError = useRef("");
@@ -1583,6 +1710,11 @@ function FilePane({
   }, [tab, diffError]);
   const [entries, setEntries] = useState(null);
   const [fileTabs, setFileTabs] = useViewState(view, onViewChange, "fileTabs", []);
+  useLayoutEffect(() => {
+    if (!fileViewSettings.previewTabs && fileTabs.some(file => file.preview === true))
+      setFileTabs(files => files.map(file => file.preview === true ? { ...file, preview: false } : file));
+  }, [fileViewSettings.previewTabs, fileTabs, setFileTabs]);
+
   const [expandedList, setExpandedList] = useViewState(view, onViewChange, "expandedPaths", null);
   const expandedPaths = useMemo(() => (Array.isArray(expandedList) ? new Set(expandedList) : null), [expandedList]);
   const onExpandedChange = useCallback((path, open) => {
@@ -1601,10 +1733,20 @@ function FilePane({
   const [treeError, setTreeError] = useState("");
   const [treeRefreshing, setTreeRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [treeReveal, setTreeReveal] = useState({ path: null, generation: 0 });
+  // B07 mv: per-folder listing refreshes ({[relative dir]: n}, "" = root) from the folder watcher.
+  const [dirRefresh, setDirRefresh] = useState({});
+  const watchId = useId();
+  // follow: true while following the open file (search cleared), false for an explicit "Reveal in file tree"
+  // (B33: that one clears the filter, centres and flashes the row — cccc2cf0a revealInFilesTree vs followInFilesTree).
+  const [treeReveal, setTreeReveal] = useState({ path: null, generation: 0, follow: true });
+  // B33 oy: the last file openFile opened ({seq, path}) and the pending hand-off of focus to it.
+  const opened = useRef({ seq: 0, path: null });
+  const [fileFocusRequest, setFileFocusRequest] = useState(null);
   const includeRootChild = revealChild("", treeReveal.path);
   const [paneWidth, setPaneWidth] = useState(0);
   const [treeShown, setTreeShown] = useViewState(view, onViewChange, "treeShown", false);
+  const [treePeek, setTreePeek] = useState(false);
+  useLayoutEffect(() => { setTreePeek(false); }, [sessionId, cwd, tab]);
   const [treeHiddenWhileEmpty, setTreeHiddenWhileEmpty] = useViewState(view, onViewChange, "treeHiddenWhileEmpty", false);
   const treeReturnPath = useRef(null);
   const [treeWidth, setTreeWidth] = useState(() => {
@@ -1622,7 +1764,7 @@ function FilePane({
   const treeHandleFocus = useRef(false);
   // Search files (c_ -> focusFilesTreeFilter): the pending filter focus and a
   // tick that re-runs the focus effect when the tree was already visible.
-  const filterFocus = useRef(false);
+  const filterFocus = useRef(false), searchFocusRef = useRef(null);
   const [filterFocusTick, setFilterFocusTick] = useState(0);
   const tabSequence = useRef(0);
   const closeFocus = useRef(null);
@@ -1706,30 +1848,71 @@ function FilePane({
   // One read per path at a time; a newer read of the same path wins, and a
   // result only updates a tab that is still open (a closed tab never returns).
   const reads = useRef(new Map());
+  // B07 El staleness (cd2efac6e :3378-3386): when each open tab was last read in this mount, and the tabs a
+  // "View as text anyway" read forced (a refresh keeps reading those as text).
+  const readAt = useRef(new Map()), forcedReads = useRef(new Set());
+  // The values an async read result needs (dropRestoredFileTab looks at the store as it is when the read lands).
+  const latest = useRef(null);
+  latest.current = { fileTabs, activePath, treeShown, onClose, closeIfRestoredGone };
   function loadFile(path, { force = false } = {}) {
     if (!cwd || typeof path !== "string" || !path) return Promise.resolve();
     const token = {};
     reads.current.set(path, token);
+    if (force) forcedReads.current.add(path);
+    const asText = force || forcedReads.current.has(path);
     return Promise.resolve()
-      .then(() => call("file", { cwd, relative: path, ...(force ? { force: true } : {}) }))
+      // B32: sessionId lets main read an outside-root file from one of the session's added folders.
+      .then(() => call("file", { cwd, relative: path, ...(sessionId ? { sessionId } : {}), ...(asText ? { force: true } : {}) }))
       .then((file) => (file && typeof file === "object" ? file : { unavailable: "read_error" }),
         () => ({ unavailable: "read_error" }))
-      .then((file) => {
+      .then(async (file) => {
+        if (typeof file.text === "string") {
+          const editable = await call("file:edit-read", { cwd, relative: path }).catch(() => null);
+          if (editable?.hash && typeof editable.text === "string") file = { ...file, text: editable.text, editHash: editable.hash };
+        }
         if (!mounted.current || reads.current.get(path) !== token) return;
         reads.current.delete(path);
-        const result = typeof file.text === "string" ? { text: file.text } : { unavailable: file.unavailable ?? "read_error", ...(Number.isFinite(file.size) ? { size: file.size } : {}) };
-        setFileTabs((files) => files.map((value) => {
-          if (value.path !== path) return value;
-          const { text, unavailable, size, ...rest } = value;
-          return { ...rest, ...result };
-        }));
+        readAt.current.set(path, Date.now());
+        const result = typeof file.text === "string" ? { text: file.text, editHash: file.editHash } : { unavailable: file.unavailable ?? "read_error", ...(Number.isFinite(file.size) ? { size: file.size } : {}), ...(typeof file.creatable === "boolean" ? { creatable: file.creatable } : {}) };
+        const now = latest.current;
+        const keepRestored = treeReturnPath.current;
+        if (applyFileRead(now.fileTabs, path, result, { keepRestored }).dropped) {
+          dropRestoredTab(path);
+          return;
+        }
+        setFileTabs((files) => applyFileRead(files, path, result, { keepRestored }).tabs);
       });
+  }
+  // dropRestoredFileTab (code-pane.readable.js :3710-3724, cd2efac6e Ic onGone): a tab restored after relaunch whose
+  // file is gone leaves quietly; its neighbour becomes the file view, and the pane closes when no tab is left and the
+  // tree is not shown beside the file (closePaneIfLast !z && !b).
+  function dropRestoredTab(path) {
+    const { fileTabs: files, activePath: active, treeShown: shown, onClose: close, closeIfRestoredGone: closeIfLast } = latest.current;
+    const index = files.findIndex((file) => file.path === path);
+    if (index < 0) return;
+    const remaining = files.filter((file) => file.path !== path);
+    readAt.current.delete(path); forcedReads.current.delete(path);
+    setFileTabs((list) => list.filter((file) => file.path !== path));
+    if (active === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
+    if (closeIfLast && remaining.length === 0 && !shown) close?.();
+  }
+  // B07 refresh (c4e0cfada Y :384-400 / El refetchOnWindowFocus): re-read a loaded tab in place unless its viewer has
+  // unsaved edits (skipWriteRefetch: the read is only marked stale, and the hash check still guards a save).
+  // restart (an agent edit or a folder change): a read already in flight may predate the write, so a newer read
+  // replaces it (refetchQueries cancelRefetch); focus/staleness leave an in-flight read alone.
+  function refreshTab(path, { restart = false } = {}) {
+    const file = latest.current.fileTabs.find((value) => value.path === path);
+    const pending = reads.current.has(path);
+    if (!file || (pending ? !restart : !tabLoaded(file))) return;
+    if (hasDirtyFileEdit({ sessionId, path })) { readAt.current.delete(path); return; }
+    loadFile(path);
   }
   // qa: the ⋮ menu's Find in file (bumps the viewer's findRequest), Copy file contents, Download file and Reload
   // file (disabled while the re-read runs) for the active text file; the breadcrumb folder lister (local sessions).
   const [findRequest, setFindRequest] = useState(0);
   const [reloadingPath, setReloadingPath] = useState(null);
   const reloadFile = (path) => {
+    if (guardFileEdits(() => reloadFile(path), { sessionId, paths: [path] })) return;
     setReloadingPath(path);
     loadFile(path).finally(() => { if (mounted.current) setReloadingPath((current) => (current === path ? null : current)); });
   };
@@ -1743,6 +1926,12 @@ function FilePane({
   // openFile is a hoisted declaration below; the ref keeps the lister stable across renders.
   const openFileRef = useRef(null);
   openFileRef.current = openFile;
+  // B13: the HTML preview frame host (main file-preview-frame.cjs): the active file's shown text as an
+  // oc-file-preview document, released when the frame unmounts or the text changes.
+  const previewFrame = useMemo(() => (cwd ? {
+    register: (text, path) => call("file:preview-frame", { cwd, relative: path, text }),
+    release: (url) => { void Promise.resolve(call("file:preview-frame-release", { url })).catch(() => {}); },
+  } : null), [cwd, call]);
   const folderLister = useMemo(() => (cwd ? {
     rootLabel: String(cwd).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || String(cwd),
     list: (dir) => call("files", { cwd, relative: dir }),
@@ -1754,7 +1943,37 @@ function FilePane({
     if (!activeTab || typeof activeTab.text === "string" || activeTab.unavailable || !cwd || reads.current.has(activeTab.path)) return;
     loadFile(activeTab.path);
   }, [activeTab, cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+  // B07 El staleTime/refetchOnWindowFocus (cd2efac6e :3375-3386): the file view re-reads when it is selected or the
+  // pane mounts with a body older than FILE_STALE_MS (in-memory tabs keep their text across session switches), and
+  // when the window regains focus; never while its editor has unsaved edits.
   useEffect(() => {
+    if (!cwd || !activePath || tab !== "files") return;
+    if (tabLoaded(latest.current.fileTabs.find((file) => file.path === activePath)) && readIsStale(readAt.current.get(activePath))) refreshTab(activePath);
+  }, [activePath, cwd, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!cwd || tab !== "files") return undefined;
+    const onFocus = () => {
+      const path = latest.current.activePath;
+      if (path && readIsStale(readAt.current.get(path))) refreshTab(path);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [cwd, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // B07 Ee (c4e0cfada :361-382): the agent's completed edits re-read the file view now (refetchType active) and mark
+  // other open tabs for those paths stale, so selecting one re-reads it.
+  useEffect(() => {
+    if (!filesInvalidate || !cwd) return;
+    for (const path of tabsForEdits(latest.current.fileTabs, filesInvalidate.paths, cwd)) {
+      readAt.current.delete(path);
+      if (path === latest.current.activePath && tab === "files") refreshTab(path, { restart: true });
+    }
+  }, [filesInvalidate?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if(openRequest?.filter){
+      focusFilesFilter(openRequest.filter);
+      onOpenRequestHandled?.(openRequest.sequence);
+      return;
+    }
     if (!openRequest || typeof openRequest.path !== "string") return;
     setActiveLine(Number.isInteger(openRequest.line) && openRequest.line > 0
       ? { path: openRequest.path, line: openRequest.line, nonce: openRequest.sequence,
@@ -1764,6 +1983,18 @@ function FilePane({
     onOpenRequestHandled?.(openRequest.sequence);
   }, [openRequest]); // eslint-disable-line react-hooks/exhaustive-deps
   const lineMark = preview && activeLine && activeLine.path === preview.path ? activeLine : null;
+  // B33 Db fileFocusRequest (cccc2cf0a :6969-6980): focus the requested file's view once it is shown and read —
+  // its editor (.cm-content) when editable, else the viewer root (keyboard Find and the card actions). A passive
+  // effect, so the editor its child mounts in an effect of the same commit is there.
+  useEffect(() => {
+    const request = fileFocusRequest;
+    if (!request) return;
+    if (tab !== "files" || activePath !== request.path) { setFileFocusRequest(null); return; }
+    const view = [...(pane.current?.querySelectorAll(".source-file-view") || [])].find((node) => node.dataset.filePath === request.path);
+    if (!view || view.dataset.fileState === "loading") return;
+    setFileFocusRequest(null);
+    (view.querySelector(".cm-content") ?? view).focus({ preventScroll: true });
+  }, [fileFocusRequest, activePath, preview, tab]);
   useLayoutEffect(() => {
     const request = closeFocus.current;
     if (!request || tab !== "files") return;
@@ -1780,12 +2011,24 @@ function FilePane({
     target?.focus({ preventScroll: true });
   }, [fileTabs, activePath, tab]);
   const treeCanFit = paneWidth >= 400;
+  // B33 file tree coachmark (cccc2cf0a Db Oe + Zu epitaxy_files_tree_nux): "idle" until it shows, "shown" while
+  // open, "done" once accepted, closed, interrupted or retired (persisted, so it shows once).
+  const [treeNux, setTreeNux] = useState(() => (fileTreeNuxDismissed() ? "done" : "idle"));
+  const [treeToggleAnchor, setTreeToggleAnchor] = useState(null);
   // Current e_: no selected file is a tree + empty preview when both fit.
   // The hidden-while-empty preference is separate from tree-beside-file.
-  const treeVisible = preview
-    ? treeShown && treeCanFit
-    : !(treeHiddenWhileEmpty && fileTabs.length === 0);
+  const treeMode = { hasFile: !!preview, canFit: treeCanFit, shown: treeShown, peek: treePeek,
+    hiddenWhileEmpty: treeHiddenWhileEmpty, hasTabs: fileTabs.length > 0 };
+  const treeVisible = fileTreeVisible(treeMode);
   const treeIsColumn = treeVisible && treeCanFit;
+  const treeNuxEligible = treeNux !== "done" && fileTreeCoachmarkEligible({ toggleShown: tab === "files" && !!cwd,
+    hasFile: !!preview, canFit: treeCanFit, treeVisible, popout: !!pane.current?.closest(".popout-root") });
+  useLayoutEffect(() => {
+    const anchor = treeNuxEligible ? pane.current?.querySelector(".source-pane-header > button[aria-pressed]") ?? null : null;
+    setTreeToggleAnchor((current) => (current === anchor ? current : anchor));
+    // ye cleanup: a coachmark that stops qualifying while open is closed for good ("interrupted").
+    if (!treeNuxEligible && treeNux === "shown") setTreeNux("done");
+  }, [treeNuxEligible, treeNux]);
   const treeLimit = Math.max(160, Math.min(640, paneWidth - 160));
   const visibleTreeWidth = Math.min(dragTreeWidth ?? treeWidth, treeLimit);
   useLayoutEffect(() => {
@@ -1819,8 +2062,11 @@ function FilePane({
       /* optional preference */
     }
   }
-  function setVisibleTree(shown) {
-    if (shown === treeVisible) return;
+  // B33 (c51596d2b Z): every way of toggling the tree but the coachmark's own action retires the tree coachmark.
+  function setVisibleTree(shown, via) {
+    if (via !== "coachmark" && treeNux !== "done") { dismissFileTreeNux("toggled"); setTreeNux("done"); }
+    if (shown === treeVisible && !treePeek) return;
+    setTreePeek(false);
     if (
       pane.current?.ownerDocument.activeElement?.matches(
         ".source-tree-divider, .source-tree-edge",
@@ -1835,7 +2081,7 @@ function FilePane({
         const file =
           fileTabs.find((value) => value.path === treeReturnPath.current) ||
           fileTabs.at(-1);
-        selectFile(file.path);
+        selectFile(file.path, { retainTree: false });
         if (treeCanFit) setTreeShown(false);
       }
     } else {
@@ -1846,23 +2092,21 @@ function FilePane({
   // "Search files" button (panes-tile-current.js:6791-6807): clear "tree hidden
   // while empty"; with a file open the tree is shown beside it when it fits,
   // otherwise the pane switches to the tree (vi: fileView undefined, return
-  // path kept) - the same paths as "Show file tree". Local adaptation: there is
-  // no transient filesTreePeek, so a fitting tree is shown persistently. The
-  // effect below then focuses "Filter files" and selects its text. The
-  // fileEditDirty branch has no counterpart (local previews are read-only).
-  function focusFilesFilter() {
-    filterFocus.current = true;
+  // path kept). A fitting tree peeks without changing its stored preference.
+  // The effect below then focuses "Filter files" and selects its text. The
+  // Narrow layouts leave the active file through the same dirty-edit guard.
+  function focusFilesFilter(mode = "filter") {
+    filterFocus.current = mode;
     if (treeHiddenWhileEmpty) setTreeHiddenWhileEmpty(false);
-    if (!treeVisible) setVisibleTree(true);
+    if (treeCanFit) setTreePeek(!!preview && (treePeek || !treeShown));
+    else if (preview) selectFile(null);
     setFilterFocusTick((value) => value + 1);
   }
   useLayoutEffect(() => {
     if (!filterFocus.current || tab !== "files" || !treeVisible) return;
     const input = pane.current?.querySelector(`.source-files-tree input[aria-label="${t("Filter files")}"]`);
     if (!input || input.disabled || input.closest("[hidden], [inert]")) return;
-    filterFocus.current = false;
-    input.focus({ preventScroll: true });
-    input.select();
+    if(searchFocusRef.current?.(filterFocus.current))filterFocus.current = false;
   }, [filterFocusTick, treeVisible, tab, activePath]);
   function resizeTreeVisibility(shown) {
     const start = treeDragStart.current;
@@ -1876,6 +2120,7 @@ function FilePane({
     const start = treeDragStart.current;
     setActivePath(start.activePath);
     setTreeShown(start.treeShown);
+    setTreePeek(start.treePeek);
     setTreeHiddenWhileEmpty(start.hiddenWhileEmpty);
     treeReturnPath.current = start.returnPath;
     setDragTreeWidth(null);
@@ -1887,6 +2132,7 @@ function FilePane({
       activePath,
       hadTabs: fileTabs.length > 0,
       treeShown,
+      treePeek,
       hiddenWhileEmpty: treeHiddenWhileEmpty,
       returnPath: treeReturnPath.current,
     };
@@ -1970,23 +2216,78 @@ function FilePane({
       live = false;
     };
   }, [cwd, tab, refreshKey, includeRootChild, call]);
+  // B07 mv (cccc2cf0a :4053-4086): a watched root refetches in the background — no busy tree, retained rows, and a
+  // failed refetch keeps the last listing (a query keeps its data on a refetch error).
+  const rootRefresh = dirRefresh[""] ?? 0;
+  useEffect(() => {
+    if (!rootRefresh || tab !== "files" || !cwd) return undefined;
+    let live = true;
+    Promise.resolve().then(() => call("files", { cwd, relative: "", includeChild: includeRootChild }))
+      .then((data) => { if (live) { setEntries(data); setTreeError(""); } }, (e) => { if (live) setTreeError(errorMessage(e)); });
+    return () => { live = false; };
+  }, [rootRefresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  // watchSessionDirectories {watchId, dirPaths: [root, ...expanded]} while the tree shows; [] releases them on unmount,
+  // when the tree hides or the folder changes. Each change event refetches that one folder and re-reads an open file
+  // view it names (a local addition: Bash edits reach the view without a tool result).
+  const watching = tab === "files" && !!cwd && treeVisible;
+  const watchKey = JSON.stringify(watchedDirs(expandedList));
+  useEffect(() => {
+    if (!watching) return undefined;
+    return () => { Promise.resolve().then(() => call("files:watch", { watchId, cwd, dirs: [] })).catch(() => {}); };
+  }, [watching, cwd, watchId, call]);
+  useEffect(() => {
+    if (!watching) return;
+    Promise.resolve().then(() => call("files:watch", { watchId, cwd, dirs: JSON.parse(watchKey) })).catch(() => {});
+  }, [watching, cwd, watchKey, watchId, call]);
+  useEffect(() => {
+    if (!watching) return undefined;
+    return window.desktop?.onEvent?.((event) => {
+      if (event?.kind !== "files-dir-changed" || event.watchId !== watchId) return;
+      const dir = typeof event.dir === "string" ? event.dir : "";
+      setDirRefresh((counts) => ({ ...counts, [dir]: (counts[dir] ?? 0) + 1 }));
+      for (const path of tabsForFolderChange(latest.current.fileTabs, dir, event.names)) {
+        readAt.current.delete(path);
+        if (path === latest.current.activePath) refreshTab(path, { restart: true });
+      }
+    });
+  }, [watching, watchId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Oy "Try again" (cccc2cf0a :5556-5590): re-list the root; resolves true when it failed again.
+  const retryTree = () => Promise.resolve().then(() => call("files", { cwd, relative: "", includeChild: includeRootChild }))
+    .then((data) => { if (mounted.current) { setEntries(data); setTreeError(""); } return false; },
+      (e) => { if (mounted.current) setTreeError(errorMessage(e)); return true; });
   // openFileTab (panes-state-current.js:2830-2845 -> F :1596-1616): the tab is
   // created or activated at once — a preview takes the preview slot in place —
   // and its body loads (Zo spinner) into the classified read result, so a
   // missing, outside, large, binary or unreadable file still gets its tab and
   // card. Re-opening an open tab refreshes it and keeps showing its text.
   function openFile(entry, { preview: previewTab = true } = {}) {
+    previewTab = previewTab && fileViewSettings.previewTabs;
     const path = entry?.path;
     if (typeof path !== "string" || !path) return;
+    if (guardFileEdits(() => openFile(entry, { preview: previewTab }), { sessionId, paths: [activePath] })) return;
+    if(Number.isInteger(entry.line)&&entry.line>0)setActiveLine({path,line:entry.line,endLine:entry.line,nonce:++tabSequence.current,findQuery:entry.findQuery,findOptions:entry.findOptions});
+    if (peekOnFileOpen(treeMode)) setTreePeek(true);
+    setTreeHiddenWhileEmpty(false);
     setFileTabs((files) => {
       const existing = files.find((value) => value.path === path);
       const opened = existing
-        ? { ...existing, preview: existing.preview === true && previewTab }
+        ? { ...withoutRestored(existing), preview: existing.preview === true && previewTab }
         : { path, preview: previewTab, openSequence: ++tabSequence.current };
       return insertFileTab(files, opened);
     });
     setActivePath(path);
     loadFile(path);
+    opened.current = { seq: opened.current.seq + 1, path };
+  }
+  // B33 cccc2cf0a oy + c82eca2bd M: Enter on a tree or filter-result row that opened a file hands focus to it once
+  // Enter is released (focus still in the tree or lost to the body); Db then focuses the file view when it is
+  // the one shown (fileFocusRequest, cleared when another file is shown first).
+  function focusAfterEnter(container, activate) {
+    const before = opened.current.seq;
+    activate();
+    const after = opened.current;
+    if (after.seq === before || !container) return;
+    onEnterReleased(container, () => setFileFocusRequest({ path: after.path, seq: after.seq }));
   }
   function closeFile(path) {
     closeFiles([path]);
@@ -1997,6 +2298,7 @@ function FilePane({
   // cannot chain functional updates within one event.
   // keep: undefined for a single close, null for close-all, the kept path for close-others.
   function closeFiles(paths, keep) {
+    if (guardFileEdits(() => closeFiles(paths, keep), { sessionId, paths: [...paths, ...(keep != null && keep !== activePath ? [activePath] : [])] })) return;
     const closing = new Set(paths);
     // An in-flight read of a closed tab must not resurrect it (loadFile only
     // updates open tabs), and its result is dropped.
@@ -2013,7 +2315,7 @@ function FilePane({
     if (rows.some((row) => row.contains(row.ownerDocument.activeElement)))
       closeFocus.current = { path: nextPath };
     setFileTabs((files) => files.filter((file) => !closing.has(file.path)));
-    if (nextPath !== activePath) setActivePath(nextPath);
+    if (nextPath !== activePath) selectFile(nextPath);
   }
   function keepFile(path) {
     setFileTabs((files) =>
@@ -2022,18 +2324,22 @@ function FilePane({
       ),
     );
   }
-  function selectFile(path) {
+  function selectFile(path, { retainTree = true } = {}) {
+    if (path !== activePath && guardFileEdits(() => selectFile(path, { retainTree }), { sessionId, paths: [activePath] })) return;
     if (path === null && activePath) treeReturnPath.current = activePath;
+    if (path !== null && retainTree && peekOnFileOpen(treeMode)) setTreePeek(true);
     setActivePath(path);
   }
-  function followSelectedFile(path) {
-    setTreeReveal((previous) => ({ path, generation: previous.generation + 1 }));
+  function followSelectedFile(path, { follow = true } = {}) {
+    setTreeReveal((previous) => ({ path, generation: previous.generation + 1, follow }));
     setRefreshKey((value) => value + 1);
   }
   // l_ "Reveal in file tree" (revealInFilesTree): show the tree and reveal the row.
   function revealInTree(relative) {
-    if (!treeVisible) setVisibleTree(true);
-    followSelectedFile(relative);
+    setTreeHiddenWhileEmpty(false);
+    if (treeCanFit) setTreePeek(!!preview && (treePeek || !treeShown));
+    else if (preview) selectFile(null);
+    followSelectedFile(relative, { follow: false });
   }
   // Ge (c856385e2) copies through the clipboard and confirms with the
   // c3e58cab4 "Copied to clipboard." toast; the breadcrumb (Rs, cd2efac6e
@@ -2046,20 +2352,36 @@ function FilePane({
   // Tree rows (file_browser) and tabs (file_tab) share Mn's items; Attach and
   // Show in Finder only where main.jsx gave them a target.
   const fileMenu = tab === "files" && cwd ? {
-    entries: (path, { surface = "file_browser", directory = false, unavailable, linkState } = {}) => fileContextMenu({
-      surface, root: cwd, path,
-      canAttach: !!fileActions?.onAttachFile && !directory,
+    drag: fileActions?.onDragFiles ? (event,entries)=>{
+      const paths=entries.map(entry=>fileCopyChoices(cwd,entry.path).absolute);
+      const directories=entries.filter(entry=>entry.directory).map(entry=>fileCopyChoices(cwd,entry.path).absolute);
+      return fileActions.onDragFiles(event,paths,directories);
+    } : null,
+    multiEntries: (paths,{directories=[]}={}) => multiFileContextMenu({root:cwd,paths,directories,canAttach:!!fileActions?.onAttachFiles,editors:fileActions?.onOpenInEditor?fileActions.editors:[]}),
+    entries: (path, { surface = "file_browser", directory = false, unavailable, linkState, line } = {}) => fileContextMenu({
+      surface, root: cwd, path, directory, line,
+      canAttach: !!fileActions?.onAttachFile,
       // The reveal IPC resolves inside the session folder only: no broken, external or looping link.
-      canShowInFinder: !!fileActions?.onRevealFile && unavailable !== "missing" && unavailable !== "outside_root" && (!linkState || linkState === "ok"),
+      canShowInFinder: !!fileActions?.onRevealFile && unavailable !== "missing" && unavailable !== "outside_root" && (!linkState || linkState === "ok")
+        // B32 ko → Jt/Ut: a breadcrumb's file segment outside the working directory still shows it in Finder (the
+        // session reveal takes an outside regular file); an outside folder gets neither Open in nor the reveal.
+        || (surface === "file_breadcrumb" && unavailable === "outside_root" && !directory && !!fileActions?.onShowSessionFile),
       canRevealInTree: unavailable !== "missing",
-      editors: fileActions?.onOpenInEditor && unavailable !== "missing" ? fileActions.editors : [],
+      // B32 ko: a breadcrumb folder outside the working directory has no Open in (openIn: h || !p).
+      editors: fileActions?.onOpenInEditor && unavailable !== "missing" && !(directory && unavailable === "outside_root") ? fileActions.editors : [],
       canOpenTerminal: directory && !!fileActions?.onOpenInTerminal && unavailable !== "missing" && unavailable !== "outside_root" && (!linkState || linkState === "ok"),
     }),
     select: (item, path) => {
+      if(item.disabled)return;
       if (item.action === "copy") copyText(item.value);
-      else if (item.action === "attach") { const absolute = fileCopyChoices(cwd, path).absolute; if (absolute) fileActions?.onAttachFile?.(absolute); }
+      else if(item.action === "attach-many" && item.paths.length<=100)fileActions?.onAttachFiles?.(item.paths,item.directories);
+      else if(item.action === "open-many-in-editor" && item.paths.length<=100)for(const target of item.paths)fileActions?.onOpenInEditor?.(target,item.editor);
+      else if (item.action === "attach") { const absolute = fileCopyChoices(cwd, path).absolute; if(absolute){if(item.directory)fileActions?.onAttachFiles?.([absolute],[absolute]);else fileActions?.onAttachFile?.(absolute);} }
+      else if (item.action === "show-in-finder" && fileCopyChoices(cwd, item.value).relative === null && fileActions?.onShowSessionFile)
+        void Promise.resolve().then(() => fileActions.onShowSessionFile(item.value)).then((shown) => { if (!shown) throw new Error("not shown"); })
+          .catch(() => toasts?.add(t("Couldn’t show this file in its folder."), { variant: "danger" }));
       else if (item.action === "show-in-finder") fileActions?.onRevealFile?.(item.value);
-      else if (item.action === "open-in-editor") fileActions?.onOpenInEditor?.(item.value, item.editor);
+      else if (item.action === "open-in-editor") fileActions?.onOpenInEditor?.(item.value, item.editor, item.line);
       else if (item.action === "reveal-in-tree") revealInTree(item.value);
       else if (item.action === "open-in-terminal") fileActions?.onOpenInTerminal?.(item.value);
     },
@@ -2135,8 +2457,7 @@ function FilePane({
       ? t("Uncommitted changes")
       : title;
   // Pane-supplied "{pane} settings" sections (official f_ for the file pane:
-  // a "Show file tree" checkbox that keeps the menu open). The official
-  // "Preview tabs" preference has no local counterpart and is not offered.
+  // persistent behavior/display preferences and the tree toggle.
   const viewerText = tab === "files" && preview && typeof preview.text === "string" && !preview.unavailable ? preview : null;
   const menuSections =
     tab === "files" && cwd
@@ -2147,7 +2468,7 @@ function FilePane({
           onReload: () => reloadFile(viewerText.path), reloading: reloadingPath === viewerText.path }) : [] },
         { key: "files-tree", items: [{ value: "files-tree", label: t("Show file tree"), checked: treeVisible, checkedRole: "checkbox", keepOpen: true,
           // f_ (panes-tile-current.js:6872-6900): the item carries the ⌘⇧Y shortcut.
-          shortcut: treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined, onSelect: () => setVisibleTree(!treeVisible) }] }]
+          shortcut: treeToggleRef ? TREE_TOGGLE_SHORTCUT : undefined, onSelect: () => setVisibleTree(!treeVisible) }] }, fileBehaviorMenu(fileViewSettings, setFileViewSetting), fileViewMenu(fileViewSettings, setFileViewSetting)]
       : tab === 'changes' ? changesMenuSections({ hasPatch: !diffError && !loading && !!diffView.patch,
         layoutSplit: diffPreferences.layout === 'split', canFitSplit: diffCanFitSplit, wordWrap: diffPreferences.wordWrap,
         onFoldAll: (collapsed) => setDiffFoldAll((previous) => ({ collapsed, seq: (previous?.seq ?? 0) + 1 })),
@@ -2201,6 +2522,17 @@ function FilePane({
             />
           </SourceTooltip>
         )}
+        {nuxAllowed && treeNuxEligible && treeToggleAnchor && (
+          // cccc2cf0a Db (:7100-7125) Zu epitaxy_files_tree_nux under the tree toggle (be: side bottom, align start,
+          // introDelay 0.5); its action shows the tree via "coachmark".
+          <SourceCoachmark anchor={treeToggleAnchor} align="start" introDelay={0.5} label={t("File tree")}
+            title={t("Browse the project beside your file")} actionLabel={t("Show file tree")}
+            onShown={() => { dismissFileTreeNux("shown"); setTreeNux("shown"); }}
+            onClose={() => { dismissFileTreeNux("closed"); setTreeNux("done"); }}
+            onAction={() => { dismissFileTreeNux("accepted"); setTreeNux("done"); setVisibleTree(true, "coachmark"); }}>
+            {t("Show the file tree to jump between files without leaving this pane. Files you open line up here as tabs.")}
+          </SourceCoachmark>
+        )}
         {tab === "files" && fileTabs.length > 0 ? (
           // Xd tab list (panes-tabs-current.js:1128-1195): the data-view-tab-bar
           // root holds the tablist (a 700ms tooltip provider ne around the
@@ -2240,6 +2572,7 @@ function FilePane({
                   onClose={closeFile}
                   onKeep={keepFile}
                   onCloseOthers={(path) => closeFiles(fileTabs.filter((value) => value.path !== path).map((value) => value.path), path)}
+                  onCloseRight={(path) => closeFiles(fileTabsToRight(fileTabs, path))}
                   onCloseAll={() => closeFiles(fileTabs.map((value) => value.path), null)}
                   onKeyDown={(event, path) => {
                     // ge (:275-302): Control (or Meta) + Shift + ArrowLeft/Right
@@ -2337,7 +2670,7 @@ function FilePane({
         {(() => {
           // Mp (:1830-1866) leads the Plan trailing slot: "Copy plan" while a plan document exists.
           // nh (panes-tile-current.js:3222-3390): the Changes header's "Go to file" (⌘P) leads it while files are listed.
-          const search = tab === "files" && cwd ? <SourceFilesSearchButton onClick={focusFilesFilter} />
+          const search = tab === "files" && cwd ? <SourceFilesSearchButton onClick={() => focusFilesFilter("filter")} />
             : tab === "plan" && planDocument ? <SourcePlanCopyButton document={planDocument} />
             : tab === "changes" && !diffError && !loading && diffView.patch ? <SourceDiffGoToFile patch={diffView.patch} /> : null;
           const close = <SourceIconButton name="X" label={t("Close panel")} onClick={onClose} />;
@@ -2353,6 +2686,7 @@ function FilePane({
             className="source-file-body"
             data-has-preview={!!preview}
             data-tree-visible={treeVisible}
+            data-tree-peek={treePeek || undefined}
             data-tree-column={treeIsColumn}
           >
             <div
@@ -2370,28 +2704,36 @@ function FilePane({
             >
               {treeRefreshing && entries !== null && <span className="source-sr-only" role="status">{t("Refreshing files")}</span>}
               <SourceFilesSearch
+                focusRef={searchFocusRef}
                 sessionId={sessionId}
                 searchPane={searchPane}
                 cwd={cwd}
                 activePath={activePath}
                 onOpen={openFile}
                 onClear={followSelectedFile}
+                // B33: an explicit reveal clears the filter (cccc2cf0a Bv kt/Rv); a folder result reveals its row
+                // (V → revealInFilesTree); Enter that opens a file hands focus to it (ly → oy).
+                revealNonce={treeReveal.follow ? undefined : treeReveal.generation}
+                onRevealFolder={(relative) => revealInTree(`${relative}/`)}
+                onEnterOpen={focusAfterEnter}
+                fileMenu={fileMenu}
+                onAskAbout={fileActions?.onAskAbout}
                 enabled={tab === "files" && treeVisible}
                 refreshKey={refreshKey}
                 call={call}
               >
-              {({ filtered }) => !cwd ? (
+              {({ filtered, selectionStore }) => !cwd ? (
                 // Jg (panes-tile-current.js:4780-4786): no working directory.
                 <SourceFilesTreeState state="no-cwd" />
               ) : entries === null ? (
                 // Ig (panes-tile-current.js:5496-5512): Yg spinner while loading,
                 // fixed copy when the read failed with no data (the raw error is
                 // not rendered), "Folder is empty" when there are no rows.
-                <SourceFilesTreeState state={treeError ? "error" : "loading"} />
+                <SourceFilesTreeState state={treeError ? "error" : "loading"} onRetry={treeError ? retryTree : undefined} />
               ) : !entries.length ? (
                 <SourceFilesTreeState state="empty" />
               ) : (
-                <SourceTree busy={treeRefreshing} filterInputSelector={`input[aria-label="${t("Filter files")}"]`}>
+                <SourceTree selectionStore={selectionStore} active={treeVisible && !filtered} busy={treeRefreshing} filterInputSelector={`input[aria-label="${t("Filter files")}"]`} onEnterOpen={focusAfterEnter}>
                   {entries.map((entry) => (
                     <SourceTreeNode
                       key={entry.path}
@@ -2400,9 +2742,11 @@ function FilePane({
                       activePath={activePath}
                       onOpen={openFile}
                       refreshKey={refreshKey}
+                      dirRefresh={dirRefresh}
                       call={call}
                       revealPath={treeReveal.path}
                       revealGeneration={treeReveal.generation}
+                      revealFollow={treeReveal.follow}
                       treeVisible={treeVisible && !filtered}
                       expandedPaths={expandedPaths}
                       onExpandedChange={onExpandedChange}
@@ -2456,12 +2800,32 @@ function FilePane({
               // file view, with the jump range of a chip request for this path.
               const relative = tabRelativePath(preview.path, cwd);
               const full = cwd && !/^(?:\/|[A-Za-z]:[\\/]|~)/.test(relative) ? `${String(cwd).replace(/\/+$/, "")}/${relative}` : preview.path;
-              return <SourceFileViewer key={preview.path} file={preview} displayPath={relative} fullPath={full}
+              return <SourceSessionFileViewer
+                onSaveComment={fileActions?.onSaveComment ? (entry,options)=>fileActions.onSaveComment({...entry,path:relative},options) : null}
+                onDeleteComment={fileActions?.onDeleteComment}
+                onAttachFile={fileActions?.onAttachFile ? () => fileActions.onAttachFile(full) : null}
+                onAttachSelection={fileActions?.onAttachSelection ? selection => fileActions.onAttachSelection(selection.text, fileSelectionLabel(relative, selection)) : null}
+                onDownload={text => downloadFile({ ...preview, text })} onEdit={preview.preview ? () => keepFile(preview.path) : null} sessionId={sessionId} onSaveFile={async (text, expectedHash) => {
+                const result = await call("file:save", { cwd, relative: preview.path, text, expectedHash });
+                if (result?.status === "saved") setFileTabs(files => files.map(file => file.path === preview.path ? { ...file, text, editHash: result.hash, preview: false } : file));
+                return result;
+              }} key={preview.path} settings={fileViewSettings} file={preview} displayPath={relative} fullPath={full}
                 line={lineMark?.line} endLine={lineMark?.endLine} scrollNonce={lineMark?.nonce}
+                contentFind={lineMark?.findQuery?lineMark:null}
                 scopeKey={JSON.stringify(["file-viewer", sessionId, cwd, preview.path])}
                 onCopyPath={() => copyText(relative, FILE_VIEWER_LABELS.pathCopied)}
                 onViewAsText={() => loadFile(preview.path, { force: true })}
-                findRequest={findRequest} lister={folderLister}
+                cardActions={{
+                  // B32 cd2efac6e fp / Tp / Gl / tp+pp: re-read the tab, create the missing file through the editor's
+                  // save (no prior hash: an existing in-root parent only), and the session's reveal / folder offer.
+                  onRetry: () => loadFile(preview.path),
+                  onCreateFile: sessionId ? () => call("file:save", { cwd, relative: preview.path, text: "", expectedHash: null }) : null,
+                  canAskClaude: !!sessionId,
+                  onShowFile: fileActions?.onShowSessionFile ? () => fileActions.onShowSessionFile(preview.path) : null,
+                  suggestFolder: fileActions?.suggestFolder ?? null,
+                  onAddFolder: fileActions?.onAddFolder ?? null,
+                }}
+                findRequest={findRequest} lister={folderLister} fileMenu={fileMenu} previewFrame={previewFrame}
                 renderMarkdown={(text, chunk = 0) => <SourceMarkdown text={text} sessionKey={sessionId} itemId={chunk ? `file:${preview.path}#${chunk}` : `file:${preview.path}`} cwd={cwd} />} />;
             })()}
             {/* panes-tile-current.js:6355-6390 (!N || M) empty preview. */}
@@ -2472,20 +2836,23 @@ function FilePane({
         </>
       ) : tab === "plan" && (plan?.length || planDocument) ? (
         // kp (panes-tile-current.js:1751-1790): the plan document, then the Tasks.
-        <SourcePlanPane plan={plan} document={planDocument} sessionId={sessionId}
-          renderMarkdown={(text) => <SourceMarkdown text={text} sessionKey={sessionId} itemId="plan-document" cwd={cwd} />} />
+        <SourcePlanPane plan={plan} document={planDocument} sessionId={sessionId} commentsEnabled={planCommentsEnabled}
+          renderMarkdown={(text, extension) => <SourceMarkdown text={text} sessionKey={sessionId} itemId="plan-document" cwd={cwd} extension={extension} />} />
       ) : tab === "plan" ? (
-        <SourcePlanEmpty />
+        // Jh (cccc2cf0a): Loading… while the history loads, the earlier-messages alert when it failed, else No plan yet.
+        <SourcePlanEmpty loading={!!planHistory?.loading} failed={!!planHistory?.failed} onRetry={planHistory?.onRetry ?? null} sessionKey={sessionId} />
       ) : diffError ? (
-        <SourceChangesState state="failed" />
+        <SourceChangesState state="failed" onRetry={onRefresh ? () => onRefresh() : null} retrying={diffRetrying} />
       ) : loading ? (
         <SourceChangesState state="loading" />
-      ) : diffView.patch ? (
+      ) : diffView.patch || diffEmptyWithCommits ? (
         // R10: SourceDiff lays the body out beside the Changed files column and
-        // owns the .source-changes scroller (ChangesFileLayout).
-        <Diff value={diffView.patch} completeContext={diffView.completeContext} scopeKey={JSON.stringify([sessionId, cwd, diffScope])} layout={diffPreferences.layout} wordWrap={diffPreferences.wordWrap} wordDiff={diffPreferences.wordDiff} hideWhitespace={diffPreferences.hideWhitespace} onCanFitSplitChange={setDiffCanFitSplit} foldAll={diffFoldAll} placement="changes" fileActions={diffFileActions}
+        // owns the .source-changes scroller (ChangesFileLayout). B15 (c44d00c7f cl emptyPlaceholder): with
+        // commits, an empty comparison keeps the column (Commits section) beside the empty state.
+        <Diff value={diffView.patch || ""} emptyPlaceholder={<SourceChangesState state="empty" uncommittedOnly={diffScope === "uncommitted"} />} completeContext={diffView.completeContext} scopeKey={JSON.stringify([sessionId, cwd, diffStale ? diffStale.scope : diffScope])} layout={diffPreferences.layout} wordWrap={diffPreferences.wordWrap} wordDiff={diffPreferences.wordDiff} hideWhitespace={diffPreferences.hideWhitespace} onCanFitSplitChange={setDiffCanFitSplit} foldAll={diffFoldAll} placement="changes" fileActions={diffFileActions} commentScope={sessionId ? JSON.stringify([sessionId, cwd]) : null}
           onIsLargeChange={setDiffIsLarge} review={diffReview} fileList={{ shown: diffShowTree, width: diffTreeWidth, tree: diffFileTree, groupByKind: diffGroupByKind,
-            onShownChange: setDiffShowTree, onWidthChange: setDiffTreeWidth, onCanFitChange: setDiffCanFitTree }} />
+            onShownChange: setDiffShowTree, onWidthChange: setDiffTreeWidth, onCanFitChange: setDiffCanFitTree }}
+          stale={!!diffStale} commits={diffCommits ? { ...diffCommits, collapsed: diffCommitsCollapsed, onCollapsedChange: setDiffCommitsCollapsed } : null} />
       ) : (
         <SourceChangesState state="empty" uncommittedOnly={diffScope === "uncommitted"} />
       )}

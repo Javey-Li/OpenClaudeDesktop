@@ -24,7 +24,7 @@ const report={passed:false,startedAt:new Date().toISOString(),build,appPath:appP
 let app,page;
 const trace=async()=>String(await fs.readFile(path.join(profile,'action-trace.jsonl'))).trim().split('\n').map(JSON.parse);
 async function command(text){const input=page.getByRole('textbox',{name:'Message DeepSeek'});await fillComposer(page,input,text);await input.press('Enter');if(await page.getByRole('menu',{name:'Slash commands',exact:true}).count()===0 && await input.evaluate(node=>node.value)===text+' ')await input.press('Enter');}
-async function idle(){await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'detached'});await page.waitForFunction(()=>!document.querySelector('.sc-spinner'));}
+async function idle(){await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({state:'detached'});await page.waitForFunction(()=>!document.querySelector('.sc-spinner'));}
 // Fidelity F02: every action dialog is the shared CDS Dialog (source-dialog.jsx; shared-frame-C_2npUJq.js:5561-5574,
 // :5738-5869): surface-3 popup, bg-backdrop + 2px blur, a data-starting-style first frame (recorded when the portal
 // is inserted) and the CloseButton named 'Close'. Paint is read once the enter transition has settled.
@@ -64,21 +64,23 @@ try{
  const region=shortcuts.getByRole('region',{name:'Keyboard shortcuts',exact:true});
  report.shortcutsDialog.content=await shortcuts.evaluate(n=>({focus:document.activeElement===n,width:n.getBoundingClientRect().width,sections:[...n.querySelectorAll('.shortcuts-section')].map(x=>x.textContent),
   changes:[...n.querySelectorAll('[data-command=changes] kbd')].map(k=>(k.querySelector('[aria-hidden="true"]')??k).textContent),density:n.closest('[data-density]')?.dataset.density,header:getComputedStyle(n.querySelector('.sdlg-bleed-header')).height}));
- assert.deepEqual(report.shortcutsDialog.content,{focus:true,width:520,sections:['General','Panes','Split view','Composer'],changes:['⇧','⌘','D'],density:'comfortable',header:'48px'});
+ assert.deepEqual(report.shortcutsDialog.content,{focus:true,width:520,sections:['General','Panes','Composer'],changes:['⇧','⌘','D'],density:'comfortable',header:'48px'});
  assert.equal(await region.getAttribute('tabindex'),'0');
  // R01 (shared-21-D098Wd--.js zR :15017-15060, :15173-15178, :15200-15206): every bound chord has its row, in zR order.
  report.shortcutsDialog.rows=await shortcuts.evaluate(n=>[...n.querySelectorAll('.shortcuts-row')].map(row=>[row.dataset.command,row.querySelector('.shortcuts-label').textContent,[...row.querySelectorAll('kbd')].map(k=>(k.querySelector('[aria-hidden="true"]')??k).textContent).join('')]));
  const dialogRow=command=>report.shortcutsDialog.rows.find(row=>row[0]===command);
  assert.deepEqual(['close-session','reopen-closed','jump-session','archive-session','transcript-view','file-list'].map(dialogRow),[
   ['close-session','Close tab, pane, or session','⌘W'],['reopen-closed','Reopen closed session','⇧⌘T'],['jump-session','Jump to session','⌘1…9'],
-  ['archive-session','Archive session','⇧⌘⌫⌥⌘A'],['transcript-view','Transcript view','⌃O'],['file-list','Toggle file list in changes or files','⇧⌘Y']]);
+  ['archive-session','Archive session','⌥⌘A⇧⌘⌫'],['transcript-view','Transcript view','⌃O'],['file-list','Toggle file list in changes or files','⇧⌘Y']]);
  // :15157-15170 jumpPrevPrompt / jumpNextPrompt (⌥⌘↑ / ⌥⌘↓) follow the session rows, before Stop.
  const general=report.shortcutsDialog.rows.map(row=>row[0]);
- assert.deepEqual(general.slice(general.indexOf('new-session'),general.indexOf('stop')+1),['new-session','new-session-current','close-session','reopen-closed','next-session','previous-session','jump-session','archive-session','transcript-view','pin-session','rename-session','unread-session','fork-session','jump-prev-prompt','jump-next-prompt','stop']);
- assert.deepEqual(general.slice(general.indexOf('changes'),general.indexOf('files')+1),['changes','file-list','files']);
+ // B25: 2.31226 c518a31cc Ce order (split rows inside General after Jump to session, then the ⌥⌘ session block with Open session PR).
+ assert.deepEqual(general.slice(general.indexOf('new-session'),general.indexOf('stop')+1),['new-session','new-session-current','close-session','reopen-closed','next-session','previous-session','jump-session','split-open','split-new-right','split-new-below','split-focus-next','split-focus-previous','split-close','pin-session','rename-session','archive-session','unread-session','open-session-pr','fork-session','jump-prev-prompt','jump-next-prompt','transcript-view','stop']);
+ // :15208-15214 mR("goToDiffFile") (⌘P, Go to file in changes or files) sits between the file list and Files; B34: next / previous change (c518a31cc Ce d) follow the file list.
+ assert.deepEqual(general.slice(general.indexOf('changes'),general.indexOf('files')+1),['changes','file-list','next-change','previous-change','go-to-file','preview','select-element','annotate','preview-new-tab','preview-reopen-tab','preview-next-tab','preview-previous-tab','preview-jump-tab','preview-address','files']);
  // The terminal (⌃` / ⌘J), File › New Session with Current Settings (⇧⌘N) and View › Split View chords (⌃⌘\ ⌃] ⌃[ ⌃⌘W) are listed with their caps.
- assert.deepEqual(['new-session-current','terminal','split-new-right','split-focus-next','split-focus-previous','split-close'].map(dialogRow),[
-  ['new-session-current','New session with current settings','⇧⌘N'],['terminal','Toggle terminal','⌃`⌘J'],['split-new-right','New session on the right','⌃⌘\\'],
+ assert.deepEqual(['new-session-current','terminal','split-new-right','split-new-below','split-focus-next','split-focus-previous','split-close'].map(dialogRow),[
+  ['new-session-current','New session with current settings','⇧⌘N'],['terminal','Toggle terminal','⌃`⌘J'],['split-new-right','New session on the right','⌃⌘\\'],['split-new-below','New session below','⌃⌘-'],
   ['split-focus-next','Focus next split view','⌃]'],['split-focus-previous','Focus previous split view','⌃['],['split-close','Close split view','⌃⌘W']]);
  await page.keyboard.press('Tab');assert.equal(await shortcuts.getByRole('button',{name:'Close',exact:true}).evaluate(n=>n===document.activeElement),true);
  await page.keyboard.press('Tab');assert.equal(await region.evaluate(n=>n===document.activeElement&&getComputedStyle(n).boxShadow!=='none'),true,'the region takes focus with the focus shadow');
@@ -91,7 +93,7 @@ try{
  await page.keyboard.press('Meta+/');await page.waitForTimeout(250);assert.equal(await shortcuts.count(),1);assert.equal(await shortcuts.evaluate(n=>!n.hasAttribute('data-ending-style')),true,'⌘/ keeps the open dialog open');
  await page.keyboard.press('Escape');await shortcuts.waitFor({state:'detached'});await page.waitForFunction(()=>document.activeElement?.getAttribute('data-cds')==='ChatComposerEditor');
  report.checks.push('Help and Keyboard shortcuts are the shared CDS Dialog: surface-3, --cds-backdrop + blur(2px), a starting-style first frame, #root inert, one Close button; ⌘/ opens the 520px comfortable shortcuts dialog (bleed 48px header, focus on the popup, focusable region with General/Panes/Composer and ⇧⌘D), Tab is trapped, a live dark flip repaints it (surface-3 dark, backdrop #00000080 vs #0006 light), ⌘/ keeps it open, Escape closes it and focus returns to the composer');
- await fillComposer(page,editor,'First message');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.getByText('ACTION_HISTORY_PRESERVED',{exact:true}).waitFor();await idle();
+ await fillComposer(page,editor,'First message');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();await page.getByText('ACTION_HISTORY_PRESERVED',{exact:true}).waitFor();await idle();
  const original=JSON.parse(await fs.readFile(path.join(profile,'preferences.json'))).threadIds[0];
  // R01 cycleTranscriptMode ctrl+o (shared-21 :14189; code-workspace.js:2273-2280): Control+O steps the open session's view
  // through qa filtered by availability (no reasoning here: Normal -> Verbose -> Normal), stored per session like the
@@ -112,15 +114,16 @@ try{
  // cc183b3ab fork [prompt]: the argument starts a turn in the new thread, not a title.
  await command('/fork Forked test');await page.waitForFunction(()=>document.querySelectorAll('.assistant-message').length===2);await idle();
  let prefs=JSON.parse(await fs.readFile(path.join(profile,'preferences.json'))),fork=prefs.threadIds.find(id=>id!==original);assert.ok(fork);assert.equal(prefs.sessionMetadata[fork].forkedFrom,original);assert.equal(await page.getByText('ACTION_HISTORY_PRESERVED',{exact:true}).count(),2);
- await fillComposer(page,editor,'Fork-only message');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.assistant-message').length===3);await idle();
+ await fillComposer(page,editor,'Fork-only message');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();await page.waitForFunction(()=>document.querySelectorAll('.assistant-message').length===3);await idle();
  let db=JSON.parse(await fs.readFile(path.join(profile,'action-fixture.json')));assert.equal(db.threads[original].turns.length,2);assert.equal(db.threads[fork].turns.length,4);assert.equal(db.threads[fork].turns[2].items[0].content[0].text,'Forked test');
  report.checks.push('fork gets new persisted ID, copies history, and subsequent messages leave source unchanged');
- await page.getByRole('button',{name:'Session options',exact:true}).click();await page.getByRole('menuitem',{name:'Review code',exact:true}).click();
+ // B09: the title bar's View options menu (cf74bc599 ZT) holds no session commands; /review opens the same dialog.
+ await command('/review');
  await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor();report.reviewDialog=await dialogPaint('Review code');assert.equal(report.reviewDialog.closeButtons,1);await chooseSetting(page,'Review target','baseBranch');await page.getByLabel('Base branch',{exact:true}).fill('--help');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('alert').filter({hasText:'Invalid Git reference'}).waitFor();assert.equal((await trace()).filter(m=>m.method==='review/start').length,0);
  await page.getByLabel('Base branch',{exact:true}).fill('main');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
  await page.getByRole('button').filter({hasText:'Review result'}).click();await page.getByText('ACTION_REVIEW_RESULT: no issues in the isolated fixture.',{exact:true}).waitFor();await page.screenshot({path:path.join(profile,'review-result.png')});
  const review=(await trace()).find(m=>m.method==='review/start');assert.deepEqual(review.params.target,{type:'baseBranch',branch:'main'});assert.equal(review.params.delivery,'inline');
- report.checks.push('titlebar Review UI validates references and dispatches inline base-branch review; review result rendered');
+ report.checks.push('/review dialog validates references and dispatches inline base-branch review; review result rendered');
  await command('/review');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
  assert.equal((await trace()).filter(m=>m.method==='review/start').at(-1).params.target.type,'uncommittedChanges');
  await command('/review');await chooseSetting(page,'Review target','commit');await page.getByRole('textbox',{name:'Commit',exact:true}).fill('HEAD');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).waitFor({state:'detached'});await page.locator('[data-operation="review"][data-phase="completed"]').waitFor();
@@ -138,10 +141,10 @@ try{
  await page.getByRole('dialog',{name:'Usage',exact:true}).waitFor({state:'detached'});await fs.rm(path.join(profile,'rates-unavailable.marker'));
  report.checks.push('model, permission, plan, rename and diff commands reuse working UI; rate-limit failure remains unavailable');
 
- await command('/review HOLD');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('button',{name:'Stop response',exact:true}).waitFor();
+ await command('/review HOLD');await page.getByRole('button',{name:'Start review'}).click();await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor();
  // Official status is deferred during a running turn, never a fabricated live card.
  await command('/status');await page.getByRole('alert').filter({hasText:'Session info is available when DeepSeek finishes this turn.'}).waitFor();await fillComposer(page,editor,'');await page.getByRole('button',{name:'Dismiss error'}).click();
- await page.getByRole('button',{name:'Stop response',exact:true}).click();await page.locator('[data-operation="review"][data-phase="failed"]').filter({hasText:'Task stopped'}).waitFor();await idle();
+ await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();await page.locator('[data-operation="review"][data-phase="failed"]').filter({hasText:'Task stopped'}).waitFor();await idle();
  await command('/review FAIL');await page.getByRole('button',{name:'Start review'}).click();await page.getByRole('dialog',{name:'Review code',exact:true}).getByRole('alert').filter({hasText:'Review failed'}).waitFor();await page.keyboard.press('Escape');
  report.checks.push('status deferred during running review, real interrupt exact turn, failed review keeps retryable form');
  await command('/review DISCONNECT');await page.getByRole('button',{name:'Start review'}).click();await page.locator('[data-operation="review"][data-phase="failed"]').waitFor();await page.keyboard.press('Escape');

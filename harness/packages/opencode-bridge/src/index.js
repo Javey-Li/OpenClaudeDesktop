@@ -161,6 +161,9 @@ export function capabilitiesFor(flavor) {
     configOverlay: true,
     // codeDesktop/history/import: MiMo imports other tools' sessions on request (Settings › Code).
     ...(flavor.id === 'mimo' ? { historyImport: ['cc', 'codex', 'opencode'] } : {}),
+    // codeDesktop/promptSuggestion: MiMo's next-prompt prediction after each turn (predictNext); the app's
+    // Settings › Code › Sessions › Prompt suggestions switch is listed for it.
+    ...(flavor.id === 'mimo' ? { promptSuggestion: true } : {}),
     // Rewind can also put the files back (thread/revert codeDesktop.restoreFiles → OpenCode's own /undo, session/revert.ts).
     rewindFiles: true,
     // /cd would fork into a session that stays in the old folder: OpenCode routes a session by its own directory.

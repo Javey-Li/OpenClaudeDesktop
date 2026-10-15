@@ -262,7 +262,8 @@ export function createCustomizeStore({ call, setTimeout: schedule = globalThis.s
     return state.marketplaces;
   }
   const removeMarketplace = async (name) => { const outcome = await nativeChange("marketplace-remove", { name }); await loadMarketplaces(); return outcome; };
-  const upgradeMarketplace = (name) => nativeChange("marketplace-upgrade", { name });
+  // The listing is re-read so the row's "Last updated" (config last_updated) follows the pull.
+  const upgradeMarketplace = async (name) => { const outcome = await nativeChange("marketplace-upgrade", { name }); if (outcome.ok) void loadMarketplaces(); return outcome; };
   const installMarketplacePlugin = ({ marketplacePath, pluginName, remoteMarketplaceName }) => nativeChange("plugin-install-native", remoteMarketplaceName ? { remoteMarketplaceName, pluginName } : { marketplacePath, pluginName });
   // Workspace sharing of a local plugin (Codex plugin/share/save, plugin/share/delete).
   const sharePlugin = ({ pluginPath, discoverability, remotePluginId }) => nativeChange("plugin-share", { pluginPath, discoverability, ...(remotePluginId ? { remotePluginId } : {}) });

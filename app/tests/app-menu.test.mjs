@@ -83,14 +83,18 @@ test('Edit ends with ISr Find: Find… / Find Next / Find Previous emit find-ope
  const items=menu(appMenuTemplate({sidebarOpen:true,emit:(e,window)=>{events.push(e);windows.push(window);}}),'Edit');
  assert.deepEqual(items.at(-2),{type:'separator'});
  const find=items.at(-1);assert.equal(find.label,'Find');
- assert.deepEqual(find.submenu.map(item=>[item.label,item.accelerator,item.registerAccelerator]),[
+ assert.deepEqual(find.submenu.slice(0,3).map(item=>[item.label,item.accelerator,item.registerAccelerator]),[
   ['Find…','CmdOrCtrl+F',false],['Find Next','CmdOrCtrl+G',false],['Find Previous','CmdOrCtrl+Shift+G',false]]);
- for(const item of find.submenu)item.click({},target);
+ for(const item of find.submenu.slice(0,3))item.click({},target);
  // A click through a (shown, unregistered) accelerator still dispatches: the renderer owns the keys themselves.
  find.submenu[1].click({},target,viaAccelerator);
  assert.deepEqual(events,[{kind:'find-open'},{kind:'find-step',forward:true},{kind:'find-step',forward:false},{kind:'find-step',forward:true}]);
  assert.deepEqual(windows,[target,target,target,target]);
- assert.equal(find.submenu.some(item=>item.label==='Find in Files…'),false,'PSr Find in Files… has no local counterpart');
+ assert.deepEqual(find.submenu[3],{type:'separator'});
+ assert.equal(find.submenu[4].label,'Find in Files…');assert.equal(find.submenu[4].enabled,false);
+ const enabled=menu(appMenuTemplate({sidebarOpen:true,menuState:menuState({findInFiles:{enabled:true}}),emit:(e,w)=>{events.push(e);windows.push(w);}}),'Edit').at(-1).submenu.at(-1);
+ assert.equal(enabled.enabled,true);assert.equal(enabled.accelerator,undefined);enabled.click({},target);assert.deepEqual(events.at(-1),{kind:'find-in-files'});assert.equal(windows.at(-1),target);
+ assert.equal(sameMenuState(menuState(),menuState({findInFiles:{enabled:true}})),false);
 });
 
 test('View follows pNr: sidebar item first, bNr pane items and Close Pane, dNr zoom, Reload, devtools only unpackaged, full screen',()=>{
@@ -235,11 +239,11 @@ test('activateAction: recreate, restore only when nothing is visible, show a hid
 
 test('main.cjs wires the lifecycle: before-quit before the shutdown handler, a no-op window-all-closed, activate, 600x400 minimum',()=>{
  const main=readFileSync(path.resolve(import.meta.dirname,'../electron/main.cjs'),'utf8');
- // The quit guard (quit-guard.cjs) runs first inside the shutdown handler; quitting is set only once shutdown starts,
+ // Autosave and dirty-file guards run before the quit guard in the shutdown handler; quitting is set only once shutdown starts,
  // so a quit the guard holds or the user cancels keeps the window's close-hides behavior.
  const shutdown=main.indexOf('installShutdownHandler(app, {');
  assert.ok(shutdown>0);
- assert.match(main.slice(shutdown),/^installShutdownHandler\(app, \{\s*guard: \(event\) => quitGuard\.handle\(event\),\s*onStart: \(\) => \{ quitting = true; try \{ savePopoutsForRelaunch\(\); \}/);
+ assert.match(main.slice(shutdown),/^installShutdownHandler\(app, \{\s*guard: \(event\) => \{\s*if \(fileAutosaveQuitGate\.handle\(event\)\) return true;[\s\S]*?return quitGuard\.handle\(event\);\s*\},\s*onStart: \(\) => \{ quitting = true; try \{ savePopoutsForRelaunch\(\); \}/);
  assert.doesNotMatch(main,/app\.on\("before-quit"/,'no listener marks a held quit as quitting');
  assert.match(main,/app\.on\("window-all-closed", \(\) => \{\}\);/);
  assert.doesNotMatch(main,/app\.quit\(\);\s*\}\);\s*menuBar = createMenuBar/,'closing the main window no longer quits');

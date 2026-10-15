@@ -16,7 +16,7 @@ test('commit mode (every local session) hides Base branch and keeps only the Cha
   assert.deepEqual(model.gates, []); assert.deepEqual(model.automation, []);
   assert.deepEqual(model.facts[0], { key: 'changes', label: 'Changes', added: 2, removed: 1, action: 'View changes', hint: 'View changes', hintDetail: 'Lines added and removed on this branch.' });
   assert.deepEqual(model.signal, { kind: 'changes', added: 2, removed: 1 });
-  assert.deepEqual(model.action, { label: 'Commit', text: COMMIT_TURN_TEXT, disabled: false, disabledReason: undefined }, 'enabled action carries no reason (Hi/Fe reason only while disabled)');
+  assert.deepEqual(model.action, { label: 'Commit changes', text: COMMIT_TURN_TEXT, disabled: false, disabledReason: undefined }, 'enabled action carries no reason (Hi/Fe reason only while disabled)');
   assert.equal(COMMIT_TURN_TEXT, 'Commit the working tree changes with a sensible message.');
   assert.equal(isLocalOnly('commit'), true); assert.equal(isLocalOnly('none'), true); assert.equal(isLocalOnly('create'), false);
 });
@@ -24,14 +24,14 @@ test('commit mode (every local session) hides Base branch and keeps only the Cha
 test('commit action follows cc(): disabled while responding with the official reason, disabled when clean, never busy', () => {
   assert.equal(COMMIT_RESPONDING_REASON, 'DeepSeek is working \u2014 wait for the turn to finish', 'the assistant-as-actor word, rewritten per core');
   assert.equal(COMMIT_CLEAN_REASON, 'No changes to commit');
-  assert.deepEqual(commitAction(dirty, { responding: true }), { label: 'Commit', text: COMMIT_TURN_TEXT, disabled: true, disabledReason: COMMIT_RESPONDING_REASON });
-  assert.deepEqual(commitAction({ ...dirty, workingTreeDirty: false }), { label: 'Commit', text: COMMIT_TURN_TEXT, disabled: true, disabledReason: COMMIT_CLEAN_REASON });
+  assert.deepEqual(commitAction(dirty, { responding: true }), { label: 'Commit changes', text: COMMIT_TURN_TEXT, disabled: true, disabledReason: COMMIT_RESPONDING_REASON });
+  assert.deepEqual(commitAction({ ...dirty, workingTreeDirty: false }), { label: 'Commit changes', text: COMMIT_TURN_TEXT, disabled: true, disabledReason: COMMIT_CLEAN_REASON });
   assert.deepEqual(commitAction({ ...dirty, workingTreeDirty: false }, { responding: true }).disabledReason, COMMIT_CLEAN_REASON, 'clean tree wins over responding (Sn checked first)');
   // After a commit on the branch: the band stays (hasChanges, +N −M for the branch) and Commit is 'No changes to commit'.
   const committed = buildGitRailModel({ status: { ...dirty, workingTreeDirty: false } });
   assert.equal(committed.visible, true); assert.equal(committed.action.disabled, true); assert.equal(committed.action.disabledReason, COMMIT_CLEAN_REASON);
   assert.equal(commitAction({ ...dirty, workingTreeDirty: undefined }).disabled, true, 'only a reported dirty tree enables Commit');
-  assert.deepEqual(commitAction(dirty), { label: 'Commit', text: COMMIT_TURN_TEXT, disabled: false, disabledReason: undefined });
+  assert.deepEqual(commitAction(dirty), { label: 'Commit changes', text: COMMIT_TURN_TEXT, disabled: false, disabledReason: undefined });
   assert.ok(!('busy' in commitAction(dirty, { responding: true })), 'no busy state: pi holds only PR creation and Mi has no commit busy label');
   const responding = buildGitRailModel({ status: dirty, responding: true });
   assert.equal(responding.action.disabled, true); assert.equal(responding.action.disabledReason, COMMIT_RESPONDING_REASON);
@@ -92,7 +92,8 @@ test('pull request action: a committed branch of a GitHub repo gets Create PR an
   const { pullRequestAction } = await import('../src/git-rail-model.mjs');
   const github = { host: 'github.com', owner: 'acme', name: 'widget' };
   const status = { isRepo: true, branch: 'feature/x', workingTreeDirty: false, comparison: { base: 'main', same: false, ahead: 2, unpushed: 0 } };
-  assert.deepEqual(pullRequestAction({ status, identity: github }), { manualUrl: 'https://github.com/acme/widget/compare/main...feature%2Fx?expand=1' });
+  assert.deepEqual(pullRequestAction({ status, identity: github }), { mode: 'create', label: 'Create PR', busyLabel: 'Creating PR…',
+    manualUrl: 'https://github.com/acme/widget/compare/main...feature%2Fx?expand=1', hint: null });
   assert.equal(pullRequestAction({ status: { ...status, workingTreeDirty: true }, identity: github }), null, 'Commit comes first');
   assert.equal(pullRequestAction({ status, identity: { ...github, host: 'gitlab.com' } }), null);
   assert.equal(pullRequestAction({ status, identity: { host: 'github.com', owner: null, name: 'w' } }), null);
@@ -100,4 +101,73 @@ test('pull request action: a committed branch of a GitHub repo gets Create PR an
   assert.match(pullRequestAction({ status: { ...status, comparison: { ...status.comparison, ahead: 0 } }, identity: github }).disabledReason, /No changes/);
   assert.match(pullRequestAction({ status: { ...status, comparison: { ...status.comparison, unpushed: null } }, identity: github }).manualDisabledReason, /pushed/);
   assert.ok(pullRequestAction({ status, identity: github, responding: true }).disabledReason);
+});
+
+test('B08 D3: an existing PR drops Create PR; a pending lookup disables it; gh missing/signed out is the un hint', async () => {
+  const { pullRequestAction, branchPullRequest, bandPrMode, prStatusHint, prStatusHintText } = await import('../src/git-rail-model.mjs');
+  const github = { host: 'github.com', owner: 'acme', name: 'widget' };
+  const status = { isRepo: true, branch: 'feature/x', workingTreeDirty: false, comparison: { base: 'main', same: false, ahead: 2, unpushed: 0 } };
+  const pr = { number: 7, url: 'https://github.com/acme/widget/pull/7', state: 'open', ci: 'passed' };
+  assert.equal(pullRequestAction({ status, identity: github, pr }), null, 'cd5a31703 Te is null in view mode');
+  // Sn order (cd5a31703 :37385-37430): base, nothing to PR, then the pending lookup, then responding.
+  assert.equal(pullRequestAction({ status, identity: github, lookup: { status: 'pending' }, responding: true }).disabledReason, 'Checking for an existing pull request');
+  assert.match(pullRequestAction({ status: { ...status, comparison: { ...status.comparison, ahead: 0 } }, identity: github, lookup: { status: 'pending' } }).disabledReason, /No changes/);
+  assert.equal(pullRequestAction({ status, identity: github, lookup: { status: 'error' } }).disabledReason, undefined, 'no verdict: Create PR stays available');
+  assert.equal(pullRequestAction({ status, identity: github, lookup: { status: 'missing' } }).hint, 'gh_unavailable');
+  assert.equal(pullRequestAction({ status, identity: github, lookup: { status: 'auth' } }).hint, 'gh_signed_out');
+  assert.equal(pullRequestAction({ status: { ...status, comparison: { ...status.comparison, ahead: 0 } }, identity: github, lookup: { status: 'missing' } }).hint, null, 'only while Create PR is on offer (an rr)');
+  assert.equal(prStatusHint({ lookup: { status: 'none' }, createOffered: true }), null);
+  assert.deepEqual(prStatusHintText('gh_signed_out'), { trigger: 'GitHub CLI signed out', body: 'Sign in to the GitHub CLI to see existing pull requests, CI status, and auto-fix for this branch.' });
+  // The lookup's PR wins; 'none' means no PR even when the core once bound one; otherwise the session binding is the fallback.
+  assert.equal(branchPullRequest({ lookup: { status: 'found', pr, branch: 'feature/x' }, branch: 'feature/x' }), pr);
+  assert.equal(branchPullRequest({ lookup: { status: 'none', branch: 'feature/x' }, branch: 'feature/x', sessionPr: { url: pr.url } }), null);
+  assert.deepEqual(branchPullRequest({ lookup: { status: 'pending' }, sessionPr: { url: 'https://github.com/acme/widget/pull/9' } }),
+    { number: 9, url: 'https://github.com/acme/widget/pull/9', state: 'open', title: null, ci: undefined, checks: null, fromSession: true });
+  assert.equal(branchPullRequest({ lookup: { status: 'found', pr, branch: 'other' }, branch: 'feature/x' }), null, 'another branch\'s answer is ignored');
+  // bze: merged / queued / view; no PR keeps the create mode.
+  assert.equal(bandPrMode({ state: 'merged' }, 'create'), 'merged');
+  assert.equal(bandPrMode({ state: 'queued' }, 'create'), 'queued');
+  assert.equal(bandPrMode({ state: 'closed' }, 'draft'), 'view');
+  assert.equal(bandPrMode(null, 'draft'), 'draft');
+});
+
+test('B08 split button: remembered mode (epitaxy-pr-create-mode), labels, compose without a repo reads create', async () => {
+  const { readPrCreateMode, writePrCreateMode, effectivePrCreateMode, prModeLabel, prBusyLabel, pullRequestAction, PR_CREATE_MODE_KEY } = await import('../src/git-rail-model.mjs');
+  const store = new Map();
+  const storage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+  assert.equal(PR_CREATE_MODE_KEY, 'epitaxy-pr-create-mode');
+  assert.equal(readPrCreateMode(storage), 'create');
+  writePrCreateMode(storage, 'draft'); assert.equal(readPrCreateMode(storage), 'draft');
+  writePrCreateMode(storage, 'bogus'); assert.equal(readPrCreateMode(storage), 'draft', 'unknown modes are not stored');
+  assert.equal(readPrCreateMode({ getItem: () => { throw new Error('blocked'); } }), 'create');
+  assert.equal(effectivePrCreateMode('compose', false), 'create');
+  assert.equal(effectivePrCreateMode('compose', true), 'compose');
+  assert.deepEqual(['create', 'draft', 'compose', 'commit', 'view', 'merged', 'queued'].map(prModeLabel),
+    ['Create PR', 'Create draft PR', 'Manually create PR', 'Commit changes', 'View PR', 'Merged', 'Queued']);
+  assert.equal(prBusyLabel('draft'), 'Creating PR…'); assert.equal(prBusyLabel('view'), undefined);
+  const github = { host: 'github.com', owner: 'acme', name: 'widget' };
+  const unpushed = { isRepo: true, branch: 'feature/x', workingTreeDirty: false, comparison: { base: 'main', same: false, ahead: 2, unpushed: null } };
+  const compose = pullRequestAction({ status: unpushed, identity: github, mode: 'compose' });
+  assert.equal(compose.label, 'Manually create PR');
+  assert.equal(compose.disabledReason, undefined, 'the split button stays usable; firing compose reports the unpushed branch');
+  assert.equal(compose.manualDisabledReason, 'Branch hasn’t been pushed to GitHub');
+});
+
+test('B08 band glyphs, CI and chip URLs follow bLe / NB / c0a531389', async () => {
+  const { PR_STATE_GLYPHS, PR_ROW_ACCENT, prStateLabel, ciStatusLabel, githubBranchUrl, githubRepoUrl } = await import('../src/git-rail-model.mjs');
+  assert.deepEqual(PR_STATE_GLYPHS.open, { icon: 'GitPullRequest', tint: 'opened' });
+  assert.deepEqual(PR_STATE_GLYPHS.merged, { icon: 'GitMergedSimple', tint: 'merged' });
+  assert.deepEqual(PR_STATE_GLYPHS.conflicting, { icon: 'GitMergeConflict', tint: 'conflicting' });
+  assert.deepEqual(PR_ROW_ACCENT, { merged: 'purple', queued: 'yellow' });
+  assert.equal(prStateLabel('conflicting'), 'Merge conflicts');
+  assert.equal(prStateLabel('changesRequested'), 'Changes requested');
+  assert.equal(ciStatusLabel('failed'), 'CI: checks failing');
+  assert.equal(ciStatusLabel('pending'), 'CI: checks in progress');
+  assert.equal(ciStatusLabel(undefined), undefined);
+  const github = { host: 'github.com', owner: 'acme', name: 'widget' };
+  assert.equal(githubRepoUrl(github), 'https://github.com/acme/widget');
+  assert.equal(githubRepoUrl({ ...github, host: 'gitlab.com' }), null);
+  assert.equal(githubBranchUrl(github, { branch: 'feature/a b', comparison: { unpushed: 0 } }), 'https://github.com/acme/widget/tree/feature/a%20b');
+  assert.equal(githubBranchUrl(github, { branch: 'feature', comparison: { unpushed: null } }), null, 'a branch not on origin has no GitHub page');
+  assert.equal(githubBranchUrl(github, { branch: 'feature', detached: true, comparison: { unpushed: 0 } }), null);
 });

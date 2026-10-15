@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseSessionCommand as parse,matchCommands,rateLimitRows,sessionCommands,commandUnavailable,unsupportedCommand,slashSkills,planCommandAction} from '../src/session-command-model.mjs';
+import {parseSessionCommand as parse,matchCommands,rateLimitRows,sessionCommands,commandUnavailable,unsupportedCommand,slashSkills,planCommandAction,slashToken} from '../src/session-command-model.mjs';
 import {emptyState,reduce} from '../src/state.js';
 // Claude 2.2553.1 cc183b3ab/shared-11: canonical host names, gates and
 // completion semantics replace the former Codex TUI palette expectations.
@@ -115,4 +115,57 @@ test("/usage promises plan usage and rate limits only on a core that reports the
   assert.equal(sessionCommandDescription(usage, { perTokenBilling: true }), "Show the tokens used on this Mac");
   assert.equal(match("usage", { perTokenBilling: true }).find((row) => row.id === "usage").description, "Show the tokens used on this Mac");
   assert.equal(match("usage", {}).find((row) => row.id === "usage").description, "Show plan usage, credits and rate limits");
+});
+
+// B05 C4 (2.31226.0 shared-5 mS/yS slash-command-suggestion; ca80fca8d :15423 midMessageNeedsName): the '/' list follows
+// the caret's token anywhere in the draft, as the tiptap Suggestion with allowSpaces and allowedPrefixes [' '] finds it.
+test('slash token: start of draft, mid-message after a space, later lines, caret-relative',()=>{
+ const at=(text,caret=text.length,options)=>slashToken(text,caret,options);
+ assert.deepEqual(at('/'),{start:0,end:1,query:''},'a bare / opens at the very start');
+ assert.deepEqual(at('/rev'),{start:0,end:4,query:'rev'});
+ assert.deepEqual(at('please run /rev'),{start:11,end:15,query:'rev'},'mid-message /skill');
+ assert.equal(at('please run /'),null,'midMessageNeedsName: a bare / mid-message stays closed');
+ assert.deepEqual(at('please run /',12,{midMessageNeedsName:false}),{start:11,end:12,query:''});
+ assert.deepEqual(at('line one\n/rev'),{start:9,end:13,query:'rev'},'multi-line drafts open on any line');
+ assert.deepEqual(at('first\nthen /com'),{start:11,end:15,query:'com'});
+ assert.equal(at('a/b'),null,'the char before / must be a space or the run start');
+ assert.equal(at('path/to/file'),null);
+ assert.deepEqual(at('/review this'),{start:0,end:12,query:'review this'},'allowSpaces: the query runs to the caret');
+ assert.deepEqual(at('x /a /b'),{start:5,end:7,query:'b'},'the last match before the caret');
+});
+test('slash token limits: caret inside, next char whitespace, 51 chars, leading space, dismissed trigger, run boundary',()=>{
+ assert.deepEqual(slashToken('use /rev now',8),{start:4,end:8,query:'rev'},'caret at the token end, a space after it');
+ assert.equal(slashToken('use /revnow',8),null,'the char after the caret must be whitespace or the end');
+ assert.equal(slashToken('use /rev',3),null,'caret before the /');
+ assert.equal(slashToken('/'+'a'.repeat(51),52),null,'at most 51 chars');
+ assert.equal(slashToken('/'+'a'.repeat(50),51).query.length,50);
+ assert.equal(slashToken('/ x',3),null,'a query starting with a space never opens');
+ assert.equal(slashToken('go /rev',7,{dismissedAt:3}),null,'Escape keeps that trigger closed');
+ assert.deepEqual(slashToken('go /rev',7,{dismissedAt:0}),{start:3,end:7,query:'rev'});
+ // A chip before the caret ends the text run (PM nodeBefore): its own '/name' text is not a trigger.
+ assert.equal(slashToken('/theme dark',11,{boundary:6}),null);
+ assert.deepEqual(slashToken('/pdf then /rev',14,{boundary:4}),{start:10,end:14,query:'rev'});
+ assert.equal(slashToken('',0),null);assert.equal(slashToken('x',5),null);
+});
+test('a mid-message query feeds matchCommands like a leading one',()=>{
+ const token=slashToken('please /comp',12);
+ assert.equal(matchCommands(token.query,ready)[0]?.id,'compact');
+});
+
+// B31: the '/' list's loading, retry and override states (c5cd1b4dc :3586-3700; ccc334009 z/G).
+test("slash menu: headers first, rows, then the loading skeleton; an overriding custom command carries 'Custom command'", async () => {
+  const { slashMenuEntries, slashListState, matchCommands, SLASH_RETRY_HEADER, SLASH_PRESESSION_HEADER, CUSTOM_COMMAND_SUBTITLE } = await import('../src/session-command-model.mjs');
+  const commands = [{ id: 'a' }, { id: 'b' }];
+  assert.deepEqual(slashMenuEntries(commands, { preSession: true, failed: true, loading: true }).map((entry) => entry.type === 'row' ? entry.command.id : entry.type === 'header' ? entry.label : entry.type),
+    [SLASH_PRESESSION_HEADER, SLASH_RETRY_HEADER, 'a', 'b', 'loading']);
+  assert.equal(SLASH_RETRY_HEADER, 'Some commands didn’t load. Type / again to retry.');
+  assert.deepEqual(slashMenuEntries([], {}), []);
+  assert.deepEqual(slashListState({ skills: { status: 'loading', loading: true }, customCommands: { status: 'ready' } }), { loading: true, failed: false });
+  assert.deepEqual(slashListState({ skills: { status: 'ready', loading: true } }), { loading: false, failed: false }, 'a reload keeps the rows it shows');
+  assert.deepEqual(slashListState({ skills: { status: 'idle' }, customCommands: { status: 'error' } }), { loading: false, failed: true });
+  assert.deepEqual(slashListState(), { loading: false, failed: false });
+  const rows = matchCommands('pd', { customCommands: [{ name: 'pdf', description: 'Mine', hidesSkill: true }, { name: 'pdq', description: 'Other' }], skills: [{ name: 'pdf', path: '/s/pdf/SKILL.md' }] });
+  const custom = rows.filter((row) => row.kind === 'custom');
+  assert.deepEqual(custom.map((row) => [row.id, row.subtitle]), [['pdf', CUSTOM_COMMAND_SUBTITLE], ['pdq', undefined]]);
+  assert.equal(rows.some((row) => row.kind === 'skill' && row.id === 'pdf'), false, 'the overridden skill stays hidden');
 });

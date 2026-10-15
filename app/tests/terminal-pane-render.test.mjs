@@ -64,15 +64,31 @@ test('tabs: one tab reads "Terminal", several read "Terminal {n}" or their name;
   assert.match(html, /dev server<span class="source-sr-only">, Terminal \(command running\)<\/span>/);
   assert.match(html, /<span>Terminal 3<\/span>/);
   assert.equal((html.match(/tabindex="0"/g) || []).length >= 1, true);
-  // The active tab exited: Shell exited. + Restart shell.
+  // The active tab exited (c6bf19e8f): Shell exited. covers the surface; Restart shell is described by it.
   state({ id: 'term-aaaaaa', number: 1, status: 'exited', exitCode: 1 });
   html = pane();
-  assert.match(html, /class="stp-exited" role="status"><span>Shell exited\.<\/span>/);
-  assert.match(html, />Restart shell</);
+  assert.match(html, /<div class="stp-host" hidden="">/, 'the xterm surface is hidden under the overlay');
+  assert.match(html, /class="stp-overlay" data-terminal-exited="">[\s\S]*<span id="([^"]+)-exited">Shell exited\.<\/span>/);
+  assert.match(html, /aria-describedby="[^"]+-exited" data-initial-focus=""[^>]*>[\s\S]*Restart shell</);
   // A limited (script backend) terminal says so.
   state({ id: 'term-aaaaaa', number: 1, status: 'running', limited: true, backend: 'script' });
   html = pane();
   assert.match(html, /class="stp-note" role="note">Limited terminal/);
+});
+
+test('a tab without its own name shows the running command or the title’s last segment, muted after the name', async () => {
+  const titles = (await server.ssrLoadModule('/src/terminal-titles.mjs')).terminalTitles();
+  let onTitle = null;
+  titles.install({ onTitleChange(handler) { onTitle = handler; }, parser: { registerOscHandler() {} } }, 'term-cccccc');
+  onTitle('me@host: ~/work/project');
+  let html = pane();
+  assert.match(html, /<span>Terminal 3<span class="stp-tab-description"><span class="source-sr-only">, <\/span>project<\/span><\/span>/);
+  // A named tab keeps only its name (Zg: n.name === void 0).
+  titles.install({ onTitleChange(handler) { onTitle = handler; }, parser: { registerOscHandler() {} } }, 'term-bbbbbb');
+  onTitle('vim notes.md');
+  html = pane();
+  assert.doesNotMatch(html, /dev server<span class="stp-tab-description">/);
+  titles.forget('term-cccccc'); titles.forget('term-bbbbbb');
 });
 
 test('without the preload bridge the pane explains it cannot load (no crash)', async () => {

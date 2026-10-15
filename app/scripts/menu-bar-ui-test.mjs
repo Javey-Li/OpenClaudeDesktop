@@ -36,7 +36,7 @@ async function rightClick(){const before=await app.evaluate(()=>globalThis.offsc
  return app.evaluate(()=>globalThis.offscreenEvidence.trays.findLast(t=>!t.destroyed).menus.at(-1));}
 const labels=menu=>menu.map(i=>i.type==='separator'?'---':i.label);
 const settings=()=>page.getByRole('dialog',{name:'Settings',exact:true});
-async function openGeneral(){await page.keyboard.press('Meta+,');await settings().waitFor();await settings().getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'General',exact:true}).click();await settings().getByRole('heading',{name:'General desktop settings',exact:true}).waitFor();}
+async function openGeneral(){await page.keyboard.press('Meta+,');await settings().waitFor();await settings().getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'System',exact:true}).click();await settings().getByRole('heading',{name:'System',exact:true}).waitFor();}
 const menuSwitch=()=>settings().getByRole('switch',{name:'Menu bar',exact:true});
 async function shot(name){await page.screenshot({path:path.join(directory,name+'.png')});}
 try{
@@ -129,10 +129,10 @@ try{
  // transition, so getAnimations().every(finished) is vacuously true; filling then races SettingsContent's mount rAF root.focus() (source-settings.jsx:141),
  // which blurs the search and onBlur closeSearch clears it (offscreen-settings-race-probe: 3/3 deterministic). Wait for entered first.
  step('search');await page.keyboard.press('Escape');await settings().waitFor({state:'detached'});await page.keyboard.press('Meta+,');await settings().waitFor();await page.waitForFunction(()=>document.querySelector('.ss-settings-dialog')?.dataset.open==='true');await page.waitForFunction(()=>document.querySelector('.ss-settings-dialog')?.getAnimations().every(a=>a.playState==='finished'));const search=settings().getByRole('textbox',{name:'Search settings',exact:true});await search.fill('menu bar');assert.equal(await search.inputValue(),'menu bar');
- await settings().getByRole('button',{name:'Menu bar in General',exact:true}).click();await menuSwitch().waitFor();
- report.checks.push('Settings search finds Menu bar in General and navigates to the row');
- step('dark-narrow');await settings().getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'Preferences',exact:true}).click();await settings().getByRole('radio',{name:'Dark',exact:true}).click();await poll(async()=>(await read('preferences.json')).theme==='dark','dark saved');
- await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(760,768));await settings().getByRole('tab',{name:'General',exact:true}).click();await menuSwitch().scrollIntoViewIfNeeded();
+ await settings().getByRole('button',{name:'Menu bar in System',exact:true}).click();await menuSwitch().waitFor();
+ report.checks.push('Settings search finds Menu bar in System (the This computer › System page, B23) and navigates to the row');
+ step('dark-narrow');await settings().getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'General',exact:true}).click();await settings().getByRole('radio',{name:'Dark',exact:true}).click();await poll(async()=>(await read('preferences.json')).theme==='dark','dark saved');
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(760,768));await settings().getByRole('tab',{name:'System',exact:true}).click();await menuSwitch().scrollIntoViewIfNeeded();
  assert.equal(await settings().evaluate(n=>n.scrollWidth<=n.clientWidth),true);await shot('menu-bar-dark-narrow');
  step('persist-off');await menuSwitch().click();await poll(async()=>(await read('preferences.json')).menuBarEnabled===false,'disabled saved again');await app.close();app=null;
  await launch();

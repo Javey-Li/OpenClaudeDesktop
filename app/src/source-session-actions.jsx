@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Icon } from './icons';
 import { rateLimitRows } from './session-command-model.mjs';
 import { planLabel, planUsageSummary } from './usage-model.mjs';
@@ -13,6 +13,8 @@ import { coreCapabilities } from '../electron/core-registry.mjs';
 import { permissionLabel } from './source-permission-menu.jsx';
 import { effortName } from './model-menu-model.mjs';
 import { signedOutAccountLabel } from './account-label-model.mjs';
+import { GitCounts } from './source-git-counts.jsx';
+import { rewindLabel, rewindPickerMove, rewindPickerStart, rewindRestoreItems, rewindTargetText } from './rewind-flow-model.mjs';
 
 // The local action dialogs (Review code, Help, Rewind, Keyboard shortcuts, Run workflow, Bypass) on the
 // shared CDS Dialog (source-dialog.jsx: shared-frame-C_2npUJq.js:5561-5574, :5738-5869). The props API is
@@ -23,14 +25,14 @@ export function ActionDialog({ title, onClose, children, className = '', showClo
   </SourceDialog>;
 }
 
-// shared-21-D098Wd--.js:14583-14625 IR: Dialog size md in comfortable density, the bleed header
-// 'Keyboard shortcuts', initial focus on the popup, then one focusable scrolling region
-// (rounded-lg, focus-visible shadow-focus) holding zR's sections (OR :14462-14464) and rows
-// ($ :14466-14506: label text-sm text-secondary, keycap Shortcuts with 'or' between them).
-export function KeyboardShortcutsDialog({ fastMode = false, sideChat = false, onClose, ...dialog }) {
+// 2.31226 shared-19 rZ: Dialog size md in comfortable density, fullHeight on the Code route (h-dvh under the popup's
+// max-h), the bleed header 'Keyboard shortcuts' and initial focus on the popup; c518a31cc ve: one focusable region
+// that scrolls edge to edge (-mx/-mb-pad-xl, px/pb-xl, rounded-b-[inherit], an inset focus ring) holding Ce's
+// sections (q: mt-5 py-2) and rows (Y: label text-sm text-secondary, keycap Shortcuts with 'or' between them).
+export function KeyboardShortcutsDialog({ fastMode = false, sideChat = false, rewind = true, onClose, ...dialog }) {
   return <ActionDialog {...dialog} title={t("Keyboard shortcuts")} size="md" bleed density="comfortable" className="shortcuts-dialog" onClose={onClose}>
     <div role="region" aria-label={t("Keyboard shortcuts")} tabIndex={0} className="shortcuts-region">
-      {shortcutsDialogSections({ fastMode, sideChat }).map(section => <div key={section.title}>
+      {shortcutsDialogSections({ fastMode, sideChat, rewind }).map(section => <div key={section.title}>
         <div className="shortcuts-section">{section.title}</div>
         {section.rows.map(row => <div key={row.command} className="shortcuts-row" data-command={row.command}>
           <span className="shortcuts-label">{row.label}</span>
@@ -189,15 +191,59 @@ export function SlashHelp({onClose,commands=[],coreLabel='',docsUrl=null,onShort
     </div>
   </ActionDialog>;
 }
-export function RewindDialog({turns,onConfirm,onClose,canRestoreFiles=false,preselected=null,...dialog}) {
- const [selected,setSelected]=useState(()=>turns?.some(turn=>turn.id===preselected)?preselected:null),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[restoreFiles,setRestoreFiles]=useState(false);
- // canRestoreFiles (capabilities.rewindFiles): the core can also put back the files the agent edited after that message.
- return <ActionDialog {...dialog} title={t("Rewind conversation")} onClose={()=>!busy&&onClose()}><p>{canRestoreFiles&&restoreFiles?t("Choose an earlier message. This removes it and all later conversation history, and restores the files the agent changed since."):t("Choose an earlier message. This removes it and all later conversation history. Local file changes remain.")}</p>
- {/* Claude-styled choice rows (the question card's sq-radio-mark / sq-checkbox-mark): the native input stays for the
-     keyboard and screen readers, visually hidden, and the mark sits beside its message on the same row. */}
- {canRestoreFiles&&<label className="slash-rewind-files slash-rewind-option" data-checked={restoreFiles||undefined}><input className="slash-rewind-input" type="checkbox" checked={restoreFiles} disabled={busy} onChange={event=>{setRestoreFiles(event.target.checked);setConfirmed(false);}}/>
-   <span className="slash-rewind-mark" data-kind="checkbox" data-checked={restoreFiles||undefined} aria-hidden="true">{restoreFiles&&<Icon name="Check" size={12}/>}</span><span className="slash-rewind-text">{t("Also restore files the agent changed")}</span></label>}
- <div className="slash-rewind-list" role="radiogroup" aria-label={t("Earlier messages")}>{turns.map(turn=><label key={turn.id} className="slash-rewind-option" data-checked={selected===turn.id||undefined}><input className="slash-rewind-input" type="radio" name="rewind" checked={selected===turn.id} disabled={busy} onChange={()=>{setSelected(turn.id);setConfirmed(false);}}/>
-   <span className="slash-rewind-mark" data-kind="radio" data-checked={selected===turn.id||undefined} aria-hidden="true">{selected===turn.id&&<span className="slash-rewind-dot"/>}</span><span className="slash-rewind-text">{turn.text}</span></label>)}</div>
- {error&&<p role="alert">{error}</p>}<SourceDialogFooter><SourceSettingsButton onClick={onClose} disabled={busy}>{t("Cancel")}</SourceSettingsButton><SourceSettingsButton variant="primary" busy={busy} disabled={!selected} onClick={async()=>{if(!confirmed){setConfirmed(true);return;}setBusy(true);try{await onConfirm(selected,{restoreFiles:canRestoreFiles&&restoreFiles});}catch(e){setError(e.message);setBusy(false);}}}>{confirmed?t('Confirm rewind'):t('Rewind to here')}</SourceSettingsButton></SourceDialogFooter></ActionDialog>;
+// cc43287c9-Bchz60VT.js J1 (:30061-30231) / Y1: the Rewind picker (/rewind, Esc Esc). A listbox of the session's
+// user messages (caec4a2d4 Ai, labels vi), the latest active; ArrowUp/ArrowDown move the active row (clamped) and
+// focus the list, Enter on the list or a click picks it; the pointer makes a row active. Picking hands the message to
+// the same request as the message menu's 'Rewind to here' (onSelect), which checks for file changes first.
+export function RewindPicker({turns,onSelect,onClose,...dialog}) {
+ const count=turns.length,prefix=useId(),list=useRef(null);
+ const [active,setActive]=useState(()=>rewindPickerStart(count));
+ const labels=useMemo(()=>turns.map(turn=>rewindLabel(turn.text)),[turns]);
+ const pick=index=>{const turn=turns[index];if(turn)onSelect(turn);else onClose();};
+ useEffect(()=>{list.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView?.({block:'nearest'});},[active]);
+ const keyDown=event=>{
+  const next=rewindPickerMove(event.key,active,count);
+  if(next!==null){event.preventDefault();list.current?.focus({preventScroll:true});setActive(next);return;}
+  if(event.key==='Enter'&&list.current?.contains(event.target)){event.preventDefault();pick(active);}
+ };
+ return <ActionDialog {...dialog} title={t("Rewind")} description={t("Restore the session to an earlier message.")} aria-label={t("Rewind session")}
+  className="rewind-picker" initialFocusRef={list} onKeyDown={keyDown} onClose={onClose}>
+  <ul ref={list} role="listbox" aria-activedescendant={count?`${prefix}-rewind-opt-${active}`:undefined} tabIndex={-1} className="rewind-picker-list">
+   {count===0?<li role="presentation" className="rewind-picker-empty">{t("Nothing to rewind to yet")}</li>
+    :turns.map((turn,index)=><li key={turn.id} id={`${prefix}-rewind-opt-${index}`} data-idx={index} role="option" aria-selected={active===index}
+      className="rewind-picker-option" data-selected={active===index||undefined} onMouseEnter={()=>setActive(index)} onClick={()=>pick(index)}>
+      <div className="rewind-picker-label">{labels[index]}</div></li>)}
+  </ul>
+ </ActionDialog>;
+}
+
+// cc43287c9-Bchz60VT.js K1 (:29899-30060): 'Rewind to this message?' — the message quoted (sr-only 'You', two lines),
+// then, unless the file check found nothing (preview 'none'), the Restore select (Code and conversation /
+// Conversation only; G4 confirmRewind) over the files the restore would put back ('{count} files · +a −d', or
+// 'Checking for file changes…' while the check runs) and the shell-commands note. Cancel takes the initial focus;
+// Rewind is busy ('Rewinding…') until onConfirm settles, and the dialog cannot be dismissed meanwhile.
+export function RewindConfirmDialog({targetText,preview,restoreItems,onConfirm,onClose,...dialog}) {
+ const [choice,setChoice]=useState('both'),[busy,setBusy]=useState(false),cancel=useRef(null),live=useRef(true);
+ useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
+ const pending=preview==='pending',ready=!!preview&&typeof preview==='object';
+ const items=restoreItems||rewindRestoreItems();
+ const confirm=()=>{setBusy(true);Promise.resolve().then(()=>onConfirm(ready?choice:'conversation')).catch(()=>{}).finally(()=>{if(live.current)setBusy(false);});};
+ return <ActionDialog {...dialog} size="sm" showClose={false} title={t("Rewind to this message?")} className="rewind-confirm" initialFocusRef={cancel}
+  onClose={()=>{if(!busy)onClose();}}>
+  <div className="rewind-confirm-body">
+   <div className="rewind-confirm-quote"><span className="source-sr-only">{t("You")}</span><p>{rewindTargetText(targetText)}</p></div>
+   {preview!=='none'&&<>
+    <SourceSelect label={t("Restore")} items={items} value={choice} onChange={value=>{if(value!==null)setChoice(value);}} searchable={false} disabled={busy||pending}/>
+    <div className="rewind-confirm-files" data-hidden={ready&&choice==='conversation'||undefined} aria-live="polite">
+     <span>{ready?<>{tn(preview.filesChanged.length,'{count} file','{count} files',{count:preview.filesChanged.length})}{' · '}<GitCounts added={preview.insertions} removed={preview.deletions} className="rewind-confirm-diff" addedClassName="rewind-confirm-added" removedClassName="rewind-confirm-removed"/></>
+      :t("Checking for file changes…")}</span>
+     <span className="rewind-confirm-note" data-hidden={pending||undefined}>{t("Changes made through shell commands aren’t reverted. Commits stay in place.")}</span>
+    </div>
+   </>}
+  </div>
+  <SourceDialogFooter>
+   <SourceSettingsButton ref={cancel} variant="secondary" disabled={busy} data-initial-focus="" onClick={onClose}>{t("Cancel")}</SourceSettingsButton>
+   <SourceSettingsButton variant="primary" disabled={pending} busy={busy} aria-label={busy?t("Rewinding…"):undefined} onClick={confirm}>{t("Rewind")}</SourceSettingsButton>
+  </SourceDialogFooter>
+ </ActionDialog>;
 }

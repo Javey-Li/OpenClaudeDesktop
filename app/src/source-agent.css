@@ -41,3 +41,5 @@ html[data-reduce-motion="true"] .sag-surface { transition: none; }
 .sag-composer textarea { flex:1; min-width:0; max-height:120px; resize:none; border:0; outline:none; background:transparent; color:var(--cds-text-primary); font:inherit; font-size:var(--cds-font-size-body); line-height:var(--cds-leading-body); padding:3px 0; field-sizing:content; }
 .sag-composer textarea::placeholder { color:var(--cds-text-muted); }
 .sag-composer .source-tool-error { margin:6px 0 0; }
+/* zw (cccc2cf0a :13175): the finished sub-agent's stats footnote, text-footnote text-muted tabular-nums. */
+.sag-stats { margin:0; font-size:var(--cds-font-size-footnote); line-height:var(--cds-leading-footnote); color:var(--cds-text-muted); font-variant-numeric:tabular-nums; }

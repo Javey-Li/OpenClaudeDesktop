@@ -13,7 +13,7 @@ try{
  const page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));
  await page.getByRole('button',{name:'Model',exact:true}).filter({hasText:'Test model'}).waitFor();await page.evaluate(()=>document.fonts.ready);
  await page.locator('.sc-pet-animation[data-ready] svg').waitFor();
- const metrics=await page.evaluate(()=>({iconFont:getComputedStyle(document.querySelector('.source-sidebar-nav-row [data-cds="Icon"]')).fontFamily,sidebar:document.querySelector('.app-sidebar').getBoundingClientRect().width,composer:document.querySelector('.composer').getBoundingClientRect().width,stats:document.querySelector('.code-stats').getBoundingClientRect().width,sidebarBackground:getComputedStyle(document.querySelector('.app-sidebar')).backgroundColor,composerPadding:getComputedStyle(document.querySelector('.sc-surface')).padding,sendIcon:document.querySelector('[aria-label="Send message"] [data-cds="Icon"]')?.textContent.codePointAt(0)}));
+ const metrics=await page.evaluate(()=>({iconFont:getComputedStyle(document.querySelector('.source-sidebar-nav-row [data-cds="Icon"]')).fontFamily,sidebar:document.querySelector('.app-sidebar').getBoundingClientRect().width,composer:document.querySelector('.composer').getBoundingClientRect().width,stats:document.querySelector('.code-stats').getBoundingClientRect().width,sidebarBackground:getComputedStyle(document.querySelector('.app-sidebar')).backgroundColor,composerPadding:getComputedStyle(document.querySelector('.sc-surface')).padding,sendIcon:document.querySelector('[data-testid="code-prompt-send"] [data-cds="Icon"]')?.textContent.codePointAt(0)}));
  assert.match(metrics.iconFont,/Anthropicons/);assert.equal(metrics.sidebar,288);assert.equal(metrics.composer,768);assert.equal(metrics.stats,480);assert.equal(metrics.composerPadding,'8px');assert.equal(metrics.sendIcon,57359);
  checks.push('original font, glyph, Lottie load and measured home dimensions');
  // 0.2.113 product correction (not loosened): the 39px disabled dictation split was fabricated. Source hides dictation
@@ -28,8 +28,8 @@ try{
  assert.deepEqual(metrics.context,{paddingBottom:'4px',addFolderWidth:28,chipToCardGap:10});
  const editor=page.getByRole('textbox',{name:'Message DeepSeek'});
  await editor.fill(Array.from({length:30},(_,i)=>`Draft line ${i+1}`).join('\n'));
- // CDS editor qc max-h-96 (source-composer.jsx): grows to 24rem before it scrolls.
- assert.equal(await editor.evaluate(node=>node.getBoundingClientRect().height),384);
+ // ca80fca8d yP editor maxHeight 'min(24rem, 40svh)' (B05): grows to 24rem, or 40% of the window height when that is less, before it scrolls.
+ {const [height,cap]=await editor.evaluate(node=>[node.getBoundingClientRect().height,Math.min(384,innerHeight*0.4)]);assert.ok(Math.abs(height-cap)<1,`editor capped at ${cap}px, got ${height}px`);}
  await editor.fill('');assert.equal(await editor.evaluate(node=>node.getBoundingClientRect().height),24);
  checks.push('source chin height 20px, Add 20px/16px glyph, no dictation control (hideDictation branch) so Mode directly follows Add, and one autosize owner clamps the editor to 24–384px (max-h-96)');
  await page.getByRole('button',{name:'Model',exact:true}).click();

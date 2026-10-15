@@ -28,6 +28,8 @@ export const DEFAULT_SIDEBAR_PREFERENCES = Object.freeze({
   // Filter menu 'Show PR status' (shared-23 xF, show_pr_status; on by default).
   showPrStatus: true,
   collapsedNested: [],
+  // shared-50 G collapsedGroups (persisted with the sidebar store): folded group/bucket keys.
+  collapsedGroups: [],
 });
 
 export function normalizeSidebarPreferences(value = {}) {
@@ -44,7 +46,23 @@ export function normalizeSidebarPreferences(value = {}) {
     // sidebar-groups vc().keys: folded nested heads persist as parent ids.
     collapsedNested: Array.isArray(value.collapsedNested)
       ? [...new Set(value.collapsedNested.filter((id) => typeof id === "string" && id))] : [],
+    // shared-50 mm(collapsedGroups) on rehydrate: string keys, deduplicated.
+    collapsedGroups: Array.isArray(value.collapsedGroups)
+      ? [...new Set(value.collapsedGroups.filter((key) => typeof key === "string" && key))] : [],
   };
+}
+
+/** shared-50 G toggleGroupCollapsed (readable 4486-4491): adds or removes one group key. */
+export function toggleCollapsedGroup(preferences, key) {
+  const p = normalizeSidebarPreferences(preferences);
+  const collapsedGroups = p.collapsedGroups.includes(key) ? p.collapsedGroups.filter((entry) => entry !== key) : [...p.collapsedGroups, key];
+  return { ...p, collapsedGroups };
+}
+
+/** shared-50 G expandGroup (readable 4492-4497): drops the key when present, else the same preferences. */
+export function expandCollapsedGroup(preferences, key) {
+  const p = normalizeSidebarPreferences(preferences);
+  return p.collapsedGroups.includes(key) ? { ...p, collapsedGroups: p.collapsedGroups.filter((entry) => entry !== key) } : p;
 }
 
 export function sessionName(session) {
@@ -127,13 +145,38 @@ export function sidebarEmptyHasNonDefaultFilter(preferences) {
   return p.status === "archived" || (p.groupBy === "state" && p.stateActivityDays > 0 && p.stateActivityDays < 7);
 }
 
-/** sidebar-groups.js:7700-7705 CO + wO: no empty state while any row is
- * visible; otherwise "filtered" when rows exist behind the filters, a
- * non-default filter is set, or archived sessions exist, else "no-sessions". */
-export function sidebarEmptyVariant({ visible = 0, total = 0, hasNonDefaultFilter = false, hasArchived = false } = {}) {
+/** sidebar-groups.js:7700-7705 CO + wO (shared-21 HQ/UQ, readable
+ * 18115-18125): no empty state while any row is visible; "load-failed" when
+ * the list failed to load and nothing is behind the filters; otherwise
+ * "filtered" when rows exist behind the filters, a non-default filter is
+ * set, or archived sessions exist, else "no-sessions". */
+export function sidebarEmptyVariant({ visible = 0, total = 0, hasNonDefaultFilter = false, hasArchived = false, failed = false } = {}) {
   if (visible > 0) return undefined;
+  if (failed && total === 0) return "load-failed";
   const variant = total > 0 || hasNonDefaultFilter ? "filtered" : "no-sessions";
   return variant === "no-sessions" && hasArchived ? "filtered" : variant;
+}
+
+/** shared-21 VQ (readable 18109-18114): while the list is (re)loading, a
+ * failure shown for the same list stays shown (the Try again button spins
+ * instead of the skeleton flashing back); a settled load shows its own result.
+ * `previous` is the last returned state ({list, failed}); returns the next one. */
+export function stickyListFailure(previous, { failed = false, loading = false, list } = {}) {
+  const held = !!previous?.failed && (previous.list === list || failed);
+  const next = loading ? held : !!failed;
+  return previous && previous.list === list && previous.failed === next ? previous : { list, failed: next };
+}
+
+/** shared-21 xg showFewerRows (readable 28248-28303) with TC = yC (shared-11
+ * 10388): after a bucket was revealed (extraRevealed > 0) down to its end
+ * (hiddenCount 0), "collapse" folds it back to the keep-visible floor when
+ * that still hides rows; when the floor itself keeps the end of the list
+ * open, "held" (the open row is near the end); otherwise no Show less. */
+export function showFewerRows({ total = 0, truncateAt, extraRevealed = 0, hiddenCount = 0, floor = 0 } = {}) {
+  if (truncateAt === undefined || !(extraRevealed > 0) || hiddenCount !== 0) return undefined;
+  const cuts = (extra) => total > truncateAt + extra + 1;
+  if (extraRevealed > floor && cuts(floor)) return "collapse";
+  return cuts(0) ? "held" : undefined;
 }
 
 export function compareSessions(sortBy = "recency", locale) {
@@ -491,7 +534,7 @@ export function truncateRuns(runs = [], { truncateAt, extraRevealed = 0, keepVis
   const items = [];
   runs.forEach((run, index) => { for (const row of run.parentId === null ? run.rows : shownRows(run)) items.push({ index, id: row.id }); });
   let extra = Math.max(0, Number(extraRevealed) || 0);
-  const all = { runs, hiddenCount: 0, revealCount: 0, extraRevealed: extra, firstHiddenId: null };
+  const all = { runs, hiddenCount: 0, revealCount: 0, extraRevealed: extra, firstHiddenId: null, total: items.length };
   if (truncateAt === undefined) return all;
   const cuts = () => items.length > truncateAt + extra + 1;
   if (cuts() && keepVisibleIds) {
@@ -515,7 +558,7 @@ export function truncateRuns(runs = [], { truncateAt, extraRevealed = 0, keepVis
   // shows as "Show 1 more"; render the whole bucket instead.
   if (items.length - shown <= 1) return { ...all, extraRevealed: extra };
   const hiddenCount = items.length - shown;
-  return { runs: visible, hiddenCount, revealCount: Math.min(truncateAt, hiddenCount), extraRevealed: extra, firstHiddenId: items[shown].id };
+  return { runs: visible, hiddenCount, revealCount: Math.min(truncateAt, hiddenCount), extraRevealed: extra, firstHiddenId: items[shown].id, total: items.length };
 }
 
 /**

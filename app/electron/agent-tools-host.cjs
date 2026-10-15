@@ -186,6 +186,7 @@ function createAgentToolsHost({
     web: "WebFetch: fetch a web page and read its content",
     sessions: "tools that read the user's other sessions",
     host: "tools that open a file in the user's editor or show it in Finder",
+    window: "get_window_layout, open_session_in, close_split, set_sidebar_collapsed: read the app's window layout and arrange where this session shows",
   };
   // load_tools groups by server: identity (a session, or none for a server shared by a folder) and the server's folder.
   const loads = new Map(); // key → Set<group>

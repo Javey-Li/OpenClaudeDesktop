@@ -28,7 +28,7 @@ const glyphs=JSON.parse(await fs.readFile(path.join(root,'src/generated/icons.js
 async function launch(){app=await electron.launch({args:[root],executablePath:path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),env,timeout:20000});page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',e=>report.rendererErrors.push({phase,message:e.message}));
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(1324,768));await page.waitForFunction(()=>innerWidth===1324);
  await composer().waitFor();await page.locator(`[data-source-session-id="${RC}"] .source-session-open`).click();await page.getByText('SEEDED_ANSWER',{exact:true}).waitFor();}
-async function send(text){await composer().fill(text);await page.getByRole('button',{name:'Send message',exact:true}).click();}
+async function send(text){await composer().fill(text);await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();}
 const errors=()=>page.locator('[data-turn-error]');
 const inlineAlerts=()=>page.locator('[role=alert].inline-error');
 // Screenshots wait for every open details panel to finish its measured height transition.

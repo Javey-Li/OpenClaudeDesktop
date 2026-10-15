@@ -129,6 +129,28 @@ export function editableDraft(entry) {
   return { text, attachments };
 }
 
+// 'Send now' (cf74bc599 nS/oS onSteer, cc43287c9 :38930-38946 queueBarSendNow): while a turn runs, a queued entry
+// can be promoted into a steer of that turn. Offered for an unlocked entry of the open session's running turn, one
+// promotion at a time (the steerBusy lock). Idle sessions have no turn to steer: the queue starts the next turn itself.
+export function canSendNow(queue, id, { turnId = null, connected = true, archived = false, steeringId = null } = {}) {
+  if (!turnId || !connected || archived || steeringId) return false;
+  if (!queue?.entries?.some((entry) => entry.id === id)) return false;
+  return !(queue.lockedIds || []).includes(id);
+}
+
+// After a refused promotion the entry is re-added (thread/queue/add appends it under a new id): the ids to pass to
+// thread/queue/reorder so it sits at its old slot again; null when it is already there or unknown.
+export function restoredOrder(ids, id, index) {
+  const list = Array.isArray(ids) ? ids.slice() : [];
+  const from = list.indexOf(id);
+  if (from < 0 || !Number.isInteger(index) || index < 0) return null;
+  const to = Math.min(index, list.length - 1);
+  if (from === to) return null;
+  list.splice(from, 1);
+  list.splice(to, 0, id);
+  return list;
+}
+
 // turn/steer failure that must fall back to the queue: Codex reports
 // activeTurnNotSteerable for review/compact turns (CodexErrorInfo).
 export function isNotSteerable(error) {

@@ -344,7 +344,8 @@ try {
     globalThis.__titlebarOpenPath = shell.openPath;
     shell.openPath = async (target) => { throw new Error(`Fixture folder is gone: ${target}`); };
   });
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  // B09 (c593f7513 Om): Open in lives in the header session menu behind the CaretDown beside the title.
+  await page.locator(".st-toolbar").getByRole("button", { name: /^More options for / }).click();
   await page.getByRole("menuitem", { name: "Open in", exact: true }).click();
   await page.getByRole("menu", { name: "Open in", exact: true }).getByRole("menuitem", { name: "Finder", exact: true }).click();
   const failureToast = page.locator('[data-cds="Toast"] [role="alertdialog"]').filter({ hasText: "Couldn’t show this folder in the file manager." });
@@ -405,7 +406,8 @@ try {
       rootInert: document.getElementById("root").inert,
       badge: { text: badge?.textContent, variant: badge?.dataset.variant, font: getComputedStyle(badge).fontFamily },
       date: node.querySelector(".st-release-date h4")?.textContent,
-      groups: [...node.querySelectorAll(".st-release-group h5")].map((h5) => h5.textContent),
+      // The running version's entry (newest first); older releases follow with their own groups.
+      groups: [...node.querySelector(".st-release-entry").querySelectorAll(".st-release-group h5")].map((h5) => h5.textContent),
     };
   });
   assert.equal(metrics.release.cds, "Dialog");

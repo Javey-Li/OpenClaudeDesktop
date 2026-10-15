@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { SourceDialog, SourceDialogFooter, MODAL_LAYER } from "./source-dialog.jsx";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { SourceMenu } from "./source-menu";
-import { BRANCH_SWITCH_LABELS, BRANCH_SWITCH_MODES } from "./branch-picker-model.mjs";
+import { BRANCH_SWITCH_LABELS, BRANCH_SWITCH_MODES, otherSessionsNote } from "./branch-picker-model.mjs";
 import "./source-branch-switch-dialog.css";
 import { t, tn } from "../electron/i18n/index.mjs";
 
@@ -49,9 +49,10 @@ function SplitDropdownButton({ label, busy, disabled, onPrimaryClick, items }) {
  * - x → UR (:15860-15912): busy on the chosen mode; a failed resolve shows the 'Couldn’t update the working tree.'
  *   error (onError) and stays open; success calls onResolved (D(le): the target becomes the chosen branch).
  * - O (onOpenChange false): ignored while busy; on the discard step it goes back; otherwise Cancel keeps the branch.
- * The "{count} other sessions are using this folder" note needs the other-session count (td), not tracked locally.
+ * - B34 (:17066-17078): with otherSessionCount > 0 (sessions sharing the folder) step 1 adds the text-body
+ *   text-secondary note '{count} other sessions are using this folder. Switching branches will affect them too.'
  */
-export function SourceBranchSwitchDialog({ open = true, onExited, currentBranch, targetBranch, status, onResolve, onResolved, onCancel, onError }) {
+export function SourceBranchSwitchDialog({ open = true, onExited, currentBranch, targetBranch, status, otherSessionCount = 0, onResolve, onResolved, onCancel, onError }) {
   const [busy, setBusy] = useState(null), [confirmDiscard, setConfirmDiscard] = useState(false), [mode, setMode] = useState("stash");
   const cancelRef = useRef(null), backRef = useRef(null), step = useRef(confirmDiscard);
   useEffect(() => {
@@ -61,7 +62,7 @@ export function SourceBranchSwitchDialog({ open = true, onExited, currentBranch,
   }, [confirmDiscard, open]);
   const resolve = async (chosen) => {
     // x: focus moves to the dialog itself first, so disabling the pressed button never drops it to <body>.
-    (backRef.current ?? cancelRef.current)?.ownerDocument.activeElement?.closest('[role="dialog"]')?.focus?.({ preventScroll: true });
+    (backRef.current ?? cancelRef.current)?.ownerDocument.activeElement?.closest('[role="alertdialog"],[role="dialog"]')?.focus?.({ preventScroll: true });
     setBusy(chosen);
     let resolved = false;
     try {
@@ -83,6 +84,7 @@ export function SourceBranchSwitchDialog({ open = true, onExited, currentBranch,
     onCancel?.();
   };
   const files = status?.files ?? 0, additions = status?.additions ?? 0, deletions = status?.deletions ?? 0;
+  const sharedNote = otherSessionsNote(otherSessionCount);
   return (
     <SourceDialog open={open} onExited={onExited} alert size="sm" showClose={false} className="sbs-dialog" descriptionClassName="sbs-description"
       initialFocusRef={cancelRef} onClose={close}
@@ -90,6 +92,7 @@ export function SourceBranchSwitchDialog({ open = true, onExited, currentBranch,
       description={confirmDiscard
         ? <>{withBranch(t("All uncommitted changes on {branch} will be permanently lost."), currentBranch)}</>
         : <>{withBranch(t("Handle them before switching to {branch}."), targetBranch)}</>}>
+      {!confirmDiscard && sharedNote && <p className="sbs-shared">{sharedNote}</p>}
       {!confirmDiscard && files > 0 && <p className="sbs-files">
         {tn(files, "{count} file changed", "{count} files changed")}
         {(additions > 0 || deletions > 0) && <ChangeCounts additions={additions} deletions={deletions} />}

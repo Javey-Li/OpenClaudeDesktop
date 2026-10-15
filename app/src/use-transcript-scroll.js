@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { centerScrollOffset } from "./transcript-find-model.mjs";
+import { easeScrollStep, keyScrollDelta, nextScrollTarget, scrollPaddingBottom } from "./pane-keys-model.mjs";
 
 // Claude 2.2553.1: follow controller c7f8992b4, cache cb670556a and
 // shared-10 jM observers. This controller is for the local non-virtualized DOM.
@@ -199,6 +200,11 @@ export function useTranscriptScroll({ sessionKey, ready }) {
     release: () => controller.current?.release(),
     reveal: (rect) => controller.current?.reveal(rect) ?? false,
     getContent: () => contentRef.current,
+    getViewport: () => viewportRef.current,
+    // cc43287c9 :45084-45156 (kn/jn/An): an Arrow or Page key from anywhere in the pane scrolls the transcript with
+    // an eased animation (pane-keys-model.mjs). keyScroll returns whether this transcript took the key.
+    keyScroll: (name) => controller.current?.keyScroll(name) ?? false,
+    cancelKeyScroll: () => controller.current?.cancelKeyScroll(),
   });
 
   useLayoutEffect(() => {
@@ -233,6 +239,12 @@ export function useTranscriptScroll({ sessionKey, ready }) {
     let glideUntil = 0;
     let glideTarget = null;
     let glideTimer = 0;
+    // Eased key scroll (cc43287c9 kn target / jn last written top / An frame); keyIntent marks its writes as the
+    // user's movement for onScroll, like a wheel or key intent.
+    let keyTarget = null;
+    let keyLast = null;
+    let keyFrame = 0;
+    let keyIntent = false;
 
     const live = () => !disposed && controller.current?.identity === identity;
     function publish() {
@@ -390,7 +402,7 @@ export function useTranscriptScroll({ sessionKey, ready }) {
         top,
         maximum,
         layoutChanged,
-        explicitIntent: userScrollPending || dragActive,
+        explicitIntent: userScrollPending || dragActive || keyIntent,
         programmatic: own,
         gliding: gliding(),
       });
@@ -408,6 +420,7 @@ export function useTranscriptScroll({ sessionKey, ready }) {
           following = true;
       }
       lastTop = top;
+      keyIntent = false;
       // Save user movement before RO/frame compensation uses the previous
       // anchor; do not save a browser clamp caused by content/viewport resize.
       if (
@@ -420,6 +433,28 @@ export function useTranscriptScroll({ sessionKey, ready }) {
       updateRangeFallback();
       publish();
       schedule();
+    }
+    function stopKeyScroll() {
+      if (keyFrame) cancelAnimationFrame(keyFrame);
+      keyFrame = 0;
+      keyTarget = null;
+      keyLast = null;
+    }
+    // r(): a quarter of the remaining distance per frame; a scroll that moved the viewport elsewhere (a wheel, a
+    // drag, a jump) ends the animation.
+    function keyStep() {
+      keyFrame = 0;
+      if (!live() || keyTarget === null || !visible(viewport)) return stopKeyScroll();
+      const top = viewport.scrollTop;
+      if (keyLast !== null && Math.abs(top - keyLast) > 1) return stopKeyScroll();
+      keyTarget = nextScrollTarget({ pending: keyTarget, scrollHeight: viewport.scrollHeight, clientHeight: viewport.clientHeight });
+      const step = easeScrollStep(top, keyTarget);
+      ownTarget = null;
+      keyIntent = true;
+      viewport.scrollTop = step.top;
+      keyLast = viewport.scrollTop;
+      if (step.done) return stopKeyScroll();
+      keyFrame = requestAnimationFrame(keyStep);
     }
     function onWheel(event) {
       if (isUpwardWheel(event) && viewport.scrollTop > 0) release();
@@ -533,6 +568,23 @@ export function useTranscriptScroll({ sessionKey, ready }) {
         return true;
       },
       release,
+      keyScroll(name) {
+        if (!live() || !visible(viewport) || viewport.scrollHeight <= viewport.clientHeight) return false;
+        const delta = keyScrollDelta(name, { clientHeight: viewport.clientHeight, scrollPaddingBottom: scrollPaddingBottom(viewport) });
+        if (!delta) return false;
+        // An upward move leaves the tail (onKey's release for a key aimed at the transcript); a downward one ends a
+        // jump's glide, and reaching the tail re-pins through onScroll.
+        if (delta < 0) release();
+        else endGlide();
+        keyTarget = nextScrollTarget({ pending: keyTarget, scrollTop: viewport.scrollTop, scrollHeight: viewport.scrollHeight,
+          clientHeight: viewport.clientHeight, delta });
+        if (!keyFrame) {
+          keyLast = viewport.scrollTop;
+          keyFrame = requestAnimationFrame(keyStep);
+        }
+        return true;
+      },
+      cancelKeyScroll: stopKeyScroll,
       // shared-18 Ko/Vo: a find match outside the visible band (cut at the
       // scroller's scroll-padding-bottom) is centred; following is released
       // first, as G9's scrollToIndex does.
@@ -597,6 +649,7 @@ export function useTranscriptScroll({ sessionKey, ready }) {
       save();
       disposed = true;
       endGlide();
+      stopKeyScroll();
       cancelAnimationFrame(frame);
       resize.disconnect();
       observers.forEach((observer) => observer.disconnect());

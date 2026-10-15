@@ -191,7 +191,8 @@ test('SourcePopover carries the px/gx contract', () => {
 test('usage panel: a Compact session TextLink row at 50% or more with an onCompact; none at 0% or without one', () => {
   const at60 = { last: { totalTokens: 76800 }, modelContextWindow: 128000 };
   const html = renderToStaticMarkup(React.createElement(C.SourceUsagePanel, { usage: at60, onSeeDetails: noop, onCompact: noop, compactState: { running: false, connected: true } }));
-  assert.match(html, /<div class="sc-usage-compact-row"><span class="sc-usage-compact-hint"><\/span><button type="button" data-cds="TextLink" class="sc-usage-compact">Compact session<\/button><\/div>/);
+  // c2d611398 Ne: the hint span always carries hintId; aria-describedby only while a hint exists.
+  assert.match(html, /<div class="sc-usage-compact-row"><span class="sc-usage-compact-hint" id="[^"]+"><\/span><button type="button" data-cds="TextLink" class="sc-usage-compact">Compact session<\/button><\/div>/);
   assert.ok(html.indexOf('sc-usage-compact-row') > html.indexOf('sc-usage-bar') && html.indexOf('sc-usage-compact-row') < html.indexOf('sc-usage-separator'), 'after the bar, inside the context section');
   const running = renderToStaticMarkup(React.createElement(C.SourceUsagePanel, { usage: at60, onCompact: noop, compactState: { running: true, connected: true } }));
   assert.match(running, /<button type="button" data-cds="TextLink" class="sc-usage-compact" disabled="" data-disabled="true">Compact session<\/button>/);
@@ -201,4 +202,18 @@ test('usage panel: a Compact session TextLink row at 50% or more with an onCompa
   for (const props of [{ usage: { last: { totalTokens: 100 }, modelContextWindow: 128000 }, onCompact: noop }, { usage: at60 }, { usage: at60, onCompact: noop, compactState: { compacting: true } }])
     assert.doesNotMatch(renderToStaticMarkup(React.createElement(C.SourceUsagePanel, props)), /Compact session/);
   assert.doesNotMatch(renderToStaticMarkup(React.createElement(C.SourceUsagePanel, { usage: undefined, fresh: true, onCompact: noop })), /Compact session/, 'the draft (no pct) has no row');
+});
+
+// B03: 'Where Claude runs' is the running core's: ComposerButton's t(tooltip.content) names its assistant.
+test("the env pill tooltip names the running core's assistant, in English and zh-CN", async (context) => {
+  const i18n = await import('../electron/i18n/index.mjs');
+  const previous = i18n.getAssistantName();
+  context.after(() => { i18n.setAssistantName(previous); i18n.setLocale(i18n.DEFAULT_LOCALE); });
+  i18n.setAssistantName('Codex');
+  assert.equal(i18n.t('Where DeepSeek runs'), 'Where Codex runs');
+  i18n.setLocale('zh-CN');
+  i18n.setAssistantName('Kimi');
+  assert.equal(i18n.t('Where DeepSeek runs'), 'Kimi 的运行位置');
+  const source = fs.readFileSync(path.join(app, 'src/source-composer.jsx'), 'utf8');
+  assert.match(source, /<SourceTooltip \{\.\.\.tooltip\} content=\{t\(tooltip\.content\)\}>/);
 });

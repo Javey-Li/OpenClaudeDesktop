@@ -96,7 +96,7 @@ const pane = kind => page.locator(`.source-side-tile[data-tile-id="${kind}"]`);
 const handle = kind => pane(kind).locator(".tiles-drag-handle");
 const separators = () => page.locator(".tiles-handle");
 async function menuToggle(label) {
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: label, exact: true }).click();
 }
 async function openFiles() { await menuToggle("Files"); await pane("files").waitFor(); await frames(); }
@@ -134,7 +134,7 @@ async function dragHandle(kind, dx, dy, { steps = 8, before, cancel = false, rel
 }
 async function sendPlan() {
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill("fixture:plan");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.getByText("PLAN_FIXTURE_REPLY", { exact: true }).waitFor();
   await frames(4);
 }
@@ -484,7 +484,14 @@ try {
   assert.equal(await page.locator('[role="menu"]').count(), 0, "no other menu was opened by the arrange popup");
   await pane("plan").getByRole("button", { name: "Collapse", exact: true }).click();
   await waitLayout("S[row](T:chat,S[column](T:files,T:plan))");
-  assert.equal(await arrangePopup().count(), 0, "a plain click toggles without opening the popup");
+  // The clicked trigger never opens its popup. Collapse puts the Files header's trigger under the
+  // stationary pointer; like any trigger the pointer enters (Base UI openOnHover on mouseenter) it may
+  // hover-open 100 ms later, so the check names the clicked trigger, and the pointer then leaves.
+  const collapsedTrigger = await arrangeTrigger("plan").getAttribute("id");
+  assert.equal(await arrangeTrigger("plan").getAttribute("data-popup-open"), null, "a plain click toggles without opening the popup");
+  assert.equal(await page.locator(`[role="menu"].spc-arrange[aria-labelledby="${collapsedTrigger}"]`).count(), 0, "a plain click toggles without opening the popup");
+  await page.mouse.move(400, 700);
+  await arrangePopup().waitFor({ state: "detached" });
   assert.deepEqual(await layoutRoot(), tiled, "Collapse restores the exact prior layout JSON");
   await pane("plan").getByRole("button", { name: "Expand", exact: true }).focus();
   await page.keyboard.press("Meta+Shift+\\");
@@ -533,7 +540,7 @@ try {
   const settings = page.getByRole("menu", { name: "Files settings", exact: true });
   await settings.waitFor();
   metrics.settings = await settings.evaluate(node => [...node.querySelectorAll('[role^="menuitem"]')].map(item => ({ role: item.getAttribute("role"), label: item.getAttribute("data-label"), checked: item.getAttribute("aria-checked") })));
-  assert.deepEqual(metrics.settings, [{ role: "menuitemcheckbox", label: "Show file tree", checked: "true" }]);
+  assert.deepEqual(metrics.settings, [{ role: "menuitemcheckbox", label: "Show file tree", checked: "true" }, { role: "menuitemcheckbox", label: "Preview tabs", checked: "true" }, { role: "menuitemcheckbox", label: "Auto-save", checked: "true" }, { role: "menuitemcheckbox", label: "Tab key indents", checked: "true" }, { role: "menuitemcheckbox", label: "Word wrap", checked: "true" }, { role: "menuitemcheckbox", label: "Indent guides", checked: "true" }, { role: "menuitemcheckbox", label: "Show whitespace", checked: "false" }, { role: "menuitemcheckbox", label: "Scroll past end", checked: "false" }, { role: "menuitem", label: "Tab size", checked: null }]);
   await settings.getByRole("menuitemcheckbox", { name: "Show file tree", exact: true }).click();
   await pane("files").getByRole("tree", { name: "Project files" }).waitFor({ state: "hidden" });
   assert.equal(await settings.count(), 1, "the checkbox keeps the menu open");
@@ -550,15 +557,17 @@ try {
   let tree = pane("files").getByRole("tree", { name: "Project files" });
   await tree.getByRole("button", { name: "nested", exact: true }).click();
   await tree.getByRole("button", { name: "deep.txt", exact: true }).waitFor();
-  // Fidelity F11 opens a tab synchronously and drops the tree peek (panes-state-current.js F / vi), so the first click
-  // already swaps the tree for the viewer: keep the preview through its tab's double-click instead of the row's.
+  // 2.31226.0 go retains the tree while opening the first file. Keep the preview through its tab.
   await tree.getByRole("button", { name: "alpha.txt", exact: true }).click();
   await pane("files").locator('.source-file-tab[data-file-path$="alpha.txt"][data-preview]').dblclick();
-  await pane("files").locator(".source-file-preview").filter({ hasText: "ALPHA_KEPT_FILE" }).waitFor();
+  await pane("files").locator(".source-file-preview, .sfv-editor").filter({ hasText: "ALPHA_KEPT_FILE" }).waitFor();
+  assert.equal(await tree.isVisible(), true, "2.31226.0 opening the first file retains the tree");
+  // Explicitly commit the shown preference for the persistence checks below (peek alone must not persist).
+  await pane("files").getByRole("button", { name: "Hide file tree", exact: true }).click();
   await pane("files").getByRole("button", { name: "Show file tree", exact: true }).click();
   await tree.waitFor();
   await tree.getByRole("button", { name: "beta.md", exact: true }).click();
-  await pane("files").locator(".source-file-preview").filter({ hasText: "BETA_PREVIEW_FILE" }).waitFor();
+  await pane("files").locator(".source-file-preview, .sfv-editor").filter({ hasText: "BETA_PREVIEW_FILE" }).waitFor();
   const tabsOf = () => pane("files").evaluate(node => [...node.querySelectorAll(".source-file-tab")].map(tab => ({ path: tab.dataset.filePath, preview: tab.dataset.preview === "true", selected: tab.querySelector('[role="tab"]').getAttribute("aria-selected") })));
   const treeDivider = pane("files").getByRole("separator", { name: "Resize file tree", exact: true });
   await treeDivider.focus(); await page.keyboard.press("ArrowRight"); await page.keyboard.press("ArrowRight"); await frames(2);
@@ -568,7 +577,7 @@ try {
   assert.equal(await layoutKey(), "S[row](T:chat)", "session B has no panes");
   await open(A);
   await waitLayout(stateA.key, "session A layout restored");
-  await pane("files").locator(".source-file-preview").filter({ hasText: "BETA_PREVIEW_FILE" }).waitFor();
+  await pane("files").locator(".source-file-preview, .sfv-editor").filter({ hasText: "BETA_PREVIEW_FILE" }).waitFor();
   const stateA2 = { key: await layoutKey(), tabs: await tabsOf(), treeWidth: (await rect(pane("files").locator(".source-files-tree"))).width, treeVisible: await tree.isVisible(), nested: await tree.getByRole("button", { name: "deep.txt", exact: true }).count() };
   assert.deepEqual(stateA2, stateA, "layout, tabs (order + preview flag), tree width/visibility and expanded folders restore");
   const storeBefore = await tilesStore();
@@ -580,7 +589,7 @@ try {
   tree = pane("files").getByRole("tree", { name: "Project files" });
   await open(A);
   await waitLayout(stateA.key, "relaunch restores the layout from localStorage code-desktop-tiles");
-  await pane("files").locator(".source-file-preview").filter({ hasText: "BETA_PREVIEW_FILE" }).waitFor();
+  await pane("files").locator(".source-file-preview, .sfv-editor").filter({ hasText: "BETA_PREVIEW_FILE" }).waitFor();
   const stateA3 = { key: await layoutKey(), tabs: await tabsOf(), treeWidth: (await rect(pane("files").locator(".source-files-tree"))).width, treeVisible: await tree.isVisible(), nested: await tree.getByRole("button", { name: "deep.txt", exact: true }).count() };
   assert.deepEqual(stateA3, stateA, "relaunch restores tabs, preview flag, tree width and expanded folders");
   checks.push("Session switch A -> B -> A and a relaunch with the same profile restore layout JSON, ordered tabs with preview flags, tree width/visibility and expanded folders from localStorage code-desktop-tiles (<= 100 entries, no file contents)");
@@ -633,9 +642,16 @@ try {
   await page.keyboard.press("ArrowRight"); info = await rowInfo();
   assert.equal(info.name, "leaf.txt"); assert.equal(info.level, "3"); assert.equal(info.paddingLeft, "24px");
   await page.keyboard.press("Enter");
-  await pane("files").locator(".source-file-preview").filter({ hasText: "NESTED_LEAF_FILE" }).waitFor();
+  await pane("files").locator(".source-file-preview, .sfv-editor").filter({ hasText: "NESTED_LEAF_FILE" }).waitFor();
   const opened = await tabsOf();
-  assert.ok(opened.some(tab => path.basename(tab.path) === "leaf.txt" && tab.preview), "Enter opens a preview tab");
+  // cccc2cf0a :5714 p(k, {keep: Vv(t)}) with Vv(e) = e.detail !== 1 (:4738): a keyboard Enter (a detail-0 click) keeps the tab;
+  // only a single pointer click opens a preview.
+  assert.ok(opened.some(tab => path.basename(tab.path) === "leaf.txt" && !tab.preview), "Enter opens a kept (non-preview) tab");
+  // B33 (cccc2cf0a ly/oy :4978-5079, c82eca2bd M, Db :6969-6980): releasing Enter on a file row hands focus to the
+  // opened file's editor. Put focus back on the leaf row to check leaving the tree backwards.
+  await page.waitForFunction(() => !!document.activeElement?.closest(".cm-content"));
+  await tree.locator('[role="treeitem"]').filter({ has: page.getByRole("button", { name: "leaf.txt", exact: true }) }).first().focus();
+  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "treeitem");
   // Shift+Tab from a row leaves the tree backwards (the container hands focus
   // to the row only on a keyboard arrival from outside: official yg guards);
   // a pointer press on the tree background keeps focus on the container.
@@ -659,7 +675,7 @@ try {
   await page.keyboard.press("ArrowUp");
   await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Filter files");
   metrics.tree = { firstName, childName, opened: opened.map(tab => path.basename(tab.path)), afterShiftTab, afterBackgroundClick };
-  checks.push("Tree: single tab stop landing on the aria-current row, ArrowDown/Up, Home/End, ArrowRight expand-or-next, ArrowLeft collapse-or-parent via data-parent-index, Enter previews, ArrowUp on the first row returns to Filter, Shift+Tab leaves the tree to Filter and a background press keeps focus on the container, 24px rows indented 8 + 8 * level");
+  checks.push("Tree: single tab stop landing on the aria-current row, ArrowDown/Up, Home/End, ArrowRight expand-or-next, ArrowLeft collapse-or-parent via data-parent-index, Enter opens a kept tab (Vv detail !== 1), ArrowUp on the first row returns to Filter, Shift+Tab leaves the tree to Filter and a background press keeps focus on the container, 24px rows indented 8 + 8 * level");
 
   // 12. Popout: header entry, tear-off bounds, dock, duplicate focus, window.open denied.
   const popoutWindow = app.waitForEvent("window", { timeout: 10000 });
@@ -669,7 +685,7 @@ try {
   await waitLayout("S[row](T:chat)", "the tile leaves the layout once the window exists");
   await popout.locator('[data-popout-pane="files"]').waitFor();
   await popout.getByRole("tree", { name: "Project files" }).getByRole("button", { name: "gamma.txt", exact: true }).waitFor();
-  const popoutMenu = page.getByRole("button", { name: "Session options", exact: true });
+  const popoutMenu = page.getByRole("button", { name: "View options", exact: true });
   await popoutMenu.click(); await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click(); await pane("files").waitFor();
   const popMenu = await paneMenu("files", null);
   assert.equal(await popMenu.getByRole("button", { name: "Open in new window", exact: true }).count(), 0, "a second window for the same session+pane is not offered");
@@ -689,7 +705,8 @@ try {
   // pane c is the tile trailing whose first control is c_ "Search files" (panes-tile-current.js:6791-6807, :16366-16378),
   // in the popped-out window too.
   // Fidelity F04 (on purpose): ma renders Et (dock) then Ot, the tE "Keep window on top" pin (sidebar-support.js:9509-9547).
-  assert.deepEqual(metrics.popoutHeader.buttons, ["Search files", "Files settings", "Open in main window", "Keep window on top"]);
+  // 2.31226.0 cccc2cf0a :7181 labels that control "Go to file or search" (the go-to-file chord).
+  assert.deepEqual(metrics.popoutHeader.buttons, ["Go to file or search", "Files settings", "Open in main window", "Keep window on top"]);
   // The pin toggles setPopoutAlwaysOnTop: main stores it on the pane window entry (popout-list) and calls
   // setAlwaysOnTop, which the offscreen adapter stops (blocked) while a native run reads isAlwaysOnTop().
   const pinState = async () => ({
@@ -724,8 +741,9 @@ try {
   assert.equal((await app.windows()).length, 1);
   // Tear-off: pointer leaves the window while dragging the handle and the
   // window is placed at the event's screen point minus 120/14 (Kh tear-off
-  // callback). The main window is parked at the work-area origin at 800x600
-  // so the wanted point lies strictly inside the display: a clamped
+  // callback). The main window is parked at the work-area origin at 600x600
+  // (its minimum width) so the wanted point and the 900x700 pane window
+  // (cd377abb5 Vn/Q default size) lie strictly inside the display: a clamped
   // placement would fail rather than pass by coincidence.
   const parked = await app.evaluate(({ BrowserWindow, screen }) => {
     const win = BrowserWindow.getAllWindows()[0];
@@ -734,7 +752,7 @@ try {
     win.setPosition(work.x, work.y);
     return { before, work };
   });
-  await size(800, 600);
+  await size(600, 600);
   await page.evaluate(() => { window.__lastMove = null; window.addEventListener("pointermove", event => { window.__lastMove = { clientX: event.clientX, clientY: event.clientY, screenX: event.screenX, screenY: event.screenY, inner: innerWidth }; }, true); });
   const tearHandle = await rect(handle("files"));
   await page.mouse.move(tearHandle.x + 22, tearHandle.y + 8); await page.mouse.down();
@@ -764,6 +782,7 @@ try {
   const wanted = { x: Math.round(lastMove.screenX - 120), y: Math.round(lastMove.screenY - 14) };
   metrics.popout = { lastMove, wanted, bounds, work, parked: parked.before };
   assert.equal(bounds.length, 1);
+  assert.deepEqual([bounds[0].width, bounds[0].height], [900, 700], "a torn-off pane window opens at the reference 900x700 default (cd377abb5 Vn)");
   assert.ok(wanted.x > work.x && wanted.x + bounds[0].width < work.x + work.width, `wanted x ${wanted.x} (+${bounds[0].width}) is strictly inside the work area ${JSON.stringify(work)}`);
   assert.ok(wanted.y > work.y && wanted.y + bounds[0].height < work.y + work.height, `wanted y ${wanted.y} (+${bounds[0].height}) is strictly inside the work area ${JSON.stringify(work)}`);
   near(bounds[0].x, wanted.x, "tear-off window x = pointer.x - 120", 4);

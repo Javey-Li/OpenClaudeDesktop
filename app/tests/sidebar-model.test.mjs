@@ -6,6 +6,7 @@ import {
   localDayBoundaries, sessionState, timestampMs, buildNestedRuns, bulkTargets, movePinned, orderPinned,
   sessionParentId, lineageKind, nestedStubCounts, nestedStubText, truncateRuns, sidebarEmptyVariant,
   showAllSessionsPreferences, sidebarEmptyHasNonDefaultFilter,
+  toggleCollapsedGroup, expandCollapsedGroup, stickyListFailure, showFewerRows,
 } from "../src/sidebar-model.js";
 
 const now = new Date(2026, 8, 20, 12).getTime();
@@ -20,7 +21,7 @@ test("classic settings reject sessionList-only options and preserve only valid c
   assert.deepEqual(CLASSIC_GROUP_OPTIONS.map(([key]) => key), ["date", "project", "state", "custom", "none"]);
   assert.deepEqual(CLASSIC_SORT_OPTIONS.map(([key]) => key), ["alpha", "created", "recency"]);
   assert.deepEqual(normalizeSidebarPreferences({ groupBy: "status", sortBy: "lastUpdated", status: "running", stateActivityDays: 14 }), {
-    groupBy: "project", sortBy: "recency", status: "active", stateActivityDays: 7, showEmptyGroups: false, showPrStatus: true, collapsedNested: [],
+    groupBy: "project", sortBy: "recency", status: "active", stateActivityDays: 7, showEmptyGroups: false, showPrStatus: true, collapsedNested: [], collapsedGroups: [],
   });
   // lI 'Show PR status' (show_pr_status): on by default, off only when saved false.
   assert.equal(normalizeSidebarPreferences({ showPrStatus: false }).showPrStatus, false);
@@ -362,4 +363,63 @@ test("main.cjs persists the section order (sidebar-state project-order) and drop
   assert.match(main, /projectOrder: Array\.isArray\(config\.projectOrder\) \? config\.projectOrder : \[\]/);
   assert.match(main, /config\.projectOrder = config\.projectOrder\.filter\(key => key !== "ccg::" \+ p\.id\)/);
   assert.match(main, /case "repo-identities":/);
+});
+
+test("collapsedGroups persist in the sidebar preferences (shared-50 G toggleGroupCollapsed / expandGroup / mm)", () => {
+  assert.deepEqual(normalizeSidebarPreferences({ collapsedGroups: ["pinned", "pinned", 4, "", "project:/a"] }).collapsedGroups, ["pinned", "project:/a"]);
+  const folded = toggleCollapsedGroup({ groupBy: "date" }, "day-0");
+  assert.deepEqual(folded.collapsedGroups, ["day-0"]);
+  assert.equal(folded.groupBy, "date", "the rest of the preferences is kept");
+  assert.deepEqual(toggleCollapsedGroup(folded, "older").collapsedGroups, ["day-0", "older"]);
+  assert.deepEqual(toggleCollapsedGroup(folded, "day-0").collapsedGroups, []);
+  assert.deepEqual(expandCollapsedGroup(folded, "day-0").collapsedGroups, []);
+  const same = normalizeSidebarPreferences(folded);
+  assert.deepEqual(expandCollapsedGroup(same, "older"), same);
+  // A filter reset keeps folded groups (showAllSessionsPreferences spreads the normalized preferences).
+  assert.deepEqual(showAllSessionsPreferences(folded).collapsedGroups, ["day-0"]);
+});
+
+test("sidebarEmptyVariant: load-failed (HQ) only when nothing is behind the filters; UQ keeps it", () => {
+  assert.equal(sidebarEmptyVariant({ visible: 0, total: 0, failed: true }), "load-failed");
+  assert.equal(sidebarEmptyVariant({ visible: 0, total: 0, failed: true, hasArchived: true }), "load-failed");
+  assert.equal(sidebarEmptyVariant({ visible: 0, total: 0, failed: true, hasNonDefaultFilter: true }), "load-failed");
+  assert.equal(sidebarEmptyVariant({ visible: 0, total: 3, failed: true }), "filtered");
+  assert.equal(sidebarEmptyVariant({ visible: 2, total: 3, failed: true }), undefined);
+});
+
+test("stickyListFailure (VQ): a failure stays shown while the same list reloads; a settled load replaces it", () => {
+  let state = stickyListFailure(null, { failed: false, loading: true, list: "active" });
+  assert.deepEqual(state, { list: "active", failed: false });
+  state = stickyListFailure(state, { failed: true, loading: false, list: "active" });
+  assert.equal(state.failed, true);
+  // Try again: loading again with the error cleared keeps the failure (no skeleton flash).
+  const retry = stickyListFailure(state, { failed: false, loading: true, list: "active" });
+  assert.equal(retry, state, "unchanged state object");
+  // Another list (status filter) while loading: no held failure unless it failed too.
+  assert.equal(stickyListFailure(state, { failed: false, loading: true, list: "archived" }).failed, false);
+  assert.equal(stickyListFailure(state, { failed: true, loading: true, list: "archived" }).failed, true);
+  // Settled: the load's own result.
+  assert.equal(stickyListFailure(state, { failed: false, loading: false, list: "active" }).failed, false);
+});
+
+test("showFewerRows (xg): collapse to the keep-visible floor, held when the floor keeps the end open", () => {
+  // 45 rows revealed to the end (extra 40), nothing kept: fold back.
+  assert.equal(showFewerRows({ total: 45, truncateAt: 20, extraRevealed: 40, hiddenCount: 0, floor: 0 }), "collapse");
+  // Rows still hidden: "Show N more", no Show less.
+  assert.equal(showFewerRows({ total: 45, truncateAt: 20, extraRevealed: 20, hiddenCount: 5, floor: 0 }), undefined);
+  // Never revealed (extra 0): nothing to fold.
+  assert.equal(showFewerRows({ total: 21, truncateAt: 20, extraRevealed: 0, hiddenCount: 0 }), undefined);
+  // The open row is the last one (floor 25 = 45 - 20): folding would hide nothing past it → held.
+  const kept = truncateRuns(flatRuns(45), { truncateAt: 20, keepVisibleIds: new Set(["r44"]) });
+  assert.equal(kept.hiddenCount, 0);
+  assert.equal(showFewerRows({ total: kept.total, truncateAt: 20, extraRevealed: kept.extraRevealed, hiddenCount: 0, floor: kept.extraRevealed }), "held");
+  // The open row at 30: revealed to the end folds back to 31 rows (floor 11).
+  const floor = truncateRuns(flatRuns(45), { truncateAt: 20, keepVisibleIds: new Set(["r30"]) }).extraRevealed;
+  assert.equal(floor, 11);
+  assert.equal(showFewerRows({ total: 45, truncateAt: 20, extraRevealed: 40, hiddenCount: 0, floor }), "collapse");
+  const folded = truncateRuns(flatRuns(45), { truncateAt: 20, extraRevealed: floor, keepVisibleIds: new Set(["r30"]) });
+  assert.deepEqual([rowIds(folded).length, folded.hiddenCount], [31, 14]);
+  // No truncation at all (chat mode): undefined.
+  assert.equal(showFewerRows({ total: 45, truncateAt: undefined, extraRevealed: 40, hiddenCount: 0 }), undefined);
+  assert.equal(truncateRuns(flatRuns(45), { truncateAt: 20 }).total, 45);
 });

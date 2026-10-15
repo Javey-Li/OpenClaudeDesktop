@@ -87,19 +87,19 @@ test('a steer from a core that doesn’t echo the id counts as delivered once on
   assert.equal(steerTextCount([{ type: 'userMessage', clientId: 'c1', content: [{ type: 'text', text: 'also check the README' }] }], 'also check the README'), 0, 'an echoed id is matched by id instead');
 });
 
-test('split-view tip: A, B, A, B within 30 s suggests the other session; shown at most 8 times with a backoff, never after accepting', () => {
+test('split-view tip (c11959232 vd/bd): A, B, A, B within 30 s suggests the other session; at most 3 shows, dismissal backoff, never after accepting', () => {
   let history = [];
   for (const [id, at] of [['a', 0], ['b', 5000], ['b', 6000], ['a', 10000], ['b', 20000]]) history = split.recordSessionSwitch(history, id, at);
   assert.equal(split.alternatingPartner(history, 20000), 'a');
   assert.equal(split.alternatingPartner(history, 40000), null, 'too slow');
   assert.equal(split.alternatingPartner(split.recordSessionSwitch(history, 'c', 21000), 21000), null);
   const day = 24 * 60 * 60 * 1000;
-  assert.equal(split.canSuggestSplit(split.emptySplitSuggestion, 0), true);
-  assert.equal(split.canSuggestSplit({ shown: 1, lastShownAt: 0 }, day - 1), false);
-  assert.equal(split.canSuggestSplit({ shown: 1, lastShownAt: 0 }, day), true);
-  assert.equal(split.canSuggestSplit({ shown: 2, lastShownAt: 0 }, 6 * day), false);
-  assert.equal(split.canSuggestSplit({ shown: 8, lastShownAt: 0 }, 1e12), false);
-  assert.equal(split.canSuggestSplit({ shown: 1, accepted: 1, lastShownAt: 0 }, 1e12), false);
+  assert.equal(split.maySuggestSplit(split.emptySplitSuggestion, 0), true);
+  assert.equal(split.maySuggestSplit({ ...split.emptySplitSuggestion, dismissCount: 1, lastDismissedAt: 0 }, day - 1), false);
+  assert.equal(split.maySuggestSplit({ ...split.emptySplitSuggestion, dismissCount: 1, lastDismissedAt: 0 }, day), true);
+  assert.equal(split.maySuggestSplit({ ...split.emptySplitSuggestion, dismissCount: 2, lastDismissedAt: 0 }, 6 * day), false);
+  assert.equal(split.maySuggestSplit({ ...split.emptySplitSuggestion, shownCount: 3 }, 1e12), false);
+  assert.equal(split.maySuggestSplit({ ...split.emptySplitSuggestion, accepted: true }, 1e12), false);
 });
 
 test('a sub-agent whose thread says it can’t be stopped alone (MiMo’s actors) gets no Stop', () => {

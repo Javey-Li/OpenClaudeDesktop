@@ -10,6 +10,10 @@ const path = require("node:path");
 
 const POPOUTS_FILE = "open-popouts.json";
 const MAX_POPOUTS = 12;
+// B27: session popouts (pane "session": cd377abb5 wr `popouts`, beside the pane popouts' `panes`) are saved in the same
+// list with their own cap (window-registry.cjs MAX_SESSION_POPOUTS).
+const SESSION_PANE = "session";
+const MAX_SESSION_POPOUTS = 16;
 const WINDOW_KEY = /^[a-z0-9-]{1,40}$/;
 
 const validSessionId = (value) => typeof value === "string" && value.length > 0 && value.length <= 200 && !/[\u0000-\u001f]/.test(value) ? value : null;
@@ -27,17 +31,19 @@ function validBounds(value, { minWidth = 1, minHeight = 1 } = {}) {
  */
 function popoutSnapshot(entries, { kinds = null } = {}) {
   const out = [], seen = new Set();
+  let panes = 0, sessions = 0;
   for (const entry of Array.isArray(entries) ? entries : []) {
     const sessionId = validSessionId(entry?.sessionId), pane = typeof entry?.pane === "string" ? entry.pane : null;
     const bounds = validBounds(entry?.bounds);
     if (!sessionId || !pane || !bounds || (kinds && !kinds.has(pane))) continue;
     const key = `${sessionId}\u0000${pane}`;
     if (seen.has(key)) continue;
+    if (pane === SESSION_PANE ? sessions >= MAX_SESSION_POPOUTS : panes >= MAX_POPOUTS) continue;
     seen.add(key);
+    if (pane === SESSION_PANE) sessions += 1; else panes += 1;
     const displayBounds = validBounds(entry.displayBounds);
     out.push({ sessionId, pane, alwaysOnTop: entry.alwaysOnTop === true, bounds, ...(displayBounds ? { displayBounds } : {}),
       ...(typeof entry.ownerKey === "string" && WINDOW_KEY.test(entry.ownerKey) ? { ownerKey: entry.ownerKey } : {}) });
-    if (out.length >= MAX_POPOUTS) break;
   }
   return out;
 }
@@ -65,4 +71,4 @@ function takeRestorablePopouts(file, { fs = nodeFs, kinds = null, exists = () =>
   return restorablePopouts(raw, { kinds, exists });
 }
 
-module.exports = { POPOUTS_FILE, MAX_POPOUTS, popoutSnapshot, restorablePopouts, savePopouts, takeRestorablePopouts };
+module.exports = { POPOUTS_FILE, MAX_POPOUTS, SESSION_PANE, MAX_SESSION_POPOUTS, popoutSnapshot, restorablePopouts, savePopouts, takeRestorablePopouts };

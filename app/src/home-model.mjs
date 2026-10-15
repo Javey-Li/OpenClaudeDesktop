@@ -25,21 +25,41 @@ export function greetingText(name, landingClear) {
 }
 
 /**
- * Pk: archived or pinned sessions never need attention; an acknowledged row
- * (ackedAt >= session timestamp) or a responding session is skipped; a pending
- * approval is "blocked"; an unread session that is not running is "unread".
- * Local approvals arrive mid-turn, so "responding" means running without a
- * pending approval.
+ * zR (cc43287c9 :4858-4886; shared-11 SM/Pk): archived or pinned sessions never
+ * need attention, nor does a responding one. A pending approval is "blocked"
+ * unless acknowledged (ackedAt >= session timestamp); a session whose last turn
+ * failed (errorAt, main session-attention.cjs) is "blocked" until acknowledged
+ * after the failure (ackedAt >= errorAt); an unread, unacknowledged session that
+ * is not running is "unread". Local approvals arrive mid-turn, so "responding"
+ * means running without a pending approval.
  */
 export function classifyAttention(context) {
   if (context.archived || context.pinned) return null;
-  const timestamp = number(context.timestamp);
-  const acked = Number.isFinite(context.ackedAt) && context.ackedAt >= timestamp;
   const responding = !!context.running && !context.hasApproval;
-  if (acked || responding) return null;
-  if (context.hasApproval) return "blocked";
-  if (context.unread && !context.running) return "unread";
+  if (responding) return null;
+  const errored = Number.isFinite(context.errorAt);
+  // The failure is the session's latest activity (the source's session timestamp moves with it; a listed
+  // thread's updatedAt can lag until the next list refresh).
+  const timestamp = Math.max(number(context.timestamp), errored ? context.errorAt : -Infinity);
+  const ackedAt = Number.isFinite(context.ackedAt) ? context.ackedAt : undefined;
+  const acked = ackedAt !== undefined && ackedAt >= timestamp;
+  const errorAcked = acked || (errored && ackedAt !== undefined && ackedAt >= context.errorAt);
+  if ((!acked && context.hasApproval) || (errored && !errorAcked)) return "blocked";
+  if (!acked && context.unread && !context.running) return "unread";
   return null;
+}
+
+/** O6 (shared-19): an acknowledgement covers the session's timestamp and its failure, whichever is later. */
+export function acknowledgementTime(timestamp, errorAt) {
+  const at = number(timestamp);
+  return Number.isFinite(errorAt) ? Math.max(at, errorAt) : at;
+}
+
+/** D6 (shared-19): the session has a failure the user has not acknowledged yet. */
+export function unackedError({ archived = false, errorAt, ackedAt, timestamp } = {}) {
+  if (archived || !Number.isFinite(errorAt)) return false;
+  if (!Number.isFinite(ackedAt)) return true;
+  return !(ackedAt >= Math.max(number(timestamp), errorAt) || ackedAt >= errorAt);
 }
 
 /** Lk: blocked rows first, then the rest; each group newest first. */
@@ -289,4 +309,74 @@ export function sessionTimestampMs(session) {
   if (typeof value === "number") return value < 1e12 ? value * 1000 : value;
   if (typeof value === "string") { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; }
   return 0;
+}
+
+// B08 Action Center › Pull requests (cc43287c9 QR b :4980-4987, hR :4280-4352, cz :5451-5520, iz :5087-5131).
+// Local sessions name their PR through the core's binding (codeDesktop.pr) or the band's GitHub CLI lookup (prInfo);
+// lR "active" states minus drafts list, newest session first, one row per PR URL.
+const ACTIVE_PR_STATES = new Set(["changesRequested", "conflicting", "open", "approved", "queued", "draft"]);
+
+/** owner/name of a github.com pull request URL (the row's repo meta, vR d = repoSlug). */
+export function pullRequestRepoSlug(url) {
+  const match = /^https:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/i.exec(String(url ?? ""));
+  return match ? `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}` : undefined;
+}
+
+/** The session's PR record ({number, url, state, title, checks}), or null. */
+export function sessionPullRequest(session) {
+  const info = session?.prInfo && typeof session.prInfo === "object" ? session.prInfo : null;
+  const bound = session?.codeDesktop?.pr && typeof session.codeDesktop.pr === "object" ? session.codeDesktop.pr : null;
+  const url = [info?.url, session?.prLink, bound?.url].find((value) => typeof value === "string" && /^https:\/\//i.test(value));
+  if (!url) return null;
+  const number = Number(info?.number ?? bound?.number ?? /\/pull\/(\d+)(?:[/?#]|$)/.exec(url)?.[1]);
+  if (!Number.isInteger(number) || number <= 0) return null;
+  const state = typeof info?.state === "string" ? info.state : typeof session.prState === "string" ? session.prState : "open";
+  const title = typeof info?.title === "string" && info.title ? info.title : typeof bound?.title === "string" && bound.title ? bound.title : null;
+  return { number, url, state, title, checks: info?.checks ?? null };
+}
+
+/** QR b: active non-draft PRs of unarchived sessions, newest session first, deduped by URL (tc keeps the first). */
+export function activePullRequestEntries(sessions, { archived = () => false } = {}) {
+  const entries = [];
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    if (!session || archived(session)) continue;
+    const pr = sessionPullRequest(session);
+    if (!pr || !ACTIVE_PR_STATES.has(pr.state) || pr.state === "draft") continue;
+    entries.push({ session, pr, repoSlug: pullRequestRepoSlug(pr.url) ?? "", timestamp: sessionTimestampMs(session) });
+  }
+  entries.sort((a, b) => number(b.timestamp) - number(a.timestamp));
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const key = entry.pr.url ?? `${entry.repoSlug.toLowerCase()}#${entry.pr.number}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** hR (:4280-4352): the row's category and pill ({tone, label}) from the PR state and its check counts (mR). */
+export function classifyPullRequest(entry, stateLabel = (state) => state) {
+  const { state } = entry.pr;
+  const checks = entry.pr.checks && entry.pr.checks.total > 0 ? entry.pr.checks : null;
+  const failing = (checks?.failed ?? 0) > 0, pending = (checks?.pending ?? 0) > 0;
+  const allPassed = checks !== null && checks.failed === 0 && checks.pending === 0;
+  let category = "inReview", pill;
+  if (state === "merged") pill = { tone: "neutral", label: stateLabel("merged") };
+  else if (state === "closed") pill = { tone: "neutral", label: stateLabel("closed") };
+  else if (state === "draft") { category = "draft"; pill = { tone: "neutral", label: stateLabel("draft") }; }
+  else if (state === "conflicting") { category = "needsAttention"; pill = { tone: "orange", label: stateLabel("conflicting") }; }
+  else if (state === "changesRequested") { category = "needsAttention"; pill = { tone: "closed", label: stateLabel("changesRequested") }; }
+  else if (failing) { category = "needsAttention"; pill = { tone: "red", label: t("CI failing") }; }
+  else if (state === "queued") { category = "readyToMerge"; pill = { tone: "yellow", label: stateLabel("queued") }; }
+  else if (state === "approved" && (allPassed || checks === null)) { category = "readyToMerge"; pill = { tone: "green", label: t("Ready to merge") }; }
+  else if (state === "approved") pill = { tone: "green", label: stateLabel("approved") };
+  else if (pending) pill = { tone: "neutral", label: t("CI {done}/{total}", { done: (checks?.passed ?? 0) + (checks?.failed ?? 0), total: checks?.total ?? 0 }) };
+  else pill = { tone: "neutral", label: t("Ready for review") };
+  return { entry, category, pill };
+}
+
+/** cz l (:5462-5467): readyToMerge and needsAttention rows first, each group in its incoming order. */
+export function sortPullRequestRows(rows) {
+  const urgent = (row) => row.category === "readyToMerge" || row.category === "needsAttention";
+  return [...rows.filter(urgent), ...rows.filter((row) => !urgent(row))];
 }

@@ -113,7 +113,7 @@ test('Codex marketplaces: only user-added ones are listed, removable, and upgrad
   const user = { name: { type: 'user' } };
   const client = { start: async () => {}, serverInfo: { engine: 'codex', capabilities: {} }, request: async (method, params) => {
     requests.push({ method, params });
-    if (method === 'config/read') return { config: { marketplaces: { mine: { source_type: 'git', source: 'owner/repo' }, local: { source_type: 'local', source: '/m' }, managed: { source_type: 'git' } } },
+    if (method === 'config/read') return { config: { marketplaces: { mine: { source_type: 'git', source: 'owner/repo', last_updated: '2026-10-01T09:30:00Z' }, local: { source_type: 'local', source: '/m' }, managed: { source_type: 'git' } } },
       origins: { 'marketplaces.mine.source': user, 'marketplaces.local.source_type': user, 'marketplaces.managed.source': { name: { type: 'system' } } } };
     return { ok: true };
   } };
@@ -121,6 +121,7 @@ test('Codex marketplaces: only user-added ones are listed, removable, and upgrad
   await assert.rejects(ops.run({ operation: 'marketplace-remove', name: 'mine' }), /Unknown marketplace/, 'only after a listing');
   const listed = await ops.run({ operation: 'marketplaces' });
   assert.deepEqual(listed.marketplaces.map((m) => [m.name, m.sourceType]), [['local', 'local'], ['mine', 'git']]);
+  assert.deepEqual(listed.marketplaces.map((m) => m.lastUpdated), [null, '2026-10-01T09:30:00Z'], 'MarketplaceConfig last_updated');
   await assert.rejects(ops.run({ operation: 'marketplace-upgrade', name: 'local' }), /Unknown marketplace/, 'a local marketplace has nothing to pull');
   await ops.run({ operation: 'marketplace-upgrade', name: 'mine' });
   assert.deepEqual(requests.at(-1), { method: 'marketplace/upgrade', params: { marketplaceName: 'mine' } });

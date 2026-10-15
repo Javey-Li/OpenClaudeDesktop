@@ -148,10 +148,19 @@ function cascadeWindowState(state, from, screen, offset = CASCADE_OFFSET) {
   if (placed.x === source.x && placed.y === source.y) placed = fitInto({ ...frame, x: area.x, y: area.y }, area);
   return { ...state, ...placed };
 }
+// A session torn off the sidebar (shared-19 DY H(): openPopout initialPosition, the cursor's screen point less
+// 120 x 14): the new window's frame starts there, pulled onto the work area of the display under that point, and opens
+// as a normal window (not maximized or full screen).
+function positionWindowState(state, position, screen) {
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return state;
+  const frame = { x: Math.round(position.x), y: Math.round(position.y), width: state.width, height: state.height };
+  const display = screen.getDisplayNearestPoint?.({ x: frame.x, y: frame.y }) || screen.getDisplayMatching(frame) || screen.getPrimaryDisplay();
+  return { ...state, ...fitInto(frame, display.workArea), isMaximized: false, isFullScreen: false };
+}
 // A window closed for good (not by a quit) forgets its frame; the main window's file is kept for the next one.
 function forgetWindowState(file, { fs = nodeFs } = {}) {
   if (path.basename(file) === WINDOW_STATE_FILE) return false;
   try { fs.rmSync(file, { force: true }); return true; } catch { return false; }
 }
 module.exports = { DEFAULT_WINDOW_SIZE, WINDOW_STATE_FILE, SAVE_DELAY_MS, WINDOW_EVENTS, validWindowState, placeOnDisplays,
-  loadWindowState, windowStateBounds, restoreWindowState, trackWindowState, windowStateFile, cascadeWindowState, forgetWindowState };
+  loadWindowState, windowStateBounds, restoreWindowState, trackWindowState, windowStateFile, cascadeWindowState, forgetWindowState, positionWindowState };

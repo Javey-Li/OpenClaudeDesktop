@@ -50,11 +50,13 @@ function useUserCopyFeedback(identity, text, button) {
 }
 
 // wi.Action: a ghost icon button with its label as the tooltip; a disabled one (jY under Wr) explains why instead.
-function UserAction({ icon, label, onClick = null, disabledReason = null, action }) {
+// cd5a31703 NI / PI (:25793-25843): an enabled Rewind / Fork also explains itself — the tooltip's detail line and the
+// button's aria-description (EI.rewind / EI.fork); a disabled Rewind shows only its reason.
+function UserAction({ icon, label, detail = null, onClick = null, disabledReason = null, action }) {
   const disabled = typeof onClick !== 'function';
-  return <SourceTooltip content={label} automatic={true} hoverable={false} disabledReason={disabled ? disabledReason || undefined : undefined}>
+  return <SourceTooltip content={label} detail={disabled ? undefined : detail || undefined} automatic={true} hoverable={false} disabledReason={disabled ? disabledReason || undefined : undefined}>
     <button type="button" className="sua-copy sua-action" data-cds="Button" data-variant="ghost" data-cds-icon-only="" data-cds-ghost=""
-      data-message-action={action} aria-label={label} disabled={disabled} tabIndex={-1}
+      data-message-action={action} aria-label={label} aria-description={disabled ? undefined : detail || undefined} disabled={disabled} tabIndex={-1}
       onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && event.repeat) event.preventDefault(); }}
       onClick={disabled ? undefined : () => onClick()}>
       <span className="sua-button-backdrop" aria-hidden="true"><span data-cds-part="paint" /></span>
@@ -110,8 +112,10 @@ function UserActions({ identity, itemId, text, startedAtMs, interacted, rewind =
             <Icon name={copied ? 'Check' : 'Copy'} size={16} />
           </button>
         </SourceTooltip>
-        {rewind && <UserAction action="rewind" icon="ArrowCounterClockwise" label={t("Rewind to here")} onClick={rewind.onClick ?? null} disabledReason={rewind.disabledReason} />}
-        {typeof onFork === 'function' && <UserAction action="fork" icon="ArrowSplitRight" label={t("Fork from here")} onClick={onFork} />}
+        {rewind && <UserAction action="rewind" icon="ArrowCounterClockwise" label={t("Rewind to here")} detail={t("Removes this message and everything after it.")}
+          onClick={rewind.onClick ?? null} disabledReason={rewind.disabledReason} />}
+        {typeof onFork === 'function' && <UserAction action="fork" icon="ArrowSplitRight" label={t("Fork from here")}
+          detail={t("Starts a new session from this point. This one stays as it is.")} onClick={onFork} />}
       </SourceTooltipGroup>
       <span id={statusId} className="sua-status sua-sr-only" role="status">{announcement}</span>
     </div>}

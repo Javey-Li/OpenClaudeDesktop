@@ -147,14 +147,15 @@ const waitStreamedFence = (source, color) => page.waitForFunction(({ mark, sourc
   return Boolean(code && code.dataset.highlightSource === source && token && getComputedStyle(token).color === color);
 }, { mark: STREAMED_MARK, source, color }, { timeout: 20000 });
 async function setTheme(mode) {
-  await openSettings("Preferences");
+  await openSettings("General");
   await page.getByRole("radiogroup", { name: "Theme", exact: true }).getByRole("radio", { name: mode === "dark" ? "Dark" : "Light", exact: true }).click();
   await waitPref("theme", mode);
   await page.waitForFunction((expected) => document.documentElement.dataset.mode === expected, mode);
   await closeSettings();
 }
 async function transcriptViewMenu(open = true) {
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  // B09 (c593f7513 Om → Dm/xm): Transcript view is in the header session menu (the CaretDown beside the title).
+  await page.locator(".st-toolbar").getByRole("button", { name: /^More options for / }).click();
   const menu = page.getByRole("menu", { name: "Session menu", exact: true });
   await menu.waitFor();
   const trigger = menu.getByRole("menuitem", { name: "Transcript view", exact: true });
@@ -179,13 +180,13 @@ try {
   const box = page.getByRole("textbox", { name: "Message DeepSeek" });
   await box.fill("fixture:reasoning"); await box.press("Enter");
   await page.locator(".assistant-message").filter({ hasText: "REASONING_FIXTURE_REPLY" }).waitFor();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal(await page.locator(".source-reasoning").count(), 0);
   checks.push("Fresh profile: Normal view renders zero .source-reasoning for seeded and streamed reasoning items; twelve distinct seeded fences (beyond the 1+8 service capacity) all reach settled tokens");
   // A fence that streams in through the stream worker keeps its retained stream tokens after completion.
   await box.fill("fixture:code-fence-stream"); await box.press("Enter");
   await page.locator(".assistant-message").filter({ hasText: "FENCE_STREAM_DONE" }).waitFor({ timeout: 30000 });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   await page.waitForFunction((mark) => { const code = [...document.querySelectorAll(".transcript .scb-code")].find((node) => node.textContent.includes(mark)); return code && code.closest(".scb-block")?.getAttribute("data-frontier") === null; }, STREAMED_MARK);
   await page.waitForTimeout(400);
   metrics.streamedRetained = await streamedFence();
@@ -324,8 +325,11 @@ try {
   await darkSelect.click();await themeSearch.waitFor();await themeSearch.press('Meta+f');
   await themeList.waitFor({state:'detached'});
   assert.equal(await page.getByRole('textbox',{name:'Search settings',exact:true}).evaluate(el=>document.activeElement===el),true);
-  await darkSelect.click();await themeSearch.waitFor();await codeFontBox.click();await themeList.waitFor({state:'detached'});
-  assert.equal(await codeFontBox.evaluate(el=>document.activeElement===el),true,'outside click keeps focus in the newly chosen field');
+  // B23: in the reference-sized dialog (JD rail clamp) the open popup sits over the Code font field, so the outside
+  // click lands on the nav's Search settings field, which the popup never covers. Focus starts in the popup search.
+  const settingsSearchBox = page.getByRole('textbox',{name:'Search settings',exact:true});
+  await darkSelect.click();await themeSearch.waitFor();await settingsSearchBox.click();await themeList.waitFor({state:'detached'});
+  assert.equal(await settingsSearchBox.evaluate(el=>document.activeElement===el),true,'outside click keeps focus in the newly chosen field');
   checks.push('CDS theme selection uses source control height/16px caret/4px popup padding, anchor width and <=320px scrolling; search ignores accents/case, empty Enter cannot save, Escape/Tab preserve settings and logical focus; Cmd+F reaches settings search and outside clicks retain the chosen field');
   // Preview geometry and content (light app mode first).
   const previewFrames = page.locator(".ss-theme-preview-frame");
@@ -539,8 +543,13 @@ try {
   await waitPref("transcriptView", "verbose");
   ({ menu, trigger, submenu } = await transcriptViewMenu());
   assert.equal(await submenu.getByRole("menuitem", { name: /Make .* the default/ }).count(), 0, "make-default row disappears once the session view is the default");
-  await page.keyboard.press("Escape"); await page.keyboard.press("Escape");
+  // Two Escapes inside 500 ms are Esc Esc (Rewind; code-workspace.js Gl counts them even after a menu took the first),
+  // so the menu is closed with one Escape, and a second goes only to a menu still open, after that window.
+  await page.keyboard.press("Escape");
+  await submenu.waitFor({ state: "detached" });
+  if (await menu.isVisible()) { await page.waitForTimeout(600); await page.keyboard.press("Escape"); }
   await menu.waitFor({ state: "detached" });
+  assert.equal(await page.getByRole("dialog", { name: "Rewind session" }).count(), 0, "closing the session menu does not open Rewind");
   await openSession("Settings rest B");
   await page.locator(".assistant-message").filter({ hasText: "Session B answer" }).waitFor();
   await page.waitForFunction(() => { const steps = [...document.querySelectorAll(".transcript .source-step-trigger[aria-expanded]")]; return steps.every((node) => node.getAttribute("aria-expanded") === "true"); });
@@ -555,11 +564,11 @@ try {
   await search.fill("theme");
   metrics.searchTheme = await page.locator(".ss-search-results>button").evaluateAll(rows=>rows.map(row=>[...row.querySelectorAll('.ss-search-heading>span:not([data-cds=Icon]),.ss-search-via,.ss-search-child')].map(el=>el.textContent).join('')));
   // C4: the Theme page (label match, no indexed rows) ranks first.
-  assert.deepEqual(metrics.searchTheme, ["Theme", "PreferencesTheme", "CodeCode theme"]);
+  assert.deepEqual(metrics.searchTheme, ["Theme", "GeneralTheme", "CodeCode theme"]);
   await page.getByRole("button",{name:"Code theme in Code",exact:true}).click();
   assert.equal(await page.getByRole("combobox", { name: "Light code theme", exact: true }).count(), 1, "the search result opens the real code theme block");
   await closeSettings();
-  checks.push("Settings search: 'transcript' → Code + 3 child rows, 'theme' → Preferences/Code with exact matched subtitles");
+  checks.push("Settings search: 'transcript' → Code + 3 child rows, 'theme' → General/Code with exact matched subtitles");
   // Restart: per-session override and defaults persist.
   await app.close(); app = null;
   await launch();

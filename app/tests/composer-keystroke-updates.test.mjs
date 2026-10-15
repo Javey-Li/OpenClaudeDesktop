@@ -15,7 +15,11 @@ const main = fs.readFileSync(path.join(root, 'src/main.jsx'), 'utf8');
 
 test('per-keystroke resets in the composer skip a value that is already in place', () => {
   assert.match(composer, /useEffect\(\(\) => \{ if \(composerNotice !== null\) setComposerNotice\(null\); \}, \[draft\]\);/);
-  assert.match(composer, /useEffect\(\(\)=>\{if\(commandIndex!==0\)setCommandIndex\(0\);if\(dismissed&&!draft\.startsWith\('\/'\)\)setDismissed\(false\);\},\[draft\]\);/);
+  // B05 C4: the dismissed '/' trigger is a text offset (shared-5 dismissedTriggerFrom), mapped through edits before it,
+  // and touched only while it is set and only when it moves or goes.
+  assert.match(composer, /useEffect\(\(\)=>\{if\(commandIndex!==0\)setCommandIndex\(0\);const previous=dismissedText\.current;dismissedText\.current=editorText;if\(dismissed===null\)return;/);
+  assert.match(composer, /if\(at===null\|\|editorText\[at\]!=='\/'\)setDismissedAt\(null\);else if\(at!==dismissed\)setDismissedAt\(at\);\},\[draft\]\);/);
+  assert.match(composer, /if\(caret!==renderedCaret\.current\)setSlashCaret\(caret\);/, 'a caret sync the last render already saw is skipped');
   assert.doesNotMatch(composer, /\{ setMention\(null\); return; \}/, 'updateMention clears only an open lookup');
   assert.doesNotMatch(composer, /\{ setEmoji\(null\); return; \}/, 'updateEmoji clears only an open lookup');
   assert.match(composer, /if \(mentionDismissed !== null\) setMentionDismissed\(null\); requestAnimationFrame/);

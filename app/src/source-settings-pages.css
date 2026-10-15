@@ -77,3 +77,32 @@ html[data-reduce-motion="true"] .ss-storage-tip { transition: none; }
 /* SettingsEmptyState under a section header (Commands, Profiles): the Developer empty block, padded instead of flex:1. */
 .ss-list-empty{padding:var(--cds-pad-xl,24px) 0}.ss-list-empty p>span{display:block}
 .ss-list-empty p.ss-error{color:var(--cds-text-danger,#bc3636)}
+
+/* c71860c77-C_7Gqn1u bn :2172-2174 codeActions (flex gap-xs under the Code storage kinds). */
+.ss-storage-actions{display:flex;flex-wrap:wrap;gap:var(--cds-gap-xs,4px)}
+/* c71860c77-C_7Gqn1u Lt/Jt: Clean up inactive sessions (V.Popup md). Body flex min-h-[240px] flex-col gap-md; loading
+   label text-footnote text-secondary over two h-5 skeleton lines (w-3/4, w-1/2); empty/error text-body text-secondary;
+   summary text-body text-primary with the note as a block text-secondary span; examples flex-col gap-1 text-footnote
+   text-secondary, truncated; the uncommitted list ml-lg max-h-32 scrolls; progress text-footnote tabular-nums. */
+.ss-cleanup-body{display:flex;min-height:240px;flex-direction:column;gap:var(--cds-gap-md,12px);min-width:0}
+.ss-cleanup-body>[data-cds=SegmentedControl]{align-self:flex-start}
+.ss-cleanup-loading{display:flex;flex-direction:column;gap:var(--cds-gap-xs,4px)}
+.ss-cleanup-loading-label{margin:0;font:400 var(--cds-font-size-footnote)/var(--cds-leading-footnote) var(--cds-font-sans);color:var(--cds-text-secondary);animation:ss-cleanup-reveal .6s ease-out both}
+.ss-cleanup-skeleton{display:flex;flex-direction:column;gap:var(--cds-gap-xs,4px)}
+.ss-cleanup-skeleton i{display:block;height:20px;width:75%;border-radius:4px;background:var(--cds-alpha-1)}
+.ss-cleanup-skeleton i+i{width:50%}
+.ss-cleanup-text{margin:0;color:var(--cds-text-secondary)}
+.ss-cleanup-summary{margin:0;color:var(--cds-text-primary)}
+.ss-cleanup-summary>span{display:block;color:var(--cds-text-secondary)}
+.ss-cleanup-examples,.ss-cleanup-uncommitted{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;font:400 var(--cds-font-size-footnote)/var(--cds-leading-footnote) var(--cds-font-sans);color:var(--cds-text-secondary)}
+.ss-cleanup-examples li,.ss-cleanup-uncommitted li{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ss-cleanup-uncommitted{max-height:128px;margin-inline-start:var(--cds-gap-lg,16px);overflow-y:auto}
+.ss-cleanup-choices{display:flex;flex-direction:column;gap:var(--cds-gap-xs,4px)}
+.ss-cleanup-check{display:flex;align-items:flex-start;gap:var(--cds-gap-sm,8px);color:var(--cds-text-primary)}
+.ss-cleanup-check>.sscb{margin-top:2px}
+.ss-cleanup-progress{margin:var(--cds-gap-md,12px) 0 0;font:400 var(--cds-font-size-footnote)/var(--cds-leading-footnote) var(--cds-font-sans);color:var(--cds-text-secondary);font-variant-numeric:tabular-nums}
+.ss-cleanup-notice{margin:var(--cds-gap-md,12px) 0 0;color:var(--cds-text-secondary)}
+.ss-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@keyframes ss-cleanup-reveal{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.ss-cleanup-loading-label{animation:none}}
+html[data-reduce-motion="true"] .ss-cleanup-loading-label{animation:none}

@@ -123,7 +123,7 @@ async function collapse(id) {
 }
 async function send(text) {
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
 }
 // Resolve a CDS token to the colour the renderer actually paints.
 async function tokenColor(name) {
@@ -216,8 +216,10 @@ async function assertSettledCaret(id, colors) {
   assert.equal(states.hover.labelColor, colors.secondary, `${id} verb group-hover secondary`);
   await page.mouse.move(2, 2);
   await trigger.focus();
+  // The trusted Shift+Tab records keyboard modality; Tab itself cannot come back here, since a Tab inside the
+  // transcript moves to the composer (cc43287c9 :45157-45164, main.jsx paneKey).
   await page.keyboard.press("Shift+Tab");
-  await page.keyboard.press("Tab");
+  await trigger.focus();
   states.focus = await classicStyle(id);
   assert.equal(states.focus.focusVisible, true, "keyboard focus is focus-visible");
   assert.equal(states.focus.caretColor, colors.secondary, `${id} caret group-focus-visible secondary`);
@@ -572,7 +574,7 @@ try {
   checks.push("Three real item/commandExecution/outputDelta notifications concatenate, and an SGR colour becomes a styled span with no escape characters left in the text");
 
   // 9. A turn interrupt stops the rows and states so in the output.
-  await page.getByRole("button", { name: "Stop response", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
   await poll(async () => await row(slowId).getAttribute("data-state") === "stopped", "the interrupted row settles");
   await poll(async()=>await liveGroup.locator('.stg-summary').textContent()==='Ran 2 commands','terminal group returns to count summary');
   assert.equal(await liveGroup.locator('.stg-trigger').getAttribute('aria-expanded'),'true','status updates preserve expanded group');
@@ -692,7 +694,7 @@ try {
   // Clear both toasts so they cannot cover later rows (an unfocused window pauses their timers).
   for(let i=0;i<4&&await page.locator('.source-toast-card[data-front="true"]').count();i++)await page.locator('.source-toast-card[data-front="true"] .source-toast-dismiss').click();
   await page.locator('.source-toast-scope').waitFor({state:'detached'});
-  await page.getByRole('button',{name:'Stop response',exact:true}).click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
   await poll(async()=>await statsTail.getAttribute('data-transcript-status')==='idle','completed turn clears runtime stats');
   assert.equal(await statsTail.locator('[data-runtime-stat]').count(),0);
   checks.push('Classic runtime status: real Turn.startedAt, 287 output tokens without duplicate/late-turn inflation, plain stats and shimmer activity, 20px/16px geometry, source separators, tools to reasoning to stopped cleanup; the thinking label toggles the Thinking view with the source toasts');

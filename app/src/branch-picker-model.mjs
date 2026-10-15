@@ -1,4 +1,4 @@
-import { t } from "../electron/i18n/index.mjs";
+import { t, tn } from "../electron/i18n/index.mjs";
 
 // Composer branch picker, step 1 (2.2553.1 cc43287c9-BMbiZYzF.js:22009-22035
 // hT props, :12050-12071 branch order; cd2687f9f-CY3xvb9b.js N combobox).
@@ -82,3 +82,22 @@ export function branchCheckoutTarget(info) {
 export const WORKING_TREE_ERROR = t("Couldn’t update the working tree.");
 export const BRANCH_SWITCH_MODES = Object.freeze(["stash", "commit", "discard"]);
 export const BRANCH_SWITCH_LABELS = Object.freeze({ stash: t("Stash changes"), commit: t("Commit as WIP"), discard: t("Discard changes") });
+
+// B34 RJ otherSessionCount (cc43287c9 :12373 I = Dp(h), shared-8 cp): the sessions that are not archived and whose
+// cwd is the folder being switched, without the session the switch is for (`exclude`).
+export function otherSessionCount(sessions = [], folder, { exclude = null } = {}) {
+  if (typeof folder !== "string" || !folder) return 0;
+  let count = 0;
+  for (const session of sessions ?? []) {
+    if (!session || session.archived === true || session.isArchived === true) continue;
+    if (session.cwd !== folder || (exclude && session.id === exclude)) continue;
+    count++;
+  }
+  return count;
+}
+// RJ :17066-17078 (ETzdRE7DsE): the note under the description while other sessions share the folder.
+export function otherSessionsNote(count) {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return tn(count, "{count} other session is using this folder. Switching branches will affect it too.",
+    "{count} other sessions are using this folder. Switching branches will affect them too.");
+}

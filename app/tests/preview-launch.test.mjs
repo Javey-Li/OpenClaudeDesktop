@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { configUrl, insideFolder, isLocalHost, navigationAllowed, normalizeConfiguration, parseJsonc, parseLaunchConfig, parseUserUrl, portFromArgs } from '../electron/preview-launch.mjs';
+import { candidateConfiguration, detectServerCandidates, launchConfigText, serverCandidateProblem, validateServerCandidate, withServerConfiguration } from '../electron/preview-launch.mjs';
 
 const root = '/work/app';
 
@@ -102,4 +103,58 @@ test('a launch.json "cwd" that is a link to a folder outside the project is refu
     assert.match(normalizeConfiguration({ name: 'clean', runtimeExecutable: 'npm', runtimeArgs: ['run', 'clean'], cwd: 'web' }, project).problem, /"cwd" is outside the project folder/);
     assert.equal(normalizeConfiguration({ name: 'dev', runtimeExecutable: 'npm', cwd: 'inner-link' }, project).config.cwd, path.join(project, 'inner-link'), 'a link that stays inside is fine');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+// 2.31226.0 main (asar index.chunk-CiiI592G.js rUi / eUi / tUi / nUi / gatherProjectInfo / addServerConfiguration).
+const project = (files) => ({ read: (name) => files[name] ?? null, exists: (name) => name in files });
+test('static dev-server detection: dev/start/serve/develop scripts, the lockfile runner, the framework port, validation', () => {
+  assert.deepEqual(detectServerCandidates(project({})), [], 'no package.json');
+  assert.deepEqual(detectServerCandidates(project({ 'package.json': '{' })), [], 'unreadable package.json');
+  const pkg = JSON.stringify({ scripts: { build: 'vite build', preview: 'vite preview', develop: 'x', dev: 'vite', start: 'node s.js', test: 'vitest' } });
+  const found = detectServerCandidates(project({ 'package.json': pkg, 'pnpm-lock.yaml': '', 'vite.config.ts': '' }));
+  assert.deepEqual(found.map((c) => c.name), ['dev', 'start', 'develop'], 'in the reference order; preview and build are not servers');
+  assert.deepEqual(found[0], { name: 'dev', runtimeExecutable: 'pnpm', runtimeArgs: ['run', 'dev'], port: 5173, framework: 'vite', validation: { status: 'ok' } });
+  assert.deepEqual(detectServerCandidates(project({ 'package.json': pkg, 'yarn.lock': '' }))[0], { name: 'dev', runtimeExecutable: 'yarn', runtimeArgs: ['run', 'dev'], port: 3000, framework: 'unknown', validation: { status: 'ok' } });
+  assert.equal(detectServerCandidates(project({ 'package.json': pkg, 'bun.lockb': '' }))[0].runtimeExecutable, 'npm', 'bun is not a detected runner');
+  assert.deepEqual(detectServerCandidates(project({ 'package.json': pkg, 'angular.json': '', 'next.config.js': '' }))[0].framework, 'next', 'the first framework in $Hi order');
+  assert.equal(detectServerCandidates(project({ 'package.json': pkg, 'astro.config.mjs': '' }))[0].port, 4321);
+});
+
+test('candidate validation (nUi) and the checks before Use this writes', () => {
+  const good = { runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], port: 3000 };
+  assert.deepEqual(validateServerCandidate(good), { status: 'ok' });
+  assert.deepEqual(validateServerCandidate({ ...good, runtimeExecutable: 'bun' }), { status: 'blocked', reason: 'runner-not-allowed' });
+  assert.deepEqual(validateServerCandidate({ ...good, runtimeArgs: ['run', 'dev && rm -rf /'] }), { status: 'blocked', reason: 'shell-metachar' });
+  assert.deepEqual(validateServerCandidate({ ...good, runtimeArgs: ['dev'] }), { status: 'blocked', reason: 'shell-metachar' });
+  assert.deepEqual(validateServerCandidate({ ...good, name: 'a b' }), { status: 'blocked', reason: 'shell-metachar' });
+  assert.deepEqual(validateServerCandidate({ ...good, port: 70000 }), { status: 'blocked', reason: 'port-out-of-range' });
+  assert.deepEqual(validateServerCandidate({ ...good, port: '3000' }), { status: 'blocked', reason: 'port-out-of-range' });
+  const files = project({ 'package.json': JSON.stringify({ scripts: { dev: 'vite' } }) });
+  assert.equal(serverCandidateProblem(good, files), null);
+  assert.equal(serverCandidateProblem({ ...good, runtimeArgs: ['run', 'start'] }, files), 'script-not-found');
+  assert.equal(serverCandidateProblem({ ...good, runtimeExecutable: 'sh' }, files), 'runner-not-allowed');
+  assert.deepEqual(candidateConfiguration({ ...good, name: 'ignored' }), { name: 'dev', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], port: 3000 });
+  assert.deepEqual(parseJsonc(launchConfigText(good)), { version: '0.0.1', configurations: [{ name: 'dev', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], port: 3000 }] });
+});
+
+test('addServerConfiguration: appended in place to an existing launch.json, name-exists ignoring case', () => {
+  const entry = { name: 'dev', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], port: 5173 };
+  const text = '{\n  "version": "0.0.1",\n  // servers\n  "configurations": [\n    { "name": "api", "runtimeExecutable": "node", "runtimeArgs": ["s.js"], "port": 8080 } // the api\n  ],\n  "autoVerify": false\n}\n';
+  const added = withServerConfiguration(text, entry);
+  assert.equal(added.status, 'ok');
+  assert.match(added.text, /\/\/ servers\n/);
+  assert.match(added.text, /\/\/ the api/);
+  const parsed = parseJsonc(added.text);
+  assert.deepEqual(parsed.configurations.map((c) => c.name), ['api', 'dev']);
+  assert.equal(parsed.autoVerify, false);
+  assert.deepEqual(parsed.configurations[1], entry);
+  assert.deepEqual(withServerConfiguration(added.text, { ...entry, name: 'DEV' }), { status: 'name-exists' });
+  for (const source of ['{}', '{ "version": "0.0.1" }', '{\n  "configurations": []\n}', '{\n  "configurations": [{ "name": "x" },]\n}']) {
+    const next = withServerConfiguration(source, entry);
+    assert.equal(next.status, 'ok', source);
+    assert.equal(parseJsonc(next.text).configurations.at(-1).name, 'dev', source);
+  }
+  assert.deepEqual(withServerConfiguration('[1]', entry), { status: 'error' });
+  assert.deepEqual(withServerConfiguration('{ "configurations": {} }', entry), { status: 'error' });
+  assert.deepEqual(withServerConfiguration('{ nope', entry), { status: 'error' });
 });

@@ -36,7 +36,7 @@ const composer = props => renderToStaticMarkup(React.createElement(C.SourceCompo
   draft: 'hello', setDraft: noop, onSubmit: noop, onMenu: noop, onStop: noop, running: false, sending: false,
   permission: 'auto', model: { model: 'fixture', displayName: 'Fixture' }, workdir: '/tmp/fixture', ...props }));
 const editorTag = html => /<div[^>]*data-cds="ChatComposerEditor"[^>]*>/.exec(html)?.[0] ?? '';
-const sendTag = html => /<button[^>]*aria-label="Send message"[^>]*>/.exec(html)?.[0] ?? '';
+const sendTag = html => /<button[^>]*aria-label="Send"[^>]*>/.exec(html)?.[0] ?? '';
 const cardTag = html => /<form[^>]*data-cds="ChatComposer"[^>]*>/.exec(html)?.[0] ?? '';
 test('loading or disconnected: the editor stays contenteditable with no aria-disabled; Send is disabled; the card is not data-disabled', () => {
   for (const props of [{ canSubmit: false }, { canSubmit: false, warning: 'Connection to DeepSeek lost.', onReconnect: noop }]) {
@@ -68,7 +68,7 @@ before(async () => {
   const probe = { name: 'tooltip-probe', enforce: 'pre', transform(code, id) {
     if (!id.endsWith('/src/source-tooltip.jsx')) return null;
     return code.replace('export function SourceTooltip(', 'function SourceTooltipOriginal(')
-      + '\nexport function SourceTooltip(props) { return React.createElement(React.Fragment, null, SourceTooltipOriginal(props), React.createElement("span", { hidden: true, "data-tooltip-probe": JSON.stringify({ content: typeof props.content === "string" ? props.content : null, shortcut: props.shortcut ?? null, secondaryHint: props.secondaryHint ?? null }) })); }\n';
+      + '\nexport function SourceTooltip(props) { return React.createElement(React.Fragment, null, SourceTooltipOriginal(props), React.createElement("span", { hidden: true, "data-tooltip-probe": JSON.stringify({ content: typeof props.content === "string" ? props.content : null, shortcut: props.shortcut ?? null, secondaryHint: props.secondaryHint ?? null, ...(props.tertiaryHint ? { tertiaryHint: props.tertiaryHint } : {}) }) })); }\n';
   } };
   probeServer = await createServer({ configFile: false, root: path.resolve(import.meta.dirname, '..'), plugins: [probe, react()],
     server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'error' });
@@ -85,7 +85,26 @@ test("the Home draft's Send tooltip has the second row 'Send and stay here' ⌘�
   assert.deepEqual(sendTooltip({}), { content: 'Send', shortcut: 'enter', secondaryHint: null });
   // While a turn runs with content the second row is the queue lane, never the stay lane.
   assert.deepEqual(sendTooltip({ stayOnDraft: true, running: true, queueEnabled: true }).secondaryHint, { label: 'Queue for later', shortcut: 'cmd+enter' });
-  assert.equal(probes({ stayOnDraft: true }).some(entry => /fork/i.test(JSON.stringify(entry))), false, 'no ⌘⌥⏎ fork row: thread/fork is unsupported');
+  assert.equal(probes({ stayOnDraft: true }).some(entry => /fork/i.test(JSON.stringify(entry))), false, 'no ⌘⌥⏎ fork row without forkAvailable');
+});
+
+// B05 (2.31226.0 ca80fca8d vP :13038-13170): Send/Stop are named 'Send'/'Stop' with the code-prompt test ids, Stop draws
+// StopCircle, and the Send tooltip's third row is ⌘⌥⏎ 'Send in a forked session' where the session can fork.
+test("the Send tooltip adds the ⌘⌥⏎ fork row when forkAvailable and no turn runs", () => {
+  assert.deepEqual(sendTooltip({ forkAvailable: true }), { content: 'Send', shortcut: 'enter', secondaryHint: null, tertiaryHint: { label: 'Send in a forked session', shortcut: 'cmd+alt+enter' } });
+  assert.equal(sendTooltip({ forkAvailable: true, running: true, queueEnabled: true }).tertiaryHint, undefined, 'a running turn cannot fork');
+  assert.deepEqual(sendTooltip({ forkAvailable: true, stayOnDraft: true }).secondaryHint, { label: 'Send and stay here', shortcut: 'cmd+enter' });
+});
+test("Send and Stop carry the reference names, test ids and the StopCircle glyph", async () => {
+  const icons = (await import('../src/generated/icons.json', { with: { type: 'json' } })).default;
+  const idle = composer({});
+  assert.match(sendTag(idle), /data-testid="code-prompt-send"/);
+  assert.doesNotMatch(idle, /aria-label="Send message"/);
+  const busy = composer({ running: true, onStop: noop, draft: '' });
+  const stopButton = /<button[^>]*aria-label="Stop"[^>]*>.*?<\/button>/.exec(busy)?.[0] ?? '';
+  assert.match(stopButton, /data-testid="code-prompt-stop"/);
+  assert.ok(stopButton.includes(String.fromCodePoint(icons.StopCircle)), 'StopCircle, not the plain Stop square');
+  assert.doesNotMatch(busy, /aria-label="Stop response"/);
 });
 
 // Round-2 walk a10: the Home pet (80px sprite at the composer's top-right) covered the warning row's Retry.

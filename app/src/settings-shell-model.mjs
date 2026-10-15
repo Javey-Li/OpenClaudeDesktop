@@ -1,7 +1,9 @@
 // Fidelity F14: pure pieces of the Settings shell and Local sessions rows, ported from the original.
 import { t } from '../electron/i18n/index.mjs';
 
-// shared-22-Cz3C_T8d.js:3915-3918 zC: nav-hidden sections leave the nav and the narrow tabs only.
+// shared-22-Cz3C_T8d.js:3915-3918 zC: nav-hidden sections leave the nav and the narrow tabs only. (2.31226.0
+// shared-19 ZC lists Usage again; the claudified_usage_page_pace treatment oC only swaps its icon, so no local
+// section is nav-hidden now.)
 export function settingsNavSections(sections) {
   return sections.some(section => section.navHidden) ? sections.filter(section => !section.navHidden) : sections;
 }
@@ -30,3 +32,18 @@ export function drawAttentionDisabled(levels) {
 }
 // index.chunk-ChZ67Jhw.js tV: `Db("ccKeepAwakeWhileWorking") !== !1`: keep-awake is on unless turned off.
 export const keepAwakeEnabled = value => value !== false;
+
+// c71860c77-DzP8HoeV Wr / Kr (:2208-2300): Settings › Code › Browser › Keep cookies. The modes are the Preview
+// pane's (preview-storage.mjs PREVIEW_STORAGE_MODES); an unknown or missing saved mode reads as the legacy
+// keep-cookies switch did (previewStorageMode).
+export const PREVIEW_STORAGE_ITEMS = Object.freeze([
+  Object.freeze({ value: 'none', label: t('Until quit') }),
+  Object.freeze({ value: 'shared', label: t('Shared') }),
+  Object.freeze({ value: 'session', label: t('Per session') }),
+]);
+export function previewStorageChoice(value, legacyKeep = false) {
+  return PREVIEW_STORAGE_ITEMS.some(item => item.value === value) ? value : legacyKeep === true ? 'shared' : 'none';
+}
+// c71860c77-DzP8HoeV cr (:877-899): Prompt suggestions (ccPromptSuggestions, default on) is listed only where the
+// suggestions exist; locally, a core that sends codeDesktop/promptSuggestion (capabilities.promptSuggestion).
+export const promptSuggestionsEnabled = value => value !== false;

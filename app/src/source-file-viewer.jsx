@@ -1,17 +1,28 @@
-import React, { startTransition, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { SourceFileGoToLine } from "./source-file-go-to-line.jsx";
+import { SourceFileEditor } from "./source-file-editor.jsx";
+import { getFileEditor } from "./file-edit-store.mjs";
+import { DEFAULT_FILE_VIEW_SETTINGS, scrollPastEndPadding, whitespaceTheme } from "./file-view-settings.mjs";
+import React, { startTransition, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Icon } from "./icons";
 import { SourceTooltip } from "./source-tooltip";
 import { SourcePopover } from "./source-popover.jsx";
 import { fileKindIcon } from "./file-kind-icon.mjs";
-import { breadcrumbFolders, fileFindShortcut, findInText, findStatus, folderLabel, stepFindIndex } from "./file-find-model.mjs";
+import { breadcrumbFolders, fileFindShortcut, searchInText, findStatus, firstMatchFrom, getSearchOptions, rememberSearchOptions, folderLabel, stepFindIndex } from "./file-find-model.mjs";
 import { useSettledHighlight } from "./use-settled-highlight.mjs";
 import { SourceHighlightedLine } from "./source-diff-code.jsx";
 import { SourceEmptyState } from "./source-transcript-states.jsx";
 import { SourceLoadingPane, SourceSpinner } from "./source-pane-states.jsx";
 import { frontmatterLabel, MARKDOWN_FIRST_CHUNK_CHARS, MARKDOWN_PROGRESSIVE_CHARS, markdownChunkHeight, markdownFilePlan, releaseMarkdownFilePlan } from "./file-markdown-model.mjs";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
-import { breadcrumbParts, csvTruncationCaption, fileHighlightLanguage, filePreviewKind, filePreviewUrl, fileViewerLines, fileViewerTooSlow, jumpRange, parseCsvPreview } from "./file-preview-model.mjs";
-import { FILE_MEDIA_KINDS, fileMediaErrorCopy, fileTabReason, fileUnavailableCopy, VIEW_AS_TEXT_LABEL } from "./file-unavailable-model.mjs";
+import { breadcrumbParts, csvTruncationCaption, externalLinkWarnings, fileHighlightLanguage, filePreviewKind, filePreviewUrl, fileViewerLines, fileViewerTooSlow, jumpRange, parseCsvPreview, previewFrameLink, previewLinkWritten, svgPreviewUrl } from "./file-preview-model.mjs";
+import { SourceDialog } from "./source-dialog.jsx";
+import { FILE_MEDIA_KINDS, FILE_CARD_LABELS, addFolderFailedMessage, createFileFailedMessage, fileCardPlan, fileMediaErrorCopy, fileTabReason, offeredFolderLabel, VIEW_AS_TEXT_LABEL } from "./file-unavailable-model.mjs";
+import { breadcrumbSegmentTargets, fileViewerMenu } from "./file-context-menu-model.mjs";
+import { SourceMenu } from "./source-menu.jsx";
+import { SourceFileMenuEntries } from "./source-file-menu-entries.jsx";
+import { CONTEXT_MENU_ALIGN_OFFSET, CONTEXT_MENU_SIDE_OFFSET } from "./menu-model.mjs";
+import { useSourceToasts } from "./source-toast.jsx";
+import { WebLinkContext } from "./web-link-context.mjs";
 import "./highlight-tokens.css";
 import "./source-file-viewer.css";
 import { t } from "../electron/i18n/index.mjs";
@@ -42,6 +53,10 @@ export const FILE_VIEWER_LABELS = Object.freeze({
   tablePreview: t("Table preview"),
   csvEmpty: t("This file is empty."),
   csvError: t("Couldn’t parse this file as a table. Switch to Source to view the raw text."),
+  // su (2.31226.0 cd2efac6e readable :7141-7176): the preview frame that never drew.
+  frameError: t("Couldn’t load the preview"),
+  tryAgain: t("Try again"),
+  fileActions: t("File actions"),
 });
 export const copyPathLabel = (path) => t("Copy path {path}", { path });
 
@@ -52,38 +67,59 @@ export const copyPathLabel = (path) => t("Copy path {path}", { path });
 // view, reset to the start when the file changes) > span[dir=ltr] with the
 // leading slash, each folder in text-muted followed by a muted "/", then the
 // file name in the default colour.
-export function SourceFileBreadcrumb({ displayPath, fullPath, onCopyPath, lister = null }) {
+export function SourceFileBreadcrumb({ displayPath, fullPath, onCopyPath, lister = null, segmentMenu = null }) {
   const { lead, dirs, name } = breadcrumbParts(displayPath);
   const ref = useRef(null);
   useEffect(() => { if (ref.current) ref.current.scrollLeft = 0; }, [fullPath]);
+  // B32 tc/ko (cd2efac6e readable :2385-2420, :1354-1400): each segment's own context menu, the pane's file items for
+  // that folder or file (surface "file_breadcrumb"); the breadcrumb itself never shows the native menu (Js).
+  const targets = useMemo(() => breadcrumbSegmentTargets(displayPath), [displayPath]);
+  const [menu, setMenu] = useState(null);
+  const menuReturn = useRef(null);
+  const openMenu = (event, target) => {
+    if (!segmentMenu || !target) return;
+    event.preventDefault(); event.stopPropagation();
+    const node = event.currentTarget, rect = node.getBoundingClientRect();
+    menuReturn.current = node.ownerDocument.activeElement;
+    setMenu({ anchor: node, target, point: event.clientX === 0 && event.clientY === 0 ? { x: rect.left, y: rect.bottom } : { x: event.clientX, y: event.clientY } });
+  };
+  const menuEntries = menu && segmentMenu ? segmentMenu.entries(menu.target) : null;
+  const segmentProps = (target) => (segmentMenu && target ? { onContextMenu: (event) => openMenu(event, target), "data-popup-open": menu?.target === target || undefined } : {});
+  const blockNative = segmentMenu ? (event) => { if (event.currentTarget.contains(event.target)) event.preventDefault(); } : undefined;
+  const popup = menuEntries?.length > 0 && <SourceMenu.Popup anchor={menu.anchor} point={menu.point} trigger={null} side="bottom" align="start"
+    sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
+    label={FILE_VIEWER_LABELS.fileActions} onClose={() => setMenu(null)} finalFocus={() => (menuReturn.current?.isConnected ? menuReturn.current : null)}>
+    <SourceFileMenuEntries entries={menuEntries} onSelect={(item) => segmentMenu.select(item, menu.target)} />
+  </SourceMenu.Popup>;
   // Yo with a lister (local sessions): a plain div whose folder segments and file name open "Files in {folder}".
   if (lister) {
     const folders = breadcrumbFolders(displayPath);
     return <div className="sfv-path" data-breadcrumb-lister="" title={fullPath}>
-      <span ref={ref} data-file-breadcrumb="" className="sfv-breadcrumb">
+      <span ref={ref} data-file-breadcrumb="" className="sfv-breadcrumb" onContextMenu={blockNative}>
         <span dir="ltr" className="sfv-breadcrumb-path">
           {folders.lead && <span className="sfv-crumb-lead">{folders.lead}</span>}
           {folders.dirs.map((segment, index) => <React.Fragment key={index}>
-            <SourceBreadcrumbSegment segment={segment} className="sfv-crumb-dir" current={displayPath} lister={lister} />
+            <SourceBreadcrumbSegment segment={segment} className="sfv-crumb-dir" current={displayPath} lister={lister} menuProps={segmentProps(targets.dirs[index])} />
             <span aria-hidden="true" className="sfv-crumb-separator">/</span>
           </React.Fragment>)}
-          <SourceBreadcrumbSegment segment={folders.name} className="sfv-crumb-name" title={fullPath} current={displayPath} lister={lister} />
+          <SourceBreadcrumbSegment segment={folders.name} className="sfv-crumb-name" title={fullPath} current={displayPath} lister={lister} menuProps={segmentProps(targets.name)} />
         </span>
       </span>
+      {popup}
     </div>;
   }
-  const crumbs = <span ref={ref} data-file-breadcrumb="" className="sfv-breadcrumb">
+  const crumbs = <span ref={ref} data-file-breadcrumb="" className="sfv-breadcrumb" onContextMenu={blockNative}>
     <span dir="ltr" className="sfv-breadcrumb-path">
       {lead && <span className="sfv-crumb-lead">{lead}</span>}
       {dirs.map((dir, index) => <React.Fragment key={index}>
-        <span className="sfv-crumb sfv-crumb-dir">{dir}</span><span className="sfv-crumb-separator">/</span>
+        <span className="sfv-crumb sfv-crumb-dir" {...segmentProps(targets.dirs[index])}>{dir}</span><span className="sfv-crumb-separator">/</span>
       </React.Fragment>)}
-      <span className="sfv-crumb sfv-crumb-name">{name}</span>
+      <span className="sfv-crumb sfv-crumb-name" {...segmentProps(targets.name)}>{name}</span>
     </span>
   </span>;
   return onCopyPath
-    ? <button type="button" className="sfv-path" aria-label={copyPathLabel(displayPath)} title={fullPath} onClick={onCopyPath}>{crumbs}</button>
-    : <div className="sfv-path" title={fullPath}>{crumbs}</div>;
+    ? <><button type="button" className="sfv-path" aria-label={copyPathLabel(displayPath)} title={fullPath} onClick={onCopyPath}>{crumbs}</button>{popup}</>
+    : <><div className="sfv-path" title={fullPath}>{crumbs}</div>{popup}</>;
 }
 
 // Pa: ArrowDown opens a segment's folder, ArrowLeft / ArrowRight move between segments.
@@ -98,14 +134,14 @@ function segmentKeys(event, open) {
 
 // Ia / Y: a segment inside the workspace is a button (Na "rounded-[3px] px-0.75 hover:bg-fill-ghost-hover
 // data-[popup-open]:bg-fill-ghost-hover") opening the w-72 "Files in {folder}" popover; anything else is plain text.
-function SourceBreadcrumbSegment({ segment, className, title, current, lister }) {
+function SourceBreadcrumbSegment({ segment, className, title, current, lister, menuProps = {} }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef(null);
-  if (segment.dir === null) return <span className={`sfv-crumb ${className}`} title={title}>{segment.label}</span>;
+  if (segment.dir === null) return <span className={`sfv-crumb ${className}`} title={title} {...menuProps}>{segment.label}</span>;
   const folder = folderLabel(segment.dir, lister.rootLabel ?? "");
   return <>
     <button ref={trigger} type="button" className={`sfv-crumb sfv-crumb-button ${className}`} title={title} data-breadcrumb-segment=""
-      data-popup-open={open || undefined} aria-haspopup="dialog" aria-expanded={open}
+      {...menuProps} data-popup-open={open || menuProps["data-popup-open"] || undefined} aria-haspopup="dialog" aria-expanded={open}
       onClick={() => setOpen((value) => !value)} onKeyDown={(event) => segmentKeys(event, () => setOpen(true))}>{segment.label}</button>
     {open && <SourcePopover anchor={trigger.current} side="bottom" align="start" padding="sm" className="sfv-folder-popover"
       label={t("Files in {folder}", { folder })} onClose={() => setOpen(false)}>
@@ -173,12 +209,19 @@ function SourceFolderRow({ entry, current, lister, onOpen, depth }) {
   </li>;
 }
 
-// Xi: the find bar (qn role=search): the "Find in file…" field, "{current} of {total}" or "No results" (aria-live,
+// 2.31226.0 io/ro: find bar with the original three option buttons; the "Find in file…" field, "{current} of {total}" or "No results" (aria-live,
 // text-footnote text-muted tabular-nums), then the ghost Previous match (ArrowUp) / Next match (ArrowDown) /
 // Close find bar (X, esc) buttons.
-function SourceFileFindBar({ query, status, inputRef, onQuery, onNext, onPrev, onClose }) {
+export function SourceFileSearchOptions({options,onToggle}) { return (
+    <span role="group" aria-label={t("Search options")} className="sfv-find-options">
+      {[["matchCase", "Aa", "Match case"], ["wholeWord", "ab", "Match whole word"], ["regexp", ".*", "Use regular expression"]].map(([key, text, label]) => <SourceTooltip key={key} content={t(label)} hoverable={false}>
+        <button type="button" className="source-icon-button sfv-find-option" aria-label={t(label)} aria-pressed={options[key]} onMouseDown={event => event.preventDefault()} onClick={() => onToggle(key)}><span aria-hidden="true" style={key === "wholeWord" ? { textDecoration: "underline" } : undefined}>{text}</span></button>
+      </SourceTooltip>)}
+    </span>
+); }
+function SourceFileFindBar({ query, status, options, result, inputRef, onToggle, onQuery, onNext, onPrev, onClose }) {
   const has = status.total > 0;
-  const total = status.capped ? `${status.total.toLocaleString()}+` : status.total.toLocaleString();
+  const total = status.capped || result.partial || result.hasLongLines ? `${status.total.toLocaleString()}+` : status.total.toLocaleString();
   const button = (label, icon, onClick, disabled, shortcut) => <SourceTooltip content={label} shortcut={shortcut} hoverable={false}>
     <button type="button" className="source-icon-button sfv-find-button" aria-label={label} disabled={disabled} onMouseDown={(event) => event.preventDefault()} onClick={onClick}>
       <Icon name={icon} size={16} />
@@ -186,24 +229,132 @@ function SourceFileFindBar({ query, status, inputRef, onQuery, onNext, onPrev, o
   </SourceTooltip>;
   return <div role="search" className="sfv-find" data-file-find=""
     onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); onClose(); } }}>
-    <input ref={inputRef} className="sfv-find-input" value={query} spellCheck={false} autoComplete="off" aria-label={t("Find in file")} placeholder={t("Find in file…")}
+    <div className="sfv-find-field"><input ref={inputRef} className="sfv-find-input" aria-invalid={result.invalid || undefined} value={query} spellCheck={false} autoComplete="off" aria-label={t("Find in file")} placeholder={t("Find in file…")}
       onChange={(event) => onQuery(event.target.value)}
       onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); if (event.shiftKey) onPrev(); else onNext(); } }} />
-    <span aria-live="polite" className="sfv-find-status">{query.length === 0 ? "" : has ? t("{current} of {total}", { current: status.current.toLocaleString(), total }) : t("No results")}</span>
+    <SourceFileSearchOptions options={options} onToggle={onToggle} /></div>
+    <span aria-live="polite" className="sfv-find-status">{query.length === 0 ? "" : result.invalid ? t("Invalid regular expression") : has ? t("{current} of {total}", { current: status.current.toLocaleString(), total }) : result.partial ? t("Search paused. Select Next match to continue.") : result.hasLongLines ? t("Long lines not searched") : t("No results")}</span>
     {button(t("Previous match"), "ArrowUp", onPrev, !has, "cmd+shift+g")}
-    {button(t("Next match"), "ArrowDown", onNext, !has, "cmd+g")}
+    {button(t("Next match"), "ArrowDown", onNext, !has && !result.partial, "cmd+g")}
     {button(t("Close find bar"), "X", onClose, false, "esc")}
   </div>;
 }
 
-function SourceFileUnavailable({ reason, path, onViewAsText }) {
-  const copy = fileUnavailableCopy(reason);
-  const body = copy.body && <>{copy.body}{copy.showsPath && <><br /><span className="select-text break-all">{path}</span></>}</>;
-  const action = copy.action === "view-as-text" && onViewAsText
-    // xxs secondary CDS Button: the xxs size is data-step="1" (shared-frame :2976).
-    ? <SourceSettingsButton variant="secondary" data-step="1" onClick={onViewAsText}>{VIEW_AS_TEXT_LABEL}</SourceSettingsButton>
-    : null;
-  return <SourceEmptyState role={copy.role} title={<span className="select-text">{copy.title}</span>} body={body} actions={action} />;
+// B32 Gl / Br revealItem (cd2efac6e :6735-6748, c856385e2 Rt/Bt): an xxs secondary "Show in Finder" whose refused
+// reveal toasts "Couldn’t show this file in its folder." and leaves the button disabled with that reason for this path.
+function SourceCardReveal({ path, onShowFile }) {
+  const toasts = useSourceToasts();
+  const [refused, setRefused] = useState(null);
+  if (refused === path) return <SourceTooltip disabledReason={FILE_CARD_LABELS.revealFailed}>
+    <SourceSettingsButton variant="secondary" data-step="1" disabled data-card-action="reveal">{FILE_CARD_LABELS.showInFinder}</SourceSettingsButton>
+  </SourceTooltip>;
+  const reveal = () => {
+    void Promise.resolve().then(() => onShowFile()).then((shown) => {
+      if (shown === false) throw new Error("not shown");
+    }).catch(() => { setRefused(path); toasts?.add(FILE_CARD_LABELS.revealFailed, { variant: "danger" }); });
+  };
+  return <SourceSettingsButton variant="secondary" data-step="1" onClick={reveal} data-card-action="reveal">{FILE_CARD_LABELS.showInFinder}</SourceSettingsButton>;
+}
+
+// B32 ge(setBusy, run) (cd2efac6e :5583/:5598): a card button's busy state lasts as long as its action.
+function useBusyAction() {
+  const [busy, setBusy] = useState(false);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const run = useCallback(async (action) => {
+    setBusy(true);
+    try { await action(); } finally { if (live.current) setBusy(false); }
+  }, []);
+  return [busy, run];
+}
+
+// To/Un (cd2efac6e readable :5339-5650) for the local reasons, with the B32 actions: "Try again" and "Create file"
+// on the missing card (mp/Cp, xxs secondary, busy "Trying again…"/"Creating file…", each disabled while the other
+// runs), the outside-root "Add folder" offer (tp: its own title and body, busy "Adding folder…", disabled with the
+// failure as its reason after a refused add), and Show in Finder (Gl for outside_root, Br's uc for binary) before
+// "View as text anyway" (cu :7179-7203).
+function SourceFileUnavailable({ reason, path, creatable, onViewAsText, cardActions = null }) {
+  const toasts = useSourceToasts();
+  const [retrying, runRetry] = useBusyAction();
+  const [creating, runCreate] = useBusyAction();
+  const [adding, runAdd] = useBusyAction();
+  const card = useRef(null);
+  const name = String(path).split(/[\\/]/).pop() || String(path);
+  // tp/ep: the folder offer for an outside-root file, asked once per path (staleTime Infinity) and again after an add.
+  const [offer, setOffer] = useState({ key: null, value: null });
+  const [offerNonce, setOfferNonce] = useState(0);
+  const offerKey = reason === "outside_root" && cardActions?.suggestFolder && cardActions?.onAddFolder ? `${path}\u0000${offerNonce}` : null;
+  useEffect(() => {
+    if (!offerKey) return undefined;
+    let live = true;
+    Promise.resolve().then(() => cardActions.suggestFolder(path)).then((value) => {
+      if (live) setOffer({ key: offerKey, value: value?.folder ? value : null });
+    }, () => { if (live) setOffer({ key: offerKey, value: null }); });
+    return () => { live = false; };
+  }, [offerKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // An asked-again offer (after an add) keeps the last answer until the new one lands, as the invalidated query does.
+  const folderOffer = offerKey && offer.key !== null ? offer.value : null;
+  const [addRefused, setAddRefused] = useState(null);
+  const plan = fileCardPlan(reason, { path, writable: !!cardActions?.onCreateFile, creatable, canAskClaude: !!cardActions?.canAskClaude,
+    folderOffer: folderOffer?.folder ?? null, canReveal: !!cardActions?.onShowFile, canViewAsText: !!onViewAsText });
+  // dp: when a Try again / Create file / Add folder re-read makes the card go away, the focus it held moves to the
+  // viewer instead of the document body. The re-read's tab update commits after onRetry resolves, so the handoff runs
+  // in this card's unmount (layout cleanup, while its nodes are still attached) until a render shows the card still
+  // there with no action running.
+  const handoff = useRef(false);
+  const focusViewer = useRef(null);
+  focusViewer.current = cardActions?.focusViewer ?? null;
+  useLayoutEffect(() => () => {
+    const node = card.current;
+    if (handoff.current && node?.contains(node.ownerDocument.activeElement)) focusViewer.current?.();
+  }, []);
+  useEffect(() => { if (!retrying && !creating && !adding) handoff.current = false; });
+  const retry = async () => {
+    handoff.current = true;
+    await cardActions?.onRetry?.();
+  };
+  const create = async () => {
+    let result;
+    try { result = await cardActions.onCreateFile(); } catch { result = undefined; }
+    if (!result || result.status === "failed") { toasts?.add(createFileFailedMessage(name), { variant: "danger" }); return; }
+    await retry();
+  };
+  const addFolder = async () => {
+    const folder = folderOffer?.folder;
+    if (!folder) return;
+    let added = false;
+    try { added = await cardActions.onAddFolder(folder); } catch { added = false; }
+    if (!added) { setAddRefused(`${path}\u0000${folder}`); toasts?.add(addFolderFailedMessage(folder), { variant: "danger" }); return; }
+    await retry();
+    setOfferNonce((value) => value + 1);
+  };
+  const folderLabel = folderOffer ? offeredFolderLabel(folderOffer.folder, folderOffer.home) : "";
+  const [offerBefore, offerAfter = ""] = t("Add {folder} to open this file. Claude can then use that folder in this session.").split("{folder}");
+  const body = plan.offer
+    ? <>{offerBefore}<span className="select-text break-all" title={plan.offer}>{folderLabel}</span>{offerAfter}</>
+    : plan.body && <>{plan.body}{plan.showsPath && <><br /><span className="select-text break-all">{path}</span></>}</>;
+  // xxs secondary CDS Button: the xxs size is data-step="1" (shared-frame :2976).
+  const button = (label, onClick, extra = {}) => <SourceSettingsButton variant="secondary" data-step="1" onClick={onClick} {...extra}>{label}</SourceSettingsButton>;
+  const revealButton = plan.reveal && <SourceCardReveal path={path} onShowFile={cardActions.onShowFile} />;
+  const addKey = plan.offer ? `${path}\u0000${plan.offer}` : null;
+  const actions = <>
+    {plan.retry && button(FILE_CARD_LABELS.tryAgain, () => void runRetry(retry),
+      { busy: retrying, "aria-label": retrying ? FILE_CARD_LABELS.tryingAgain : undefined, disabled: creating, "data-card-action": "retry" })}
+    {plan.create && button(FILE_CARD_LABELS.createFile, () => void runCreate(create),
+      { busy: creating, "aria-label": creating ? FILE_CARD_LABELS.creatingFile : undefined, disabled: retrying, "data-card-action": "create" })}
+    {plan.offer && (addRefused === addKey
+      ? <SourceTooltip disabledReason={addFolderFailedMessage(plan.offer)}>{button(FILE_CARD_LABELS.addFolder, undefined, { disabled: true, "data-card-action": "add-folder" })}</SourceTooltip>
+      : button(FILE_CARD_LABELS.addFolder, () => void runAdd(addFolder), { busy: adding, "aria-label": adding ? FILE_CARD_LABELS.addingFolder : undefined, "data-card-action": "add-folder" }))}
+    {revealButton}
+    {plan.viewAsText && button(VIEW_AS_TEXT_LABEL, onViewAsText)}
+  </>;
+  const hasActions = plan.retry || plan.create || !!plan.offer || !!revealButton || plan.viewAsText;
+  // ip (cd2efac6e :5135, :5302): while the first folder offer is still being asked the viewer shows its loading state
+  // (lu) rather than the plain outside-root card that the offer card would then replace.
+  if (offerKey && offer.key === null) return <SourceLoadingPane label={FILE_VIEWER_LABELS.loading} />;
+  return <div ref={card} className="contents">
+    <SourceEmptyState role={plan.role} title={<span className="select-text">{plan.title}</span>} body={body} actions={hasActions ? actions : null} />
+  </div>;
 }
 
 // The code view: rows of a muted tabular-nums gutter (as the Read rows'
@@ -212,8 +363,29 @@ function SourceFileUnavailable({ reason, path, onViewAsText }) {
 // those rows carry data-active (da :1529-1549, at most 200 rows) and the first
 // one is centred once per request (fa :1550-1576: only when it is not already
 // in view).
-function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey, find = null }) {
+// Preserve literal text (including tabs) for selection, copying and find offsets.
+function visibleWhitespace(text) {
+  return text.split(/([ \t])/).map((part, index) => part === ' ' || part === '\t'
+    ? <span key={index} className={part === ' ' ? 'sfv-space' : 'sfv-tab'}>{part}</span> : part);
+}
+
+function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey, find = null, settings = DEFAULT_FILE_VIEW_SETTINGS }) {
   const scroller = useRef(null);
+  const [scrollPadding, setScrollPadding] = useState(0);
+  const [whitespacePaint, setWhitespacePaint] = useState(() => whitespaceTheme('#898781'));
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const measure = () => {
+      const style = getComputedStyle(node);
+      setScrollPadding(scrollPastEndPadding(node.clientHeight, parseFloat(style.lineHeight) || 20, parseFloat(style.paddingTop) || 0));
+      setWhitespacePaint(whitespaceTheme(getComputedStyle(node.querySelector('.sfv-number') || node).color));
+    };
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(node);
+    const theme = new MutationObserver(measure); theme.observe(node.ownerDocument.documentElement, { attributes: true, attributeFilter: ['style', 'data-mode', 'data-theme'] });
+    return () => { observer.disconnect(); theme.disconnect(); };
+  }, []);
   const language = fileHighlightLanguage(path);
   const tooSlow = useMemo(() => fileViewerTooSlow(text, language), [text, language]);
   const tokens = useSettledHighlight({ text, language: tooSlow ? "text" : language, isFrontier: false, languageSettled: true, scopeKey }, scroller);
@@ -271,13 +443,14 @@ function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey, find
       }
     }
     return clear;
-  }, [find, lines]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [find, lines, settings.showWhitespace, settings.wordWrap, settings.tabSize]); // eslint-disable-line react-hooks/exhaustive-deps
   const digits = String(lines.length).length;
   return <div data-file-viewer="" className="epitaxy-diff sfv-viewer">
     {find && <style>{`::highlight(${names.match}){background:rgba(255,213,0,.25);border-radius:2px}::highlight(${names.current}){background:rgba(255,213,0,.55);color:black;border-radius:2px}`}</style>}
     <div ref={scroller} className="source-file-preview sfv-scroller select-text" data-highlighted={tokens ? "" : undefined}
+      data-word-wrap={settings.wordWrap} data-show-whitespace={settings.showWhitespace || undefined} data-scroll-past-end={settings.scrollPastEnd || undefined}
       data-active-line={range ? range.first : undefined} data-active-end-line={range && range.last !== range.first ? range.last : undefined}
-      style={{ "--sfv-number-width": `${Math.max(3, digits)}ch` }}>
+      style={{ "--sfv-number-width": `${Math.max(3, digits)}ch`, tabSize: settings.tabSize, "--sfv-scroll-padding": `${scrollPadding}px`, "--sfv-space-paint": whitespacePaint.space, "--sfv-tab-paint": whitespacePaint.tab }}>
       {tooSlow && <p role="note" className="sfv-plain-note">{FILE_VIEWER_LABELS.plainNotice}</p>}
       {lines.map((row, index) => {
         const number = index + 1;
@@ -285,7 +458,7 @@ function SourceFileCode({ path, text, line, endLine, scrollNonce, scopeKey, find
           data-active={range && number >= range.first && number <= range.last ? "" : undefined}
           data-find-active={activeMatch?.line === number ? "" : undefined}>
           <span className="sfv-number" data-number={number} aria-hidden="true" />
-          <code className="scb-code source-diff-code"><SourceHighlightedLine tokens={row} />{index < lines.length - 1 || text.endsWith("\n") ? "\n" : ""}</code>
+          <code className="scb-code source-diff-code"><SourceHighlightedLine tokens={row} renderText={settings.showWhitespace ? visibleWhitespace : undefined} />{index < lines.length - 1 || text.endsWith("\n") ? "\n" : ""}</code>
         </div>;
       })}
     </div>
@@ -431,17 +604,28 @@ function SourceFileCsv({ text, delimiter }) {
 // ("w-full max-w-[480px]") or <video> ("max-w-full max-h-full"), both
 // controls + preload metadata + aria-label base name. A failed load (Jr)
 // shows the Un card with "View as text anyway" (Uc).
-function SourceFileMedia({ kind, path, url, onViewAsText }) {
+function SourceFileMedia({ kind, path, url, onViewAsText, onShowFile = null }) {
   const [failed, setFailed] = useState(false);
   const name = String(path).split(/[\\/]/).pop() || String(path);
   if (failed) {
     const copy = fileMediaErrorCopy(kind);
     return <div data-file-viewer="" data-file-media={kind} data-media-state="error" className="flex-1 min-h-0 [contain:strict] sfv-media">
       <SourceEmptyState title={<span className="select-text">{copy.title}</span>} body={<span className="select-text">{copy.body}</span>}
-        actions={onViewAsText ? <SourceSettingsButton variant="secondary" data-step="1" onClick={onViewAsText}>{VIEW_AS_TEXT_LABEL}</SourceSettingsButton> : null} />
+        actions={onViewAsText || onShowFile ? <>
+          {/* B32 cu(uc, …) (cd2efac6e :6605-6611): Br's reveal item first. */}
+          {onShowFile && <SourceCardReveal path={path} onShowFile={onShowFile} />}
+          {onViewAsText && <SourceSettingsButton variant="secondary" data-step="1" onClick={onViewAsText}>{VIEW_AS_TEXT_LABEL}</SourceSettingsButton>}
+        </> : null} />
     </div>;
   }
   const onError = () => setFailed(true);
+  // B13 PDF: Chromium's built-in viewer in the native preview's "h-full w-full relative overflow-hidden" box
+  // (c6e1d8764 K :402-428), from the file:// URL like the other media.
+  if (kind === "pdf") return <div data-file-viewer="" data-file-media={kind} className="flex-1 min-h-0 [contain:strict] sfv-media">
+    <div className="h-full w-full relative overflow-hidden">
+      <iframe src={url} title={name} className="h-full w-full border-0 sfv-pdf" />
+    </div>
+  </div>;
   return <div data-file-viewer="" data-file-media={kind} className="flex-1 min-h-0 [contain:strict] sfv-media">
     <div className="h-full overflow-auto p-md flex items-center justify-center">
       {kind === "image"
@@ -450,6 +634,120 @@ function SourceFileMedia({ kind, path, url, onViewAsText }) {
           ? <audio src={url} controls preload="metadata" aria-label={name} onError={onError} className="w-full max-w-[480px]" />
           : <video src={url} controls preload="metadata" aria-label={name} onError={onError} className="max-w-full max-h-full" />}
     </div>
+  </div>;
+}
+
+// su (cd2efac6e readable :7141-7176): the alert card of a preview that did not draw, with "View source" (xxs
+// primary) and "Try again" (xxs secondary). The reference's body names the blocked user-content host; the local
+// frame has no remote host, so the card keeps the title only.
+function SourceFramePreviewError({ onViewSource, onRetry }) {
+  return <div className="contents" data-file-preview-error="">
+    <SourceEmptyState role="alert" title={FILE_VIEWER_LABELS.frameError} actions={<>
+      {onViewSource && <SourceSettingsButton variant="primary" data-step="1" onClick={onViewSource}>{FILE_VIEWER_LABELS.viewSource}</SourceSettingsButton>}
+      {onRetry && <SourceSettingsButton variant="secondary" data-step="1" onClick={onRetry}>{FILE_VIEWER_LABELS.tryAgain}</SourceSettingsButton>}
+    </>} />
+  </div>;
+}
+
+// J === "sandbox" with Ge.Html (cd2efac6e readable :6283-6330): "relative flex-1 min-h-0 flex flex-col" around the
+// sandbox frame ("isolate flex-1 min-h-0 w-full border-0", title = the base name) and, until it has drawn, the
+// absolute lu "Loading file" cover; after Zc (20 s) without a draw the su card replaces it. Locally the frame is
+// <iframe sandbox="allow-scripts"> on the oc-file-preview document of the shown text (frame.register, main
+// file-preview-frame.cjs); a web link it posts goes through the session's link chooser (WebLinkContext), the
+// reference's externalLinkBehavior "ask".
+export const PREVIEW_FRAME_TIMEOUT_MS = 20000;
+function SourceFileHtmlFrame({ path, text, frame, onViewSource }) {
+  const name = String(path).split(/[\\/]/).pop() || String(path);
+  const openWebLink = React.useContext(WebLinkContext);
+  const iframe = useRef(null);
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState({ url: null, status: "loading" });
+  const [ask, setAsk] = useState(null);
+  useEffect(() => {
+    let live = true, url = null;
+    setState({ url: null, status: "loading" });
+    setAsk(null); // cc61d0d63 :1028: a pending link ask belongs to the content that raised it.
+    Promise.resolve().then(() => frame.register(text, path)).then((result) => {
+      if (!live) { if (result?.url) frame.release?.(result.url); return; }
+      if (typeof result?.url !== "string") { setState({ url: null, status: "error" }); return; }
+      url = result.url;
+      setState({ url, status: "loading" });
+    }, () => { if (live) setState({ url: null, status: "error" }); });
+    return () => { live = false; if (url) frame.release?.(url); };
+  }, [frame, path, text, attempt]);
+  useEffect(() => {
+    if (state.status !== "loading" || !state.url) return undefined;
+    const timer = setTimeout(() => setState((value) => (value.url === state.url && value.status === "loading" ? { ...value, status: "error" } : value)), PREVIEW_FRAME_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [state.status, state.url]);
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (!iframe.current || event.source !== iframe.current.contentWindow) return;
+      const link = previewFrameLink(event.data);
+      if (!link || !openWebLink) return;
+      // Ba / OpenExternal "ask": a click on a link the page wrote opens at once; anything else asks first (one at a time).
+      if (window.navigator.userActivation?.isActive === true && previewLinkWritten(text, link.href)) openWebLink(link.href, link.event);
+      else setAsk((value) => value ?? link);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [openWebLink, text]);
+  const linkDialog = ask && <SourceExternalLinkDialog href={ask.href} onClose={() => setAsk(null)} onConfirm={() => { setAsk(null); openWebLink?.(ask.href, ask.event); }} />;
+  if (state.status === "error") return <div data-file-viewer="" data-file-preview="html" className="relative flex-1 min-h-0 flex flex-col">
+    <SourceFramePreviewError onViewSource={onViewSource} onRetry={() => setAttempt((value) => value + 1)} />
+    {linkDialog}
+  </div>;
+  return <div data-file-viewer="" data-file-preview="html" data-delivered={state.status === "ready" || undefined} className="relative flex-1 min-h-0 flex flex-col">
+    {state.url && <iframe ref={iframe} key={state.url} src={state.url} sandbox="allow-scripts" title={name} allow="fullscreen; clipboard-write" referrerPolicy="no-referrer"
+      className="isolate flex-1 min-h-0 w-full border-0 sfv-frame-document" onLoad={() => setState((value) => (value.url === state.url ? { ...value, status: "ready" } : value))} />}
+    {state.status !== "ready" && <div className="absolute inset-0"><SourceLoadingPane label={FILE_VIEWER_LABELS.loading} /></div>}
+    {linkDialog}
+  </div>;
+}
+
+// cfdfec14c le (the cc61d0d63 "ask" dialog for a web link): ConfirmDialog size md, focus on Cancel, the URL in a
+// scrolling box, the deceptive-domain / embedded-credentials warnings (Q), and "Open link" held disabled for the
+// 400 ms activation delay (c26909c77) so a click meant for the page cannot confirm it.
+export const EXTERNAL_LINK_ACTIVATION_DELAY_MS = 400;
+function SourceExternalLinkDialog({ href, onClose, onConfirm }) {
+  const cancel = useRef(null);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    setArmed(false);
+    const timer = setTimeout(() => setArmed(true), EXTERNAL_LINK_ACTIVATION_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [href]);
+  const warnings = useMemo(() => externalLinkWarnings(href), [href]);
+  const warning = (message, detail) => <div className="mt-3 rounded-lg border border-danger bg-danger p-3">
+    <div className="flex items-start gap-2">
+      <Icon name="Warning" size={16} className="text-danger" />
+      <div className="text-body text-danger"><p className="font-medium">{message}</p><p className="mt-1 font-mono break-all">{detail}</p></div>
+    </div>
+  </div>;
+  return <SourceDialog alert size="md" showClose={false} title={t("Open external link")} description={t("You’re leaving Claude to visit an external link:")}
+    initialFocusRef={cancel} onClose={onClose}
+    footer={<>
+      <SourceSettingsButton ref={cancel} variant="secondary" onClick={onClose}>{t("Cancel")}</SourceSettingsButton>
+      <SourceSettingsButton variant="primary" disabled={!armed} onClick={() => { if (armed) onConfirm(); }}>{t("Open link")}</SourceSettingsButton>
+    </>}>
+    <div className="mt-3 max-h-40 overflow-y-scroll break-all rounded-lg border bg-surface-1 px-4 py-3 text-primary">{href}</div>
+    {warnings.hasUserinfo && warning(t("This link contains embedded credentials, which may be an attempt to disguise its destination. You will actually be sent to:"), warnings.host)}
+    {warnings.hasPunycode && warning(t("This link contains an internationalized domain name that may be deceptive. The domain appears as:"), warnings.decodedHostname)}
+  </SourceDialog>;
+}
+
+// The sandbox arm with Ge.Svg: the graphic drawn from the shown text, centred like the image body (nr), an
+// <img> so no script in the file runs; a file that does not parse as SVG shows the su card.
+function SourceFileSvg({ path, text, onViewSource }) {
+  const [failed, setFailed] = useState(false);
+  const name = String(path).split(/[\\/]/).pop() || String(path);
+  const url = useMemo(() => svgPreviewUrl(text), [text]);
+  useEffect(() => setFailed(false), [url]);
+  return <div data-file-viewer="" data-file-preview="svg" className="flex-1 min-h-0 [contain:strict] sfv-media">
+    {failed ? <SourceFramePreviewError onViewSource={onViewSource} />
+      : <div className="h-full overflow-auto p-md flex items-center justify-center">
+        <img src={url} alt={name} onError={() => setFailed(true)} className="max-w-full max-h-full object-contain" />
+      </div>}
   </div>;
 }
 
@@ -473,62 +771,160 @@ function SourceViewToggle({ showingSource, onToggle }) {
  * renderer (chunk: the index of a progressive chunk, 0 for a whole body);
  * without it a Markdown file has no preview.
  */
-export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, scrollNonce, scopeKey, onCopyPath, onViewAsText, renderMarkdown, findRequest = null, lister = null }) {
+export function SourceSessionFileViewer({ file, scopeKey, sessionId, onSaveFile, ...props }) {
+  const editor = useMemo(() => file.editHash ? getFileEditor({ key: scopeKey, path: file.path, sessionId,
+    text: file.text, hash: file.editHash, save: onSaveFile }) : null, [scopeKey, file.editHash]);
+  if (editor) editor.saveFile = onSaveFile;
+  return editor ? <EditableFileViewer {...props} file={file} scopeKey={scopeKey} editor={editor} />
+    : <SourceFileViewer {...props} file={file} scopeKey={scopeKey} />;
+}
+function EditableFileViewer({ editor, file, onEdit, ...props }) {
+  const state = useSyncExternalStore(editor.subscribe, editor.getSnapshot, editor.getSnapshot);
+  useLayoutEffect(() => { if (editor.dirty) onEdit?.(); }, [editor, state, onEdit]);
+  return <SourceFileViewer {...props} file={{ ...file, text: state.text }} editor={editor} editState={state} />;
+}
+export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, scrollNonce, scopeKey, onCopyPath, onViewAsText, renderMarkdown, findRequest = null, contentFind = null, lister = null, showHeader = true, viewMode, onViewModeChange, settings = DEFAULT_FILE_VIEW_SETTINGS, editor = null, editState = null, onAttachFile, onAttachSelection, onDownload, onSaveComment, onDeleteComment, fileMenu = null, previewFrame = null, cardActions = null }) {
+  const dirty = !!editor?.dirty;
   const reason = fileTabReason(file);
   const media = FILE_MEDIA_KINDS.includes(reason) ? reason : null;
   // Xt (:2649): a file kind with a preview. en (:2655): the source shows first
   // when the file is opened at a line; [tn, sn] holds it, and hn (:2658-2667)
   // resets it whenever the preview kind, the line or the request changes.
   const kind = filePreviewKind(file.path);
-  const previewable = !!kind && (kind.kind !== "markdown" || typeof renderMarkdown === "function");
+  // Ql's hostedFrameAvailable: the HTML frame needs the pane's frame host (previewFrame.register).
+  const previewable = !!kind && (kind.kind !== "markdown" || typeof renderMarkdown === "function") && (kind.kind !== "html" || typeof previewFrame?.register === "function");
   const sourceFirst = line != null;
-  const [showSource, setShowSource] = useState(sourceFirst);
+  const [localShowSource, setShowSource] = useState(sourceFirst);
+  const showSource = viewMode === undefined ? localShowSource : viewMode === 'source';
   const [request, setRequest] = useState({ previewable, line, scrollNonce });
   if (request.previewable !== previewable || request.line !== line || request.scrollNonce !== scrollNonce) {
     setRequest({ previewable, line, scrollNonce });
     if (previewable) setShowSource(sourceFirst);
   }
   // Ti !== null (:4169): the toggle needs a preview kind and text that is not binary.
-  const canToggle = previewable && !media && reason !== "binary";
+  const canToggle = !dirty && previewable && !media && reason !== "binary";
   // Find in file (Yi / Xi): ⌘F in the viewer or the pane menu's "Find in file" (findRequest bumps) opens the bar on
   // the source; Escape closes it and puts the focus back in the viewer.
   const searchable = !media && !reason && typeof file.text === "string";
-  const [find, setFind] = useState({ open: false, query: "", index: -1, nonce: 0 });
+  const [find, setFind] = useState({ open: false, query: "", index: -1, nonce: 0, options: getSearchOptions() });
   const findInput = useRef(null);
   const root = useRef(null);
-  const matches = useMemo(() => (find.open && searchable ? findInText(file.text, find.query) : []), [find.open, find.query, searchable, file.text]);
+  const editorApi = useRef(null);
+  const [goTo, setGoTo] = useState(null);
+  const openGoToLine = useCallback(() => {
+    const caret = editorApi.current?.caret();
+    if (!caret) return false;
+    setFind(value => ({ ...value, open: false })); setGoTo(caret); return true;
+  }, []);
+  const initialSearch = useMemo(() => searchInText(searchable && find.open ? file.text : "", find.open ? find.query : "", find.options), [find.open, find.query, find.options, searchable, file.text]);
+  const [continuedSearch, setContinuedSearch] = useState(null);
+  const searchResult = continuedSearch?.initial === initialSearch ? continuedSearch.result : initialSearch;
+  const matches = searchResult.matches;
   const index = matches.length ? Math.min(Math.max(find.index, 0), matches.length - 1) : -1;
   const openFind = useCallback(() => {
     if (!searchable) return;
+    setGoTo(null);
     setShowSource(true);
-    setFind((value) => ({ ...value, open: true, nonce: value.nonce + 1 }));
-  }, [searchable]);
+    onViewModeChange?.('source');
+    setFind((value) => ({ ...value, open: true, options: value.open ? value.options : getSearchOptions(), nonce: value.nonce + 1 }));
+  }, [searchable, onViewModeChange]);
   const closeFind = useCallback(() => {
-    setFind({ open: false, query: "", index: -1, nonce: 0 });
-    root.current?.querySelector(".sfv-scroller")?.focus?.({ preventScroll: true });
+    setFind(value => ({ ...value, open: false, query: "", index: -1, nonce: 0 }));
+    root.current?.querySelector(".cm-content, .sfv-scroller")?.focus?.({ preventScroll: true });
   }, []);
-  const stepFind = useCallback((delta) => setFind((value) => ({ ...value, index: stepFindIndex(index, delta, matches.length) })), [index, matches.length]);
+  const stepFind = useCallback((delta) => {
+    let result = searchResult;
+    if (delta > 0 && result.partial && index >= matches.length - 1) {
+      result = searchInText(file.text, find.query, find.options, { previous: result });
+      setContinuedSearch({ initial: initialSearch, result });
+      if (result.partial && index >= result.matches.length - 1) return;
+    }
+    setFind(value => ({ ...value, index: stepFindIndex(index, delta, result.matches.length) }));
+  }, [searchResult, initialSearch, index, matches.length, file.text, find.query, find.options]);
+  const toggleFindOption = key => {
+    const options = rememberSearchOptions({ ...find.options, [key]: !find.options[key] });
+    const line = matches[index]?.line ?? editorApi.current?.caret()?.line;
+    const result = searchInText(file.text, find.query, options);
+    setFind(value => ({ ...value, options, index: firstMatchFrom(result.matches, line) }));
+  };
   useEffect(() => { if (find.open) { findInput.current?.focus(); findInput.current?.select(); } }, [find.open, find.nonce]);
   const lastRequest = useRef(findRequest);
   useEffect(() => { if (findRequest != null && findRequest !== lastRequest.current) openFind(); lastRequest.current = findRequest; }, [findRequest, openFind]);
+  const appliedContentFind=useRef(null);
+  useEffect(()=>{
+    if(!contentFind||!searchable||appliedContentFind.current===contentFind)return;
+    appliedContentFind.current=contentFind;
+    const options=contentFind.findOptions??getSearchOptions(),result=searchInText(file.text,contentFind.findQuery,options);
+    setShowSource(true);onViewModeChange?.('source');
+    setFind(value=>({...value,open:true,query:contentFind.findQuery,options,index:firstMatchFrom(result.matches,contentFind.line),nonce:value.nonce+1}));
+  },[contentFind,searchable,file.text,onViewModeChange]);
   const findProps = useMemo(() => (find.open ? { matches, index } : null), [find.open, matches, index]);
   const preview = canToggle && !showSource ? kind : null;
+  const viewSource = () => { setShowSource(true); onViewModeChange?.("source"); };
+  // B13 im (cd2efac6e readable :5945-6030): the right-click menu of the bodies that are not the editor (which has
+  // its own and stops the event): the pane's file items, then Copy file contents and Download file.
+  const toasts = useSourceToasts();
+  const bodyRef = useRef(null);
+  const menuReturn = useRef(null);
+  const [bodyMenu, setBodyMenu] = useState(null);
+  const hasText = typeof file.text === "string" && reason !== "binary";
+  const bodyMenuEntries = bodyMenu && fileMenu ? fileViewerMenu(fileMenu.entries(file.path, { surface: "file_viewer", unavailable: file.unavailable }),
+    { canCopyContents: hasText, canDownload: hasText && typeof onDownload === "function" }) : null;
+  const openBodyMenu = (event) => {
+    if (!fileMenu || event.defaultPrevented || !bodyRef.current) return;
+    const keyboard = event.type === "keydown";
+    if (keyboard && event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+    // Read-only code with a text selection keeps the native Copy menu: the reference's code body is a read-only
+    // CodeMirror whose own menu (the ks branch) copies the selection, which these rows do not reproduce.
+    const selection = event.currentTarget.ownerDocument.getSelection?.();
+    if (!preview && !media && !reason && !editor && selection && !selection.isCollapsed && event.currentTarget.contains(selection.anchorNode)) return;
+    event.preventDefault(); event.stopPropagation();
+    const rect = bodyRef.current.getBoundingClientRect();
+    menuReturn.current = event.currentTarget.ownerDocument.activeElement;
+    setBodyMenu({ point: keyboard || (event.clientX === 0 && event.clientY === 0) ? { x: rect.left + 12, y: rect.top + 12 } : { x: event.clientX, y: event.clientY } });
+  };
+  // B32 ko: a breadcrumb segment's menu — the pane's file items for that folder (or the file), where a segment shown
+  // as an absolute path outside the working directory reads as outside_root (no reveal, terminal or tree items).
+  const segmentMenu = useMemo(() => (fileMenu ? {
+    entries: (target) => fileMenu.entries(target.path, { surface: "file_breadcrumb", directory: target.directory,
+      unavailable: target.outside ? "outside_root" : target.directory ? undefined : file.unavailable }),
+    select: (item, target) => fileMenu.select(item, target.path),
+  } : null), [fileMenu, file.unavailable]);
+  const selectBodyItem = (item) => {
+    if (item.disabled) return;
+    // md: "Copied to clipboard." once the copy lands.
+    if (item.action === "copy-file-contents") void Promise.resolve().then(() => navigator.clipboard.writeText(file.text))
+      .then(() => toasts?.add(t("Copied to clipboard."), { variant: "neutral" }), () => toasts?.add(t("Couldn’t copy to clipboard."), { variant: "danger" }));
+    else if (item.action === "download-file") onDownload?.(file.text);
+    else fileMenu?.select(item, file.path);
+  };
+  // B32: the card actions with dp's focus target (the viewer root).
+  const unavailableActions = cardActions ? { ...cardActions, focusViewer: () => root.current?.focus({ preventScroll: true }) } : null;
   const body = media
-    ? <SourceFileMedia key={file.path} kind={media} path={file.path} url={filePreviewUrl(fullPath || file.path)} onViewAsText={onViewAsText} />
+    ? <SourceFileMedia key={file.path} kind={media} path={file.path} url={filePreviewUrl(fullPath || file.path)} onViewAsText={onViewAsText} onShowFile={cardActions?.onShowFile ?? null} />
     : reason && reason !== "empty"
-      ? <SourceFileUnavailable reason={reason} path={file.path} onViewAsText={onViewAsText} />
-      : reason === "empty"
+      ? <SourceFileUnavailable key={file.path} reason={reason} path={file.path} creatable={file.creatable} onViewAsText={onViewAsText} cardActions={unavailableActions} />
+      : reason === "empty" && !editor
         ? <SourceFileUnavailable reason="empty" path={file.path} />
         : typeof file.text !== "string"
           ? <SourceLoadingPane label={FILE_VIEWER_LABELS.loading} />
+          : preview?.kind === "html"
+            ? <SourceFileHtmlFrame path={file.path} text={file.text} frame={previewFrame} onViewSource={viewSource} />
+          : preview?.kind === "svg"
+            ? <SourceFileSvg path={file.path} text={file.text} onViewSource={viewSource} />
           : preview?.kind === "markdown"
             ? <SourceFileMarkdown text={file.text} renderMarkdown={renderMarkdown} />
             : preview?.kind === "csv"
               ? <SourceFileCsv text={file.text} delimiter={preview.delimiter} />
-              : <SourceFileCode path={file.path} text={file.text} line={line} endLine={endLine} scrollNonce={scrollNonce} scopeKey={scopeKey} find={findProps} />;
-  return <div ref={root} className="source-file-view" data-file-path={file.path} data-file-state={reason ?? (typeof file.text === "string" ? "text" : "loading")}
+              : editor ? <SourceFileEditor onSaveComment={onSaveComment} onDeleteComment={onDeleteComment} apiRef={editorApi} onGoToLine={openGoToLine} onAttachFile={onAttachFile} onAttachSelection={onAttachSelection} onDownload={onDownload} editor={editor} settings={settings} line={line} endLine={endLine} scrollNonce={scrollNonce} find={findProps} />
+              : <SourceFileCode path={file.path} text={file.text} line={line} endLine={endLine} scrollNonce={scrollNonce} scopeKey={scopeKey} find={findProps} settings={settings} />;
+  return <div ref={root} tabIndex={-1} onMouseDown={(event) => {
+    // Keep keyboard Find scoped to the file after clicking its read-only code.
+    if (event.button === 0 && event.target.closest?.('.sfv-scroller')) event.currentTarget.focus({ preventScroll: true });
+  }} className="source-file-view" data-file-path={file.path} data-pane-editor={dirty || undefined} data-file-state={reason ?? (typeof file.text === "string" ? "text" : "loading")}
     data-file-view={preview ? "preview" : canToggle ? "source" : undefined}
     onKeyDown={(event) => {
+      if (event.key === 'Escape' && find.open && !event.defaultPrevented && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); closeFind(); return; }
       const action = searchable ? fileFindShortcut(event, { mac: typeof navigator === "undefined" || /Mac|iPhone|iPad/.test(navigator.platform || "") }) : null;
       if (!action || (action !== "open" && !find.open)) return;
       event.preventDefault(); event.stopPropagation();
@@ -537,13 +933,31 @@ export function SourceFileViewer({ file, displayPath, fullPath, line, endLine, s
     {/* qn flush (cdf69fdd3-DM0fGX-C.js:13-36): "epitaxy-panel-subheader flex
         items-center gap-[4px] shrink-0 px-md" at h-[calc(2rem*rem-scale)];
         Jo puts the actions after the Yo lead. */}
-    <div className="epitaxy-panel-subheader sfv-subheader">
-      <SourceFileBreadcrumb displayPath={displayPath} fullPath={fullPath} onCopyPath={onCopyPath} lister={lister} />
-      {canToggle && <SourceViewToggle showingSource={showSource} onToggle={() => setShowSource((value) => !value)} />}
-    </div>
-    {find.open && searchable && <SourceFileFindBar query={find.query} status={findStatus(matches, index)} inputRef={findInput}
+    {showHeader && <div className="epitaxy-panel-subheader sfv-subheader">
+      <SourceFileBreadcrumb displayPath={displayPath} fullPath={fullPath} onCopyPath={onCopyPath} lister={lister} segmentMenu={segmentMenu} />
+      {dirty && (!settings.autoSave || editState.error) && <><SourceSettingsButton size="xxs" variant="ghost" disabled={editState.saving} onClick={() => editor.discard()}>{t('Cancel')}</SourceSettingsButton>
+        <SourceSettingsButton size="xxs" variant="secondary" busy={editState.saving} disabled={!!editState.error} onClick={() => void editor.save()}>{t('Save')}</SourceSettingsButton></>}
+      {canToggle && <SourceViewToggle showingSource={showSource} onToggle={() => { setShowSource(!showSource); onViewModeChange?.(showSource ? "preview" : "source"); }} />}
+    </div>}
+    {goTo && <SourceFileGoToLine caret={goTo} onGo={(line, column) => { setGoTo(null); editorApi.current?.go(line, column); }}
+      onClose={focus => { setGoTo(null); if (focus) editorApi.current?.focus(); }} />}
+    {editState?.error && <div role="alert" className="sfv-edit-error"><span>{t(editState.error.status === 'denied'
+      ? 'This file can’t be saved. Its path is outside the working directory, or this is a remote session.'
+      : editState.error.status === 'conflict' ? editState.error.currentHash === null
+        ? 'This file was deleted on disk since you started editing.' : 'This file changed on disk since you started editing.'
+        : 'Couldn’t save this file.')}</span>
+      <SourceSettingsButton size="xxs" variant="ghost" disabled={editState.saving} onClick={() => editor.discard()}>{t('Discard')}</SourceSettingsButton>
+      {editState.error.status !== 'denied' && <SourceSettingsButton size="xxs" busy={editState.saving} onClick={() => void editor.save({ override: true })}>
+        {t(editState.error.status !== 'conflict' ? 'Try again' : editState.error.currentHash === null ? 'Save anyway' : 'Override')}</SourceSettingsButton>}
+    </div>}
+    {find.open && searchable && <SourceFileFindBar query={find.query} options={find.options} result={searchResult} onToggle={toggleFindOption} status={findStatus(matches, index)} inputRef={findInput}
       onQuery={(query) => setFind((value) => ({ ...value, query, index: 0 }))}
       onNext={() => stepFind(1)} onPrev={() => stepFind(-1)} onClose={closeFind} />}
-    <div className="sfv-body">{body}</div>
+    <div ref={bodyRef} className="sfv-body" data-popup-open={bodyMenu ? "" : undefined} onContextMenu={fileMenu ? openBodyMenu : undefined} onKeyDown={fileMenu ? openBodyMenu : undefined}>{body}</div>
+    {bodyMenuEntries?.length > 0 && <SourceMenu.Popup anchor={bodyRef.current} point={bodyMenu.point} trigger={null} side="bottom" align="start"
+      sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
+      label={FILE_VIEWER_LABELS.fileActions} onClose={() => setBodyMenu(null)} finalFocus={() => (menuReturn.current?.isConnected ? menuReturn.current : root.current)}>
+      <SourceFileMenuEntries entries={bodyMenuEntries} onSelect={selectBodyItem} />
+    </SourceMenu.Popup>}
   </div>;
 }

@@ -64,6 +64,11 @@ export default {
   // A transcript shell block's Play button (source-code-block.jsx).
   "Run in terminal": "在终端中运行",
   "The terminal wasn’t ready, so the command wasn’t run": "终端尚未就绪，因此命令未运行",
+  // B20: the block's Play when its output also goes to the model, Cancel's tooltip while it runs, and a kept run's
+  // empty output (c19e90103 Bg/Lg).
+  "Run in terminal and send output to {core}": "在终端中运行并将输出发送给 {core}",
+  "Running — click to cancel": "正在运行 — 点击取消",
+  "(no output)": "（无输出）",
   // '!' shell mode through the terminal pane (shell-mode-model.mjs, terminal-service.cjs run / wait).
   "Runs in a terminal tab in this session’s folder as your own command, then sends the output to {core}. Remove the ! to message {core}.": "作为你自己的命令在此会话文件夹的终端标签页中运行，然后将输出发送给 {core}。删除 ! 即可向 {core} 发送消息。",
   "@-mentions can’t be used in a shell command. Remove them, or remove the ! to send a message.": "Shell 命令中不能使用 @ 提及。请删除它们，或删除 ! 以发送消息。",
@@ -75,4 +80,8 @@ export default {
   "I ran this shell command in the terminal:": "我在终端中运行了这条 Shell 命令：",
   "Exit code: {code}": "退出代码：{code}",
   "Ended by {signal}": "因 {signal} 结束",
+  // B19: terminal path drop (cccc2cf0a rg) and the chunk-load fallback's button (Bg).
+  "Can’t insert this path. It isn’t one the terminal can be given safely.": "无法插入此路径。无法安全地将它交给终端。",
+  "Can’t insert a path. Drop a file or folder that is saved on this computer.": "无法插入路径。请拖入保存在这台电脑上的文件或文件夹。",
+  "Reload": "重新加载",
 };

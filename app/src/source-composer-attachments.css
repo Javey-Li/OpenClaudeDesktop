@@ -40,3 +40,7 @@ html[data-local-motion="reduce"] .sca-slot, html[data-local-motion="reduce"] .sc
 .sca-preview-body:focus { outline: none; }
 .sca-preview-body:focus-visible { box-shadow: var(--cds-focus-shadow); }
 .sca-preview-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* ca80fca8d pk issue / agent pills: the labelled pill body (thumbnail + label) beside the attachments. */
+.sca-pill.sc-context-pill .epitaxy-pill-body { cursor:default; font:inherit; padding:0 var(--cds-pad-md); background:var(--cds-fill-secondary); color:var(--cds-text-secondary); }
+.sc-context-pill-loading { display:flex; width:12px; height:12px; align-items:center; justify-content:center; }
+.sc-context-pill-loading .sc-spinner { width:12px; height:12px; }

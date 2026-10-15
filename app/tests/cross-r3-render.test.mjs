@@ -7,7 +7,7 @@ import path from 'node:path';
 const app = path.resolve(import.meta.dirname, '..');
 createRequire(path.join(app, 'package.json'))('react-dom').createPortal = children => children;
 globalThis.innerWidth = 1200;
-globalThis.document ??= { body: { nodeType: 1 }, documentElement: { dataset: {}, getAttribute: () => null } };
+globalThis.document ??= { body: { nodeType: 1, style: {} }, documentElement: { dataset: {}, style: {}, getAttribute: () => null } };
 let server, React, render, load;
 before(async () => {
   React = (await import('react')).default;

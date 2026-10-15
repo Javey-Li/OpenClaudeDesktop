@@ -50,7 +50,8 @@ try{
   if(!row||!alert.includes(reason))return null;
   return {cards:document.querySelectorAll('.connection-card').length,warning:row.querySelector('.sc-warning-text')?.textContent??null,retry:row.querySelector('button')?.textContent??null,connecting:document.body.innerText.includes('Connecting to DeepSeek'),greeting:!!document.querySelector('header.source-greeting')};
  },reason,{timeout:15000}).then(handle=>handle.jsonValue());
- const lostState={cards:0,warning:'Connection to DeepSeek lost.',retry:'Retry',connecting:false,greeting:true};
+ // coreName(boot.core): the fixture reports no engine, read as Codex by core-registry coreForEngine.
+ const lostState={cards:0,warning:'Connection to Codex lost.',retry:'Retry',connecting:false,greeting:true};
  const third=JSON.parse(await fs.readFile(path.join(profile,'starts.json'),'utf8')).at(-1);
  process.kill(third.pid,'SIGTERM');
  assert.deepEqual(await homeState('DeepSeek disconnected'),lostState,'after a disconnect: no connection card; the warning row with Retry and the disconnect reason');

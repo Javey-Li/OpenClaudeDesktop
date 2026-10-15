@@ -299,7 +299,7 @@ try {
         id: node.closest(".sua-row").dataset.userActionsId, sentinel: node.classList.contains("sua-show-actions"), copy: node.classList.contains("sua-copy") });
     }, true);
   });
-  await page.locator(".sc-input").focus();
+  await page.locator(".sc-input.epitaxy-prompt-input").focus(); // the main composer; the side chat field is also .sc-input
   await page.mouse.move(100, 700);
   let reached = false;
   for (let i = 0; i < 40 && !reached; i++) {

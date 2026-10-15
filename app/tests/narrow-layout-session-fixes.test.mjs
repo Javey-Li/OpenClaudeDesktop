@@ -44,7 +44,7 @@ test('Viewport: a size the agent set that matches no preset is a checked Custom 
   assert.equal(viewportRows({ preset: 'responsive' }).filter((row) => row.checked).length, 1);
   const pane = read('src/source-preview-pane.jsx');
   assert.match(pane, /viewportRows\(state\?\.viewport\)/);
-  assert.match(pane, /if \(!row\.keep\) onViewport\(row\.value\)/, 'choosing Custom keeps the size');
+  assert.match(pane, /if \(!row\.keep\) (onViewport\(row\.value\)|call\('preview-emulate', \{ preset: row\.value \}\))/, 'choosing Custom keeps the size');
 });
 
 test('ultracode lasts this app run only: the session keeps the level under it', () => {
@@ -109,29 +109,39 @@ test('titlebar: the lead clips, and a cramped row lets Preview and Terminal step
   assert.match(read('src/source-titlebar.jsx'), /data-cramped=\{cramped \|\| undefined\}/);
 });
 
-test('tabbed split view: the strip carries Show sidebar / Back / Forward after the traffic lights and drags the window', () => {
+test('narrow split view (u1): a window ≤ 700px parks the extra panes instead of showing a tab strip', () => {
   const store = Store.createSplitViewStore({ timers: { setTimeout: () => 0, clearTimeout: () => {} } });
-  store.reportSide(0, { current: 'a', title: 'Alpha' }); store.open('b'); store.reportSide(1, { current: 'b', title: 'Beta' }); store.setTabs(true);
-  const chrome = React.createElement('div', { className: 'df-collapsed-chrome', 'data-test-chrome': '' });
-  const html = render(React.createElement(Split.SourceSplitHost, { side: 0, store, chrome }, React.createElement('main')));
-  assert.match(html, /<div class="split-tabs-bar" data-chrome=""><div class="split-tabs-chrome"><div class="df-collapsed-chrome" data-test-chrome=""><\/div><\/div><div class="split-tabs" role="tablist" aria-label="Split view">/);
-  assert.match(html, /<\/div><button type="button" class="split-tabs-close code-icon-button" aria-label="Close split view"/, 'Close sits outside the tablist');
-  const plain = render(React.createElement(Split.SourceSplitHost, { side: 0, store }, React.createElement('main')));
-  assert.match(plain, /<div class="split-tabs-bar"><div class="split-tabs" role="tablist"/);
-  const css = read('src/source-split-view.css');
-  assert.match(css, /\.split-tabs-bar \{[^}]*-webkit-app-region: drag;/);
-  assert.match(css, /\.split-tabs-bar\[data-chrome\] \{\n  height: 46px;\n  padding-left: calc\(var\(--df-traffic-light-spacer, 74px\) \+ 14px\);/);
-  assert.match(css, /\.split-host\[data-tabs\] \.split-pane \.workspace-toolbar \.df-collapsed-chrome \{\n  display: none;/);
-  assert.match(read('src/main.jsx'), /<SourceSplitHost side=\{side\} chrome=\{effectiveCollapsed \? <SourceCollapsedChrome/);
+  store.reportSide(0, { current: 'a', title: 'Alpha' }); store.open('b'); store.setConstrained(true);
+  const html = render(React.createElement(Split.SourceSplitHost, { side: 0, store }, React.createElement('main')));
+  assert.doesNotMatch(html, /split-tabs|role="tablist"|split-pane-secondary/);
+  assert.match(read('src/split-view-model.mjs'), /export const SPLIT_CONSTRAINED_QUERY = "\(max-width: 700px\)";/);
+  assert.match(read('src/source-split-view.jsx'), /window\.matchMedia\(SPLIT_CONSTRAINED_QUERY\)/);
+  assert.doesNotMatch(read('src/source-split-view.css'), /split-tabs/);
+  assert.match(read('src/main.jsx'), /<SourceSplitHost side=\{side\}>/);
 });
 
-test('Rewind: each choice is one row, its mark beside its message, over a visually hidden native input', () => {
-  const html = render(React.createElement(Actions.RewindDialog, { turns: [{ id: 't1', text: 'First' }, { id: 't2', text: 'Second' }], preselected: 't2', canRestoreFiles: true, onConfirm() {}, onClose() {} }));
-  assert.match(html, /<label class="slash-rewind-option"><input class="slash-rewind-input" type="radio" name="rewind"\/><span class="slash-rewind-mark" data-kind="radio" aria-hidden="true"><\/span><span class="slash-rewind-text">First<\/span><\/label>/);
-  assert.match(html, /<label class="slash-rewind-option" data-checked="true"><input class="slash-rewind-input" type="radio" name="rewind" checked=""\/><span class="slash-rewind-mark" data-kind="radio" data-checked="true" aria-hidden="true"><span class="slash-rewind-dot"><\/span><\/span><span class="slash-rewind-text">Second<\/span>/);
-  assert.match(html, /<label class="slash-rewind-files slash-rewind-option"><input class="slash-rewind-input" type="checkbox"\/><span class="slash-rewind-mark" data-kind="checkbox" aria-hidden="true"><\/span>/);
+test('Rewind (B12, cc43287c9 J1/K1): the picker is a listbox of message labels; the confirm quotes the message over Restore and the file line', () => {
+  const picker = render(React.createElement(Actions.RewindPicker, { turns: [{ id: 't1', text: 'First\n\nmessage' }, { id: 't2', text: 'Second' }], onSelect() {}, onClose() {} }));
+  assert.match(picker, /<h2[^>]*>Rewind<\/h2>/);
+  assert.match(picker, /Restore the session to an earlier message\./);
+  assert.match(picker, /<ul role="listbox" aria-activedescendant="[^"]*-rewind-opt-1" tabindex="-1" class="rewind-picker-list">/);
+  assert.match(picker, /<li id="[^"]*-rewind-opt-0" data-idx="0" role="option" aria-selected="false" class="rewind-picker-option"><div class="rewind-picker-label">First message<\/div><\/li>/);
+  assert.match(picker, /role="option" aria-selected="true" class="rewind-picker-option" data-selected="true"><div class="rewind-picker-label">Second<\/div>/, 'the latest message starts active');
+  assert.match(render(React.createElement(Actions.RewindPicker, { turns: [], onSelect() {}, onClose() {} })), /<li role="presentation" class="rewind-picker-empty">Nothing to rewind to yet<\/li>/);
+  const confirm = render(React.createElement(Actions.RewindConfirmDialog, { targetText: '  Fix the bug  ', preview: { filesChanged: ['/a', '/b'], insertions: 3, deletions: 1 }, onConfirm: async () => {}, onClose() {} }));
+  assert.match(confirm, /<h2[^>]*>Rewind to this message\?<\/h2>/);
+  assert.match(confirm, /<div class="rewind-confirm-quote"><span class="source-sr-only">You<\/span><p>Fix the bug<\/p><\/div>/);
+  assert.match(confirm, /role="combobox" aria-label="Restore"[^>]*data-value="both"/);
+  assert.match(confirm, /2 files · <span class="tabular-nums rewind-confirm-diff"/);
+  assert.match(confirm, /Changes made through shell commands aren’t reverted\. Commits stay in place\./);
+  assert.match(confirm, /<footer class="sdlg-footer"><button[^>]*data-variant="secondary"[^>]*>.*Cancel.*<\/button><button[^>]*data-variant="primary"[^>]*>.*Rewind.*<\/button><\/footer>/s);
+  const none = render(React.createElement(Actions.RewindConfirmDialog, { targetText: 'x', preview: 'none', onConfirm: async () => {}, onClose() {} }));
+  assert.doesNotMatch(none, /combobox|rewind-confirm-files/, "preview 'none': no Restore choice and no file line");
+  const pending = render(React.createElement(Actions.RewindConfirmDialog, { targetText: 'x', preview: 'pending', onConfirm: async () => {}, onClose() {} }));
+  assert.match(pending, /Checking for file changes…/);
+  assert.match(pending, /class="rewind-confirm-note" data-hidden="true"/);
   const css = read('src/source-session-actions.css');
-  assert.match(css, /\.session-action-dialog \.slash-rewind-option\{position:relative;display:flex;flex-direction:row;/, 'scoped past the dialog’s column labels');
+  assert.match(css, /\.rewind-picker-option\[data-selected\]\{background:var\(--cds-fill-ghost-hover\);color:var\(--cds-text-primary\)\}/);
 });
 
 test('/status footer: hint at the start, Copy session info and Refresh together at the end', () => {

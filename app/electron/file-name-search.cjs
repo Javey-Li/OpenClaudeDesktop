@@ -6,6 +6,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxDirectories: 2000, maxDepth: 24, maxPathBytes: 4096,
   maxGitBytes: 2 * 1024 * 1024, maxIndexBytes: 2 * 1024 * 1024, maxResultBytes: 96 * 1024,
   deadlineMs: 4000, maxConcurrent: 2, maxPending: 2,
+  maxContentResults: 241, maxContentFileBytes: 2 * 1024 * 1024, maxContentBytes: 32 * 1024 * 1024,
 });
 
 function limitsFrom(overrides = {}) {
@@ -34,7 +35,9 @@ function invalid(request) {
   if (typeof request.scope !== 'string' || !request.scope || request.scope.length > 128 || request.scope.includes('\0')) return 'Invalid search scope.';
   if (typeof request.requestId !== 'string' || !request.requestId || request.requestId.length > 128 || request.requestId.includes('\0')) return 'Invalid request identifier.';
   if (typeof request.root !== 'string' || !path.isAbsolute(request.root) || request.root.includes('\0') || Buffer.byteLength(request.root) > 4096) return 'An absolute workspace root is required.';
-  if (typeof request.query !== 'string' || request.query.length > 256 || request.query.trim().length > 64 || /[\0\r\n]/.test(request.query)) return 'A single-line query of at most 64 UTF-16 units is required.';
+  if(request.mode!==undefined&&request.mode!=='content')return 'Invalid search mode.';
+  if(request.mode==='content'&&request.options!==undefined&&(!request.options||typeof request.options!=='object'||Object.entries(request.options).some(([key,value])=>!['matchCase','wholeWord','regexp'].includes(key)||typeof value!=='boolean')))return 'Invalid content search options.';
+  if (typeof request.query !== 'string' || request.query.length > 256 || request.query.trim().length > (request.mode==='content'?256:64) || /[\0\r\n]/.test(request.query)) return 'A valid single-line search query is required.';
   return null;
 }
 
@@ -128,7 +131,8 @@ function createFileNameSearch(options = {}) {
     });
     return new Promise(resolve => {
       // browse: an empty query lists the project's files (the composer's bare '@'), shallowest first.
-      const job = { request: { ...request, query: request.query.trim(), browse: request.browse === true }, resolve,
+      // folders (B33, the Files pane filter only): a query ending in '/' lists folders too.
+      const job = { request: { ...request, query: request.query.trim(), browse: request.browse === true, folders: request.folders === true }, resolve,
         generation: ++generation, created: Date.now(), settled: false, child: null, result: null };
       latest.set(request.scope, job);
       job.timer = setTimeout(() => fail(job, 'TIMEOUT', 'Filename search exceeded its time limit.'), limits.deadlineMs);

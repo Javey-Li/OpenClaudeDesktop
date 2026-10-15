@@ -69,3 +69,21 @@ test('local usage rows use the model menu names, keeping the id for the tooltip'
   assert.equal(names.has('anthropic/claude'), false);
   assert.equal(usageModelNames(undefined).size, 0);
 });
+
+// B36 (c71860c77-29nOu6oI W): with the page's handlers, the per-day section carries the Chart metric (priced sources
+// only; Cost disabled when no day has an estimate) and the Time range; the Cost metric measures the bars by cost.
+test('time range and chart metric controls over the per-day rows', () => {
+ const props = (tokenUsage, extra = {}) => ({ cost: usageCostPresentation({ tokenUsage }, { todayKey: day, locale: 'en-US', days: extra.days ?? 30 }), onOpenLink() {}, onRange() {}, onMetric() {}, ...extra });
+ const priced = render(React.createElement(CostUsage, props({ breakdown: breakdown('costUsd', 0.25) })));
+ assert.match(priced, /role="radiogroup" aria-label="Chart metric"/); assert.match(priced, /role="radiogroup" aria-label="Time range"/);
+ assert.deepEqual([...priced.matchAll(/aria-label="(\d+d)"/g)].map(match => match[1]), ['7d', '30d', '90d']);
+ assert.match(priced, /data-metric="tokens"/);
+ const byCost = render(React.createElement(CostUsage, props({ breakdown: breakdown('costUsd', 0.25) }, { metric: 'cost' })));
+ assert.match(byCost, /data-metric="cost"/);
+ const tokensOnly = render(React.createElement(CostUsage, props({ breakdown: breakdown('costCny', null, { priced: false }) })));
+ assert.doesNotMatch(tokensOnly, /Chart metric/); assert.match(tokensOnly, /aria-label="Time range"/);
+ const week = render(React.createElement(CostUsage, props({ breakdown: { ...breakdown('costUsd', 0.25), daily: [] } }, { days: 7 })));
+ assert.match(week, /Last 7 days/); assert.match(week, /No usage in the last 7 days\./);
+ const plain = render(React.createElement(CostUsage, { cost: usageCostPresentation({ tokenUsage: { breakdown: breakdown('costUsd', 0.25) } }, { todayKey: day }), onOpenLink() {} }));
+ assert.doesNotMatch(plain, /radiogroup/, 'without the page handlers, the table alone');
+});

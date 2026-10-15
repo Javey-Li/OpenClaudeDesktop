@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {COST_FOOTNOTE,DEEPSEEK_USAGE_URL,deepseekCostPresentation,formatCny} from '../src/usage-cost-model.mjs';
+import {COST_FOOTNOTE,DEEPSEEK_USAGE_URL,deepseekCostPresentation,formatCny,usageCostPresentation} from '../src/usage-cost-model.mjs';
 import {accountTokenUsage,foldSession} from '../../harness/packages/codex-app-server/src/usage.js';
 // Local wall-clock times like the harness fold; the price tier is the same instant's Beijing time.
 const at=(day,hour)=>new Date(2026,8,day,hour).getTime();
@@ -81,4 +81,21 @@ test('USD costs from any source keep their currency; a bare all-time spend is re
  for(const data of [null,{},{tokenUsage:{summary:{lifetimeTokens:5}}},{tokenUsage:{opencode:{costUsd:null}}},{tokenUsage:{zcode:{totals:{tokens:5}}}},{tokenUsage:{x:{costUsd:-1}}}])
   assert.equal(usageSpendPresentation(data),null,JSON.stringify(data));
  assert.deepEqual(usageSpendPresentation({tokenUsage:{acme:{costCny:3}}}),{key:'acme',currency:'CNY',allTime:3});
+});
+
+// B36 (c71860c77-29nOu6oI B/M): the Time range keeps 7, 30 or 90 days of the core's per-day history; costShare
+// measures each day against the costliest one for the Cost chart metric; dailyPriced says whether any day has a cost.
+test('time range: 7 / 30 / 90 days over the daily history, cost shares and dailyPriced', () => {
+ const day=(date,tokens,costUsd)=>({date,tokens,...(costUsd===undefined?{}:{costUsd})});
+ const sum={tokens:10,inputTokens:10,cacheReadTokens:0,cacheWriteTokens:0,outputTokens:0,unpricedTokens:0,costUsd:1};
+ const breakdown={allTime:sum,last30Days:sum,today:sum,models:[],daily:[day('2026-09-30',100,0.5),day('2026-09-25',300,0.25),day('2026-09-10',50,2),day('2026-07-15',10,1)]};
+ const at=days=>usageCostPresentation({tokenUsage:{breakdown}},{todayKey:'2026-09-30',locale:'en-US',days});
+ assert.deepEqual(at(7).daily.map(d=>d.date),['2026-09-30','2026-09-25']);assert.equal(at(7).range,7);
+ assert.deepEqual(at(30).daily.map(d=>d.date),['2026-09-30','2026-09-25','2026-09-10']);
+ assert.deepEqual(at(90).daily.map(d=>d.date),['2026-09-30','2026-09-25','2026-09-10','2026-07-15']);
+ assert.equal(at(12).range,30,'an unknown range reads as 30 days');assert.equal(usageCostPresentation({tokenUsage:{breakdown}},{todayKey:'2026-09-30'}).range,30);
+ assert.deepEqual(at(30).daily.map(d=>[d.share,d.costShare]),[[1/3,0.25],[1,0.125],[1/6,1]]);
+ assert.equal(at(30).dailyPriced,true);
+ const unpricedDays={...breakdown,daily:breakdown.daily.map(({costUsd,...rest})=>rest)};
+ assert.equal(usageCostPresentation({tokenUsage:{breakdown:unpricedDays}},{todayKey:'2026-09-30',days:30}).dailyPriced,false,'no day with a cost: the Cost metric is off');
 });

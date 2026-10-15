@@ -8,6 +8,7 @@ import {
 } from "./tile-layout-model.mjs";
 import { createDragSnapshot, hitTest, indicatorOutset } from "./tile-drop-zones.mjs";
 import "./source-tile-layout.css";
+import { tileRegion } from "./focus-region-model.mjs";
 
 // Recursive tile layout host (independent implementation of the 2.2553.1
 // pane engine: c360a9e1c-GPs-MV9u.js $m engine 8750-9552, gh renderer
@@ -143,8 +144,12 @@ function TileWrap({ node, flex, config, minWidthSize, edgeHandles, engine, tileB
   return (
     <div
       ref={wrapRef}
-      className={`tiles-tile-wrap ${node.tileId === "chat" ? "source-chat-tile" : "source-side-tile shadow-panel-sm"}`}
+      data-pane-root="" className={`tiles-tile-wrap ${node.tileId === "chat" ? "source-chat-tile" : "source-side-tile shadow-panel-sm"}`}
       data-tile-id={node.tileId}
+      // ca1d33d05 Et (codeTile, focus-region-model.mjs tileRegion): each side pane is a stop placed by its pane and its
+      // tile's reading order; the chat tile's are its title ("header") and composer.
+      data-focus-region={node.tileId === "chat" ? undefined : tileRegion(node.tileId)} data-focus-region-instance={node.tileId === "chat" ? undefined : node.tileId}
+      data-focus-region-order={node.tileId === "chat" ? undefined : "pane"}
       data-tile-active={isDragged || undefined}
       data-tile-top={isTop || undefined}
       style={{ zIndex: overflowMin ? 0 : 1, flexGrow: flex, flexShrink: 1, flexBasis: 0, minWidth: minWidthSize, minHeight: config.minTileBasePx }}

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Read-only extraction of an installed Electron app for local UI inspection."""
-import hashlib,json,shutil,struct
+import argparse,hashlib,json,plistlib,shutil,struct
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 APP=Path('/Applications/Claude.app/Contents/Resources')
 archive=APP/'app.asar'
-out=ROOT/'reference/asar'
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output',type=Path,help='Versioned snapshot directory (contains asar, ion-dist and manifest.json)')
+args=parser.parse_args()
+snapshot=args.output.resolve() if args.output else None
+out=snapshot/'asar' if snapshot else ROOT/'reference/asar'
 out.mkdir(parents=True,exist_ok=True)
 records=[]
 with archive.open('rb') as f:
@@ -29,6 +33,19 @@ with archive.open('rb') as f:
             target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
             records.append({'path':str(rel),'size':len(data),'sha256':hashlib.sha256(data).hexdigest(),'unpacked':bool(entry.get('unpacked'))})
     extract(header['files'])
-shutil.copytree(APP/'ion-dist',ROOT/'reference/ion-dist',dirs_exist_ok=True)
-(ROOT/'analysis/asar-manifest.json').write_text(json.dumps({'archive':str(archive),'sha256':hashlib.sha256(archive.read_bytes()).hexdigest(),'files':records},indent=2))
-print(f'Extracted {len(records)} ASAR entries; copied ion-dist to {ROOT}/reference')
+frontend=snapshot/'ion-dist' if snapshot else ROOT/'reference/ion-dist'
+shutil.copytree(APP/'ion-dist',frontend,dirs_exist_ok=True)
+with (APP.parent/'Info.plist').open('rb') as f:version=plistlib.load(f)['CFBundleShortVersionString']
+frontend_records=[{'path':str(p.relative_to(frontend)),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(frontend.rglob('*')) if p.is_file()]
+runtime_records=[]
+if snapshot:
+    for name in ['smol-bin.arm64.img']:
+        source=APP/name
+        if source.is_file():
+            target=snapshot/'runtime-resources'/name
+            target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(source,target)
+            runtime_records.append({'path':str(target.relative_to(snapshot)),'sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
+manifest=snapshot/'manifest.json' if snapshot else ROOT/'analysis/asar-manifest.json'
+manifest.write_text(json.dumps({'archive':str(archive),'version':version,'sha256':hashlib.sha256(archive.read_bytes()).hexdigest(),'files':records,'frontend':frontend_records,'runtimeResources':runtime_records},indent=2))
+print(f'Extracted installed Claude {version}: {len(records)} ASAR entries, {len(frontend_records)} frontend files to {out.parent}')

@@ -82,7 +82,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1324, 768));
   await page.waitForFunction(() => innerWidth === 1324 && innerHeight === 768);
   const editor=page.getByRole('textbox',{name:'Message DeepSeek',exact:true});
-  const command=async text=>{await fillComposer(page,editor,text);await page.getByRole('button',{name:'Send message',exact:true}).click();};
+  const command=async text=>{await fillComposer(page,editor,text);await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();};
   const requests=async()=>{try{return (await fs.readFile(path.join(profile,'fixture-requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);}catch{return [];}};
   await fillComposer(page,editor,'/');const menu=page.getByRole('menu',{name:'Slash commands',exact:true});await menu.waitFor();
   assert.equal(await menu.getByRole('menuitem').filter({hasText:/^(status|rename|export|diff)$/}).count(),0);
@@ -99,6 +99,12 @@ try {
   await fillComposer(page,editor,'/sett');await menu.getByRole('menuitem').filter({hasText:'config (settings)'}).waitFor();
   assert.equal(await menu.locator('b').textContent(),'sett');assert.equal(await menu.locator('b').evaluate(n=>getComputedStyle(n).fontWeight),'600');
   await editor.press('Escape');await editor.press('s');assert.equal(await menu.count(),0,'dismissal persists while the starting slash remains');
+  // B05 C4 (2.31226.0 shared-5 mS/yS; c5cd1b4dc qt): a '/name' typed mid-message opens the list at the caret and the pick
+  // becomes the chip in place of that token; a bare '/' mid-message stays closed (ca80fca8d midMessageNeedsName).
+  await fillComposer(page,editor,'');await fillComposer(page,editor,'please use /them');await menu.waitFor();await editor.press('Enter');
+  assert.equal(await editor.evaluate(node=>node.value),'please use /theme ');assert.equal(await editor.locator('[data-skill-chip]').count(),1);assert.equal(await menu.count(),0);
+  await fillComposer(page,editor,'');await fillComposer(page,editor,'please /');await page.waitForTimeout(150);assert.equal(await menu.count(),0,'a bare / mid-message stays closed');
+  checks.push("B05 C4 mid-message slash: 'please use /them' opens the list and Enter turns only that token into the /theme chip; a bare mid-message '/' stays closed");
   await fillComposer(page,editor,'');await fillComposer(page,editor,'/theme');await menu.waitFor();await editor.press('Enter');assert.equal(await editor.evaluate(node=>node.value),'/theme ');assert.equal(await menu.count(),0);assert.equal(await page.getByRole('dialog',{name:'Settings',exact:true}).count(),0,'selection does not execute');
   const hint=page.locator('[data-skill-arg-hint]');assert.equal(await hint.textContent(),'[system|light|dark]');assert.equal(await hint.getAttribute('aria-hidden'),'true');assert.equal(await hint.evaluate(n=>getComputedStyle(n).opacity),'0.5');
   // Fidelity F05 (cc43287c9-BMbiZYzF.js:30292, :33700-33716): slash notices are CDS toasts (addSuccess → neutral), never the
@@ -119,7 +125,7 @@ try {
   await command('/diff\nfoo');await page.getByRole('alert').filter({hasText:'only works on a single line'}).waitFor();
   await command('/compac');await page.getByRole('alert').filter({hasText:'isn’t a command here'}).waitFor();await page.getByRole('button',{name:'/compact',exact:true}).click();assert.equal(await editor.evaluate(node=>node.value),'/compact ');
   assert.equal((await requests()).filter(r=>r.method==='turn/start').length,0);
-  await fillComposer(page,editor,'');await page.getByRole('button',{name:'Add',exact:true}).click();const add=page.getByRole('menu',{name:'Add',exact:true});/* R05 (c099c328d :8052-8330 em = [Qp, ...Kp, ...Hp]): 'Slash commands' is the third plain row, after 'Add files or photos' and 'Add folder'. */assert.deepEqual(await add.getByRole('menuitem').evaluateAll(nodes=>nodes.slice(0,3).map(node=>{const copy=node.cloneNode(true);copy.querySelectorAll('[aria-hidden="true"]').forEach(n=>n.remove());return copy.textContent;})),['Add files or photos','Add folder','Slash commands']);await add.getByRole('menuitem',{name:'Slash commands',exact:true}).click();await menu.waitFor();assert.equal(await editor.evaluate(node=>node.value),'/');await editor.press('Escape');
+  await fillComposer(page,editor,'');await page.getByRole('button',{name:'Add',exact:true}).click();const add=page.getByRole('menu',{name:'Add',exact:true});/* R05 (c099c328d :8052-8330 em = [Qp, ...Kp, ...Hp]) + B31 (ca80fca8d zN): in the draft 'Slash commands' follows 'Add files or photos', 'Add folder' and 'Import GitHub issue' (enabled, or disabled with its reason). */await add.getByRole('menuitem',{name:'Import GitHub issue'}).waitFor();assert.deepEqual(await add.getByRole('menuitem').evaluateAll(nodes=>nodes.slice(0,4).map(node=>{const copy=node.cloneNode(true);copy.querySelectorAll('[aria-hidden="true"],[hidden]').forEach(n=>n.remove());return copy.textContent;})),['Add files or photos','Add folder','Import GitHub issue','Slash commands']);await add.getByRole('menuitem',{name:'Slash commands',exact:true}).click();await menu.waitFor();assert.equal(await editor.evaluate(node=>node.value),'/');await editor.press('Escape');
   assert.equal(await page.locator('.session-command-palette').count(),0);
   checks.push('Source single-line/no-args/unknown suggestion errors do not send; Add first row opens slash input without a command modal');
   await fillComposer(page,editor,'');await page.locator(`[data-source-session-id="${RC}"] .source-session-open`).click();await page.getByText('ORIGINAL_RESPONSE',{exact:true}).waitFor();
@@ -152,20 +158,22 @@ try {
   await usage.waitFor({state:'detached'});
   assert.equal(await page.locator('#root').evaluate(node=>node.inert),false);
   await command('/fork fixture:complete branch prompt');await page.getByText('Fixture response',{exact:true}).waitFor();
-  await poll(async()=>!await page.getByRole('button',{name:'Stop response',exact:true}).count(),'fork completes');
+  await poll(async()=>!await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').count(),'fork completes');
   const db=JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')),fork=Object.values(db.threads).find(t=>t.forkedFromId===RC);assert.ok(fork);assert.equal(db.threads[RC].turns.length,1);assert.equal(fork.turns.length,2);assert.equal(fork.turns[1].items[0].content[0].text,'fixture:complete branch prompt');
   assert.equal(await editor.evaluate(node=>node.value),'');
   const exportPath=path.join(profile,'export.md');await app.evaluate(({dialog},file)=>{globalThis.slashSaveOriginal=dialog.showSaveDialog;dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exportPath);
   await command('/export');await poll(async()=>await fs.readFile(exportPath,'utf8'),'export saved');const exported=await fs.readFile(exportPath,'utf8');assert.ok(exported.includes('ORIGINAL_RESPONSE'));assert.ok(exported.includes('fixture:complete branch prompt'));assert.ok(!exported.includes('/status'));
   await app.evaluate(({dialog})=>{dialog.showSaveDialog=globalThis.slashSaveOriginal;delete globalThis.slashSaveOriginal;});
-  await command('/rewind');const rewind=page.getByRole('dialog',{name:'Rewind conversation',exact:true});await rewind.waitFor();
+  await command('/rewind');const rewind=page.getByRole('dialog',{name:'Rewind',exact:true});await rewind.waitFor();
   // Fidelity F02: Rewind is the shared CDS Dialog (source-dialog.jsx; shared-frame-C_2npUJq.js:5561-5574, :5806-5869): surface-3,
   // --cds-backdrop + blur(2px), the CloseButton 'Close' and CDS footer Buttons. Read once the enter transition has settled.
   await page.waitForFunction(()=>{const n=document.querySelector('[role=dialog].sdlg-popup');return n&&!n.hasAttribute('data-starting-style')&&n.getAnimations().length===0&&n.parentElement.getAnimations().length===0;});
   metrics.rewindDialog=await rewind.evaluate(n=>{const probe=document.createElement('span');probe.style.cssText='position:absolute;visibility:hidden;background:var(--cds-surface-3)';n.parentElement.append(probe);const surface=getComputedStyle(probe).backgroundColor;probe.style.background='var(--cds-backdrop)';const backdrop=getComputedStyle(probe).backgroundColor;probe.remove();
     return {surface:getComputedStyle(n).backgroundColor===surface,backdrop:getComputedStyle(n.parentElement).backgroundColor===backdrop,blur:getComputedStyle(n.parentElement).backdropFilter,footer:[...n.querySelectorAll('footer [data-cds=Button]')].map(b=>b.dataset.variant)};});
   metrics.rewindDialog.close=await rewind.getByRole('button',{name:'Close',exact:true}).count();
-  assert.deepEqual(metrics.rewindDialog,{surface:true,backdrop:true,blur:'blur(2px)',footer:['secondary','primary'],close:1});await rewind.getByLabel('fixture:complete branch prompt',{exact:true}).check({force:true});/* the radio sits under its slash-rewind-option label, which takes the pointer */await rewind.getByRole('button',{name:'Rewind to here',exact:true}).click();assert.equal((await requests()).filter(r=>r.method==='thread/revert').length,0,'no mutation before confirmation');await rewind.getByRole('button',{name:'Confirm rewind',exact:true}).click();await rewind.waitFor({state:'detached'});
+  // B12 J1 (cc43287c9 :30061-30231): the Rewind picker has no footer; the latest message starts active and Enter on the
+  // list picks it. The fixture core restores no files (no capabilities.rewindFiles), so G4 rewinds at once, without the confirm.
+  assert.deepEqual(metrics.rewindDialog,{surface:true,backdrop:true,blur:'blur(2px)',footer:[],close:1});const rewindOption=rewind.getByRole('option',{name:'fixture:complete branch prompt',exact:true});assert.equal(await rewindOption.getAttribute('aria-selected'),'true','J1: the latest message starts active');assert.equal((await requests()).filter(r=>r.method==='thread/revert').length,0,'no mutation before a pick');await rewind.getByRole('listbox').press('Enter');await rewind.waitFor({state:'detached'});
   await poll(async()=>JSON.parse(await fs.readFile(path.join(profile,'fixture-threads.json'),'utf8')).threads[fork.id].turns.length===1,'durable history reverted');assert.equal(await page.getByText('Fixture response',{exact:true}).count(),0);assert.equal(await editor.evaluate(node=>node.value),'fixture:complete branch prompt');
   assert.equal((await requests()).filter(r=>r.method==='thread/revert').length,1);
   checks.push('Usage targets settings; fork prompt goes only to new branch; export reads full history and excludes local status; rewind confirms and reloads paginated retained history');

@@ -497,7 +497,9 @@ function createCustomizeOperations({ getClient, getConfig, knownCwd, stat = fs.p
         for (const [name, value] of Object.entries(configured)) {
           if (!plainObject(value) || typeof name !== "string" || !name || name.length > 128) continue;
           if (origins[`marketplaces.${name}.source`]?.name?.type !== "user" && origins[`marketplaces.${name}.source_type`]?.name?.type !== "user") continue;
-          const entry = { name, sourceType: typeof value.source_type === "string" ? value.source_type : null, source: typeof value.source === "string" ? value.source : null };
+          const entry = { name, sourceType: typeof value.source_type === "string" ? value.source_type : null, source: typeof value.source === "string" ? value.source : null,
+            // MarketplaceConfig last_updated (RFC 3339, written by marketplace add / upgrade): c6a2a31c4 Us "Last updated".
+            lastUpdated: typeof value.last_updated === "string" && value.last_updated ? value.last_updated : null };
           knownMarketplaces.set(name, entry);
           out.push(entry);
         }

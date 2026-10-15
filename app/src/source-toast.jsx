@@ -1,6 +1,7 @@
 import React,{createContext,useContext,useEffect,useId,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {createPortal} from 'react-dom';
 import {Icon} from './icons.jsx';
+import {SourceSettingsButton} from './source-settings-button.jsx';
 import {t} from '../electron/i18n/index.mjs';
 import {createToastStore,toastClearance} from './toast-store.mjs';
 import './source-toast.css';
@@ -71,7 +72,7 @@ function ToastViewport({store}) {
   </div>,document.body);
 }
 function ToastCard({entry,front,limited,order,zIndex,frontHeight,onHeight,store,dismiss}) {
-  const content=useRef(null),lastLayout=useRef({behind:!front,height:!front?frontHeight:undefined}),title=useId();
+  const content=useRef(null),lastLayout=useRef({behind:!front,height:!front?frontHeight:undefined}),title=useId(),description=useId();
   const ending=entry.phase==='ending';
   if(!ending)lastLayout.current={behind:!front,height:!front?frontHeight:undefined};
   const layout=lastLayout.current;
@@ -84,11 +85,17 @@ function ToastCard({entry,front,limited,order,zIndex,frontHeight,onHeight,store,
     const node=content.current,update=()=>onHeight(node.offsetHeight),observer=new ResizeObserver(update);update();observer.observe(node);return()=>observer.disconnect();
   },[front,onHeight]);
   const text=entry.message+(entry.count>1?` (×${entry.count})`:'');
-  return <div className="source-toast-card" data-toast-id={entry.id} data-phase={entry.phase} data-front={front} data-limited={limited||undefined} data-variant={entry.variant} role={entry.variant==='danger'?'alertdialog':'dialog'} aria-modal="false" aria-labelledby={title} aria-hidden={limited||ending||undefined} tabIndex={limited||ending?-1:0} inert={limited||ending}
+  return <div className="source-toast-card" data-toast-id={entry.id} data-phase={entry.phase} data-front={front} data-limited={limited||undefined} data-variant={entry.variant} role={entry.variant==='danger'?'alertdialog':'dialog'} aria-modal="false" aria-labelledby={title} aria-describedby={entry.description?description:undefined} aria-hidden={limited||ending||undefined} tabIndex={limited||ending?-1:0} inert={limited||ending}
     style={{'--toast-index':order,zIndex}} onKeyDown={event=>{if(event.key==='Escape'&&!event.nativeEvent.isComposing){event.preventDefault();event.stopPropagation();dismiss(entry.id);}}}>
     <div className="source-toast-surface"><div ref={content} className="source-toast-content" data-behind={layout.behind||undefined} style={{height:layout.height||undefined}}>
       <Icon name={entry.variant==='neutral'?'Info':entry.variant==='danger'?'WarningCircle':'Warning'} size={20}/>
-      <div id={title} className="source-toast-message">{text}</div>
+      {/* aV nV: the title (font-medium), Toast.Description under it in the body weight, then the action slot
+          (mt-pad-md); a click on the action runs it and dismisses the toast. */}
+      <div className="source-toast-text">
+        <div id={title} className="source-toast-message">{text}</div>
+        {entry.description&&<p id={description} className="source-toast-description">{entry.description}</p>}
+        {entry.action&&<div className="source-toast-action"><SourceSettingsButton size="sm" variant="secondary" onClick={()=>{try{entry.action.onClick();}finally{dismiss(entry.id);}}}>{entry.action.label}</SourceSettingsButton></div>}
+      </div>
       <button type="button" className="source-toast-dismiss" aria-label={t('Dismiss')} onClick={()=>dismiss(entry.id)}><Icon name="X" size={16}/></button>
     </div></div>
   </div>;

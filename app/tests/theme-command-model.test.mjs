@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseThemeCommand, THEME_LABELS, resolveThemeMode, initialAppearance, isColorTransitionProperty, finishesColorTransitions, finishColorTransitions, writeThemeMode } from '../src/theme-command-model.mjs';
+import { parseThemeCommand, localizedThemeWords, THEME_LABELS, resolveThemeMode, initialAppearance, isColorTransitionProperty, finishesColorTransitions, finishColorTransitions, writeThemeMode } from '../src/theme-command-model.mjs';
 
 test('/theme follows cc43287c9 zI: light, dark, system, auto as system; anything else opens Appearance', () => {
   assert.deepEqual(parseThemeCommand('light'), { set: 'light' });
@@ -9,9 +9,27 @@ test('/theme follows cc43287c9 zI: light, dark, system, auto as system; anything
   assert.deepEqual(parseThemeCommand('auto'), { set: 'system' });
   assert.deepEqual(parseThemeCommand('  DARK '), { set: 'dark' });
   assert.deepEqual(parseThemeCommand('Auto'), { set: 'system' });
-  for (const value of ['', '   ', undefined, null, 'sepia', 'dark mode', 'dark\nlight'])
+  for (const value of ['', '   ', undefined, null, 'sepia', 'dark mode'])
     assert.deepEqual(parseThemeCommand(value), { open: 'appearance' }, String(value));
   assert.deepEqual(THEME_LABELS, { light: 'Light', dark: 'Dark', system: 'System' });
+});
+
+test('/theme r4: text on more than one line is extra lines; trailing whitespace is not', () => {
+  assert.deepEqual(parseThemeCommand('dark\nlight'), { extraLines: true });
+  assert.deepEqual(parseThemeCommand('\ndark'), { extraLines: true }, 'r4 looks at the rest after /theme, untrimmed at its start');
+  assert.deepEqual(parseThemeCommand('dark\r\nx'), { extraLines: true });
+  assert.deepEqual(parseThemeCommand(' dark \n'), { set: 'dark' });
+});
+
+test('/theme r4: the interface language names count, case-insensitively, after the English words', () => {
+  const zh = new Map([['跟随系统', 'system'], ['浅色', 'light'], ['深色', 'dark']]);
+  assert.deepEqual(parseThemeCommand('浅色', zh), { set: 'light' });
+  assert.deepEqual(parseThemeCommand(' 深色 ', zh), { set: 'dark' });
+  assert.deepEqual(parseThemeCommand('跟随系统', zh), { set: 'system' });
+  assert.deepEqual(parseThemeCommand('dark', zh), { set: 'dark' }, 'English words still work under another language');
+  assert.deepEqual(parseThemeCommand('浅色'), { open: 'appearance' }, 'en-US: the default map only holds the English names');
+  assert.deepEqual(parseThemeCommand('Système', new Map([['système', 'system']])), { set: 'system' });
+  assert.deepEqual([...localizedThemeWords()], [['system', 'system'], ['light', 'light'], ['dark', 'dark']]);
 });
 
 test('mode resolution (shared-7 Bh): explicit wins, system and unknown follow prefers-color-scheme', () => {

@@ -130,7 +130,7 @@ export class ModelCatalog {
         upgradeInfo: null,
         availabilityNux: null,
         displayName: DISPLAY_NAMES[entry.model.id] ?? entry.model.name ?? entry.model.id,
-        // Claude's model menu shows names only; the catalog default carries the 'Default' badge.
+        // Claude's model menu shows names only (no description, no 'Default' badge).
         description: '',
         modelSpecialty: null,
         hidden: false,
@@ -143,7 +143,6 @@ export class ModelCatalog {
         serviceTiers: [],
         defaultServiceTier: null,
         isDefault: entry === preferred,
-        ...(entry === preferred ? { badge: { message: 'Default' } } : {}),
         // Not part of the Codex shape; lets diagnostics show the Harness route.
         provider: entry.provider.id,
         contextWindow: entry.info?.context?.contextWindow ?? null,

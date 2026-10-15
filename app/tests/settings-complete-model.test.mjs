@@ -125,3 +125,22 @@ test('the lost-core notice names the running core, never a fixed DeepSeek',async
  }finally{setLocale('en-US');setAssistantName('DeepSeek');}
 });
 test('a session kept awake from its row menu holds the Mac awake while it runs, with the app-wide switch off',()=>{const f=fixture({keepAwake:false,sessionMetadata:{t:{keepAwake:true}}});f.service.observe(started('a'));assert.equal(f.service.snapshot().powerActive,true);f.service.observe(completed('a'));assert.equal(f.service.snapshot().powerActive,false);f.config.sessionMetadata.t.keepAwake=false;f.service.observe(started('b'));assert.equal(f.service.snapshot().powerActive,false);f.service.dispose();});
+
+// B35 (NotificationService showIdleNotification / isUserViewingSession / TV): the banner is titled with the session,
+// and only a focused window showing that session suppresses it.
+test('completion banners carry the session title and are skipped only while the session is in view',()=>{
+ assert.equal(desktop.notificationTitle({name:'  Fix\n\tthe   bug '}),'Fix the bug');
+ assert.equal(desktop.notificationTitle({name:'',preview:'Write tests'}),'Write tests');
+ assert.equal(desktop.notificationTitle({}),'OpenClaude Desktop');
+ assert.equal(desktop.notificationTitle({name:'x'.repeat(120)}),'x'.repeat(100)+'…');
+ const run=(viewing,focused)=>{const calls=[];class Notice extends EventEmitter{static isSupported(){return true;}constructor(options){super();calls.push(['notice',options]);}show(){calls.push('notice-show');}close(){}}
+  const service=createDesktopSettings({app:{dock:{setBadge:v=>calls.push(['badge',v]),bounce(){}}},powerMonitor:Object.assign(new EventEmitter(),{isOnBatteryPower:()=>false}),powerSaveBlocker:{start:()=>1,stop(){}},Notification:Notice,
+   getConfig:()=>({threadIds:['t'],archivedThreadIds:[],keepAwake:false,completeNotifications:'banner',notificationSound:'none',threadMetadata:{t:{name:'Refactor parser',cwd:'/Users/me/parser-lib'}}}),getClient:()=>({request:async()=>({})}),
+   sessionOperations:{},save(){},emit(){},getWindow:()=>Object.assign(new EventEmitter(),{isFocused:()=>focused}),isViewingSession:id=>viewing===id,isAppFocused:()=>focused});
+  service.observe(started('a'));service.observe(completed('a'));service.observe({kind:'request',method:'item/commandExecution/requestApproval',params:{threadId:'t'}});service.dispose();return calls;};
+ const background=run(null,true);assert.equal(background.find(v=>v[0]==='notice')[1].title,'Refactor parser');
+ // showPermissionNotification: the project as the title, the session title as the subtitle.
+ assert.deepEqual(background.filter(v=>v[0]==='notice').map(v=>[v[1].title,v[1].subtitle]),[['Refactor parser',undefined],['parser-lib','Refactor parser']]);assert.equal(background.some(v=>v[0]==='badge'&&v[1]==='•'),false,'no badge while the app is in front');
+ assert.equal(run('t',true).some(v=>v==='notice-show'),false,'the focused window shows the session');
+ const away=run(null,false);assert.ok(away.includes('notice-show'));assert.deepEqual(away.find(v=>v[0]==='badge'),['badge','•']);
+});

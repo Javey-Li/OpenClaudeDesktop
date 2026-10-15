@@ -15,6 +15,7 @@ import { menuTriggerProps } from "./source-menu";
 import { SourceDialog } from "./source-dialog.jsx";
 import { SourceShortcut } from "./source-shortcut.jsx";
 import { ACTION_ERROR_COPY } from "./action-error-model.mjs";
+import { sessionMenuTriggerLabel, titleTooltipContent, viewOptionsLabel } from "./session-title-menu-model.mjs";
 import { LOCAL_RELEASE_NOTE_VERSIONS, RELEASE_NOTE_KINDS, RELEASE_NOTE_KIND_LABELS, releaseNoteDate, releaseNoteSegments, releaseNotesFor } from "./release-notes.mjs";
 import "./source-titlebar.css";
 import { t } from "../electron/i18n/index.mjs";
@@ -53,6 +54,8 @@ export function SourceCollapsedChrome({ onExpand, peekOpen = false, onPeekEnter,
           aria-controls names the sidebar body (the peek card) and the trigger is bg-neutral-30 while open. */}
       <ToolButton label={t("Show sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.show} icon="Sidebar" onClick={onExpand}
         aria-expanded={peekOpen} aria-controls="frame-peek-popover" data-peek-open={peekOpen || undefined}
+        // ca1d33d05 kt: with the peek card hidden, the "navigation" stop is this trigger, focused without a ring.
+        data-focus-region="navigation" data-focus-region-fallback="" data-focus-region-ring="none"
         onPointerEnter={onPeekEnter} onPointerLeave={onPeekLeave} />
       <div className="df-collapsed-nav">
         <SourceNavButtons placement="sidebar" historyAt={historyAt} historyLength={historyLength} travel={travel} />
@@ -64,15 +67,25 @@ export function SourceCollapsedChrome({ onExpand, peekOpen = false, onPeekEnter,
 // Hp → Hf → kf/Bp/bp; shared-12 Wm/Km/Ym/qm/th.
 // See analysis/source-titlebar-batch1.md for source/version boundaries.
 export function SourceTitlebar({
+  surface = "code",
+  activityOpen = false,
+  onToggleActivity,
   collapsed,
   onExpand,
   section,
+  sectionLabel,
   session,
   panes = new Set(),
   onTogglePane,
   onMenu,
   menuKind,
+  // The open titlebar menu was opened by a right-click at the cursor (main.jsx menu.point): the title's context menu,
+  // which is not the caret's popup, so the caret stays collapsed (c593f7513 Om: separate Dm instances).
+  menuAtPointer = false,
   onRename,
+  // c593f7513 wm onRenameStart: the header session menu's Rename asks for the inline title edit ({ id, token };
+  // a new token for this session starts it).
+  renameRequest,
   onWhatsNew,
   showWhatsNew = false,
   loading,
@@ -88,11 +101,13 @@ export function SourceTitlebar({
   // dot ("Preview (dev server running)") while the pane is closed.
   previewAvailable = false,
   previewRunning = false,
-  // Split view (official Im split pane titlebar): each side's titlebar ends with its own ghost X
-  // (epitaxy-pane-close-control, "Close split view") that closes this side; closeSplitShortcut is the ⌃⌘W chord,
-  // shown on the focused side only since the chord closes the focused side.
+  // Split view (shared-21 VT, an extra pane's paneHost): a secondary pane's titlebar ends with a ghost "Close pane"
+  // X (label and tooltip, no chord) that closes that pane; the primary pane has none (it closes through View ›
+  // Split View or ⌃⌘W).
   onCloseSplit,
-  closeSplitShortcut,
+  // B27 session popout (main.jsx SESSION_POPOUT; shared-18 yx/hx): the window's header ends with Open in main window
+  // (ArrowInSquare) and Keep window on top (Pin / PinFilled, pressed while on top). { alwaysOnTop, onDock, onTogglePin }.
+  popoutWindow = null,
   // F08 collapsed hover peek (main.jsx): open state and the trigger's pointer handlers.
   peekOpen = false,
   onPeekEnter,
@@ -107,7 +122,7 @@ export function SourceTitlebar({
   // instead of showing as a clipped sliver beside the actions.
   const [folderHidden, setFolderHidden] = useState(false);
   // Too narrow for the lead and every action (a small window with a pane open): the Preview and Terminal toggles,
-  // which the ⋯ Session options menu also lists, step out so the title, the folder chip and the remaining actions
+  // which the ⋮ View options menu also lists, step out so the title, the folder chip and the remaining actions
   // never draw over each other. fullTrailing is the actions' width with every toggle shown.
   const [cramped, setCramped] = useState(false);
   const foldedActivity = cramped && ((previewAvailable && previewRunning && !panes.has("preview")) || (terminalAvailable && terminalBusy && !panes.has("terminal")));
@@ -168,8 +183,11 @@ export function SourceTitlebar({
         const actions = trailing.current;
         if (actions && !actions.hasAttribute("data-cramped"))
           fullTrailing.current = actions.offsetWidth;
-        // The lead's floor: origin glyph, a 32px title, the gap and the folder icon chip.
-        const leadFloor = 32 + 32 + 4 + 24 + 12;
+        // The header session caret (c593f7513 Om) sits between the title and the folder chip, with its gap.
+        const caret = row.querySelector(".st-session-caret");
+        const caretWidth = caret ? caret.offsetWidth + 4 : 0;
+        // The lead's floor: origin glyph, a 32px title, the caret, the gap and the folder icon chip.
+        const leadFloor = 32 + 32 + caretWidth + 4 + 24 + 12;
         const hideable = !!actions?.querySelector("[data-pane-toggle]");
         setCramped((was) =>
           hideable &&
@@ -186,8 +204,9 @@ export function SourceTitlebar({
             getComputedStyle(titleButton.current?.parentElement || row)
               .columnGap,
           ) || 6) +
-          (folderMeasure.current?.offsetWidth || 0);
-        setFolderHidden(available < 32 + 32 + 4 + 24);
+          (folderMeasure.current?.offsetWidth || 0) +
+          caretWidth;
+        setFolderHidden(available < 32 + 32 + caretWidth + 4 + 24);
         setCompact((was) =>
           was ? available - required < 96 : available < required,
         );
@@ -203,14 +222,25 @@ export function SourceTitlebar({
       observer.disconnect();
     };
   }, [session?.id, title, folder, section, collapsed]);
+  // shared-21 IV m() → wm Ct = bm start() with no event: the edit opens on the session it was asked for, and a
+  // keyboard-focused trigger (the menu hands focus back to it) makes Enter/Escape return focus to the title.
+  const lastRenameToken = useRef(renameRequest?.token);
+  useEffect(() => {
+    const token = renameRequest?.token;
+    if (token === undefined || token === lastRenameToken.current) return;
+    lastRenameToken.current = token;
+    if (renameRequest.id !== session?.id) return;
+    beginEdit();
+  }, [renameRequest?.token]);
   function beginEdit(event) {
     if (loading || saving || !onRename) return;
-    event.preventDefault();
-    event.stopPropagation();
+    event?.preventDefault();
+    event?.stopPropagation();
     transaction.current++;
     submitted.current = false;
-    keyboardEntry.current =
-      event.detail === 0 || event.currentTarget.matches(":focus-visible");
+    keyboardEntry.current = event
+      ? event.detail === 0 || event.currentTarget.matches(":focus-visible")
+      : document.activeElement?.matches?.(":focus-visible") === true;
     setDraft(title);
     setRenameError("");
     setEditing(true);
@@ -255,12 +285,22 @@ export function SourceTitlebar({
     setSaving(false);
     setRenameError("");
   }
-  function openSessionMenu(event) {
+  // c593f7513 Om: the title's context menu and the CaretDown trigger open the same header session menu (k);
+  // main.jsx 'session-title'. Other surfaces keep the full 'session' menu.
+  const sessionMenuKind = surface === "code" ? "session-title" : "session";
+  function openSessionMenu(event, entry) {
     event.preventDefault();
-    onMenu?.("session", event.currentTarget, session);
+    onMenu?.(sessionMenuKind, event.currentTarget, session, entry);
   }
+  // shared-21 IV contextMenuTrigger: the title's right-click opens the same menu as a ContextMenu at the cursor
+  // (contextMenuAt), as the sidebar rows' context menu does.
+  function openSessionContextMenu(event) {
+    event.preventDefault();
+    onMenu?.(sessionMenuKind, event.currentTarget, session, undefined, { x: event.clientX, y: event.clientY });
+  }
+  const sessionMenuLabel = surface === "code" ? sessionMenuTriggerLabel(title) : t("Session options");
   return (
-    <header className="workspace-toolbar st-toolbar window-drag">
+    <header className="workspace-toolbar st-toolbar window-drag" data-surface={surface}>
       {collapsed && <SourceCollapsedChrome onExpand={onExpand} peekOpen={peekOpen} onPeekEnter={onPeekEnter} onPeekLeave={onPeekLeave}
         historyAt={historyAt} historyLength={historyLength} travel={travel} />}
       <div
@@ -270,7 +310,7 @@ export function SourceTitlebar({
       >
         {section !== "new" ? (
           <span className="session-title st-section-title">
-            {t(section[0].toUpperCase() + section.slice(1))}
+            {sectionLabel ?? t(section[0].toUpperCase() + section.slice(1))}
           </span>
         ) : session ? (
           <div className="st-lead" data-pills-compact={compact || undefined} data-folder-hidden={folderHidden || undefined}>
@@ -278,7 +318,7 @@ export function SourceTitlebar({
                 wrapped in Zt (shared-frame Nu, `no as Zt` :177; default side
                 "top", which flips below at the window top) with content =
                 label; no native title. */}
-            <span className="st-origin">
+            {surface === "code" && <span className="st-origin">
               <SourceTooltip content={t("Local")}>
                 <span
                   className="st-origin-glyph"
@@ -289,7 +329,7 @@ export function SourceTitlebar({
                   <Icon name="Laptop" size={18} />
                 </span>
               </SourceTooltip>
-            </span>
+            </span>}
             <div className="st-title-and-pill">
               {editing ? (
                 <input
@@ -325,17 +365,20 @@ export function SourceTitlebar({
               ) : loading && !session.name && !session.preview ? (
                 <span className="st-title-skeleton" aria-hidden="true" />
               ) : (
-                // c360a9e1c:7387-7420 mm: the title button sits in Zt {content
-                // "Rename"} (Nu defaults) and has no native title.
-                <SourceTooltip content={t("Rename")}>
+                // c360a9e1c:7387-7420 mm: the title button sits in Zt (Nu defaults) and has no native title.
+                // c593f7513 vm (7270-7300): its content is the full title while it is truncated, "Rename" otherwise.
+                <SourceTooltip content={() => titleTooltipContent(titleButton.current, title)}>
                 <button
                   ref={titleButton}
                   type="button"
                   className="session-title st-title"
+                  // ca1d33d05 St (codeTitle, c593f7513 vm titleStop): the renamable title is the pane's "header"
+                  // F6 stop, focused without a ring.
+                  data-focus-region={loading || !onRename ? undefined : "header"} data-focus-region-ring="none" data-focus-region-order="pane"
                   aria-label={t("{title}, rename session", { title })}
                   disabled={loading || !onRename}
                   onClick={beginEdit}
-                  onContextMenu={openSessionMenu}
+                  onContextMenu={openSessionContextMenu}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && event.repeat)
                       event.preventDefault();
@@ -345,13 +388,27 @@ export function SourceTitlebar({
                 </button>
                 </SourceTooltip>
               )}
+              {/* c593f7513 Om (8180-8205): beside the title, a ghost icon-only CaretDown (sm) Button in text-secondary
+                  with the trigger label as aria-label and as its bottom tooltip; it opens the header session menu. */}
+              {/* jm: until the session is ready (L) the lead is sa's title skeleton, with no Om caret. */}
+              {surface === "code" && !(loading && !session.name && !session.preview) && <ToolButton label={sessionMenuLabel} className="code-icon-button st-session-caret"
+                {...menuTriggerProps({
+                  open: menuKind === "session-title" && !menuAtPointer,
+                  disabled: loading,
+                  onOpen: (entry, event) => onMenu?.(sessionMenuKind, event.currentTarget, session, entry),
+                })}
+                disabled={loading}
+                tooltip={{ content: sessionMenuLabel, side: "bottom", hoverable: true, automatic: false, open: menuKind ? false : undefined }}
+                onClick={(event) => openSessionMenu(event, event.detail === 0 ? "first" : undefined)}>
+                <Icon name="CaretDown" size={16} />
+              </ToolButton>}
               {/* c360a9e1c:6760-6810 Fp: Zt {content [environmentName, cwd,
                   repoNames].filter(Boolean).join(" · "), open:false while the
                   folder menu is open}. Local adaptation: there is no
                   environment or repo name, so the content is the cwd only
                   (none without a cwd). The Gt.Trigger opens main.jsx 'folder',
                   the 'Working directory' menu (side bottom, align start). */}
-              <SourceTooltip content={session.cwd || undefined} open={menuKind === "folder" ? false : undefined}>
+              {surface === "code" && <SourceTooltip content={session.cwd || undefined} open={menuKind === "folder" ? false : undefined}>
               <button
                 type="button"
                 className="st-folder"
@@ -374,7 +431,9 @@ export function SourceTitlebar({
                   {folder}
                 </span>
               </button>
-              </SourceTooltip>
+              </SourceTooltip>}
+              {surface !== "code" && <ToolButton label={sessionMenuLabel} icon="CaretDown"
+                aria-haspopup="menu" aria-expanded={menuKind === "session" && !menuAtPointer} onClick={(event) => openSessionMenu(event)} />}
             </div>
             <span aria-hidden="true" className="st-measurements">
               <span ref={titleMeasure} className="st-title-measure">
@@ -418,14 +477,14 @@ export function SourceTitlebar({
               <>
                 {previewAvailable && (
                   <ToolButton
-                    label={previewRunning && !panes.has("preview") ? t("Preview (dev server running)") : t("Preview")}
-                    icon="Play"
+                    label={surface !== "code" ? t("Browser") : previewRunning && !panes.has("preview") ? t("Preview (dev server running)") : t("Preview")}
+                    icon={surface === "code" ? "Play" : "Globe"}
                     active={panes.has("preview")}
                     aria-pressed={panes.has("preview")}
                     aria-keyshortcuts="Meta+Shift+P"
                     data-pane-toggle="preview"
                     disabled={loading}
-                    tooltip={{ content: previewRunning && !panes.has("preview") ? t("Preview (dev server running)") : t("Preview"), shortcut: "cmd+shift+p",
+                    tooltip={{ content: surface !== "code" ? t("Browser") : previewRunning && !panes.has("preview") ? t("Preview (dev server running)") : t("Preview"), shortcut: "cmd+shift+p",
                       side: "bottom", hoverable: true, automatic: false, open: menuKind ? false : undefined }}
                     onClick={() => onTogglePane?.("preview")}
                   >
@@ -437,7 +496,7 @@ export function SourceTitlebar({
                     ) : undefined}
                   </ToolButton>
                 )}
-                {terminalAvailable && (
+                {surface === "code" && terminalAvailable && (
                   <ToolButton
                     label={terminalBusy && !panes.has("terminal") ? t("Terminal (command running)") : t("Terminal")}
                     icon="CommandLinePrompt"
@@ -458,7 +517,9 @@ export function SourceTitlebar({
                     ) : undefined}
                   </ToolButton>
                 )}
-                <ToolButton
+                {surface !== "code" && onToggleActivity && <ToolButton label={t("Activity panel")} icon="File"
+                  active={activityOpen} aria-pressed={activityOpen} onClick={onToggleActivity} />}
+                {surface === "code" && <><ToolButton
                   label={CHANGES_TOOLTIP.content}
                   icon="ChangesPlusMinus"
                   active={panes.has("changes")}
@@ -477,7 +538,7 @@ export function SourceTitlebar({
                   ) : undefined}
                 </ToolButton>
                 <ToolButton
-                  label={foldedActivity ? t("Session options (a dev server or command is running)") : t("Session options")}
+                  label={viewOptionsLabel(foldedActivity)}
                   icon="DotsVertical"
                   {...menuTriggerProps({
                     open: menuKind === "titlebar",
@@ -503,26 +564,46 @@ export function SourceTitlebar({
                       <span aria-hidden="true" data-cds-part="indicator" className="st-indicator"><span className="st-indicator-dot" /></span>
                     </span>
                   ) : undefined}
-                </ToolButton>
+                </ToolButton></>}
               </>
             )}
             {onCloseSplit && (
               <ToolButton
-                label={t("Close split view")}
+                label={t("Close pane")}
                 icon="X"
                 className="code-icon-button epitaxy-pane-close-control"
                 data-split-close=""
                 tooltip={{
-                  content: t("Close split view"),
-                  shortcut: closeSplitShortcut,
+                  content: t("Close pane"),
                   side: "bottom",
                   hoverable: true,
                   automatic: false,
                   open: menuKind ? false : undefined,
                 }}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={onCloseSplit}
               />
             )}
+            {popoutWindow && <>
+              <ToolButton
+                label={t("Open in main window")}
+                icon="ArrowInSquare"
+                data-popout-dock=""
+                tooltip={{ content: t("Open in main window"), side: "bottom", hoverable: true, automatic: false, open: menuKind ? false : undefined }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={popoutWindow.onDock}
+              />
+              <ToolButton
+                label={popoutWindow.alwaysOnTop ? t("Stop keeping window on top") : t("Keep window on top")}
+                icon={popoutWindow.alwaysOnTop ? "PinFilled" : "Pin"}
+                active={popoutWindow.alwaysOnTop === true}
+                aria-pressed={popoutWindow.alwaysOnTop === true}
+                data-popout-pin=""
+                tooltip={{ content: popoutWindow.alwaysOnTop ? t("Stop keeping window on top") : t("Keep window on top"), side: "bottom", hoverable: true, automatic: false, open: menuKind ? false : undefined }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={popoutWindow.onTogglePin}
+              />
+            </>}
           </div>
         </SourceTooltipGroup>
       </div>

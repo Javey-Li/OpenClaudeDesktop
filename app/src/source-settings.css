@@ -71,8 +71,9 @@ html.cds-root[data-dyslexic-font][data-font=system] { --cds-font-sans:var(--font
 .ss-theme-preview[data-mode=light] .scb-code [data-code-token] { color:var(--sch-light); font-style:var(--sch-light-style); font-weight:var(--sch-light-weight); text-decoration:var(--sch-light-decoration); }
 .ss-theme-preview[data-mode=dark] .scb-code [data-code-token] { color:var(--sch-dark); font-style:var(--sch-dark-style); font-weight:var(--sch-dark-weight); text-decoration:var(--sch-dark-decoration); }
 html[data-local-transcript-size=s] .source-transcript-content { --chat-body:13px; }
-html[data-local-transcript-size=l] .source-transcript-content { --chat-body:16px; }
-html[data-local-transcript-size=s] .source-message.source-message,html[data-local-transcript-size=l] .source-message.source-message { font-size:var(--chat-body); --chat-item-gap:calc(var(--chat-body)*1.42857*.5); --chat-turn-gap:calc(var(--chat-body)*1.42857*.75); }
+/* c6a992d55-C0zTICcS.css [data-chat-text-size=l] .epitaxy-transcript-typography: 15px over 1.46667 (Small keeps 1.42857). */
+html[data-local-transcript-size=l] .source-transcript-content { --chat-body:15px; --chat-leading:1.46667; }
+html[data-local-transcript-size=s] .source-message.source-message,html[data-local-transcript-size=l] .source-message.source-message { font-size:var(--chat-body); line-height:var(--chat-leading); --chat-item-gap:calc(var(--chat-body)*var(--chat-leading)*.5); --chat-turn-gap:calc(var(--chat-body)*var(--chat-leading)*.75); }
 html[data-local-transcript-width=m] { --local-transcript-width:960px; }
 html[data-local-transcript-width=l] { --local-transcript-width:1280px; }
 html[data-local-transcript-width] .source-transcript-content { padding-inline:max(32px,calc((100% - var(--local-transcript-width,768px))/2)); }
@@ -214,3 +215,10 @@ html[data-reduce-motion="true"] .ss-settings-dialog, html[data-reduce-motion="tr
   font-family:var(--cds-font-mono, ui-monospace, monospace); font-size:15px; letter-spacing:.12em; user-select:all; }
 .ss-dsh-setting .cds-input { width:120px; }
 .ss-dsh-unit { color:var(--cds-text-secondary); font-size:12px; }
+/* shared-19 JD (:5649-5680): with the desktop rail (wide, not the stacked Usage dialog) the popup grows with the window,
+   max-w max(1024px,min(1280px,100vw-6rem)) and max-h max(50rem,min(60rem,100dvh-6rem)), at h calc(100dvh-2rem); the
+   narrow (stacked) layout keeps max-h 50rem / max-w 1024px. Font licenses and Storage (.ss-dialog) are unchanged. */
+.ss-settings-dialog { height:calc(100dvh - 2rem); }
+@media (min-width:768px) {
+  .ss-settings-dialog:not([data-usage]) { max-width:max(1024px,min(1280px,calc(100vw - 6rem))); max-height:max(50rem,min(60rem,calc(100dvh - 6rem))); }
+}

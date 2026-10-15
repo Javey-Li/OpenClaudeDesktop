@@ -595,6 +595,9 @@ export default {
   compactCommand: '/compress',
   // turn/steer: Qwen takes mid-turn messages through craft/drainMidTurnQueue (onExtension below).
   steerDrain: true,
+  // Follow-up suggestions arrive as codeDesktop/promptSuggestion (capabilities.promptSuggestion: the app lists its
+  // Prompt suggestions switch).
+  promptSuggestions: true,
   // revertFiles 'live': Qwen checkpoints every edit (file checkpointing is forced on over ACP) and its own rewind puts
   // the files back with the conversation (revertSession restoreFiles).
   sessionFeatures: { fork: 'live', revert: 'live', revertFiles: 'live', deleteHistory: true },

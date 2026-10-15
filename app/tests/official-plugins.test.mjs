@@ -74,7 +74,9 @@ test('the Plugins page puts Official cards above the installed table, and the de
   const html = renderToStaticMarkup(React.createElement(M.SourceCustomize, { section: 'customize-plugins', store, cwd: '/f', call() { throw Error('SSR'); }, core }));
   assert.ok(html.indexOf('data-cz-official') < html.indexOf('data-plugin-id="dsh-plugin-whale"'));
   assert.doesNotMatch(html, /data-plugin-id="@deepseek-ai\/dsh-experimental-auto-review"/, 'an Official bundle is not repeated in the table');
-  assert.match(html, /<h3>Installed<\/h3>/);
+  // B24: the rest is the c6a2a31c4 "Your plugins" list (section header with its count), not an "Installed" table.
+  assert.match(html, /data-testid="plugins-tabbed-list-mine"><section class="flex flex-col" data-cz-list-section="marketplaces"><div [^>]*data-testid="yours-section-marketplaces-header"[^>]*><span class="text-body-medium text-primary">From marketplaces you added<\/span><span class="text-footnote text-muted">· 1<\/span>/);
+  assert.doesNotMatch(html, /<h3>Installed<\/h3>|<table/);
   assert.doesNotMatch(html, /data-plugin-id="@deepseek-ai\/dsh-base"/, 'the profile core layers are hidden, like the Harness Plugins page');
   const review = rows.find(row => row.official);
   const detail = renderToStaticMarkup(React.createElement(M.PluginDetail, { plugin: review, detail: { description: 'Reviews tools' }, error: '', skills: [], view: null, onView() {}, onBack() {}, onSkill() {} }));

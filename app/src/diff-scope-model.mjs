@@ -1,4 +1,4 @@
-import { t, tn } from "../electron/i18n/index.mjs";
+import { getLocale, t, tn } from "../electron/i18n/index.mjs";
 
 // Changes-pane diff scope, 2.2553.1 readable/panes-tile-current.js:2842-3117
 // (Fm branch order, Im "Compare against" section, zm scope trigger + sections,
@@ -25,6 +25,8 @@ export const DIFF_SCOPE_LABELS = Object.freeze({
   defaultHint: t("default"),
   commits: t("Commits"),
   noMessage: t("(no message)"),
+  searchCommits: t("Search commits"),
+  noCommitsMatch: t("No commits match"),
 });
 
 const SHA = /^[0-9a-f]{7,64}$/i;
@@ -89,10 +91,45 @@ export function branchSearchEmptyLabel({ error = false, loaded = false, count = 
   return loaded && count > 0 ? DIFF_SCOPE_LABELS.noBranchesMatch : DIFF_SCOPE_LABELS.loadingBranches;
 }
 
-/** H (cd5e3435c): rows whose string label contains the lower-cased query. */
+/** H (cd5e3435c): rows whose string label contains the lower-cased query. A row whose label is not
+ * text in the source (the "{n} older commits not shown" FormattedMessage) never matches a query:
+ * `searchable: false` marks it here, where every label is a string. */
 export function filterSearchItems(items, query) {
   const needle = String(query ?? "").toLowerCase();
-  return (items || []).filter((item) => needle === "" || (typeof item.label === "string" && item.label.toLowerCase().includes(needle)));
+  return (items || []).filter((item) => needle === "" || (item.searchable !== false && typeof item.label === "string" && item.label.toLowerCase().includes(needle)));
+}
+
+/** 2.31226.0 cccc2cf0a C_ (readable :3166-3230) "Commits" submenu row: the hint is the picked
+ * commit's shortSha (else its 7-character sha) under a commit scope, otherwise formatNumber of the
+ * whole base..HEAD count; the search empty label names the 50-row window when older commits exist. */
+export function commitsSubmenuHint(scope, commits, total, locale = getLocale()) {
+  if (scope?.kind === "commit") return commits?.find((commit) => commit.sha === scope.sha)?.shortSha ?? String(scope.sha ?? "").slice(0, 7);
+  return new Intl.NumberFormat(locale).format(total);
+}
+export function commitsSearchEmptyLabel(total) {
+  return total > DIFF_SCOPE_COMMIT_LIMIT
+    ? tn(DIFF_SCOPE_COMMIT_LIMIT, "No match in the newest commit", "No match in the newest {count} commits")
+    : DIFF_SCOPE_LABELS.noCommitsMatch;
+}
+
+/** cccc2cf0a Xb te (readable :8753-8757): a commit scope whose sha is not in the loaded base..HEAD list resets
+ * to "All changes". Locally the list is fetched with a row limit, so only a complete (`total` ≤ rows), successfully
+ * read list can say the sha is gone; a truncated or failed read keeps the scope. */
+export function commitScopeGone(scope, { list = [], total = 0, failed = false } = {}) {
+  if (scope?.kind !== "commit" || failed || !Array.isArray(list) || total > list.length) return false;
+  return !list.some((commit) => commit.sha === scope.sha);
+}
+
+/** c44d00c7f Xc + cb61be3a2 Je (Mt "carriedOver", readable :657-690): while another scope's
+ * comparison loads, the last loaded one stays on screen (dimmed, aria-busy) when it had files;
+ * an empty one gives the loading state. `loaded` = {key, param} of the scope `value` was read for. */
+export function carriedOverDiff(value, loaded, key) {
+  if (value === null || value === undefined) return { diff: null, carriedOver: false, scope: undefined };
+  if (!loaded || loaded.key === key) return { diff: value, carriedOver: false, scope: undefined };
+  const patch = typeof value === "string" ? value : value?.patch;
+  return typeof patch === "string" && patch.trim() !== ""
+    ? { diff: value, carriedOver: true, scope: loaded.param }
+    : { diff: null, carriedOver: false, scope: undefined };
 }
 
 const noop = () => {};
@@ -103,7 +140,8 @@ const noop = () => {};
  *   Fm branch list with a "default" hint, searchable, with the Im empty labels.
  *   Picking the current base again does nothing unless it is an override of the
  *   default; picking another base also selects the branch scope.
- * - diff-commits: only with commits; up to 50 radio rows (subject or "(no
+ * - diff-commits: only with commits; a searchable submenu ("Search commits") whose row hint is the
+ *   count or the picked shortSha (2.31226.0 cccc2cf0a :3166-3230); up to 50 radio rows (subject or "(no
  *   message)", shortSha hint, checked only when the commit scope is listed),
  *   then a disabled "{n} older commit(s) not shown" row. n = zm m.length − 50
  *   over the whole base..HEAD list: `commitTotal` (workspace-git-commits
@@ -145,14 +183,15 @@ export function diffScopeSections({
     const total = Number.isSafeInteger(commitTotal) && commitTotal >= commits.length ? commitTotal : commits.length;
     const hidden = total - DIFF_SCOPE_COMMIT_LIMIT;
     sections.push({ key: "diff-commits", items: [{
-      value: "commits", label: DIFF_SCOPE_LABELS.commits,
+      value: "commits", label: DIFF_SCOPE_LABELS.commits, hint: commitsSubmenuHint(scope, commits, total),
+      searchLabel: DIFF_SCOPE_LABELS.searchCommits, searchEmptyLabel: commitsSearchEmptyLabel(total),
       items: [
         ...shown.map((commit) => ({
           value: commit.sha, label: commit.subject || DIFF_SCOPE_LABELS.noMessage, hint: commit.shortSha,
           checked: listed === undefined ? undefined : commit.sha === listed, checkedRole: "radio",
           onSelect: () => onSelectScope({ kind: "commit", sha: commit.sha }),
         })),
-        ...(hidden > 0 ? [{ value: "more-commits", label: tn(hidden, "{count} older commit not shown", "{count} older commits not shown"), disabled: true, onSelect: noop }] : []),
+        ...(hidden > 0 ? [{ value: "more-commits", label: tn(hidden, "{count} older commit not shown", "{count} older commits not shown"), disabled: true, searchable: false, onSelect: noop }] : []),
       ],
     }] });
   }

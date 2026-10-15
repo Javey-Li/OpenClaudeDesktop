@@ -46,7 +46,7 @@ import "./source-menu.css";
  */
 
 const COARSE_QUERY = "(pointer: coarse)";
-const PORTAL_ATTRIBUTES = ["data-mode", "data-cds-theme", "data-platform", "data-font", "data-page-bg"];
+const PORTAL_ATTRIBUTES = ["data-mode", "data-chat-source-version", "data-cds-theme", "data-platform", "data-font", "data-page-bg"];
 const subscribeCoarse = (listener) => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
   const media = window.matchMedia(COARSE_QUERY);

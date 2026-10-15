@@ -27,7 +27,7 @@ try{
  const openTools=async()=>{await page.getByRole('button',{name:'Add',exact:true}).click();const trigger=page.getByTestId('add-tools');await trigger.waitFor();await trigger.click();await toolsMenu().waitFor();await poll(async()=>await toolsMenu().getByRole('menuitemcheckbox',{name:'write',exact:true}).count()===1,'tool rows loaded');};
  const closeMenus=async()=>{for(let i=0;i<3&&await page.getByRole('menu').count();i++)await page.keyboard.press('Escape');await poll(async()=>await page.getByRole('menu').count()===0,'menus closed');};
  const row=name=>toolsMenu().getByRole('menuitemcheckbox',{name,exact:true});
- const send=async text=>{const before=(await turns()).length;await fillComposer(page,input(),text);await page.getByRole('button',{name:'Send message',exact:true}).click();await poll(async()=>(await turns()).length===before+1,'turn sent');const request=(await turns()).at(-1);await poll(async()=>{const db=await readJson('fixture-threads.json');return db.threads[request.params.threadId]?.turns.at(-1)?.status==='completed';},'fixture completed');return request;};
+ const send=async text=>{const before=(await turns()).length;await fillComposer(page,input(),text);await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();await poll(async()=>(await turns()).length===before+1,'turn sent');const request=(await turns()).at(-1);await poll(async()=>{const db=await readJson('fixture-threads.json');return db.threads[request.params.threadId]?.turns.at(-1)?.status==='completed';},'fixture completed');return request;};
 
  // 1. The draft: every tool on, rows keep the menu open, a switched-off tool goes out with thread/start.
  await openTools();

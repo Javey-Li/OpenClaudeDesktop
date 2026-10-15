@@ -16,8 +16,21 @@ function desktopPatch(patch){const result={};for(const [key,levels] of Object.en
  if('worktreeLocation' in patch){if(!['project','custom'].includes(patch.worktreeLocation))throw Error('Invalid worktree location.');result.worktreeLocation=patch.worktreeLocation;}
  return result;
 }
+// NotificationService (2.31226.0 index.chunk-CiiI592G.js showIdleNotification / TV): a banner is titled with the
+// session's title (its name, else its first prompt) — controls and whitespace runs folded to one space, at most 100
+// characters then '…' — so several sessions' banners say which one finished; the app name stands in for an untitled one.
+const NOTIFICATION_TITLE_MAX=100;
+function notificationTitle(metadata,fallback='OpenClaude Desktop'){
+ const raw=[metadata?.name,metadata?.preview].find(value=>typeof value==='string'&&value.trim());
+ if(!raw)return fallback;
+ const text=raw.replace(/[\s\p{Cc}]+/gu,' ').replace(/\p{Cs}/gu,'').trim(),chars=Array.from(text);
+ return !chars.length?fallback:chars.length>NOTIFICATION_TITLE_MAX?`${chars.slice(0,NOTIFICATION_TITLE_MAX).join('')}\u2026`:text;
+}
 async function directoryUsage(root){let bytes=0,files=0,incomplete=false;const todo=[root];while(todo.length){const dir=todo.pop();let entries;try{entries=await fs.readdir(dir,{withFileTypes:true});}catch{incomplete=true;continue;}for(const entry of entries){if(++files>100000)return {path:root,bytes,incomplete:true};const target=path.join(dir,entry.name);if(entry.isSymbolicLink())continue;if(entry.isDirectory())todo.push(target);else if(entry.isFile())try{bytes+=(await fs.stat(target)).size;}catch{incomplete=true;}}}return {path:root,bytes,incomplete};}
-function createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,getConfig,getClient,sessionOperations,save,emit,getWindow,gitStatus}){
+// isViewingSession(id): a focused, visible window shows the session (main.cjs: windowRegistry.windowsShowing), when
+// its banner is skipped as the reference's isUserViewingSession does; isAppFocused: any app window has the focus (no
+// Dock badge then). Without them the first window's focus stands in for both.
+function createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,getConfig,getClient,sessionOperations,save,emit,getWindow,gitStatus,isViewingSession,isAppFocused}){
  const active=new Map(),workflowThreads=new Map(),notices=new Map();let eventRevision=0;let blocker=null,timer=null,disposed=false,archiving=false;
  const prefs=()=>desktopPreferences(getConfig());
  // A session the user keeps awake (its row menu's 'Keep computer awake', sessionMetadata keepAwake) holds the Mac awake while it runs, whatever the app-wide switch.
@@ -25,12 +38,19 @@ function createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,g
  function clearNotices(){for(const n of notices.values())n.close();notices.clear();app.dock?.setBadge('');}
  // {who}: the persona name, else the running core's assistant (i18n getAssistantName, set by main from the chosen
  // core). An interpolated value is never rewritten by t(), so the fallback must already be the core's name.
- function notify(type,id){const p=prefs(),level=p[type+'Notifications'];if(!getConfig().threadIds.includes(id)||level==='off'||getWindow()?.isFocused())return;app.dock?.setBadge('•');if(p.drawAttention)app.dock?.bounce('informational');if(level!=='banner'||!Notification.isSupported())return;
- const n=new Notification({title:'OpenClaude Desktop',body:((who)=>t(type==='complete'?'{who} finished and is waiting for your input.':type==='question'?'{who} is asking you to choose between options.':'{who} needs your approval to use a tool.',{who}))((n=>typeof n==='string'&&n.length<=40&&!/[\x00-\x1f<>]/.test(n)?n:'')(getConfig().persona?.assistantName?.trim())||getAssistantName()),silent:p.notificationSound==='none'});const key=Symbol();notices.set(key,n);n.on('close',()=>notices.delete(key));n.on('click',()=>{getWindow()?.show();getWindow()?.focus();if(id)emit({kind:'desktop-navigate',threadId:id});});n.show();}
+ const viewing=id=>typeof isViewingSession==='function'?isViewingSession(id)===true:!!getWindow()?.isFocused();
+ const appFocused=()=>typeof isAppFocused==='function'?isAppFocused()===true:!!getWindow()?.isFocused();
+ const titleFor=id=>notificationTitle(getConfig()?.threadMetadata?.[id]);
+ // showPermissionNotification titles a Code permission banner with the project (git repo, else folder name) and puts
+ // the session title in the subtitle (macOS); idle and question banners carry the session title.
+ const permissionTitle=id=>{const cwd=getConfig()?.threadMetadata?.[id]?.cwd;return notificationTitle({name:typeof cwd==='string'&&cwd?path.basename(cwd):''});};
+ const permissionSubtitle=id=>{const title=notificationTitle(getConfig()?.threadMetadata?.[id],'');return title?{subtitle:title}:{};};
+ function notify(type,id){const p=prefs(),level=p[type+'Notifications'];if(!getConfig().threadIds.includes(id)||level==='off'||viewing(id))return;if(!appFocused()){app.dock?.setBadge('•');if(p.drawAttention)app.dock?.bounce('informational');}if(level!=='banner'||!Notification.isSupported())return;
+ const n=new Notification({...(type==='permission'?{title:permissionTitle(id),...permissionSubtitle(id)}:{title:titleFor(id)}),body:((who)=>t(type==='complete'?'{who} finished and is waiting for your input.':type==='question'?'{who} is asking you to choose between options.':'{who} needs your approval to use a tool.',{who}))((n=>typeof n==='string'&&n.length<=40&&!/[\x00-\x1f<>]/.test(n)?n:'')(getConfig().persona?.assistantName?.trim())||getAssistantName()),silent:p.notificationSound==='none'});const key=Symbol();notices.set(key,n);n.on('close',()=>notices.delete(key));n.on('click',()=>{getWindow()?.show();getWindow()?.focus();if(id)emit({kind:'desktop-navigate',threadId:id});});n.show();}
  // A dynamic workflow the model started finished (workflow-tool-service.cjs): the Task complete level decides, as for turns.
- function notifyWorkflow(run){const p=prefs(),level=p.completeNotifications,id=run?.threadId;if(!id||!getConfig().threadIds.includes(id)||level==='off'||getWindow()?.isFocused()||!Notification.isSupported())return;
+ function notifyWorkflow(run){const p=prefs(),level=p.completeNotifications,id=run?.threadId;if(!id||!getConfig().threadIds.includes(id)||level==='off'||viewing(id)||!Notification.isSupported())return;
   const name=String(run.title||run.name||run.description||'').slice(0,80);const body=run.status==='completed'?t('Dynamic workflow “{name}” completed',{name}):run.status==='stopped'?t('Dynamic workflow “{name}” was stopped',{name}):t('Dynamic workflow “{name}” failed',{name});
-  const n=new Notification({title:'OpenClaude Desktop',body,silent:p.notificationSound==='none'});const key=Symbol();notices.set(key,n);n.on('close',()=>notices.delete(key));n.on('click',()=>{getWindow()?.show();getWindow()?.focus();emit({kind:'desktop-navigate',threadId:id});});n.show();}
+  const n=new Notification({title:titleFor(id),body,silent:p.notificationSound==='none'});const key=Symbol();notices.set(key,n);n.on('close',()=>notices.delete(key));n.on('click',()=>{getWindow()?.show();getWindow()?.focus();emit({kind:'desktop-navigate',threadId:id});});n.show();}
  // The agent's own notification (PushNotification, agent-tools/notify.mjs): the Task complete level and the sound decide,
  // as for a finished turn; nothing while the app is in front (the user is looking). Clicking it opens the session.
  // Returns what happened: 'sent', or why not ('focused', 'off', 'unsupported', 'unknown').
@@ -55,4 +75,4 @@ function createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,g
  // clearNotices: main.cjs also calls it when any other main window takes the focus (start() binds only the first).
  return {observe,notifyWorkflow,notifyAgent,power,start,dispose,sweep,clearNotices,snapshot:()=>({notifications:Notification.isSupported(),runOnStartup:app.getLoginItemSettings().openAtLogin,powerActive:blocker!==null}),setStartup(value){if(typeof value!=='boolean')throw Error('Invalid startup setting.');app.setLoginItemSettings({openAtLogin:value});return app.getLoginItemSettings().openAtLogin;}};
 }
-module.exports={defaults,NOTIFICATION_LEVELS,desktopPreferences,desktopPatch,directoryUsage,createDesktopSettings};
+module.exports={defaults,NOTIFICATION_LEVELS,notificationTitle,desktopPreferences,desktopPatch,directoryUsage,createDesktopSettings};

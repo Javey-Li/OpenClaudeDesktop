@@ -10,7 +10,7 @@ import path from 'node:path';
 // Files pane states of 2.2553.1 readable/panes-tile-current.js: Ig root states
 // (:5496-5512) in Jg (:6101-6110) with Yg (:6111-6113), Pg subfolder rows
 // (:5335-5350) with the Lg error treeitem (:5547-5570), the yu empty preview
-// (:6355-6390) and the c_ "Search files" button (:6791-6807) first in the file
+// (:6355-6390) and the c_ "Go to file or search" button (:6791-6807) first in the file
 // pane's trailing slot (:16366-16378). Middleware-mode SSR only.
 let server, S, P, C;
 before(async () => {
@@ -40,6 +40,17 @@ test('root tree states: Yg spinner with no visible text, fixed error copy, "Fold
   assert.equal(html(P.SourceFilesTreeState, { state: 'empty' }), `<div class="${JG}" data-tree-state="empty">Folder is empty</div>`);
   assert.equal(P.FILES_FOLDER_ERROR, 'Couldn’t read this folder.');
   assert.equal(P.FILES_FOLDER_EMPTY, 'Folder is empty');
+});
+
+test('root read error with onRetry is Oy: the error copy, then a sm "Try again" (Jm) and an empty sr-only status', () => {
+  const markup = html(P.SourceFilesTreeState, { state: 'error', onRetry: async () => false });
+  assert.ok(markup.startsWith(`<div class="flex flex-col items-center gap-sm source-files-tree-retry"><div class="${JG}" data-tree-state="error">Couldn’t read this folder.</div>`));
+  assert.match(markup, /<button[^>]*data-cds="Button" data-variant="secondary"[^>]*data-size="sm"[^>]*>.*Try again.*<\/button>/);
+  assert.match(markup, /<span role="status" class="sr-only"><\/span><\/div>$/);
+  assert.doesNotMatch(markup, /aria-busy/);
+  assert.equal(P.FILES_TREE_RETRY_BUSY, 'Listing this folder');
+  // No retry handler (subfolder rows, older callers): the bare Jg row as before.
+  assert.equal(html(P.SourceFilesTreeState, { state: 'empty', onRetry: () => {} }), `<div class="${JG}" data-tree-state="empty">Folder is empty</div>`);
 });
 
 test('panel: root loading is the Yg state (no "Loading files…"); no working directory is the Jg row', () => {
@@ -112,15 +123,17 @@ test('source: raw read errors never render and subfolders add no loading/empty n
   assert.doesNotMatch(src, /\{treeError\}|Loading files…|This folder is empty\.|Empty folder|source-tree-notice|Loading…<\/p>/);
   assert.match(src, /\{children === null \? \(\s*error \? <SourceTreeErrorRow depth=\{level \+ 1\} \/> : null\s*\) : \(/);
   assert.match(src, /\.catch\(\(\) => live && setError\(true\)\)/);
-  assert.match(src, /<SourceFilesTreeState state=\{treeError \? "error" : "loading"\} \/>/);
+  // B07 Oy: the root error carries the retry (re-lists the root, resolves true when it failed again).
+  assert.match(src, /<SourceFilesTreeState state=\{treeError \? "error" : "loading"\} onRetry=\{treeError \? retryTree : undefined\} \/>/);
   assert.match(src, /!entries\.length \? \(\s*<SourceFilesTreeState state="empty" \/>/);
 });
 
 test('Lg subfolder error row: treeitem at depth+1, no activation button, muted control-height row', () => {
   const row = html(P.SourceTreeErrorRow, { depth: 1 });
-  assert.equal(row, '<div role="treeitem" aria-level="2" data-tree-row="" tabindex="-1" class="source-tree-error flex items-center min-h-control px-lg text-body text-muted outline-none" style="padding-left:16px"><span class="truncate">Couldn’t read this folder.</span></div>');
+  // B33 (cccc2cf0a ky): the row also carries the Ec indent-guide layer (style xc = padding + ce9ca5630 g).
+  assert.equal(row, '<div role="treeitem" aria-level="2" data-tree-row="" tabindex="-1" class="source-tree-error source-tree-guided flex items-center min-h-control px-lg text-body text-muted outline-none" style="padding-left:16px;--file-tree-guides:repeating-linear-gradient(to right, var(--cds-border) 0 1px, transparent 1px 8px);background-position:14px 0;background-repeat:no-repeat;background-size:8px 100%"><span class="truncate">Couldn’t read this folder.</span></div>');
   assert.doesNotMatch(row, /data-tree-primary|<button|role="alert"/);
-  assert.match(html(P.SourceTreeErrorRow, { depth: 3 }), /aria-level="4"[^>]*style="padding-left:32px"/);
+  assert.match(html(P.SourceTreeErrorRow, { depth: 3 }), /aria-level="4"[^>]*style="padding-left:32px;[^"]*background-size:24px 100%"/);
   const css = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-session.css'), 'utf8');
   const rule = css.slice(css.indexOf('.source-tree-error {'), css.indexOf('}', css.indexOf('.source-tree-error {')));
   assert.match(rule, /min-height: var\(--cds-h-control\);/);
@@ -141,37 +154,37 @@ test('empty preview: the three exact source title/body pairs in EmptyState yu wi
   assert.match(text(hidden), /Open files appear hereClick a file path in the conversation to open it\./);
 });
 
-test('Search files: ghost icon-only button first in the trailing controls, only with a workdir', () => {
+test('Go to file or search: ghost icon-only button first in the trailing controls, only with a workdir', () => {
   const markup = panel({});
   const header = markup.slice(markup.indexOf('<header'), markup.indexOf('</header>'));
   const at = label => header.indexOf(`aria-label="${label}"`);
-  assert.ok(at('Search files') > 0);
-  assert.ok(at('Search files') < at('Files settings'), 'before the settings menu');
+  assert.ok(at('Go to file or search') > 0);
+  assert.ok(at('Go to file or search') < at('Files settings'), 'before the settings menu');
   assert.ok(at('Files settings') < at('Expand'), 'settings before Expand');
   assert.ok(at('Expand') < at('Close panel'), 'Expand before Close');
-  assert.ok(header.indexOf('class="spc-controls"') < at('Search files'), 'inside the trailing cluster');
-  const button = header.match(/<button[^>]*aria-label="Search files"[^>]*>/)[0];
+  assert.ok(header.indexOf('class="spc-controls"') < at('Go to file or search'), 'inside the trailing cluster');
+  const button = header.match(/<button[^>]*aria-label="Go to file or search"[^>]*>/)[0];
   assert.match(button, /class="source-icon-button spc-ghost"/);
   assert.doesNotMatch(button, /title=/);
-  assert.equal(header.split('aria-label="Search files"').length, 2);
+  assert.equal(header.split('aria-label="Go to file or search"').length, 2);
   const none = panel({ cwd: '' });
-  assert.doesNotMatch(none, /Search files/);
-  assert.doesNotMatch(panel({ tab: 'changes' }), /Search files/);
+  assert.doesNotMatch(none, /Go to file or search/);
+  assert.doesNotMatch(panel({ tab: 'changes' }), /Go to file or search/);
   // Without a paneControls render function the button still leads the fallback Close.
   const bare = panel({ paneControls: null });
-  assert.ok(bare.indexOf('aria-label="Search files"') < bare.indexOf('aria-label="Close panel"'));
+  assert.ok(bare.indexOf('aria-label="Go to file or search"') < bare.indexOf('aria-label="Close panel"'));
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-pane-controls.jsx'), 'utf8');
-  assert.match(src, /<GhostButton label="Search files" icon="Search" onClick=\{onClick\} data-files-search="" \/>/);
+  assert.match(button, /aria-keyshortcuts="Meta\+P"/);
   const main = fs.readFileSync(path.resolve(import.meta.dirname, '../src/main.jsx'), 'utf8');
   assert.equal(main.split('leading={leading}').length, 3, 'tile and popout controls forward the leading slot');
 });
 
-test('Search files focuses "Filter files" after showing the tree the same way "Show file tree" does', () => {
+test('Go to file or search focuses and selects Filter files after temporary tree expansion', () => {
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-session.jsx'), 'utf8');
-  const fn = src.slice(src.indexOf('function focusFilesFilter()'), src.indexOf('function resizeTreeVisibility('));
+  const fn = src.slice(src.indexOf('function focusFilesFilter('), src.indexOf('function resizeTreeVisibility('));
   assert.match(fn, /if \(treeHiddenWhileEmpty\) setTreeHiddenWhileEmpty\(false\);/);
-  assert.match(fn, /if \(!treeVisible\) setVisibleTree\(true\);/);
-  assert.match(fn, /input\.focus\(\{ preventScroll: true \}\);\s*input\.select\(\);/);
+
+  assert.match(fn, /searchFocusRef\.current\?\.\(filterFocus\.current\)/);
   assert.match(fn, /`\.source-files-tree input\[aria-label="\$\{t\("Filter files"\)\}"\]`/);
 });
 

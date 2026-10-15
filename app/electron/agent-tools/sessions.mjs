@@ -1,8 +1,12 @@
 // Claude Desktop's ccd_session_mgmt tools that only read the app's sessions, or name the calling one (2.2553.1
-// index.chunk-uZRTWaFR.js): list_sessions, get_session and set_session_title. Archiving, deleting, stopping and
+// index.chunk-uZRTWaFR.js): list_sessions, get_session, list_events and set_session_title. Archiving, deleting, stopping and
 // messaging another session stay with the user. Every core gets them: none has the app's session list.
-// ctx.sessions: { list() → [{id, title, folder, archived, updatedAt, running}], get(id) → that | null, rename(title) }
+// ctx.sessions: { list() → [{id, title, folder, archived, updatedAt, running}], get(id) → that | null, rename(title),
+//               turns(id) → the session's turns as the core's thread/read includeTurns returns them }
 //               (main.cjs; rename acts on the calling session only)
+// list_events (Claude Desktop's ccd_session_mgmt list_events: session_id, limit 40, before_uuid) reads another session's
+// recent transcript, so a session the user @-mentions in the composer (src/mention-model.mjs sessionMentionsBlock) can
+// be read.
 export const group = "sessions";
 export const MAX_TITLE = 120;
 
@@ -18,6 +22,48 @@ const shape = (session, self) => ({
 function service(ctx) {
   if (!ctx?.sessions || typeof ctx.sessions.list !== "function") throw new Error("The session list isn’t available here.");
   return ctx.sessions;
+}
+
+export const EVENTS_LIMIT = 40;
+const EVENT_TEXT_MAX = 2000;
+const clipText = (text, max = EVENT_TEXT_MAX) => { const value = String(text ?? "").trim(); return value.length > max ? `${value.slice(0, max)}\u2026` : value; };
+/** One transcript message per item: {id, role: 'User'|'Assistant'|'Tool', text}; items without anything to show are skipped. */
+export function sessionEventMessages(turns = []) {
+  const out = [];
+  for (const turn of Array.isArray(turns) ? turns : []) for (const item of Array.isArray(turn?.items) ? turn.items : []) {
+    const id = typeof item?.id === "string" && item.id ? item.id : null;
+    if (!id) continue;
+    let role = null, text = "";
+    if (item.type === "userMessage") {
+      role = "User";
+      text = (Array.isArray(item.content) ? item.content : []).map((part) => part?.type === "text" ? part.text : part?.type === "image" || part?.type === "localImage" ? "[image]" : part?.type === "mention" ? `@${part.path ?? part.name ?? ""}` : part?.type === "skill" ? `/${part.name ?? ""}` : "").filter(Boolean).join("\n");
+    } else if (item.type === "agentMessage") { role = "Assistant"; text = item.text; }
+    else if (item.type === "commandExecution") { role = "Tool"; text = `Ran \`${clipText(item.command, 300)}\`${Number.isInteger(item.exitCode) ? ` (exit ${item.exitCode})` : ""}`; }
+    else if (item.type === "fileChange") { role = "Tool"; text = `Edited ${(Array.isArray(item.changes) ? item.changes : []).map((change) => change?.path).filter(Boolean).join(", ") || "files"}`; }
+    else if (item.type === "mcpToolCall") { role = "Tool"; text = `Called ${[item.server, item.tool].filter(Boolean).join(".")}`; }
+    else if (item.type === "dynamicToolCall") { role = "Tool"; text = `Called ${item.tool ?? "a tool"}`; }
+    else if (item.type === "webSearch") { role = "Tool"; text = `Searched the web${item.query ? ` for “${clipText(item.query, 200)}”` : ""}`; }
+    else if (item.type === "collabAgentToolCall") { role = "Tool"; text = `Ran an agent${item.prompt ? `: ${clipText(item.prompt, 200)}` : ""}`; }
+    if (!role) continue;
+    text = clipText(text);
+    if (text) out.push({ id, role, text });
+  }
+  return out;
+}
+/** list_events' compact plaintext: the last `limit` messages before `before` (an id it printed), most recent last. */
+export function renderSessionEvents(turns, { limit = EVENTS_LIMIT, before = null } = {}) {
+  let messages = sessionEventMessages(turns);
+  if (before) {
+    const at = messages.findIndex((message) => message.id === before);
+    if (at < 0) throw new Error(`No message ${before} in that session.`);
+    messages = messages.slice(0, at);
+  }
+  const count = Number.isFinite(limit) ? Math.min(200, Math.max(1, Math.trunc(limit))) : EVENTS_LIMIT;
+  const shown = messages.slice(-count);
+  if (!shown.length) return before ? "No earlier messages." : "This session has no messages yet.";
+  const lines = shown.map((message) => `[${message.id}] ${message.role}: ${message.text}`);
+  if (messages.length > shown.length) lines.unshift(`(${messages.length - shown.length} earlier messages; pass before_uuid "${shown[0].id}" to read them)`);
+  return lines.join("\n\n");
 }
 
 export const tools = [
@@ -62,6 +108,32 @@ export const tools = [
       const session = service(ctx).get(id);
       if (!session) throw new Error(`No session ${id}.`);
       return JSON.stringify(shape(session, ctx.sessionId), null, 2);
+    },
+  },
+  {
+    name: "list_events",
+    title: "Read session",
+    description: "Read the recent transcript of another OpenClaude Desktop session: a compact plaintext rendering of its user and assistant messages and tool calls, most recent last. Use it to understand what another session has been doing or what it concluded — for example one the user @-mentioned. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", description: "The session whose transcript to read (from list_sessions or an @-mention). Must not be this session." },
+        limit: { type: "number", description: `Most recent messages to include. Default ${EVENTS_LIMIT}.` },
+        before_uuid: { type: "string", description: "Only messages before this point: pass the id a previous call printed, to page back through a long transcript." },
+      },
+      required: ["session_id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    handler: async (args = {}, ctx) => {
+      const id = typeof args.session_id === "string" ? args.session_id.trim() : "";
+      if (!id) throw new Error("session_id is required.");
+      if (id === ctx.sessionId) throw new Error("That is this session: its transcript is already yours.");
+      const sessions = service(ctx);
+      if (!sessions.get(id)) throw new Error(`No session ${id}.`);
+      if (typeof sessions.turns !== "function") throw new Error("Session transcripts aren’t available here.");
+      const turns = await sessions.turns(id);
+      return renderSessionEvents(turns, { limit: args.limit ?? EVENTS_LIMIT, before: typeof args.before_uuid === "string" && args.before_uuid.trim() ? args.before_uuid.trim() : null });
     },
   },
   {

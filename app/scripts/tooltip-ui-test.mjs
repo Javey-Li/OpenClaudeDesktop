@@ -264,7 +264,7 @@ try {
     exact: true,
   });
   const options = page.getByRole("button", {
-    name: "Session options",
+    name: "View options",
     exact: true,
   });
   metrics.triggerGeometry = await page
@@ -280,7 +280,7 @@ try {
         }),
       };
     });
-  // Preview and Terminal (the built-in panes) precede Changes and Session options when the session has a folder.
+  // Preview and Terminal (the built-in panes) precede Changes and View options when the session has a folder.
   assert.ok([2, 3, 4].includes(metrics.triggerGeometry.count), `titlebar buttons: ${metrics.triggerGeometry.count}`);
   assert.equal(metrics.triggerGeometry.direct, true);
   for (const box of metrics.triggerGeometry.boxes) {
@@ -374,7 +374,7 @@ try {
   await options.hover();
   await page.waitForFunction(
     (selector) =>
-      document.querySelector(selector)?.textContent === "Session options",
+      document.querySelector(selector)?.textContent === "View options",
     tipSelector,
     { timeout: 240 },
   );
@@ -387,7 +387,7 @@ try {
     1,
     "A new owner removes the previous popup, including its exit animation",
   );
-  await tooltip("Session options");
+  await tooltip("View options");
   let popupBox = await geometry(page.locator(tipSelector));
   await page.mouse.move(
     popupBox.x + popupBox.width / 2,
@@ -419,7 +419,7 @@ try {
     tipSelector,
     { timeout: 240 },
   );
-  await tooltip("Session options");
+  await tooltip("View options");
   assert.equal(
     await options.evaluate((node) => node.matches(":focus-visible")),
     true,
@@ -536,13 +536,18 @@ try {
     "Add/Mode/Effort/Usage keep native button parents and open top hints; real Add/Permission menus suppress hints and preserve Escape focus return",
   );
 
-  const send = page.getByRole("button", { name: "Send message", exact: true });
+  const send = page.locator('[data-testid="code-prompt-send"]:not([inert] *)');
   assert.equal(await send.isDisabled(), true);
   const sendSlot = page.locator(".sc-submit-layer:not([data-leaving]) .sc-submit-slot");
   await hover(sendSlot, "Send");
   // Fidelity F02: the 'enter' spec draws ⏎ (shared-frame so/co enter), read from the visible glyph.
+  // ca80fca8d vP :13164-13170: an open idle session whose core can fork adds the ⌥⌘⏎ 'Send in a forked session' row.
+  assert.deepEqual(
+    await page.locator(`${tipSelector} .source-tooltip-label-line`).evaluateAll((lines) => lines.map((line) => line.querySelector(".source-tooltip-label").textContent)),
+    ["Send", "Send in a forked session"],
+  );
   assert.equal(
-    await page.locator(`${tipSelector} .source-tooltip-shortcut`).evaluate((node) => [...node.querySelectorAll("kbd")].map((kbd) => (kbd.querySelector('[aria-hidden="true"]') ?? kbd).textContent).join("")),
+    await page.locator(`${tipSelector} .source-tooltip-shortcut`).first().evaluate((node) => [...node.querySelectorAll("kbd")].map((kbd) => (kbd.querySelector('[aria-hidden="true"]') ?? kbd).textContent).join("")),
     "⏎",
   );
   near((await geometry(sendSlot)).width, 24, "Explicit Send wrapper width");
@@ -552,7 +557,7 @@ try {
     .getByRole("textbox", { name: "Message DeepSeek", exact: true })
     .fill("fixture:scroll");
   await send.click();
-  const stop = page.getByRole("button", { name: "Stop response", exact: true });
+  const stop = page.locator('[data-testid="code-prompt-stop"]:not([inert] *)');
   await stop.waitFor();
   await hover(page.locator(".sc-submit-layer:not([data-leaving]) .sc-submit-slot"), "Stop");
   assert.equal(await stop.getAttribute("title"), null);

@@ -47,23 +47,26 @@ test("LocalReleaseNotes are core-neutral: they announce the agent cores, name De
   assert.doesNotMatch(notes, /DeepSeek(?! Harness)/, "no DeepSeek-as-the-assistant (or DeepSeek models/billing) claims");
   assert.doesNotMatch(notes, /now powered by DeepSeek Harness|Sessions run on DeepSeek/);
   assert.doesNotMatch(notes, /Codex/i);
-  assert.equal(releaseNoteDate(RELEASE_NOTES[0].date), "October 1, 2026");
+  assert.equal(releaseNoteDate(RELEASE_NOTES.find((entry) => entry.version === "0.2.130").date), "October 1, 2026");
   const source = await readFile(new URL("../src/source-titlebar.jsx", import.meta.url), "utf8");
   const dialog = source.slice(source.indexOf("export function LocalReleaseNotes"));
   assert.doesNotMatch(dialog, /Codex/i);
   // B is the shared Dialog: bleed, size md, 'What’s new'; no hand-rolled backdrop, Tab trap or Escape listener.
   assert.match(dialog, /<SourceDialog open=\{open\} onExited=\{onExited\} onClose=\{onClose\} bleed size="md" title=\{t\("What’s new"\)\}/);
   assert.doesNotMatch(source, /modal-backdrop|st-release-backdrop|Close release notes|addEventListener\("keydown"/);
-  // The bump re-arms the nudge for users who saw the previous notes, while 0.2.130 has an entry.
+  // B29 (cb63ed069 N/z/B): every shipped version has its entry (scripts/verify-release-notes.mjs fails the build
+  // otherwise), so an update re-arms the nudge for users who saw the previous notes.
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  assert.equal(pkg.version, "0.2.130");
-  assert.equal(whatsNewVisible({ version: pkg.version, hasNotes: hasReleaseNotes(pkg.version), seen: "0.2.129", open: false }), true);
+  assert.equal(hasReleaseNotes(pkg.version), true, `release-notes.mjs needs an entry for ${pkg.version}`);
+  assert.equal(releaseNotesFor(pkg.version)[0].version, pkg.version, "the running version's entry is the newest shown");
+  assert.equal(whatsNewVisible({ version: pkg.version, hasNotes: hasReleaseNotes(pkg.version), seen: "0.2.130", open: false }), true);
 });
 
 // titlebar-release-notes.js:4184-4200 j, :5059-5069 P (`n`: an entry for the running version) and :5161-5165 B.
 test("release notes are versioned: no entry for the running version means no nudge", () => {
   assert.deepEqual([...LOCAL_RELEASE_NOTE_VERSIONS], RELEASE_NOTES.map((entry) => entry.version));
   assert.equal(hasReleaseNotes("0.2.130"), true);
+  assert.equal(hasReleaseNotes("0.2.185"), true);
   for (const version of ["0.2.131", "0.3.0", "", null]) {
     assert.equal(hasReleaseNotes(version), false, String(version));
     assert.equal(whatsNewVisible({ version, hasNotes: hasReleaseNotes(version), seen: "", open: false }), false, String(version));
@@ -89,6 +92,7 @@ test("entries above the running version are hidden; newest first; groups New / I
   assert.deepEqual([...RELEASE_NOTE_KINDS], ["feat", "improvement", "fix"]);
   assert.deepEqual({ ...RELEASE_NOTE_KIND_LABELS }, { feat: "New", improvement: "Improved", fix: "Fixed" });
   assert.deepEqual(releaseNotesFor("0.2.130").map((entry) => entry.version), ["0.2.130"]);
+  assert.deepEqual(releaseNotesFor("0.2.185").map((entry) => entry.version), ["0.2.185", "0.2.130"]);
 });
 test("note text: [[keys]] become keycaps and backticks code (I)", () => {
   assert.deepEqual(releaseNoteSegments("Fixed [[cmd+k]] search and `~/.dsh` paths."), [

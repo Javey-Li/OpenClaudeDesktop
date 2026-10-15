@@ -36,7 +36,7 @@ const documents = new WeakMap();
 const portalAttributes = [
   "data-density",
   "data-mode",
-  "data-cds-theme",
+  "data-chat-source-version", "data-cds-theme",
   "data-platform",
   "data-font",
   "data-page-bg",
@@ -205,6 +205,8 @@ function TooltipCore({
   content,
   detail,
   secondaryHint,
+  // A third label + shortcut row (the composer Send tooltip's ⌘⌥⏎ fork lane, ca80fca8d vP _P rows).
+  tertiaryHint,
   shortcut,
   multiline = false,
   side = "top",
@@ -759,7 +761,7 @@ function TooltipCore({
             ref={popupRef}
             id={id}
             role="tooltip"
-            className={`source-tooltip-popup ${multiline || detail || secondaryHint ? "source-tooltip-multiline" : "source-tooltip-single"} ${className}`}
+            className={`source-tooltip-popup ${multiline || detail || secondaryHint || tertiaryHint ? "source-tooltip-multiline" : "source-tooltip-single"} ${className}`}
             data-state={phase}
             data-instant={instantExit.current || undefined}
             data-hoverable={hoverable}
@@ -801,6 +803,12 @@ function TooltipCore({
                   {secondaryHint.shortcut && (
                     <TooltipShortcut keys={secondaryHint.shortcut} />
                   )}
+                </span>
+              )}
+              {tertiaryHint && (
+                <span className="source-tooltip-label-line">
+                  <span className="source-tooltip-label">{tertiaryHint.label}</span>
+                  {tertiaryHint.shortcut && <TooltipShortcut keys={tertiaryHint.shortcut} />}
                 </span>
               )}
               {detail && (

@@ -101,14 +101,13 @@
   align-items: center;
 }
 
-/* RO: the output group. */
-/* Wrapped at spaces first (break-words, code-approval.js:6513), a long token only where it must: `ls -la` columns
-   keep "README.md" whole instead of splitting it mid-word. */
+/* RO: the output group. 2.31226.0 cb6930dae: u(Z,{slot:"bash",className:"whitespace-pre-wrap break-all ..."}) inside
+   Z's max-h-[400px] overflow-y-auto clamp. */
 .src-cmd-output {
   max-height: 400px;
   overflow-y: auto;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  word-break: break-all;
   color: var(--cds-text-secondary);
 }
 .src-cmd-output[data-error] {

@@ -381,7 +381,7 @@ try {
   await writeProfile({ displayName: "a.b@example.com", activity: "corrupt", threadIds: [S] });
   await writeModelListKnob(null);
   await launch("B");
-  await page.locator(".welcome header.source-greeting").waitFor();
+  await page.locator(".home-greeting-slot header.source-greeting").waitFor();
   await page.getByRole("button", { name: "Model", exact: true }).filter({ hasText: "Test model" }).waitFor();
   const rejection = await page.evaluate(() => window.desktop.call("stats").then(() => null, (error) => error.message));
   assert.match(rejection, /usage ledger could not be read/);
@@ -392,6 +392,40 @@ try {
   assert.deepEqual(failed, { greeting: "What’s up next, a.b?", card: 0, wrapper: 0, busy: 0 });
   metrics.corruptLedger = { rejection, ...failed };
   checks.push("Corrupt ledger: the stats IPC rejects and the home shows the greeting only (official $O undefined → Zk renders no card); e-mail preferred name → local part");
+  // B28 (2.31226.0 cc43287c9 dX Ft, c3f9f1667 Ne/Pe): the env pill menu is the Local row alone — checked, with the
+  // highlight-revealed Settings button — and ArrowRight opens "Edit local environment" (loaded through desktop:call
+  // local-environment). An invalid line shows its error and disables Save; closing a dirty form asks to discard.
+  // Nothing is saved here (a save would reach the keychain).
+  await page.locator(".sc-context-row .sc-context-chip").first().click();
+  const envMenu = page.getByRole("menu", { name: "Local environment" });
+  await envMenu.waitFor();
+  const envRows = await envMenu.locator('[role^="menuitem"]').evaluateAll((rows) => rows.map((row) => ({ role: row.getAttribute("role"),
+    checked: row.getAttribute("aria-checked"), text: row.textContent.replace(/[\uE000-\uF8FF]/g, ""), button: !!row.querySelector('button.sc-env-settings[aria-hidden="true"][tabindex="-1"]') })));
+  assert.deepEqual(envRows, [{ role: "menuitemradio", checked: "true", text: "Local, environment settings, right arrow", button: true }]);
+  assert.equal(await envMenu.locator('[role="separator"]').count(), 0);
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => document.querySelector('[data-testid="env-picker-local"]')?.hasAttribute("data-highlighted"));
+  assert.equal(await page.locator(".sc-env-settings").evaluate((node) => getComputedStyle(node).opacity), "1", "the highlighted row shows its Settings button");
+  await page.keyboard.press("ArrowRight");
+  const envDialog = page.getByRole("dialog", { name: "Edit local environment" });
+  await envDialog.waitFor();
+  assert.equal(await envMenu.count(), 0, "the menu closed");
+  const envField = envDialog.getByRole("textbox", { name: "Environment variables" });
+  assert.equal(await envField.evaluate((node) => document.activeElement === node), true, "the field takes focus");
+  assert.equal(await envField.inputValue(), "");
+  assert.equal(await envField.getAttribute("rows"), "8");
+  await envField.fill("PATH=/tmp");
+  await envDialog.getByRole("alert").filter({ hasText: "\"PATH\" is managed by OpenClaude Desktop and cannot be overridden." }).waitFor();
+  assert.equal(await envDialog.getByRole("button", { name: "Save changes" }).isDisabled(), true);
+  await envField.fill("NODE_ENV=production");
+  assert.equal(await envDialog.getByRole("alert").count(), 0);
+  assert.equal(await envDialog.getByRole("button", { name: "Save changes" }).isDisabled(), false);
+  await page.keyboard.press("Escape");
+  const discard = page.getByRole("alertdialog", { name: "Discard unsaved changes?" });
+  await discard.waitFor();
+  await discard.getByRole("button", { name: "Discard" }).click();
+  await envDialog.waitFor({ state: "detached" });
+  checks.push("Env pill menu: the Local row alone (checked radio, sr-only ', environment settings, right arrow', highlight-revealed Settings button); ArrowRight opens 'Edit local environment' (8-row field focused, managed PATH refused with Save disabled); Escape on a dirty form asks 'Discard unsaved changes?'");
   // Empty-range copy on a readable but empty ledger is covered by code-ui-test ('No model usage in this range').
   await close();
 

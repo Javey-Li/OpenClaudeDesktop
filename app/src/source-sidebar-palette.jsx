@@ -7,7 +7,7 @@ import { SourceSpinner } from "./source-pane-states.jsx";
 import { hasPendingApproval } from "./state.js";
 import { sessionArchived, sessionName, sessionState, sessionUpdatedAt } from "./sidebar-model";
 import {
-  EMPTY_PALETTE_FILTERS, PALETTE_DATES, PALETTE_RECENTS, PALETTE_TYPES, filterPaletteActions, hasPaletteFilters, matchRanges,
+  EMPTY_PALETTE_FILTERS, PALETTE_DATES, PALETTE_RECENTS, PALETTE_TYPES, filterPaletteActions, hasPaletteFilters, matchRanges, paletteActionGroups,
   movePaletteSelection, paletteMode, palettePlaceholder, paletteProjects, paletteRelativeTime, paletteSessions, stepPaletteType,
 } from "./sidebar-palette-model.mjs";
 import { t, tn } from "../electron/i18n/index.mjs";
@@ -123,7 +123,8 @@ export function SourceSidebarPalette({
   const sendItem = { kind: "send", id: "send", run: () => (term && onStartSession ? onStartSession(term) : onNew?.()) };
 
   const groups = useMemo(() => {
-    if (mode === "actions") return [{ id: "actions", title: t("Actions"), items: filterPaletteActions(actions, query).map(actionItem) }];
+    // c2771e1f6 :3592-3598: Actions mode lists the commands under their registry groups (Navigation, Session, …).
+    if (mode === "actions") return paletteActionGroups(filterPaletteActions(actions, query)).map((group) => ({ ...group, items: group.items.map(actionItem) }));
     if (mode === "search") {
       const result = [];
       if (filters.type !== "project") result.push({ id: "sessions", title: t("Sessions"),
@@ -269,11 +270,11 @@ export function SourceSidebarPalette({
           </div>
           <div ref={list} className="spal-results">
             <div id={listId} role="listbox" aria-label={listLabel} className="spal-listbox">
-              {groups.map((group) => <div key={group.id} role="group" aria-label={group.title} className="spal-group">
-                <div className="spal-group-title">{group.toSearch || group.toActions
+              {groups.map((group) => <div key={group.id} role="group" aria-label={group.title ?? undefined} className="spal-group">
+                {group.title && <div className="spal-group-title">{group.toSearch || group.toActions
                   ? <button type="button" role="presentation" tabIndex={-1} className="spal-group-link" onMouseDown={(event) => event.preventDefault()}
                     onClick={() => setMode(group.toSearch ? "search" : "actions")}><span>{group.title}</span><Icon name="CaretRight" size={12} className="spal-group-caret" /></button>
-                  : <span>{group.title}</span>}</div>
+                  : <span>{group.title}</span>}</div>}
                 {group.items.map((item) => renderItem(item, index++))}
               </div>)}
             </div>

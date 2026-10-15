@@ -53,7 +53,7 @@ export function partitionSessions({ ids = [], results = [], metadata = {}, archi
     if (!meta) continue;
     const owner = sessionEngine(meta);
     // An unattributed row predates engine tags, so only Codex shows it.
-    if (owner === engine || (owner === null && engine === "codex")) archived.push({ ...meta, archived: true });
+    if (meta.modelProvider === 'cowork-vm' || owner === engine || (owner === null && engine === "codex")) archived.push({ ...meta, archived: true });
     else if (foreign(id)) otherEngine += 1;
   }
   return { active, archived, otherEngine, missing, missingIds };

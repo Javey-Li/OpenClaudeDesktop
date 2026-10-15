@@ -531,3 +531,60 @@ html[data-reduce-motion="true"] .source-group-reveal { transition: none; }
 .source-show-more:hover { background: var(--df-hover, var(--cds-alpha-1)); color: var(--cds-text-secondary); }
 .source-show-more:focus-visible { box-shadow: var(--source-focus-ring); }
 .source-show-more[aria-disabled="true"] { pointer-events: none; opacity: .7; }
+/* shared-21 V0: a held "Show less" (the open row is near the end) keeps its
+   tooltip reachable and drops the hover fill. */
+.source-show-more[aria-disabled="true"][data-held] { pointer-events: auto; }
+.source-show-more[data-held]:hover { background: transparent; color: var(--cds-text-muted); }
+/* shared-21 lK sidebar ErrorBoundary fallback: flex-1 min-h-0 flex flex-col
+   items-center justify-center gap-2 px-2 text-center; text-body text-secondary. */
+.source-sidebar-failed {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-inline: 8px;
+  text-align: center;
+}
+.source-sidebar-failed-text {
+  margin: 0;
+  font-size: var(--cds-font-size-body);
+  line-height: var(--cds-leading-body);
+  color: var(--cds-text-secondary);
+}
+/* Row drag (shared-19 DY / LY, source-sidebar-drag.jsx). nx blockSelection + showCursor("grabbing") while a row is
+   carried; custom group sections are the positioned box of their drop band (shared-22 SS De "relative isolate"). */
+html[data-sidebar-row-dragging],
+html[data-sidebar-row-dragging] * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
+.source-session-group[data-group-list] { position: relative; isolation: isolate; }
+/* shared-22 ZO: the empty Pinned list (group/section flex flex-col gap-px + df-pin-section-reveal from shared-styles,
+   height 0 while data-stub) with the group header (nt) look. */
+.source-pinned-drop { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.source-pinned-drop-heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  min-height: calc(var(--df-group-pt) + var(--df-row-h) - 8px + 4px);
+  padding: var(--df-group-pt) 1px 4px 12px;
+  color: var(--cds-text-muted);
+  font-size: var(--df-group-font);
+  line-height: 16px;
+}
+/* LY np Badge (variant accent, size xs): the number of rows a multi-selection drag carries. */
+.source-drag-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--cds-fill-accent);
+  color: var(--cds-on-accent, #fff);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}

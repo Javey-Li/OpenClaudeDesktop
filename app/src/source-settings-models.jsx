@@ -30,7 +30,7 @@ import { t, tn } from '../electron/i18n/index.mjs';
 import {
   normalize, parseNumberInput, setModelParam, effectivePrices, setPrice, addPrice, removePrice, resetPrices, priceEdited,
   PRICE_TIERS, PRICE_FIELDS, MAX_TOKENS_MIN, MAX_TOKENS_MAX, PROVIDER_PROTOCOLS, validateProvider,
-  relayBaseURLError, OFFICIAL_BASE_URL, coreTakesModelParams,
+  relayBaseURLError, OFFICIAL_BASE_URL, coreTakesModelParams, parseTokenCount, CONTEXT_WINDOW_MIN, CONTEXT_WINDOW_MAX,
 } from '../electron/prefs/model-settings.mjs';
 import { CODEX_LOCAL_SERVERS, codexBaseURLError, codexLocalEndpoint, parseCodexModels } from '../electron/prefs/codex-provider.mjs';
 import { fastTierForModel, speedTiersForModel } from '../electron/preferences.mjs';
@@ -151,8 +151,10 @@ function ProviderDialog({ initial, protocols, harness = true, coreLabel = '', on
 
 // A number field that commits on blur or Enter; Escape restores the saved value.
 // onEdit (optional): the user changed the text or Escape put it back, e.g. to drop a validation message.
-export function NumberField({ label, value, placeholder = t('Default'), min, max, step, disabled, invalid, onCommit, onEdit, className = '' }) {
-  const shown = value === undefined || value === null ? '' : String(value);
+// tokens: a text field that shows and takes token counts as people write them (131072, 128K, 1M); shown exactly.
+const exactTokens = count => count % 1000000 === 0 ? `${count / 1000000}M` : count % 1000 === 0 ? `${count / 1000}K` : String(count);
+export function NumberField({ label, value, placeholder = t('Default'), min, max, step, disabled, invalid, onCommit, onEdit, className = '', tokens = false }) {
+  const shown = value === undefined || value === null ? '' : tokens ? exactTokens(value) : String(value);
   const [draft, setDraft] = useState(shown), editing = useRef(false), input = useRef(null);
   useEffect(() => { if (!editing.current) setDraft(shown); }, [shown]);
   // Chromium reports unparseable text (e.g. "abc", "1e") in a number input as
@@ -164,8 +166,9 @@ export function NumberField({ label, value, placeholder = t('Default'), min, max
     if (input.current?.validity?.badInput) onCommit('NaN', revert);
     else if (draft.trim() !== shown) onCommit(draft, revert);
   };
-  return <input ref={input} type="number" data-cds="TextInput" className={`cds-input cds-reset msx-number ${className}`} aria-label={label}
-    value={draft} placeholder={placeholder} min={min} max={max} step={step} disabled={disabled} inputMode="decimal"
+  return <input ref={input} type={tokens ? 'text' : 'number'} data-cds="TextInput" className={`cds-input cds-reset msx-number ${className}`} aria-label={label}
+    value={draft} placeholder={placeholder} min={tokens ? undefined : min} max={tokens ? undefined : max} step={tokens ? undefined : step} disabled={disabled} inputMode={tokens ? 'text' : 'decimal'}
+    spellCheck={tokens ? false : undefined} autoCapitalize={tokens ? 'off' : undefined} autoComplete={tokens ? 'off' : undefined}
     aria-invalid={invalid ? true : undefined} data-invalid={invalid ? '' : undefined}
     onChange={event => { editing.current = true; setDraft(event.currentTarget.value); onEdit?.(); }}
     onBlur={commit}
@@ -442,7 +445,7 @@ export function CodexConnectionGroup({ core, desktopCall, onReconnect, initialVi
     settingRow('codex-provider', t('Provider'), custom ? t('Requests go to an OpenAI Responses-compatible endpoint you choose, such as a GPT relay.')
       : fromConfig ? (fromConfig.host ? t('Requests go to {name} ({host}), set in your Codex config.toml. Choose Custom endpoint to use one set here instead.', { name: fromConfig.name, host: fromConfig.host })
         : t('Requests go to {name}, set in your Codex config.toml. Choose Custom endpoint to use one set here instead.', { name: fromConfig.name }))
-      : t('Requests go to OpenAI with the ChatGPT account or OpenAI API key you sign in with on Settings › Preferences › Account.'),
+      : t('Requests go to OpenAI with the ChatGPT account or OpenAI API key you sign in with on Settings › General › Account.'),
       <SourceSegments label={t('{core} provider', { core })} value={draft.mode} disabled={disabled}
         options={[{ value: 'openai', label: fromConfig ? t('config.toml') : 'OpenAI' }, { value: 'custom', label: t('Custom endpoint') }]} onChange={mode => edit({ mode })}/>),
     ...(custom ? [
@@ -576,14 +579,15 @@ export function SourceModelsSettings({ config = {}, boot, engine, desktopCall, o
 
   // ---- Model defaults
   const paramField = (model, field, props) => {
-    const rowId = `model-${model.model}-${field}`;
-    return <NumberField {...props} invalid={!!rowErrors[rowId]} value={current.params[model.model]?.[field]}
+    const rowId = `model-${model.model}-${field}`, tokens = field === 'contextWindow';
+    return <NumberField {...props} tokens={tokens} invalid={!!rowErrors[rowId]} value={current.params[model.model]?.[field]}
       onCommit={(text, revert) => {
-        const value = parseNumberInput(text);
+        const parsed = tokens ? parseTokenCount(text) : parseNumberInput(text), value = parsed === null ? undefined : parsed;
         if (Number.isNaN(value)) { setRowErrors(errors => ({ ...errors, [rowId]: t('Enter a number.') })); revert(); return; }
         void commit(rowId, settings => setModelParam(settings, model.model, field, value)).then(ok => { if (!ok) revert(); });
       }}/>;
   };
+  const contextHelp = t('How many tokens the model can read, such as 128K or 1M ({min}–{max}). The core compacts the conversation before it fills up. Empty uses the model’s default.', { min: CONTEXT_WINDOW_MIN.toLocaleString('en-US'), max: CONTEXT_WINDOW_MAX.toLocaleString('en-US') });
   // Validation and save failures show their reason below the row.
   const below = rowId => rowErrors[rowId] ? { below: <span className="ss-row-error" title={rowErrors[rowId]}>{rowErrors[rowId]}</span> } : {};
   const effortsOf = model => (model.supportedReasoningEfforts || []).map(item => item?.reasoningEffort ?? item).filter(value => typeof value === 'string');
@@ -604,6 +608,8 @@ export function SourceModelsSettings({ config = {}, boot, engine, desktopCall, o
         paramField(model, 'maxTokens', { label: t('{name} max output tokens', { name }), min: MAX_TOKENS_MIN, max: MAX_TOKENS_MAX, step: 1 }), below(`model-${model.model}-maxTokens`)),
       settingRow(`model-${model.model}-temperature`, t('Temperature'), t('0–2. Lower is more focused, higher more varied. Empty uses the model’s default.'),
         paramField(model, 'temperature', { label: t('{name} temperature', { name }), min: 0, max: 2, step: 0.1 }), below(`model-${model.model}-temperature`)),
+      settingRow(`model-${model.model}-contextWindow`, t('Context window'), contextHelp,
+        paramField(model, 'contextWindow', { label: t('{name} context window', { name }) }), below(`model-${model.model}-contextWindow`)),
       ...(efforts.length ? [settingRow(effortId, t('Default reasoning effort'), t('Applied when you switch to this model.'),
         effortSelect(model, name, efforts), below(effortId))] : []),
     ];
@@ -616,6 +622,8 @@ export function SourceModelsSettings({ config = {}, boot, engine, desktopCall, o
       paramField(model, 'maxTokens', { label: t('{name} max output tokens', { name }), min: MAX_TOKENS_MIN, max: MAX_TOKENS_MAX, step: 1 }), { indent: true, ...below(`model-${model.model}-maxTokens`) }),
     settingRow(`model-${model.model}-temperature`, t('Temperature'), t('0–2. Lower is more focused, higher more varied. Empty uses the model’s default.'),
       paramField(model, 'temperature', { label: t('{name} temperature', { name }), min: 0, max: 2, step: 0.1 }), { indent: true, ...below(`model-${model.model}-temperature`) }),
+    settingRow(`model-${model.model}-contextWindow`, t('Context window'), contextHelp,
+      paramField(model, 'contextWindow', { label: t('{name} context window', { name }) }), { indent: true, ...below(`model-${model.model}-contextWindow`) }),
   ] : [];
   const modelRows = models.filter(model => model.hidden !== true).flatMap(model => {
     const name = model.displayName || model.model, efforts = effortsOf(model), speeds = speedTiersForModel(model), fast = !!fastTierForModel(model) || speeds.length > 0;

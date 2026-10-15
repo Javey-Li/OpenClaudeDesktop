@@ -55,6 +55,7 @@ export function imageMime(file) {
 }
 
 export function isImageFile(file) {
+  if(file?.isDirectory)return false;
   return imageMime(file) !== "";
 }
 
@@ -110,6 +111,7 @@ export function stageFiles(entries, files, { imagesOnly = false, imagesAllowed =
     const entry = {
       id: nextId(makeId, index++),
       kind,
+      ...(file.isDirectory?{isDirectory:true}:{}),
       name: file.name || basename(file.path),
       path: file.path || "",
       size: Number.isFinite(file.size) ? file.size : null,
@@ -152,11 +154,12 @@ export function snippetLabel(text) {
 }
 let snippetSeq = 0;
 /** A snippet entry; null for empty text. `key` names its source so a second add from it replaces the first. */
-export function makeSnippet(text, { label, key, terminalTabId, id } = {}) {
+export function makeSnippet(text, { label, key, terminalTabId, id, sourceFile } = {}) {
   const body = String(text ?? "").replace(/\s+$/, "").replace(/^\n+/, "");
   if (!body.trim()) return null;
   return { id: id ?? `snippet-${Date.now().toString(36)}-${snippetSeq++}`, kind: "snippet", status: "ready", text: body,
     label: typeof label === "string" && label.trim() ? label.trim() : snippetLabel(body),
+    ...(typeof sourceFile === "string" && sourceFile ? { sourceFile } : {}),
     ...(key ? { key } : {}), ...(terminalTabId ? { terminalTabId } : {}) };
 }
 export function addSnippet(entries, snippet) {
@@ -173,7 +176,7 @@ export function removeSnippetByKey(entries, key) {
 // transcript shows user text as typed, so the quote goes without Claude's '<!-- attach: label -->' marker line.
 export function snippetText(entries) {
   const quotes = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.kind === "snippet" && typeof entry.text === "string" && entry.text.trim())
-    .map((entry) => entry.text.split("\n").map((line) => (line.length ? `> ${line}` : ">")).join("\n"));
+    .map((entry) => (entry.sourceFile ? `${entry.sourceFile}\n\n${entry.text}` : entry.text).split("\n").map((line) => (line.length ? `> ${line}` : ">")).join("\n"));
   return quotes.length ? `${quotes.join("\n\n")}\n\n` : "";
 }
 
@@ -349,7 +352,7 @@ export function firstMessageName(text, entries = [], { max = 64, firstLine = fal
 // false for a core that drops a file mention: the files' paths then also go as
 // an attachment-note text item, ahead of the parts, so the model sees them.
 export function attachmentInputs(entries, { fileMentions = true } = {}) {
-  const ready = entries.filter((entry) => entry.status === "ready" && entry.path);
+  const ready = entries.filter((entry) => entry.kind !== "elementContext" && entry.status === "ready" && entry.path);
   // An image for a model without vision on a core that reads it itself (asFile): a file mention, which the core
   // routes to its vision model.
   const parts = ready.map((entry) => (entry.kind === "image" && !entry.asFile
@@ -381,4 +384,59 @@ export function attachmentViewerState(viewer, entries = []) {
   if (!viewer) return null;
   const entry = entries.find((candidate) => candidate.id === viewer.id);
   return entry && attachmentOpenAction(entry) === "view" ? { ...viewer, src: entry.previewUrl, alt: entry.name } : null;
+}
+
+// ── Folder intake (B01) ─────────────────────────────────────────────────────────────────────────────────────
+// shared-50 kk (exported to cc43287c9 as Go): a paste/drop DataTransfer split into folder Files (an item whose
+// webkitGetAsEntry() reports isDirectory) and plain Files; without an item list every File counts as a file.
+export function splitClipboardFolders(items, files) {
+  const folders = [], plain = [];
+  if (!items) return { folders, files: Array.from(files ?? []) };
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (item?.kind !== "file") continue;
+    const file = item.getAsFile?.();
+    if (!file) continue;
+    (item.webkitGetAsEntry?.()?.isDirectory ? folders : plain).push(file);
+  }
+  return { folders, files: plain };
+}
+
+// cc43287c9 cB: a folder is "outside" the working folder unless it is that folder or below it (separators
+// normalized, trailing slashes dropped). No working folder → nothing is outside.
+export function isOutsideFolder(folder, root) {
+  if (!root) return false;
+  const normal = (value) => String(value).replace(/\\/g, "/").replace(/\/+$/, "");
+  const child = normal(folder), parent = normal(root);
+  return child !== parent && !child.startsWith(parent + "/");
+}
+
+// cc43287c9 Hm (:39615-39660), the one route every added folder takes (Add › Add folder, a pasted or dropped
+// folder): with no session yet, a folder outside the working folder joins the draft's extra folders (Zd → nu);
+// otherwise it becomes a folder chip, and in a session a chip outside the working folder is also granted to the
+// session (addDirectories; on refusal its chip leaves again).
+export function planFolderIntake(paths, { workdir = "", sessionOpen = false } = {}) {
+  const chips = [], grant = [], draftFolders = [];
+  for (const folder of Array.isArray(paths) ? paths : []) {
+    if (typeof folder !== "string" || !folder) continue;
+    const outside = isOutsideFolder(folder, workdir);
+    if (!sessionOpen && outside) { if (!draftFolders.includes(folder)) draftFolders.push(folder); continue; }
+    if (!chips.includes(folder)) chips.push(folder);
+    if (outside && sessionOpen && !grant.includes(folder)) grant.push(folder);
+  }
+  return { chips, grant, draftFolders };
+}
+
+// cc43287c9 sg (:42384-42395): pasted/dropped folders. A draft with no working folder takes the first one as its
+// working folder (Id); anything else goes through planFolderIntake (Hm).
+export function planFolderPaste(paths, { draft = false, workdir = "", sessionOpen = false } = {}) {
+  const list = (Array.isArray(paths) ? paths : []).filter((folder) => typeof folder === "string" && folder);
+  if (!list.length) return null;
+  if (draft && !workdir) return { workingFolder: list[0] };
+  return planFolderIntake(list, { workdir, sessionOpen });
+}
+
+// CNiYa5WL8N: the addDirectories refusal toast.
+export function folderGrantError(count) {
+  return tn(count, "Couldn’t add {count} folder to this session", "Couldn’t add {count} folders to this session");
 }

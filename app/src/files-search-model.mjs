@@ -4,6 +4,7 @@ import { t, tn } from "../electron/i18n/index.mjs";
 // The official ready FileIndex branch is immediate; this backend has no index.
 export const FILE_SEARCH_DELAY = 120;
 export const FILE_SEARCH_LIMIT = 50;
+export const CONTENT_SEARCH_DELAY = 250;
 let nextController = 0;
 
 export function emptySearchState(query = "") {
@@ -21,7 +22,15 @@ export function isRelativeFilePath(path) {
     !path.includes("\0") && path.split("/").every(part => part && part !== "." && part !== "..");
 }
 
+// B32 (cd2efac6e ko): "Reveal in file tree" on a breadcrumb folder asks for `${dir}/` (revealInFilesTree with a
+// trailing slash): that folder's row is the target and only the folders above it expand.
+const revealFolder = (revealPath) => (typeof revealPath === "string" && revealPath.endsWith("/") ? revealPath.slice(0, -1) : null);
 export function revealRelation(entry, revealPath) {
+  const folder = revealFolder(revealPath);
+  if (folder !== null) {
+    if (!isRelativeFilePath(entry?.path) || !isRelativeFilePath(folder) || !entry.directory) return null;
+    return entry.path === folder ? "target" : folder.startsWith(`${entry.path}/`) ? "ancestor" : null;
+  }
   if (!isRelativeFilePath(entry?.path) || !isRelativeFilePath(revealPath)) return null;
   if (!entry.directory && entry.path === revealPath) return "target";
   return entry.directory && revealPath.startsWith(`${entry.path}/`) ? "ancestor" : null;
@@ -30,6 +39,7 @@ export function revealRelation(entry, revealPath) {
 // One direct child hint per existing directory request. Never synthesize rows,
 // normalize traversal, or treat a sibling with a shared prefix as an ancestor.
 export function revealChild(relative, revealPath) {
+  revealPath = revealFolder(revealPath) ?? revealPath;
   if (!isRelativeFilePath(revealPath) || (relative !== "" && !isRelativeFilePath(relative))) return undefined;
   if (relative === "") return revealPath.split("/")[0];
   const prefix = `${relative}/`;
@@ -87,12 +97,16 @@ function validateResponse(response, request, workspaceRoot) {
   if (response.error) return response;
   if (typeof response.root !== "string" || !response.root.startsWith("/") ||
       !Array.isArray(response.matches)) throw new Error("Filename search returned an invalid response.");
-  const seen = new Set();
+  const seen = new Set(),content=request.mode==='content';
+  // B33 (cccc2cf0a Fv): folder rows only answer a filename query that ends in '/'.
+  const folders=!content&&request.folders===true&&request.query.endsWith('/');
   for (const match of response.matches) {
-    if (!isRelativeFilePath(match.path) || match.directory !== false ||
-        typeof match.name !== "string" || match.name !== match.path.split("/").at(-1) || seen.has(match.path))
+    const identity=content?`${match.path}:${match.line}:${match.column}`:match.path;
+    if (!isRelativeFilePath(match.path) || !(match.directory === false || (folders && match.directory === true)) ||
+        typeof match.name !== "string" || match.name !== match.path.split("/").at(-1) || seen.has(identity) ||
+        (content&&(!Number.isInteger(match.line)||match.line<1||!Number.isInteger(match.column)||match.column<1||typeof match.preview!=='string'||!Array.isArray(match.ranges))))
       throw new Error("Filename search returned an invalid file path.");
-    seen.add(match.path);
+    seen.add(identity);
   }
   return response;
 }
@@ -103,7 +117,7 @@ function validateResponse(response, request, workspaceRoot) {
  * A controller is scoped to one session+workspace and must be disposed on change.
  */
 export function createFileSearchController({ sessionId, pane = "main", workspaceRoot, search, cancel,
-  onState = () => {}, onActivate = () => {}, enabled = true,
+  onState = () => {}, onActivate = () => {}, enabled = true, options = {matchCase:false,wholeWord:false,regexp:false},
   setTimer = setTimeout, clearTimer = clearTimeout }) {
   if (pane !== "main" && pane !== "artifacts") throw new TypeError("Unsupported filename search pane.");
   const prefix = `files-${Date.now().toString(36)}-${++nextController}`;
@@ -127,12 +141,13 @@ export function createFileSearchController({ sessionId, pane = "main", workspace
   }
   function fail(message, code = "SEARCH_FAILED") {
     pendingEnter = null;
-    publish({ ...state, phase: "error", error: { code, message } });
+    publish({ ...state, ...(code==='INVALID_PATTERN'?{matches:[]}:{}), phase: "error", error: { code, message } });
   }
   function schedule() {
     invalidate();
     const query = state.query.trim();
-    if (!query) { publish(emptySearchState(state.query)); return; }
+    const content=query.startsWith('?');
+    if (!query || (content&&!query.slice(1).trim())) { publish(emptySearchState(state.query)); return; }
     if (!enabled) { publish({ ...state, phase: "paused", error: null }); return; }
     const ticket = generation;
     publish({ ...state, phase: "debouncing", error: null });
@@ -140,6 +155,7 @@ export function createFileSearchController({ sessionId, pane = "main", workspace
       timer = null;
       if (disposed || ticket !== generation || !enabled) return;
       const request = { sessionId, pane, requestId: `${prefix}-${++sequence}`, query,
+        ...(content?{mode:'content',options:{...options}}:query.endsWith('/')?{folders:true}:{}),
         ...(sessionId == null ? { homeWorkspace: workspaceRoot } : {}) };
       active = request;
       publish({ ...state, phase: "loading", error: null });
@@ -161,8 +177,9 @@ export function createFileSearchController({ sessionId, pane = "main", workspace
           fail(data.error.message || "Couldn’t search filenames.", data.error.code);
           return;
         }
-        const capped = data.matches.length > FILE_SEARCH_LIMIT;
-        const matches = data.matches.slice(0, FILE_SEARCH_LIMIT).map(match => ({ ...match,
+        const limit=content?241:FILE_SEARCH_LIMIT,capped = data.matches.length > limit;
+        const matches = data.matches.slice(0, limit).map(match => ({ ...match,
+          ...(content?{findQuery:query.slice(1).trimStart(),findOptions:request.options}:{}),
           positions: (Array.isArray(match.positions) ? match.positions : [])
             .filter(position => Number.isInteger(position) && position >= 0 && position < match.path.length),
         }));
@@ -181,7 +198,7 @@ export function createFileSearchController({ sessionId, pane = "main", workspace
           fail(error?.message || String(error));
         }
       });
-    }, FILE_SEARCH_DELAY);
+    }, content?CONTENT_SEARCH_DELAY:FILE_SEARCH_DELAY);
   }
   return {
     getState: () => state,
@@ -190,7 +207,7 @@ export function createFileSearchController({ sessionId, pane = "main", workspace
       pendingEnter = null;
       const trimmed = String(query).trim();
       const unchanged = trimmed === state.query.trim();
-      publish({ ...state, query: String(query) });
+      publish(trimmed.startsWith('?')!==state.query.trim().startsWith('?')?emptySearchState(String(query)):{ ...state, query: String(query) });
       if (!unchanged || state.phase === "idle") schedule();
     },
     requestEnter() {
@@ -205,6 +222,7 @@ export function createFileSearchController({ sessionId, pane = "main", workspace
       return true;
     },
     cancelEnter() { pendingEnter = null; },
+    setOptions(value) { options={...value}; pendingEnter=null; if(state.query.trim().startsWith('?'))schedule(); },
     refresh() { if (!disposed) { pendingEnter = null; schedule(); } },
     setEnabled(value) {
       if (disposed || enabled === Boolean(value)) return;

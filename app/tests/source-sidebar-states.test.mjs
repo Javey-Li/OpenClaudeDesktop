@@ -238,7 +238,7 @@ test('the sidebar aside is a CDS root carrying data-density, data-platform and d
 test('group and confirm dialogs use the shared Dialog with the CDS primary/danger Button', () => {
   const read = (file) => readFileSync(path.resolve(import.meta.dirname, '../src/' + file), 'utf8');
   const css = read('source-sidebar.css'), jsx = read('source-sidebar.jsx'), button = read('source-settings-button.css');
-  const official = readFileSync(path.resolve(import.meta.dirname, '../public/assets/v1/c6a992d55-Vcbdv79k.css'), 'utf8');
+  const official = readFileSync(path.resolve(import.meta.dirname, '../public/assets/v1/c6a992d55-C0zTICcS.css'), 'utf8');
   assert.doesNotMatch(css, /\.source-group-dialog(-backdrop)?\s*\{/);
   assert.doesNotMatch(css, /--cds-text-on-primary/);
   assert.match(jsx, /<SourceDialog open=\{open\} onExited=\{onExited\} size="sm" showClose=\{false\}/);
@@ -273,20 +273,24 @@ test('status glyphs: Idle is role=img, live states are role=status, Archived car
 test('rows carry the jump-hint attributes; the body is the peek card target', () => {
   const html = render({});
   assert.match(html, /data-source-session-id="s1"[^>]*data-row-key="s1" data-jump-hint-row=""/);
+  // ca1d33d05 jt / kt: the F6 "navigation" stop is the aside, or while collapsed the peek card.
+  assert.match(html, /<aside [^>]*data-focus-region="navigation" data-focus-region-holds="contains">/);
   assert.match(html, /<div class="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover">/);
   const collapsed = render({ collapsed: true });
+  assert.doesNotMatch(collapsed, /<aside [^>]*data-focus-region=/);
   assert.match(collapsed, /<div class="dframe-peek-bridge" aria-hidden="true"><\/div>/);
-  assert.match(collapsed, /<div class="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover" inert="">/);
-  assert.match(render({ collapsed: true, peekOpen: true }), /<div class="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover">/);
+  assert.match(collapsed, /<div class="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover" data-focus-region="navigation" data-focus-region-holds="contains" inert="">/);
+  assert.match(render({ collapsed: true, peekOpen: true }), /<div class="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover" data-focus-region="navigation" data-focus-region-holds="contains">/);
 });
 
 test('custom group headers: no DotsVertical trigger, the empty copy invites a drop, Other has no "+"', () => {
   const html = render({ sessions: [thread('s1')], customGroups: [{ id: 'g1', name: 'Research' }], sidebarPreferences: { groupBy: 'custom', showEmptyGroups: true },
     onSessionAction() {}, onGroupAction() {}, onProject() {} });
   assert.doesNotMatch(html, /More options for group/);
-  assert.match(html, /<p class="source-empty-group">Drag or move sessions here<\/p>/);
+  // shared-22 SS: the hint is a shiftable row (_Y shiftKey label:hint:{key}) while a drag opens a gap above it.
+  assert.match(html, /<p class="source-empty-group df-drag-shiftable" data-drag-key="label:hint:custom:[^"]+">Drag or move sessions here<\/p>/);
   const other = render({ sessions: [thread('s1', { cwd: '/tmp/plain' })], repoIdentities: { '/tmp/plain': { isRepo: false } }, onProject() {}, onSessionAction() {} });
-  assert.match(other, /data-group-key="project:__no_project__"><div class="source-group-heading" data-sidebar-group-label=""><button[^>]*><span>Other<\/span>/);
+  assert.match(other, /data-group-key="project:__no_project__"><div class="source-group-heading df-drag-shiftable" data-sidebar-group-label="" data-drag-key="label:project:__no_project__"><button[^>]*><span>Other<\/span>/);
   assert.doesNotMatch(other, /New session in Other/);
   const source = readFileSync(path.resolve(import.meta.dirname, '../src/source-sidebar.jsx'), 'utf8');
   for (const copy of ['>Move up<', '>Move down<', '>Sort A to Z<', '>Rename group<', '>Delete group<', 'label="Rename group"', 'Create and group by custom', '"Create group"', 'The list will switch to Custom groups to show it.'])
@@ -332,4 +336,150 @@ test('row results are toasts, not inline status/error rows', () => {
   assert.doesNotMatch(source, /source-sidebar-status|source-sidebar-error|data-sidebar-status/);
   assert.match(source, /older \? "older session" : "session"/);
   assert.match(source, /key: older \? `\$\{action\}-older-bulk` : `group-bulk-\$\{action\}`, timeout: 3000/);
+});
+
+// B04: shared-21 HQ/YQ load-failed, VQ sticky failure, lK boundary, H0 Show less, tK hover reveal, ce4f4374c ke/Ae.
+test('load-failed variant (HQ/YQ): an alert with a small Try again instead of the no-sessions copy; skeleton while loading', () => {
+  const failed = render({ sessions: [], loadFailed: true, onRetryLoad() {} });
+  assert.match(failed, /<div class="source-sidebar-empty" data-empty-variant="load-failed"><p role="alert" class="source-sidebar-empty-text">Couldn’t load your sessions<\/p><button[^>]*data-cds="Button" data-variant="secondary"[^>]*data-size="sm"[^>]*>.*Try again/s);
+  assert.doesNotMatch(failed, /Sessions you start will show up here|sidebar-rows-skeleton/);
+  // VQ's state starts {failed: false}: a sidebar that mounts while a load is pending shows the skeleton; the held
+  // failure during a Try again on a mounted sidebar is stickyListFailure (tests/sidebar-model.test.mjs).
+  const mountedLoading = render({ sessions: [], loadFailed: true, loading: true, onRetryLoad() {} });
+  assert.match(mountedLoading, /data-testid="sidebar-rows-skeleton"/);
+  assert.doesNotMatch(mountedLoading, /data-empty-variant/);
+  // Startup (not settled, not failed): skeleton only; aria-busy on the nav.
+  const startup = render({ sessions: [], loading: true });
+  assert.match(startup, /data-testid="sidebar-rows-skeleton"/);
+  assert.match(startup, /aria-busy="true"/);
+  assert.doesNotMatch(startup, /data-empty-variant/);
+  // Sessions behind the filters stay "filtered" even when a reload failed (HQ t > 0).
+  assert.match(render({ sessions: [thread('s1', { archived: true })], loadFailed: true }), /data-empty-variant="filtered"/);
+  // Rows shown: no empty state at all.
+  assert.doesNotMatch(render({ loadFailed: true }), /data-empty-variant/);
+});
+
+test('sidebar error boundary (lK): "Sidebar failed to load." with a secondary Try again', async () => {
+  const { SourceSidebarBoundary } = await server.ssrLoadModule('/src/source-sidebar.jsx');
+  const boundary = new SourceSidebarBoundary({});
+  boundary.state = SourceSidebarBoundary.getDerivedStateFromError(new Error('bad metadata'));
+  const html = renderToStaticMarkup(boundary.render());
+  assert.match(html, /<aside class="app-sidebar dframe-sidebar source-sidebar cds-root" aria-label="Sidebar"/);
+  assert.match(html, /<div class="dframe-sidebar-body source-sidebar-failed" data-testid="sidebar"><p class="source-sidebar-failed-text">Sidebar failed to load\.<\/p><button type="button" data-cds="Button" data-variant="secondary"/);
+  assert.match(html, /Try again<\/span>/);
+  const ok = renderToStaticMarkup(React.createElement(SourceSidebarBoundary, null, React.createElement('span', null, 'list')));
+  assert.equal(ok, '<span>list</span>');
+});
+
+test('persisted group collapse (shared-50 collapsedGroups): a folded key hides its rows and reports aria-expanded false', () => {
+  const html = render({ sidebarPreferences: { groupBy: 'project', collapsedGroups: ['project:/fixture/work'] } });
+  assert.match(html, /aria-expanded="false" data-group-toggle=""/);
+  assert.doesNotMatch(html, /data-source-session-id="s1"/);
+  const open = render({ sidebarPreferences: { groupBy: 'project' } });
+  assert.match(open, /aria-expanded="true" data-group-toggle=""/);
+  assert.match(open, /data-source-session-id="s1"/);
+  const source = readFileSync(path.resolve(import.meta.dirname, '../src/source-sidebar.jsx'), 'utf8');
+  assert.match(source, /const toggleGroup = \(key\) => updatePreferences\(toggleCollapsedGroup\(preferences, key\)\);/);
+  const main = readFileSync(path.resolve(import.meta.dirname, '../electron/main.cjs'), 'utf8');
+  assert.match(main, /collapsedGroups: config\.sidebarPreferences\.collapsedGroups\.filter\(key => key !== "custom:" \+ p\.id\)/);
+});
+
+test('Show more / Show less (H0): labels, held state and the status live region', async () => {
+  const { SourceShowMoreButton } = await server.ssrLoadModule('/src/source-sidebar.jsx');
+  const button = (props) => renderToStaticMarkup(React.createElement(SourceShowMoreButton, { bucketLabel: 'Today', count: 5, onShowMore() {}, onShowLess() {}, ...props }));
+  const more = button({});
+  assert.match(more, /<button type="button" class="source-show-more" data-row="" data-roving-item="" aria-label="Show 5 more in Today">/);
+  // H0 always renders the tooltip wrapper's hidden description (empty unless held) and the S0 status span.
+  assert.match(more, /Show 5 more<\/button><span id="[^"]+" hidden=""><\/span><span class="source-sr-only" role="status"><\/span>/);
+  const less = button({ fewer: 'collapse' });
+  assert.match(less, /aria-label="Show less in Today"/);
+  assert.match(less, />Show less<\/button>/);
+  assert.doesNotMatch(less, /aria-disabled|data-held/);
+  const held = button({ fewer: 'held' });
+  assert.match(held, /aria-disabled="true" aria-describedby="([^"]+)" data-held="" aria-label="Show less in Today"/);
+  const id = held.match(/aria-describedby="([^"]+)"/)[1];
+  assert.ok(held.includes(`<span id="${id}" hidden="">You have something open near the end of this list.</span>`));
+  // A whole bucket under the cut renders no button; 22 rows (two past the cut) get Show 2 more.
+  const now22 = Array.from({ length: 22 }, (_, index) => thread('r' + index, { updatedAt: now - index }));
+  const html = render({ sessions: now22, sidebarPreferences: { groupBy: 'none' } });
+  assert.match(html, /aria-label="Show 2 more in Sessions"/);
+  assert.equal((render({ sessions: now22.slice(0, 21), sidebarPreferences: { groupBy: 'none' } }).match(/source-show-more/g) || []).length, 0);
+});
+
+test('Hide sidebar sits in df-sidebar-hover-reveal (tK); the row menu separates Keep computer awake and shows Unarchiving…', () => {
+  const html = render({});
+  assert.match(html, /<div class="df-sidebar-hover-reveal flex"><button[^>]*aria-label="Hide sidebar"/);
+  const css = readFileSync(path.resolve(import.meta.dirname, '../src/style.css'), 'utf8');
+  assert.match(css, /\.sidebar-toolbar > \.df-sidebar-hover-reveal > \.code-icon-button,/);
+  const menu = (props) => renderToStaticMarkup(React.createElement(SourceSidebarSessionMenu, { session: thread('s1'), onAction() {}, onClose() {}, onRename() {}, onDelete() {}, ...props }));
+  const plain = menu({});
+  assert.match(plain, /data-label="Export"[^]*?<\/div><div role="separator" class="smenu-separator"><\/div><div aria-checked="false" data-keep-awake="" role="menuitemcheckbox"/);
+  const grouped = menu({ customGroups: [{ id: 'g', name: 'Research' }] });
+  assert.match(grouped, /Move to group[^]*<div role="separator" class="smenu-separator"><\/div><div aria-checked="false" data-keep-awake="" role="menuitemcheckbox"/);
+  const archived = menu({ session: thread('s1', { archived: true }) });
+  assert.match(archived, /data-label="Unarchive"/);
+  const pending = menu({ session: thread('s1', { archived: true }), unarchiving: true });
+  assert.match(pending, /<div role="menuitem"[^>]*aria-disabled="true"[^>]*data-label="Unarchiving…"/);
+  assert.doesNotMatch(pending, /data-label="Unarchive"/);
+});
+
+// B04 review: shared-21 Bz/Hz (Show less swallows the rest of a multi-click on the list for 500ms) and shared-22 yS
+// (the open session landing in a folded bucket unfolds it through expandGroup).
+test('Show less multi-click guard (Bz/Vz) and folded-bucket expand for the open session (yS)', () => {
+  const source = readFileSync(path.resolve(import.meta.dirname, '../src/source-sidebar.jsx'), 'utf8');
+  assert.match(source, /if \(event\.detail > 0\) guardMultiClick\(500\);/);
+  assert.match(source, /onPointerDownCapture=\{swallowGuardedMultiClick\} onMouseDownCapture=\{swallowGuardedMultiClick\}\s+onClickCapture=\{swallowGuardedMultiClick\} onDoubleClickCapture=\{swallowGuardedMultiClick\}/);
+  assert.match(source, /event\.nativeEvent\.detail > 1\) \{ event\.stopPropagation\(\); event\.preventDefault\(\); \}/);
+  assert.match(source, /previous === undefined \|\| \(openGroupBy === "project" && !group\.customGroupId\)/);
+  assert.match(source, /updatePreferences\(expandCollapsedGroup\(preferences, group\.key\)\)/);
+});
+
+// B09 (c593f7513 wm Rt → Om k; ce4f4374c De): the title bar's header session menu has no Pin/Move/read state, Move to
+// group, nested toggle or Keep computer awake (canPin false, no readState, hideMoveToGroup, keepAwake dropped); the
+// settings section (Transcript view) sits between the actions and Archive/Delete, each behind a separator.
+test('header session menu (title bar CaretDown) keeps lifecycle items and drops row-only ones', () => {
+  const menu = (props) => renderToStaticMarkup(React.createElement(SourceSidebarSessionMenu, { session: thread('s1'), onAction() {}, onClose() {}, onRename() {}, onFork() {}, onDelete() {},
+    customGroups: [{ id: 'g', name: 'Research' }], metadata: { pinned: true }, pinnedSiblings: ['s0', 's1', 's2'], nested: { childCount: 2, collapsed: false, onToggle() {} }, ...props }));
+  const labels = (html) => [...html.matchAll(/data-label="([^"]+)"/g)].map((match) => match[1]);
+  const row = menu({});
+  for (const label of ['Move up', 'Move down', 'Unpin', 'Mark as unread', 'Hide nested sessions']) assert.ok(labels(row).includes(label), `row menu has ${label}`);
+  assert.match(row, /Move to group/); assert.match(row, /data-keep-awake=""/);
+  const header = menu({ header: true, settingsItems: React.createElement('div', { 'data-settings-slot': '' }) });
+  assert.deepEqual(labels(header), ['Open in', 'Rename', 'Export', 'Fork', 'Archive', 'Delete']);
+  assert.doesNotMatch(header, /Move to group|data-keep-awake|aria-keyshortcuts="p"|aria-keyshortcuts="u"/);
+  assert.match(header, /data-label="Fork"[^]*?<div role="separator" class="smenu-separator"><\/div><div data-settings-slot=""><\/div><div role="separator" class="smenu-separator"><\/div>[^]*data-label="Archive"/);
+  // No settings section: one separator above Archive.
+  assert.match(menu({ header: true }), /data-label="Fork"[^]*?<\/div><div role="separator" class="smenu-separator"><\/div><div role="menuitem"[^>]*data-label="Archive"/);
+});
+
+// B10: ce4f4374c Me (multi menu over c39a247c4 ve) and shared-22 ZO/XO + SS (drag targets in the list).
+test('multi menu: Pin / Unpin {count} when some row would change, Set model for {count} with a catalog, p pins first', () => {
+  const sessions = [thread('a'), thread('b'), thread('c')];
+  const menu = (multi) => renderToStaticMarkup(React.createElement(SourceSidebarSessionMenu, { session: sessions[0], onAction() {}, onClose() {}, onRename() {},
+    customGroups: [{ id: 'g', name: 'Research' }], onCreateGroup() {}, multi: { count: 3, sessions, onBulk() {}, ...multi } }));
+  const labels = (html) => [...html.matchAll(/data-label="([^"]+)"/g)].map((match) => match[1]);
+  const both = menu({ pin: { count: 2, sessions: sessions.slice(1) }, unpin: { count: 1, sessions: sessions.slice(0, 1) }, models: [{ id: 'm1', name: 'Model One' }] });
+  assert.deepEqual(labels(both), ['Pin 2', 'Unpin 1', 'Mark 3 as unread', 'Move 3 to group', 'Set model for 3', 'Archive 3', 'Delete 3']);
+  assert.match(both, /aria-keyshortcuts="p" data-label="Pin 2"/);
+  assert.doesNotMatch(both, /aria-keyshortcuts="p" data-label="Unpin 1"/, 'Unpin keeps no p while Pin has it');
+  const unpinOnly = menu({ unpin: { count: 3, sessions }, models: [] });
+  assert.deepEqual(labels(unpinOnly), ['Unpin 3', 'Mark 3 as unread', 'Move 3 to group', 'Archive 3', 'Delete 3'], 'no Set model without a catalog (Ne f.length === 0)');
+  assert.match(unpinOnly, /aria-keyshortcuts="p" data-label="Unpin 3"/);
+});
+
+test('drag targets: an empty Pinned stub, custom sections as group drop zones, shiftable rows', () => {
+  const html = render({ onSessionAction() {}, sidebarPreferences: { groupBy: 'custom' }, customGroups: [{ id: 'g1', name: 'Research' }],
+    sessions: [thread('s1'), thread('s2')], sessionMetadata: { s2: { customGroupId: 'g1' } } });
+  assert.match(html, /<section class="source-pinned-drop df-pin-section-reveal" data-pinned-list="" data-stub="" inert="">/);
+  assert.match(html, /data-pinned-drop-row=""[^]*?Drag to pin/);
+  assert.match(html, /data-group-key="custom:g1" data-group-list="g1" data-group-label="Research"/);
+  assert.match(html, /data-group-key="custom-ungrouped" data-group-list="" data-group-label="Ungrouped"/);
+  assert.match(html, /class="source-group-drop-band pointer-events-none absolute inset-x-0 rounded-lg/);
+  assert.match(html, /data-source-session-id="s1"[^>]*data-drag-key="s1"/);
+  assert.doesNotMatch(html, /draggable="true"/, 'rows are pointer drags, never native drags');
+  const pinned = render({ onSessionAction() {}, sessions: [thread('s1')], sessionMetadata: { s1: { pinned: true } } });
+  assert.doesNotMatch(pinned, /source-pinned-drop/, 'no stub once something is pinned');
+  assert.match(pinned, /data-group-key="pinned" data-pinned-list=""/);
+  assert.match(pinned, /data-group-rows="" data-pinned-rows=""/);
+  assert.doesNotMatch(render({ sessions: [thread('s1')] }), /source-pinned-drop/, 'no drop targets without session actions');
 });

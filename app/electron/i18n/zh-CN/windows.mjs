@@ -33,4 +33,20 @@ export default {
   'New Session with Current Settings': '使用当前设置新建会话',
   'New session with current settings': '使用当前设置新建会话',
   'Move here': '移到这里',
+  // The pane grid (2.31226.0 shared-23 a1 / qQ / p$ / h$, View › Split View Yxi, shared-1 new_session_pane_below).
+  'New Session Below': '在下方新建会话',
+  'New session below': '在下方新建会话',
+  'Move Split View Up': '将分屏上移',
+  'Move Split View Down': '将分屏下移',
+  'Swap': '交换',
+  'Resize pane columns': '调整面板列宽',
+  'Resize pane rows': '调整面板行高',
+  // The session header ⋮ menu's pane items (shared-21 Qse / J7).
+  'Move split view to top left': '将分屏移到左上',
+  'Move split view left': '将分屏左移',
+  'Move split view right': '将分屏右移',
+  'Move split view up': '将分屏上移',
+  'Move split view down': '将分屏下移',
+  'Move split view to bottom left': '将分屏移到左下',
+  'Move split view to new column': '将分屏移到新列',
 };

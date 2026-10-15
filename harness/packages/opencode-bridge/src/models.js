@@ -128,7 +128,6 @@ export class ModelCatalog {
         serviceTiers: [],
         defaultServiceTier: null,
         isDefault: entry.id === preferred,
-        ...(entry.id === preferred ? { badge: { message: 'Default' } } : {}),
         provider: entry.provider.id,
         contextWindow: windowOf ? windowOf(entry) : entry.model.limit?.context ?? null,
         section: this.sectionOf(entry, { preferred, best }),

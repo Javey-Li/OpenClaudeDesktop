@@ -37,7 +37,7 @@
 }
 /* shared-8 k_ bubble Skeleton "box-content h-[1lh] … py-md text-heading": the
    source bar is content-box, 1lh + 2 x --cds-pad-md tall. The loaded .box-content
-   utility sits in @layer utilities (c6a992d55-Vcbdv79k.css), so the unlayered
+   utility sits in @layer utilities (c6a992d55-C0zTICcS.css), so the unlayered
    local `* { box-sizing: border-box }` (style.css) would beat it and collapse the
    bar to 1lh; restate it unlayered for the skeleton only. */
 [data-transcript-skeleton] .box-content {

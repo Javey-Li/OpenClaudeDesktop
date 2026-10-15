@@ -16,7 +16,7 @@ test('t returns English in en-US and the zh-CN entry otherwise, with placeholder
   assert.equal(t('Language'), '语言');
   assert.equal(t('No such string'), 'No such string', 'a missing entry falls back to English');
   assert.equal(t('Left {a} alone', {}), 'Left {a} alone');
-  assert.equal(tn(1, '{count} file', '{count} files'), '1 file');
+  assert.equal(tn(1, '{count} widget', '{count} widgets'), '1 widget');
   assert.equal(setLocale('xx-YY'), 'en-US', 'unknown locales read as the default');
 });
 

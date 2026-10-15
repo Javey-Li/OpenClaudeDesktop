@@ -11,7 +11,9 @@ import { _electron as electron } from "../../tools/node_modules/playwright/index
 // click and ⌃] / ⌃[, the keyboard and pointer divider, View › Split View items, narrow tabs, ⌘W closing the focused
 // side, a sidebar row dropped on the session area, File › New Window, menus acting on the window they target, a
 // session list change and an approval seen by two windows (answered once), a non-last window closing for good, and the
-// windows plus the split restored on relaunch. Runs against the isolated protocol fixture after a fresh build; every
+// windows plus the split restored on relaunch. B27 (cd377abb5 xi/Q, shared-11 Zo): Open in › New window and File › New
+// Window open sidebar-less session popouts (?window=session) with Open in main window and Keep window on top; they are
+// restored through open-popouts.json, never open-windows.json. Runs against the isolated protocol fixture after a fresh build; every
 // window stays hidden (the offscreen adapter blocks show, and without it show/focus are stubbed before any new window
 // is created; CODE_DESKTOP_OFFSCREEN_LAUNCH keeps restored windows hidden). Not run by the feature work itself:
 // scripts/validate-local.mjs runs it with the standard suite.
@@ -143,8 +145,10 @@ const clickMenu = (labels, id = null) => app.evaluate(({ Menu, BrowserWindow }, 
   if (!item) throw new Error("No menu item " + labels.join(" › "));
   item.click(undefined, id === null ? undefined : BrowserWindow.fromId(id));
 }, { labels, id });
-// Main windows load the app page; pane popouts add ?popout=, and the preview's hidden parking window (preview-service.cjs) has none.
-const mainWindowIds = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((window) => window.webContents.getURL().includes("index.html") && !window.webContents.getURL().includes("popout=")).map((window) => window.id));
+// Main windows load the app page; pane popouts add ?popout=, session popouts (B27) ?window=session, and the preview's
+// hidden parking window (preview-service.cjs) has none.
+const mainWindowIds = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((window) => window.webContents.getURL().includes("index.html") && !window.webContents.getURL().includes("popout=") && !window.webContents.getURL().includes("window=")).map((window) => window.id));
+const sessionPopoutIds = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((window) => window.webContents.getURL().includes("window=session")).map((window) => window.id));
 const requests = async () => (await fs.readFile(path.join(profile, "fixture-requests.jsonl"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 const turnStarts = async (threadId = null) => (await requests()).filter((entry) => entry.method === "turn/start" && (threadId === null || entry.params?.threadId === threadId)).length;
 const badges = () => app.evaluate(() => (globalThis.__splitBadges ?? []).filter((value) => value === "•").length);
@@ -164,7 +168,7 @@ async function sendIn(scope, text) {
   const box = scope.getByRole("textbox", { name: "Message DeepSeek", exact: true });
   await box.click();
   await box.fill(text);
-  await scope.getByRole("button", { name: "Send message", exact: true }).click();
+  await scope.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
 }
 
 try {
@@ -189,11 +193,14 @@ try {
   await page.locator(".split-pane-secondary").getByText("ANSWER_B", { exact: true }).waitFor();
   assert.equal(await page.locator(".split-pane-primary").getByText("ANSWER_B", { exact: true }).count(), 0, "each side has its own transcript");
   await poll(async () => (await menuItem(["View", "Split View", "Close Split View"])).enabled === true, "menus follow the split");
-  report.metrics.splitMenu = await Promise.all(["New Session on the Right", "Focus Next Split View", "Focus Previous Split View", "Move Split View Left", "Move Split View Right", "Close Split View"]
+  report.metrics.splitMenu = await Promise.all(["New Session Below", "Focus Next Split View", "Focus Previous Split View", "Move Split View Left", "Move Split View Right", "Move Split View Up", "Move Split View Down", "Close Split View"]
     .map((label) => menuItem(["View", "Split View", label])));
-  assert.deepEqual(report.metrics.splitMenu.map((item) => item.enabled), [false, true, true, true, false, true]);
+  // B26 (2.31226.0 R$ / q$ / $7): from the pane at column 1 — a new session below it, Move Left (into the primary's
+  // cell, trading sessions) and Move Down (under the primary); New Session on the Right follows the room left.
+  assert.deepEqual(report.metrics.splitMenu.map((item) => item.enabled), [true, true, true, true, false, false, true, true]);
+  assert.equal(report.metrics.splitMenu[0].accelerator, "Control+Command+-");
   await shot("split-open");
-  report.checks.push("A row's Open in › Split view opens the session on the right, focused, with its own transcript and composer; the sidebar selects it; View › Split View follows (New Session on the Right off, focus/close on, Move Left only from the right side)");
+  report.checks.push("A row's Open in › Split view opens the session in a new column, focused, with its own transcript and composer; the sidebar selects it; View › Split View follows (New Session Below, focus/close and Move Left / Down on from the new pane)");
 
   step("sidebar-into-focused-side");
   await openRow(C);
@@ -218,16 +225,33 @@ try {
   await poll(() => page.evaluate(() => !!document.activeElement?.closest(".split-pane-secondary")), "keyboard focus moves into the secondary side");
   report.checks.push("A click inside a side focuses it (and the sidebar follows); ⌃[ / ⌃] move the focus and the keyboard focus between sides");
 
+  step("split-file-search-entry");
+  const filesIn=side=>page.locator(`.split-pane-${side} [data-tile-id="files"]`);
+  await page.locator('.split-pane-secondary [data-cds="ChatComposerEditor"]').click();await page.keyboard.press('Meta+p');
+  await filesIn('secondary').getByRole('textbox',{name:'Filter files',exact:true}).waitFor();
+  assert.equal(await filesIn('primary').count(),0,'Cmd P only opens Files in the focused split');
+  await filesIn('secondary').getByRole('textbox',{name:'Filter files',exact:true}).fill('right-query');
+  await page.locator('.split-pane-primary [data-cds="ChatComposerEditor"]').click();
+  await app.evaluate(({Menu,BrowserWindow})=>{const item=Menu.getApplicationMenu().getMenuItemById('find-in-files');if(!item?.enabled)throw Error('Find in Files disabled');item.click(item,BrowserWindow.getAllWindows()[0],{});});
+  const leftFilter=filesIn('primary').getByRole('textbox',{name:'Filter files',exact:true});await leftFilter.waitFor();
+  await poll(async()=>(await leftFilter.inputValue())==='?','native Find in Files targets the focused primary split');
+  assert.equal(await filesIn('secondary').getByRole('textbox',{name:'Filter files',exact:true}).inputValue(),'right-query','other split query stays unchanged');
+  assert.equal(await leftFilter.evaluate(n=>document.activeElement===n),true);
+  await filesIn('primary').getByRole('button',{name:'Close panel',exact:true}).click();await filesIn('secondary').getByRole('button',{name:'Close panel',exact:true}).click();
+  await page.locator('.split-pane-secondary [data-cds="ChatComposerEditor"]').click();
+  report.checks.push('Cmd+P and the real Electron Find in Files menu open search only in the focused split side; the other side keeps its query, and content mode places focus in the correct filter');
+
   step("divider");
-  const separator = page.getByRole("separator", { name: "Resize split view", exact: true });
+  // B26 (shared-23 p$, CDS ResizeHandle): "Resize pane columns", arrows step 8px (Shift 32px), panes keep 320px.
+  const separator = page.getByRole("separator", { name: "Resize pane columns", exact: true });
   assert.equal(await separator.getAttribute("aria-valuenow"), "50");
   await separator.focus();
   for (let index = 0; index < 3; index += 1) await page.keyboard.press("ArrowRight");
-  assert.equal(await separator.getAttribute("aria-valuenow"), "56");
-  await page.keyboard.press("Home");
+  assert.ok(Number(await separator.getAttribute("aria-valuenow")) > 50, "arrows move the column boundary");
+  for (let index = 0; index < 40; index += 1) await page.keyboard.press("Shift+ArrowLeft");
   const floor = Number(await separator.getAttribute("aria-valuenow"));
   const widths = await page.evaluate(() => ({ primary: document.querySelector(".split-pane-primary").getBoundingClientRect().width, secondary: document.querySelector(".split-pane-secondary").getBoundingClientRect().width }));
-  assert.ok(widths.primary >= 359, `the primary side keeps its minimum width (${widths.primary})`);
+  assert.ok(widths.primary >= 319, `the primary pane keeps its minimum width (${widths.primary})`);
   await separator.dblclick();
   assert.equal(await separator.getAttribute("aria-valuenow"), "50", "a double-click resets the split");
   const box = await separator.boundingBox();
@@ -239,15 +263,15 @@ try {
   assert.ok(dragged > 50, `dragging the divider resizes the sides (${dragged})`);
   assert.equal(await separator.evaluate((node) => getComputedStyle(node).cursor), "col-resize");
   report.metrics.divider = { floor, widths, dragged };
-  report.checks.push("The divider is a keyboard separator (arrows step 2%, Home/End stop at the minimum widths), resets on double-click and resizes by pointer drag");
+  report.checks.push("The column boundary is a keyboard separator (arrows step 8px, Shift 32px, stopping at the 320px minimum), resets on double-click and resizes by pointer drag");
 
   step("layout-persisted");
-  const layout = await poll(async () => { const saved = await readJson("open-windows.json"); const split = saved.windows?.[0]?.layout?.split; return split?.sessionId === C && split.active === 1 ? saved : null; }, "the split layout (with the focused side) is written for the window");
+  const layout = await poll(async () => { const saved = await readJson("open-windows.json"); const split = saved.windows?.[0]?.layout?.split; return split?.panes?.[0]?.sessionId === C && split.active === 1 ? saved : null; }, "the split layout (with the focused pane) is written for the window");
   assert.equal(layout.windows[0].key, "main");
   assert.equal(layout.windows[0].layout.current, A);
   assert.equal(layout.windows[0].layout.split.active, 1);
   report.metrics.openWindows = layout;
-  report.checks.push("main.cjs persists the window's layout (primary session, split session, ratio, focused side) to userData/open-windows.json");
+  report.checks.push("main.cjs persists the window's layout (primary session, the panes' cells, column weights, row split, focused pane) to userData/open-windows.json");
 
   step("move-left");
   await clickMenu(["View", "Split View", "Move Split View Left"]);
@@ -323,7 +347,7 @@ try {
   await page.keyboard.press("Control+Backquote");
   await terminalIn(page.locator(".split-pane-secondary")).waitFor({ state: "detached" });
   // Each side's titlebar offers the Terminal pane with its ⌘J chord: as its own toggle, or — only while that titlebar is
-  // cramped (usePaneViewItems, panes-toggle-current.js:3215-3290) — as a Session options item.
+  // cramped (usePaneViewItems, panes-toggle-current.js:3215-3290) — as a View options item.
   const secondaryTrailing = page.locator(".split-pane-secondary .st-trailing");
   // The side widens once its terminal closes; SourceTitlebar re-measures data-cramped a frame later (ResizeObserver ->
   // requestAnimationFrame), so read it only once it holds steady.
@@ -343,7 +367,7 @@ try {
     assert.match(await terminalToggle.getAttribute("aria-keyshortcuts"), /^Meta\+J\b/);
     assert.equal(await terminalToggle.getAttribute("aria-pressed"), "false");
   } else {
-    await page.locator(".split-pane-secondary").getByRole("button", { name: "Session options", exact: true }).click();
+    await page.locator(".split-pane-secondary").getByRole("button", { name: "View options", exact: true }).click();
     const terminalItem = page.getByRole("menuitemcheckbox", { name: /^Terminal/ });
     await terminalItem.waitFor();
     assert.equal(await terminalItem.getAttribute("aria-keyshortcuts"), "Meta+J");
@@ -363,21 +387,17 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.mode = "light"; });
   report.checks.push("Under reduced motion the split has no transitions; the dark appearance renders (screenshot)");
 
-  step("narrow-tabs");
-  await size(page, 980, 900);
-  await page.getByRole("tablist", { name: "Split view", exact: true }).waitFor();
-  const tabs = page.getByRole("tab");
-  assert.equal(await tabs.count(), 2);
-  assert.deepEqual(await tabs.allTextContents(), [NAMES[C], NAMES[A]]);
-  assert.equal(await page.locator(".split-pane-secondary").isVisible(), true);
-  assert.equal(await page.locator(".split-pane-primary").isVisible(), false);
-  await tabs.nth(0).click();
-  await poll(() => page.locator(".split-pane-primary").isVisible(), "the other tab shows the primary side");
-  assert.equal(await page.locator(".split-pane-secondary").isVisible(), false);
-  await shot("split-narrow-tabs");
+  step("narrow-parks-panes");
+  // B26 (shared-23 u1, "(max-width: 700px)"): a narrow window parks the extra panes and shows the primary alone.
+  await size(page, 680, 900);
+  await page.locator(".split-pane-secondary").waitFor({ state: "detached" });
+  assert.equal(await page.locator(".split-pane-primary").isVisible(), true);
+  assert.equal(await page.getByRole("tablist").count(), 0, "no tab strip");
+  await shot("split-narrow-parked");
   await size(page, 1468, 900);
-  await page.getByRole("separator", { name: "Resize split view", exact: true }).waitFor();
-  report.checks.push("A window too narrow for two sides shows them as tabs named by their sessions; widening brings the sides back");
+  await secondaryTitle().filter({ hasText: NAMES[A] }).waitFor();
+  await page.getByRole("separator", { name: "Resize pane columns", exact: true }).waitFor();
+  report.checks.push("A window 700px wide or less parks the extra panes (only the primary shows); widening brings them back with their sessions");
 
   step("cmd-w-closes-side");
   await page.locator(".split-pane-secondary .source-chat-body").click({ position: { x: 40, y: 40 } });
@@ -388,20 +408,22 @@ try {
   report.checks.push("⌘W closes the focused split side before any session view; the other side stays");
 
   step("drop-to-split");
-  assert.equal(await row(B).getAttribute("draggable"), "true");
+  // B10 (shared-19 DY): the row is a pointer drag (no native drag); its ghost and the session area both say
+  // "Open in split view" over the session area.
+  assert.equal(await row(B).getAttribute("draggable"), "false");
   const dropAt = await page.locator(".split-host").boundingBox();
-  const dragOver = (type) => page.evaluate(({ type, id, x, y }) => {
-    const data = new DataTransfer(); data.setData("application/x-code-desktop-session", id);
-    document.querySelector(".split-host").dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true, clientX: x, clientY: y }));
-  }, { type, id: B, x: dropAt.x + dropAt.width * 0.75, y: dropAt.y + 200 });
-  await dragOver("dragover");
-  await page.locator(".split-drop-target").getByText("Open in split view", { exact: true }).waitFor();
+  const from = await row(B).boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  for (let index = 1; index <= 8; index++) await page.mouse.move(from.x + from.width / 2 + (dropAt.x + dropAt.width * 0.75 - from.x - from.width / 2) * index / 8, from.y + (dropAt.y + 200 - from.y) * index / 8);
+  await page.locator(".dframe-drop-overlay-badge").getByText("Split view", { exact: true }).waitFor();
+  await page.locator(".source-drag-ghost [data-drag-label]").filter({ hasText: "Open in split view" }).first().waitFor();
   await shot("split-drop-indicator");
-  await dragOver("drop");
+  await page.mouse.up();
   await poll(splitOpen, "dropping a session row opens it in split view");
   await secondaryTitle().filter({ hasText: NAMES[B] }).waitFor();
-  assert.equal(await page.locator(".split-drop-target").count(), 0);
-  report.checks.push("A sidebar row dragged onto the session area shows the Open in split view indicator and opens the session on the right when dropped");
+  assert.equal(await page.locator(".dframe-drop-overlay").count(), 0);
+  report.checks.push("A sidebar row dragged (pointer) onto the session area outlines the cell with the accent Split view badge (the ghost says Open in split view) and opens the session there when dropped");
 
   step("row-close-split");
   // c80a67939 g: a session the window already shows has no Split view row, and the row menu has no Close split view
@@ -430,33 +452,38 @@ try {
   watch(second, "second");
   await hideWindows();
   await primaryTitle(second).filter({ hasText: NAMES[A] }).waitFor();
-  // A size of its own: the frame cascaded from a 1468px window fills a small display's work area, which macOS reports
-  // as maximized and the relaunch would re-maximize.
+  assert.ok(second.url().includes("window=session"), "B27: a session popout");
+  // A size of its own (a popout opens at 900x700).
   await size(second, 1280, 820);
-  assert.equal(await selectedRow(second), A, "the new window has its own sidebar selection");
-  assert.equal(await selectedRow(), C, "the first window keeps its own");
-  assert.equal((await mainWindowIds()).length, 2);
+  assert.equal(await second.locator(".source-sidebar").count(), 0, "the popout has no sidebar");
+  assert.equal(await second.locator('[data-session-popout] [data-popout-dock]').count(), 1, "Open in main window");
+  assert.equal(await second.locator('[data-session-popout] [data-popout-pin][aria-pressed="false"]').count(), 1, "Keep window on top");
+  assert.equal(await selectedRow(), C, "the first window keeps its own selection");
+  assert.equal((await mainWindowIds()).length, 1);
+  assert.equal((await sessionPopoutIds()).length, 1);
   const firstId = await windowId(page), secondId = await windowId(second);
   report.metrics.windows = { firstId, secondId };
-  // Asking again for a session another window shows brings that window forward instead of a third window.
+  // shared-11 Xo: asking again for a session that has a popout brings that popout forward instead of a second one.
   await rowMenu(A, ["Open in", "New window"]);
   await page.waitForTimeout(300);
-  assert.equal((await mainWindowIds()).length, 2);
-  report.checks.push("Open in new window opens the session in a second main window with its own sidebar selection; asking again for a session another window shows reuses that window");
+  assert.equal((await sessionPopoutIds()).length, 1);
+  report.checks.push("Open in new window opens the session in a sidebar-less session popout with Open in main window and Keep window on top; asking again for that session reuses the popout");
 
   step("menus-act-on-their-window");
   await clickMenu(["File", "New Session"], secondId);
-  await poll(async () => (await selectedRow(second)) === null, "File › New Session reaches the targeted window");
+  await poll(async () => (await primaryTitle(second).count()) === 0, "File › New Session reaches the targeted window");
   assert.equal(await titleOf(primaryTitle()), NAMES[C], "the other window is untouched");
   report.checks.push("Menu commands act on the window they target only");
 
   step("session-list-across-windows");
   const rowsBefore = await page.locator(".source-sidebar .source-session-row").count();
+  const rowIds = () => page.evaluate(() => [...document.querySelectorAll(".source-sidebar [data-source-session-id]")].map((node) => node.dataset.sourceSessionId));
   const windowStartsBefore = await turnStarts();
   await countBadges();
   await sendIn(second, "fixture:complete from the second window");
   await second.getByText("Fixture response", { exact: true }).waitFor();
-  const createdId = await poll(() => selectedRow(second), "the second window opened its new session");
+  // The draft popout became that session's popout (startSessionInDraftPopout); the first window lists the new row.
+  const createdId = await poll(async () => (await rowIds()).find((id) => ![A, B, C].includes(id)) ?? null, "the second window opened its new session");
   await poll(async () => (await page.locator(".source-sidebar .source-session-row").count()) === rowsBefore + 1, "the first window's sidebar gains the new session");
   await row(createdId).waitFor();
   // main.cjs settles an automatic unread mark for 400 ms against the windows' layouts.
@@ -518,8 +545,11 @@ try {
   assert.deepEqual(await previewViews(firstId), [], "the second window's pane keeps the page");
   assert.ok((await previewViews(secondId)).some((url) => url.startsWith(`http://localhost:${sitePort}`)));
   assert.equal(await firstPreview.getByText(/another pane|Show here/).count(), 0, "no showing-elsewhere notice");
-  await secondPreview.getByRole("button", { name: "Servers & settings", exact: true }).click();
-  await second.getByRole("menuitem", { name: /^Stop site\b/ }).click();
+  // The preview pane's server control is the original Dev servers menu (cf580efe9 preview server menu; preview-ui-test
+  // source-server-menu-stop): the running row's pointer-only Stop action stops the server.
+  await secondPreview.getByRole("button", { name: "Dev servers", exact: true }).click();
+  const serverMenu = second.getByRole("menu", { name: "Dev servers", exact: true }); await serverMenu.waitFor();
+  await serverMenu.getByRole("menuitem", { name: /site, Running/ }).locator('button[aria-label="Stop"]').click();
   const siteUp = () => new Promise((resolve) => { const request = http.get(`http://127.0.0.1:${sitePort}/`, (response) => { response.resume(); resolve(true); }); request.on("error", () => resolve(false)); request.setTimeout(1000, () => { request.destroy(); resolve(false); }); });
   await poll(async () => !(await siteUp()), "Stop site ends the dev server");
   await second.keyboard.press("Meta+Shift+KeyP");
@@ -543,36 +573,41 @@ try {
   watch(thirdPage, "third");
   await hideWindows();
   await thirdPage.getByRole("button", { name: "Model", exact: true }).first().waitFor();
-  assert.equal(await selectedRow(thirdPage), null, "File › New Window opens on the new-session page");
-  assert.equal((await mainWindowIds()).length, 3);
+  assert.ok(thirdPage.url().includes("window=session"), "cd377abb5 si: a code-draft popout");
+  assert.equal(await thirdPage.locator(".source-sidebar").count(), 0);
+  assert.equal(await primaryTitle(thirdPage).count(), 0, "File › New Window opens on the new-session page");
+  assert.equal((await mainWindowIds()).length, 1);
+  assert.equal((await sessionPopoutIds()).length, 2);
   const thirdId = await windowId(thirdPage);
   await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).close(), thirdId);
-  await poll(async () => (await mainWindowIds()).length === 2, "closing one of several windows closes it for good");
-  await poll(async () => (await readJson("open-windows.json")).windows.length === 2, "and drops it from the restored windows");
-  report.checks.push("File › New Window opens an empty window; closing one of several main windows destroys it (not hidden) and forgets it");
+  await poll(async () => (await sessionPopoutIds()).length === 1, "closing a popout closes it for good");
+  assert.equal((await readJson("open-windows.json")).windows.length, 1, "popouts are never written as main windows");
+  report.checks.push("File › New Window opens a new-session popout without sidebar; closing it destroys it, and open-windows.json keeps the main window only");
 
   step("relaunch-restores");
   const createdName = await titleOf(primaryTitle());
   await rowMenu(B, ["Open in", "Split view"]);
   await secondaryTitle().filter({ hasText: NAMES[B] }).waitFor();
-  await poll(async () => { const saved = await readJson("open-windows.json"); return saved.windows.length === 2 && saved.windows[0].layout.split?.sessionId === B; }, "layouts written before quit");
+  await poll(async () => { const saved = await readJson("open-windows.json"); return saved.windows.length === 1 && saved.windows[0].layout.split?.panes?.[0]?.sessionId === B; }, "layouts written before quit");
   await app.close(); app = null;
+  const savedPopouts = await readJson("open-popouts.json");
+  assert.ok(savedPopouts.popouts.some((entry) => entry.pane === "session" && entry.sessionId === createdId), "the session popout is saved at quit (cd377abb5 wr)");
   await launch();
   const launchedPage = page;
-  await poll(async () => (await mainWindowIds()).length === 2, "both windows come back");
+  await poll(async () => (await mainWindowIds()).length === 1 && (await sessionPopoutIds()).length === 1, "the main window and the session popout come back");
   // Both windows are created together at launch; whichever page Playwright saw first, the split one is the first window.
   page = await poll(async () => { for (const candidate of app.windows()) if (await splitOpen(candidate)) return candidate; return null; }, "the first window's split comes back");
   page.setDefaultTimeout(12000);
   await primaryTitle().filter({ hasText: createdName }).waitFor();
   await secondaryTitle().filter({ hasText: NAMES[B] }).waitFor();
   assert.equal(await focusedSide(), 1, "with the side that had the focus");
-  const restoredPages = app.windows().filter((candidate) => candidate !== page && candidate.url().includes("index.html"));
+  const restoredPages = await poll(async () => { const list = app.windows().filter((candidate) => candidate !== page && candidate.url().includes("window=session")); return list.length ? list : null; }, "the popout's page");
   assert.equal(restoredPages.length, 1);
   restoredPages.forEach((candidate) => { if (candidate !== launchedPage) watch(candidate, "restored"); });
   if (page !== launchedPage) watch(page, "main");
-  await poll(async () => (await selectedRow(restoredPages[0])) === createdId, "the second window restores the session it showed");
+  await primaryTitle(restoredPages[0]).filter({ hasText: createdName }).waitFor();
   report.metrics.relaunch = await readJson("open-windows.json");
-  report.checks.push("A relaunch reopens both windows; the first window's split comes back with its sessions");
+  report.checks.push("A relaunch reopens the main window with its split and the session popout with the session it showed");
 
   assert.deepEqual(report.rendererErrors, []);
   await integrity();

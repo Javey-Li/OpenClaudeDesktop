@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import { applyModelParams, installModelParams, normalizeModelParams } from '../packages/codex-app-server/src/model-params.js'
+import { createRequire } from 'node:module'
+import { applyModelParams, contextWindowFor, installContextWindows, installModelParams, normalizeModelParams, rememberContextWindows } from '../packages/codex-app-server/src/model-params.js'
+const require = createRequire(import.meta.url)
 
 test('normalizeModelParams clamps finite values and drops unknown fields and ids', () => {
   assert.equal(normalizeModelParams(null), null)
@@ -86,4 +88,38 @@ test('installModelParams composed after installModelSelection on a real context 
   selection.current = { provider: 'deepseek', model: 'model-c' }
   assert.deepEqual(await request({ provider: 'deepseek', model: 'model-b', maxTokens: 9000, temperature: 1.5 }),
     { provider: 'deepseek', model: 'model-c' })
+})
+
+test('normalizeModelParams keeps a clamped whole context window', () => {
+  assert.deepEqual(normalizeModelParams({ a: { contextWindow: 131072.9 }, b: { contextWindow: 10 }, c: { contextWindow: 9e12 }, d: { contextWindow: '128K' } }),
+    { a: { contextWindow: 131072 }, b: { contextWindow: 1024 }, c: { contextWindow: 100000000 } })
+})
+
+test('installContextWindows gives the real llm service the user’s context window for every exact model lookup', async () => {
+  const { LlmRuntime, LlmAdapter } = await import(require.resolve('@deepseek-ai/dsh-llm'))
+  const ctx = new Context()
+  ctx.plugin(LlmRuntime)
+  await new Promise((resolve) => ctx.inject(['llm'], (scope) => { resolve(); return scope }))
+  const llm = await new Promise((resolve) => ctx.inject(['llm'], (scope) => resolve(scope.llm)))
+  class Fixed extends LlmAdapter {
+    resolveModel(provider, model) { return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 262144 } }) }
+    stream() { throw new Error('not used') }
+  }
+  llm.registerAdapter(['deepseek', 'other'], new Fixed())
+  const dispose = installContextWindows(llm, catalog)
+  try {
+    rememberContextWindows(normalizeModelParams({ 'deepseek-v4-pro': { contextWindow: 131072 }, 'other/deepseek-v4-pro': { contextWindow: 64000 }, 'model-m': { maxTokens: 4096 } }))
+    assert.equal(contextWindowFor('deepseek', 'deepseek-v4-pro', catalog), 131072)
+    // Compaction's pressure threshold reads resolveModelInfo; the request context (usage meter) reads prepareCall.
+    assert.deepEqual((await llm.resolveModelInfo('deepseek', 'deepseek-v4-pro')).context, { contextWindow: 131072 })
+    assert.deepEqual((await llm.prepareCall({ provider: 'deepseek', model: 'deepseek-v4-pro' })).context, { contextWindow: 131072 })
+    assert.deepEqual((await llm.resolveModelInfo('other', 'deepseek-v4-pro')).context, { contextWindow: 64000 }, 'provider-qualified wire id')
+    assert.deepEqual((await llm.resolveModelInfo('deepseek', 'model-m')).context, { contextWindow: 262144 }, 'no window set: the adapter’s')
+    // Clearing the setting (modelParams null) restores the adapter's window.
+    rememberContextWindows(null)
+    assert.deepEqual((await llm.resolveModelInfo('deepseek', 'deepseek-v4-pro')).context, { contextWindow: 262144 })
+  } finally { rememberContextWindows(null); dispose() }
+  rememberContextWindows(normalizeModelParams({ 'deepseek-v4-pro': { contextWindow: 131072 } }))
+  assert.deepEqual((await llm.resolveModelInfo('deepseek', 'deepseek-v4-pro')).context, { contextWindow: 262144 }, 'disposed: the adapter’s window again')
+  rememberContextWindows(null)
 })

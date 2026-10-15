@@ -21,7 +21,8 @@ const COPY = Object.freeze({
 
 // Media read without their bytes (electron/files.cjs): the viewer shows them
 // from their file:// URL (cd2efac6e nr/ir) instead of a card.
-export const FILE_MEDIA_KINDS = Object.freeze(["image", "video", "audio"]);
+// B13: "pdf" too (electron/files.cjs), shown in Chromium's PDF viewer.
+export const FILE_MEDIA_KINDS = Object.freeze(["image", "video", "audio", "pdf"]);
 // The Un card of a media file that failed to load (cd2efac6e :4527-4599, the
 // local-reader branch "Couldn’t load this file"): no role, no path, with Xo's
 // "View as text anyway" (Uc). nr picks the image body; video and audio share
@@ -51,4 +52,55 @@ export function fileTabReason(tab) {
 export function fileUnavailableCopy(reason) {
   const copy = COPY[reason] ?? COPY.read_error;
   return { title: copy.title, body: copy.body, role: copy.role, showsPath: copy.showsPath, action: copy.action ?? null };
+}
+
+// B32: the card actions of 2.31226.0 cd2efac6e (readable): mp/fp "Try again" (:5181-5185, :5146-5151), bp/Cp/wp/Tp
+// "Create file" (:5195-5225), tp/pp the outside-root "Add folder" offer (:5114-5180), Gl the outside-root reveal
+// (:6735-6748 via :4237-4256) and uc, Br's reveal item, on the binary and media cards (cu :7179-7203).
+export const FILE_CARD_LABELS = Object.freeze({
+  tryAgain: t("Try again"),
+  tryingAgain: t("Trying again…"),
+  createFile: t("Create file"),
+  creatingFile: t("Creating file…"),
+  addFolder: t("Add folder"),
+  addingFolder: t("Adding folder…"),
+  showInFinder: t("Show in Finder"),
+  revealFailed: t("Couldn’t show this file in its folder."),
+});
+export const createFileFailedMessage = (name) => t("Couldn’t create {name}. You can select Create file again or ask Claude to create it.", { name });
+export const addFolderFailedMessage = (folder) => t("Couldn’t add {folder} to this session.", { folder });
+
+// Gt (shared-28-MgJrblDu Ak): a name Create file may make — not an office, archive, binary, font or media type
+// (kk), nor an image (mk).
+const NOT_CREATABLE = /\.(doc[xm]?|xls[xm]?|ppt[xm]?|od[tsp]|rtf|epub|mobi|pages|numbers|zip|t?gz|tar|bz2|xz|zst|7z|rar|jar|war|dmg|iso|deb|rpm|apk|msi|pkg|img|wasm|exe|dll|so(?:\.\d+)*|dylib|bin|class|pyc|o|a|db|sqlite3?|parquet|woff2?|ttf|otf|eot|pdf|mp4|webm|m4v|mov|ogv|avi|mkv|wmv|flv|mpe?g|m2ts|3gp|mp3|m4a|aac|flac|wav|ogg|oga|opus|aiff?|wma|midi?|ico|tiff?|heic|heif|jfif|psd|tga|dng|svgz)$/i;
+const IMAGE_NAME = /\.(png|jpe?g|gif|bmp|webp|avif)$/i;
+export function canCreateFileNamed(path) {
+  const value = String(path ?? "");
+  return value !== "" && !/[\\/]$/.test(value) && !NOT_CREATABLE.test(value) && !IMAGE_NAME.test(value);
+}
+
+// fe(tp, homePath) then rp: the offered folder with the home folder shown as "~", unless that leaves only "~".
+export function offeredFolderLabel(folder, home) {
+  const value = String(folder ?? ""), base = String(home ?? "").replace(/[\\/]+$/, "");
+  if (!base || (value !== base && !value.startsWith(`${base}/`))) return value;
+  return value === base ? value : `~${value.slice(base.length)}`;
+}
+
+/**
+ * The card for a reason with its actions (pure). writable: the session can write files here (Fo); creatable: the
+ * read's "parent folder exists" answer (Qo); canAskClaude: the session takes messages (Ld); folderOffer: the folder
+ * suggestion for an outside-root file (tp); canReveal: a reveal target exists for this card (Gl for outside_root, Br's
+ * revealItem uc for binary). Returns the copy plus {retry, create, offer, reveal, viewAsText}.
+ */
+export function fileCardPlan(reason, { path = "", writable = false, creatable, canAskClaude = false, folderOffer = null, canReveal = false, canViewAsText = false } = {}) {
+  const copy = fileUnavailableCopy(reason);
+  const missing = reason === "missing";
+  const named = missing && writable && canCreateFileNamed(path);
+  const offer = reason === "outside_root" && typeof folderOffer === "string" && folderOffer !== "" ? folderOffer : null;
+  const plan = { ...copy, retry: missing, create: named && creatable === true, offer,
+    reveal: canReveal && (reason === "outside_root" || reason === "binary"),
+    viewAsText: copy.action === "view-as-text" && canViewAsText };
+  if (named && creatable === false && canAskClaude) plan.body = t("It can’t be created from here. Ask Claude to create it.");
+  if (offer) Object.assign(plan, { title: t("This file is outside this session’s folders"), body: null, showsPath: false });
+  return plan;
 }

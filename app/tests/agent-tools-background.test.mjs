@@ -88,6 +88,8 @@ test('a monitor runs its command in the session folder and tells the session eac
   const started = service.start({ sessionId: 's1', cwd, command: 'pwd; echo "<ok> & done"; sleep 0.4; echo second; exit 3', description: 'build <log>', timeoutMs: 60000, toolUseId: 'call-1' });
   assert.match(started.taskId, /^m[0-9a-f]{8}$/);
   assert.equal(started.timeoutMs, 60000);
+  // OC "Stops in {duration}": a running monitor reports its deadline.
+  { const live = service.list('s1').find((entry) => entry.id === started.taskId); assert.equal(live.stopsAt, live.startedAt + 60000); }
   await waitFor(() => delivered.find((entry) => /<status>failed<\/status>/.test(entry.text)));
   const texts = delivered.map((entry) => entry.text), first = texts[0], end = texts.at(-1);
   assert.ok(delivered.every((entry) => entry.id === 's1'));
@@ -99,6 +101,7 @@ test('a monitor runs its command in the session folder and tells the session eac
   const [row] = service.list('s1');
   assert.equal(row.status, 'failed');
   assert.equal(row.exitCode, 3);
+  assert.equal(Object.hasOwn(row, 'stopsAt'), false, 'a finished monitor has no deadline to show');
   assert.equal(row.events, 2);
   assert.match(row.output, /second/);
   assert.ok(events.some((event) => event.kind === 'monitors' && event.sessionId === 's1' && event.monitors[0].status === 'failed'));
@@ -615,6 +618,32 @@ test('list_sessions and get_session read the app’s sessions; set_session_title
   assert.deepEqual(row('list_sessions', {}, 'busy'), { label: 'Listing sessions', meta: null });
   assert.deepEqual(row('get_session', {}, 'done'), { label: 'Looked up session', meta: null });
   assert.deepEqual(row('set_session_title', { title: 'Login fix' }, 'done'), { label: 'Renamed session', meta: 'Login fix' });
+});
+
+test('list_events reads another session’s recent transcript, most recent last, paging back with before_uuid', async () => {
+  const { tools, renderSessionEvents } = await import('../electron/agent-tools/sessions.mjs');
+  const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+  const turns = [
+    { items: [{ id: 'u1', type: 'userMessage', content: [{ type: 'text', text: 'Fix the login bug' }, { type: 'image', url: 'x' }] },
+      { id: 'c1', type: 'commandExecution', command: 'npm test', exitCode: 1 },
+      { id: 'f1', type: 'fileChange', changes: [{ path: 'src/login.js' }] },
+      { id: 'r0', type: 'reasoning', summary: ['hidden'] },
+      { id: 'a1', type: 'agentMessage', text: 'Fixed: the token expired.' }] },
+    { items: [{ id: 'u2', type: 'userMessage', content: [{ type: 'text', text: 'Thanks' }] }, { id: 'm1', type: 'mcpToolCall', server: 'gh', tool: 'pr' }] },
+  ];
+  const ctx = { sessionId: 'self', sessions: { list: () => [], get: (id) => (id === 'a' ? { id: 'a' } : null), turns: async (id) => (id === 'a' ? turns : []) } };
+  const text = await byName.list_events.handler({ session_id: 'a' }, ctx);
+  assert.equal(text, ['[u1] User: Fix the login bug\n[image]', '[c1] Tool: Ran `npm test` (exit 1)', '[f1] Tool: Edited src/login.js', '[a1] Assistant: Fixed: the token expired.', '[u2] User: Thanks', '[m1] Tool: Called gh.pr'].join('\n\n'));
+  const paged = await byName.list_events.handler({ session_id: 'a', limit: 2, before_uuid: 'u2' }, ctx);
+  assert.equal(paged, '(2 earlier messages; pass before_uuid "f1" to read them)\n\n[f1] Tool: Edited src/login.js\n\n[a1] Assistant: Fixed: the token expired.');
+  await assert.rejects(byName.list_events.handler({ session_id: 'self' }, ctx), /That is this session/);
+  await assert.rejects(byName.list_events.handler({ session_id: 'zz' }, ctx), /No session zz/);
+  await assert.rejects(byName.list_events.handler({ session_id: 'a', before_uuid: 'nope' }, ctx), /No message nope/);
+  assert.equal(renderSessionEvents([]), 'This session has no messages yet.');
+  assert.deepEqual(byName.list_events.inputSchema.required, ['session_id']);
+  assert.equal(byName.list_events.annotations.readOnlyHint, true);
+  const row = (tool, args, state) => appToolLabel({ id: tool, type: 'mcpToolCall', server: 'code_desktop', tool, status: 'completed', arguments: args, result: { content: [] } }, state);
+  assert.deepEqual(row('list_events', { session_id: 'a' }, 'done'), { label: 'Read session', meta: null });
 });
 
 // ---------------------------------------------------------------- reveal_path / open_in_editor

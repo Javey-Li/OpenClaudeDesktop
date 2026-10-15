@@ -133,8 +133,8 @@ test("wiring: the transcript is a feed (no role=log), main.jsx passes responding
   assert.match(main, /responding=\{running\}/);
   assert.match(main, /onFeedEscape=\{\(\) => textarea\.current\?\.focus\(\)\}/);
   // Split view: only the focused side's find bar takes Edit ▸ Find (source-split-view.jsx).
-  assert.match(main, /e\.kind === "find-open" && splitActiveRef\.current\) transcriptRef\.current\?\.openFind/);
-  assert.match(main, /e\.kind === "find-step" && splitActiveRef\.current\) transcriptRef\.current\?\.stepFind\?\.\(e\.forward !== false\)/);
+  assert.match(main, /e\.kind === "find-open" && splitActiveRef\.current( && !dispatchTerminalFind\(e\.kind\))?\) transcriptRef\.current\?\.openFind/);
+  assert.match(main, /e\.kind === "find-step" && splitActiveRef\.current( && !dispatchTerminalFind\(e\.kind, ?e\.forward ?!== ?false\))?\) transcriptRef\.current\?\.stepFind\?\.\(e\.forward !== false\)/);
   const bar = main.indexOf("<SourceFindBar ref={findBarRef}"), keyed = main.indexOf('<SourceTranscript\n                  key={current ?? "draft"}');
   assert.ok(bar > 0 && keyed > bar, "SourceFindBar is mounted before (outside) the keyed SourceTranscript");
   assert.ok(main.slice(bar, keyed).includes("/>"), "the find bar element closes before the transcript opens");

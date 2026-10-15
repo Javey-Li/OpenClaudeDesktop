@@ -33,7 +33,7 @@
   height: var(--cds-h-control, 24px); padding: 0 var(--cds-pad-md, 8px); border-radius: var(--cds-radius, 6px);
   color: var(--cds-text-primary); font-size: var(--cds-font-size-body, 13px); line-height: var(--cds-leading-body, 19px);
   font-weight: 400; user-select: none; outline: none; }
-.sfs-result-row:hover { background: var(--cds-fill-ghost-hover); }
+.sfs-result-row:hover, .sfs-result-row[data-popup-open] { background: var(--cds-fill-ghost-hover); }
 .sfs-result-row[aria-selected="true"] { background: var(--cds-fill-ghost-selected); }
 .sfs-result-row[aria-current="true"] { background: var(--cds-fill-control); }
 .sfs-result-row:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
@@ -45,6 +45,14 @@
 .sfs-result-name[data-has-matches] { color: var(--cds-text-secondary); }
 .sfs-result-parent { color: var(--cds-text-muted); font-size: var(--cds-font-size-footnote, 11px); line-height: var(--cds-leading-footnote, 15px); }
 .sfs-result-row [data-lit] { font-weight: 600; color: var(--cds-text-primary); }
+.sfs-result-row[data-content-match] { padding-left: 24px; }
+.sfs-content-line { flex: none; min-width: 2.5ch; text-align: right; font-size: var(--cds-font-size-footnote,11px); font-variant-numeric: tabular-nums; color: var(--cds-text-muted); }
+.sfs-content-snippet { display: flex; min-width: 0; overflow: hidden; white-space: pre; font-family: var(--cds-font-code); }
+.sfs-content-lead { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sfs-content-hit { max-width: 100%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
+.sfs-content-tail { min-width: 2ch; flex-shrink: 9999; overflow: hidden; text-overflow: ellipsis; }
+.sfs-content-more { height: var(--cds-h-control,24px); display: flex; align-items: center; padding-left: calc(24px + 2.5ch + 4px); color: var(--cds-text-muted); font-size: var(--cds-font-size-footnote,11px); user-select: none; }
+.sfs-field[aria-invalid="true"],.sfs-field:has(input[aria-invalid="true"]) { box-shadow: inset 0 0 0 1px var(--cds-text-danger); }
 .sfs-notice { display: flex; align-items: center; justify-content: center; padding: 10px var(--cds-pad-lg, 12px);
   color: var(--cds-text-muted); font-size: var(--cds-font-size-body, 13px); line-height: var(--cds-leading-body, 19px); }
 .sfs-error { flex-direction: column; gap: 6px; text-align: center; }

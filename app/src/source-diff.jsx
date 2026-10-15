@@ -7,9 +7,10 @@ import { SourceHighlightedLine } from './source-diff-code.jsx';
 import { splitDiffRows, observeDiffSplitFit } from './diff-view-model.mjs';
 import { diffSeparators } from './diff-separator-model.mjs';
 import { contextRegions, expandContext, visibleContext } from './diff-context-model.mjs';
-import { copyChoices, headerTooltip, pathParts, renamedFrom, renamedFromDisplay, rowLabels, splitPosixPath, stripClipboardControls } from './diff-file-header-model.mjs';
+import { absoluteDiffPath, headerTooltip, pathParts, renamedFrom, renamedFromDisplay, rowLabels, splitPosixPath } from './diff-file-header-model.mjs';
+import { changedFileMenu } from './file-context-menu-model.mjs';
 import { fileKindIcon } from './file-kind-icon.mjs';
-import { SourceTooltip } from './source-tooltip';
+import { SourceTooltip, textOverflows } from './source-tooltip';
 import { SourceMenu } from './source-menu.jsx';
 import { SourceSettingsButton } from './source-settings-button.jsx';
 import { CONTEXT_MENU_ALIGN_OFFSET, CONTEXT_MENU_SIDE_OFFSET } from './menu-model.mjs';
@@ -19,10 +20,14 @@ import { useSourcePointerResize } from './use-pointer-resize.js';
 import { DIFF_FILE_LIST_LABELS, DIFF_FILE_LIST_WIDTH, clampDiffFileListWidth, diffFileEntries, diffFileList, diffFileListCanFit, diffFileListLimit,
   isLargeDiff, kindSectionOpen, openKindSections, orderDiffSections, revealCollapsed, toggleCollapsed, treeRowTarget } from './diff-file-list-model.mjs';
 import { t, tn } from '../electron/i18n/index.mjs';
-import { SourcePopover } from './source-popover.jsx';
-import { addToPrompt, serializeLineComment } from './inline-comments.mjs';
+import { rowCommentTarget } from './diff-comments-model.mjs';
+import { useDiffComments } from './source-diff-comments.jsx';
+import { SourceDiffCommits } from './source-diff-commits.jsx';
 import { sameFindingFile } from './review-findings-model.mjs';
 import { SourceReviewFindingCard } from './source-pane-review.jsx';
+import { SourceDialog } from './source-dialog.jsx';
+import { dataUrlByteSize, diffImageButtonShown, diffImageViewer, fetchDiffFileImages, formatImageBytes } from './diff-image-model.mjs';
+import { diffChangeCommand, diffChangeHeaderOffset, diffChangeTargets, pickDiffChange } from './diff-change-nav-model.mjs';
 import "./source-diff.css";
 
 // Tn (panes-diff-view-current.js:377-401) with hideWhitespace: gn filters the
@@ -69,15 +74,18 @@ function metadata(file) {
   return labels;
 }
 
-function DiffLine({ row, lines, wordRanges, side, onComment = null }) {
+function DiffLine({ row, lines, wordRanges, side, onComment = null, rowTargets = false }) {
   if (!row) return <div className="sdiff-split-side sdiff-split-empty" aria-hidden="true"/>;
   const number = side === 'before' ? row.oldLine : row.newLine ?? row.oldLine;
-  // panes-diff-view-current.js Lr (:2053-2068): a hover-revealed accent "+" in the gutter comments on the line
-  // (Shift extends the range); the line number stays plain text.
-  const commentable = onComment && Number.isFinite(number);
-  return <div className={`sdiff-row ${row.type}${side ? ' sdiff-split-side' : ''}`} data-kind={row.type} data-side={side} data-old-line={row.oldLine ?? undefined} data-new-line={row.newLine ?? undefined} data-commentable={commentable || undefined}>
-    {commentable && <button type="button" className="sdiff-gutter-add" aria-label={t("Add a comment on this line")}
-      onClick={event => onComment({ line: number, code: row.text ?? '', anchor: event.currentTarget, extend: event.shiftKey })}><Icon name="Add" size={16} weight="strong"/></button>}
+  // c44d00c7f Ca (2925-2943): a hover-revealed accent "+" in the gutter opens the inline comment card for the line
+  // (Ho hoverAdd); dragging over line numbers picks a range (source-diff-comments.jsx). The row says which side and
+  // line it comments on (removed rows and the split view's left column: the old file).
+  // rowTargets: the body context menu (yo uo) reads the row's side/line/text even where comments are off.
+  const target = onComment || rowTargets ? rowCommentTarget(row, side || 'unified') : null;
+  return <div className={`sdiff-row ${row.type}${side ? ' sdiff-split-side' : ''}`} data-kind={row.type} data-side={side} data-old-line={row.oldLine ?? undefined} data-new-line={row.newLine ?? undefined} data-commentable={target && onComment ? '' : undefined}
+    data-comment-side={target?.side} data-comment-line={target?.line} data-column={target ? side || 'unified' : undefined}>
+    {target && onComment && <button type="button" className="sdiff-gutter-add" aria-label={t("Add comment on this line")}
+      onClick={() => onComment(target)}><Icon name="Add" size={16} weight="strong"/></button>}
     <div className="sdiff-line-number" aria-hidden="true">{number}</div>
     <div className="sdiff-code-cell"><span className="sdiff-marker" aria-hidden="true">{row.type === 'added' ? '+' : row.type === 'removed' ? '−' : ' '}</span>
       <code className="sdiff-line-content scb-code source-diff-code"><SourceHighlightedLine tokens={lines[row.side]?.[row.line] || [{ text: row.text }]} ranges={wordRanges?.[row.rowIndex]}/></code>
@@ -94,7 +102,7 @@ function NoNewline({ after }) {
     <div className="sdiff-code-cell"><span className="sdiff-no-newline-text">{t('No newline at end of file')}</span></div>
   </div>;
 }
-function DiffHunk({ hunk, file, scopeKey, layout, separator, wordDiff = true, onComment = null, renderAfter = null }) {
+function DiffHunk({ hunk, file, scopeKey, layout, separator, wordDiff = true, onComment = null, rowTargets = false, renderAfter = null }) {
   const ref = useRef(null);
   const fragment = useMemo(() => previewHunks(hunk.rows)[0] || { rows: [], before: '', after: '' }, [hunk.rows]);
   const split = useMemo(() => splitDiffRows(fragment.rows), [fragment.rows]);
@@ -105,10 +113,10 @@ function DiffHunk({ hunk, file, scopeKey, layout, separator, wordDiff = true, on
       <div className="sdiff-separator-content"><span>{separator.text}</span></div>
     </div>}
     {layout === 'split' ? split.map((pair, index) => <React.Fragment key={index}><div className="sdiff-split-row">
-      <DiffLine row={pair.before} side="before" lines={lines} wordRanges={wordRanges} onComment={onComment}/><DiffLine row={pair.after} side="after" lines={lines} wordRanges={wordRanges} onComment={onComment}/>
-    </div>{renderAfter?.(pair.after)}</React.Fragment>) : fragment.rows.map((row, index) => row.type === 'note'
+      <DiffLine row={pair.before} side="before" lines={lines} wordRanges={wordRanges} onComment={onComment} rowTargets={rowTargets}/><DiffLine row={pair.after} side="after" lines={lines} wordRanges={wordRanges} onComment={onComment} rowTargets={rowTargets}/>
+    </div>{renderAfter?.([rowCommentTarget(pair.before, 'before'), rowCommentTarget(pair.after, 'after')])}</React.Fragment>) : fragment.rows.map((row, index) => row.type === 'note'
       ? <NoNewline key={index} after={fragment.rows[index - 1]}/>
-      : <React.Fragment key={index}><DiffLine row={{ ...row, rowIndex: index }} lines={lines} wordRanges={wordRanges} onComment={onComment}/>{renderAfter?.(row)}</React.Fragment>)}
+      : <React.Fragment key={index}><DiffLine row={{ ...row, rowIndex: index }} lines={lines} wordRanges={wordRanges} onComment={onComment} rowTargets={rowTargets}/>{renderAfter?.([row.type === 'context' ? rowCommentTarget(row, 'before') : null, rowCommentTarget(row, 'unified')])}</React.Fragment>)}
   </div>;
 }
 
@@ -190,6 +198,42 @@ function RenamedFrom({ path, previous }) {
   </span>;
 }
 
+// c219730b0 Gt + c856385e2 tn as menu items; submenus are c3e58cab4 p / tn SubmenuPopup (side right, align start,
+// sideOffset -4).
+function ChangedFileMenuEntries({ entries, onSelect }) {
+  return (entries ?? []).map((entry, index) => entry.kind === 'separator' ? <SourceMenu.Separator key={`separator-${index}`} />
+    : entry.kind === 'submenu' ? <SourceMenu.Submenu key={`submenu-${entry.label}`}>
+      <SourceMenu.SubmenuTrigger>{entry.label}</SourceMenu.SubmenuTrigger>
+      <SourceMenu.Popup label={entry.label} side="right" align="start" sideOffset={-4}>
+        <ChangedFileMenuEntries entries={entry.items} onSelect={onSelect} />
+      </SourceMenu.Popup>
+    </SourceMenu.Submenu>
+    : <SourceMenu.Item key={`${entry.action}-${index}`} onClick={() => onSelect(entry)}>{entry.label}</SourceMenu.Item>);
+}
+// The menu for a Changes path (relative to actions.root). removed (a deleted file): no Attach, Open file, Open in or
+// Show in Finder, whose targets no longer exist (aa :3469 n.removed; yc renderFileMenuItems e.removed). directory (a
+// Changed files folder row, vc): no Open file; Attach takes the folder (a folder chip). Show in Finder only inside
+// actions.revealRoot, the folder the reveal IPC is scoped to.
+function changedFileEntries(actions, path, { removed = false, directory = false } = {}) {
+  const absolute = absoluteDiffPath(actions?.root, path);
+  const root = typeof actions?.revealRoot === 'string' ? actions.revealRoot.replace(/\/+$/, '') : '';
+  return changedFileMenu({ root: actions?.root, path,
+    canAttach: !removed && (directory ? !!actions?.onAttachFiles : !!actions?.onAttachFile),
+    canOpenFile: !removed && !directory && !!actions?.onOpenFile,
+    editors: !removed && actions?.onOpenInEditor ? actions.editors : [],
+    canShowInFinder: !removed && !!actions?.onRevealFile && !!absolute && !!root && (absolute === root || absolute.startsWith(`${root}/`)) });
+}
+function runChangedFileAction(actions, entry, { directory = false } = {}) {
+  if (entry.action === 'attach') {
+    if (!directory) { actions?.onAttachFile?.(entry.value); return; }
+    const absolute = absoluteDiffPath(actions?.root, entry.value);
+    if (absolute) actions?.onAttachFiles?.([absolute], [absolute]);
+  } else if (entry.action === 'copy') actions?.onCopy?.(entry.value);
+  else if (entry.action === 'open-file') actions?.onOpenFile?.(entry.value);
+  else if (entry.action === 'open-in-editor') actions?.onOpenInEditor?.(entry.value, entry.editor);
+  else if (entry.action === 'show-in-finder') actions?.onRevealFile?.(entry.value);
+}
+
 /* Changes placement header: panes-diff-view-current.js:3700-3774 aa over
    c219730b0 We (content), Ze (Open file) and $e (context menu). The trigger
    div carries group/diff-file; hover/focus-within reveal is local CSS
@@ -202,18 +246,19 @@ function RenamedFrom({ path, previous }) {
    file (source meta === null) keeps its toggle because the local body shows the
    original patch text instead of hiding it, the
    context menu opens from the contextmenu event (right click, Shift+F10 or the
-   Menu key on the focused toggle), and renderFileMenuItems (c856385e2 Vn: Open
-   in / remote links) has no local capability, so nothing follows Open file.
-   'Attach as context' (c856385e2 Hn attachFileToChat) uses the composer's real
+   Menu key on the focused toggle). The menu is c219730b0 Gt (changedFileMenu):
+   Open file is followed by renderFileMenuItems (cccc2cf0a Ad = c856385e2 cn/rn/tn):
+   Open in ▸ the installed editors (main.cjs installed-editors, open-in-editor) and
+   Show in Finder (the session-scoped reveal-tool-file IPC, only inside the session
+   folder). 'Attach as context' (c856385e2 Hn attachFileToChat) uses the composer's real
    path-referenced file attachment (main.jsx attachDiffFile -> stageFiles ->
    mention); it is withheld for deleted files, whose path no longer exists. */
-function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, actions }) {
+function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, actions, imageViewer = null }) {
   const headerRef = useRef(null), toggleRef = useRef(null);
   const [menu, setMenu] = useState(null);
   const real = !!file.path, deleted = file.status === 'deleted';
   // 3469: onOpenFile is withheld for removed files (n.removed ? void 0 : It).
   const onOpenFile = real && !deleted && actions?.onOpenFile ? actions.onOpenFile : undefined;
-  const onAttachFile = real && !deleted && actions?.onAttachFile ? actions.onAttachFile : undefined;
   const onCopy = real && actions?.onCopy ? actions.onCopy : undefined;
   const previous = renamedFrom(file), labels = rowLabels(file);
   // We renders +{additions} / −{deletions} unconditionally (aa passes them for
@@ -222,9 +267,11 @@ function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, ac
   // a number there would be invented.
   const counts = Number.isFinite(file.added) && Number.isFinite(file.removed);
   const open = hasBody && expanded;
-  const choices = onCopy ? copyChoices(actions.root, file.path) : null;
-  // c3e58cab4 f: control characters stripped; the toast follows a written copy.
-  const copy = (text) => onCopy(stripClipboardControls(text));
+  // c3e58cab4 f: control characters stripped (changedFileMenu); the toast follows a written copy.
+  const entries = menu && onCopy ? changedFileEntries(actions, file.path, { removed: deleted }) : null;
+  // B34 c44d00c7f Ia/La (Es :5246, :5283): an image file without a text body gets 'View image' (only where the
+  // comparison can read images, Aa), left of Open file; the toggle reserves its w-control slot (tn reserveImageAction).
+  const imageAction = !!imageViewer && real && diffImageButtonShown(file.path, hasBody);
   return <div ref={headerRef} className="sdiff-header group/diff-file relative" data-diff-file-header=""
     onContextMenu={onCopy ? (event) => { event.preventDefault(); event.stopPropagation(); setMenu({ x: event.clientX, y: event.clientY }); } : undefined}>
     {/* aa :3717-3723: onClick/aria-expanded only with a body, else aria-disabled. */}
@@ -246,7 +293,17 @@ function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, ac
         <span className="text-git-added">{`+${file.added}`}</span><span className="text-git-removed">{`−${file.removed}`}</span>
       </span>}
       {onOpenFile && <span aria-hidden="true" data-size="xs" className="w-control shrink-0" />}
+      {imageAction && <span aria-hidden="true" data-size="xs" className="w-control shrink-0" />}
     </button>
+    {imageAction && <span className="sdiff-view-image pointer-events-none absolute inset-y-0 right-0 flex items-center gap-xs pr-md">
+      <span className="pointer-events-auto flex">
+        <SourceTooltip content={t("View image")} side="bottom" hoverable={false} disabledReason={imageViewer.stale ? t("Loading the new changes") : undefined}>
+          <SourceSettingsButton size="xs" variant="ghost" icon="Image" iconSize="auto-sm" iconOnly aria-label={t("View image")}
+            disabled={!!imageViewer.stale} onClick={() => imageViewer.open(file.path)} />
+        </SourceTooltip>
+      </span>
+      {onOpenFile && <span aria-hidden="true" data-size="xs" className="w-control shrink-0" />}
+    </span>}
     {onOpenFile && <span className="sdiff-open-file absolute inset-y-0 right-0 flex items-center pr-md opacity-0 transition-opacity motion-reduce:transition-none group-hover/diff-file:opacity-100 group-focus-within/diff-file:opacity-100 pointer-coarse:opacity-100">
       <SourceTooltip content={t("Open file")} side="bottom" hoverable={false}>
         <SourceSettingsButton size="xs" variant="ghost" icon="ArrowUpRight" iconSize="auto-sm" iconOnly aria-label={t("Open file")} onClick={() => onOpenFile(file.path)} />
@@ -255,22 +312,12 @@ function ChangesFileHeader({ file, path, expanded, hasBody, bodyId, onToggle, ac
     {menu && <SourceMenu.Popup anchor={headerRef.current} trigger={toggleRef.current} point={menu} side="bottom" align="start"
       sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
       label={t("{path} actions", { path })} onClose={() => setMenu(null)}>
-      {onAttachFile && <SourceMenu.Item onClick={() => onAttachFile(file.path)}>{t("Attach as context")}</SourceMenu.Item>}
-      {/* c3e58cab4 p: SubmenuPopup side right, align start, sideOffset -4. */}
-      <SourceMenu.Submenu>
-        <SourceMenu.SubmenuTrigger>{t("Copy")}</SourceMenu.SubmenuTrigger>
-        <SourceMenu.Popup label={t("Copy")} side="right" align="start" sideOffset={-4}>
-          {choices.absolute && <SourceMenu.Item onClick={() => copy(choices.absolute)}>{t("Absolute path")}</SourceMenu.Item>}
-          <SourceMenu.Item onClick={() => copy(choices.relative)}>{t("Relative path")}</SourceMenu.Item>
-          <SourceMenu.Item onClick={() => copy(choices.filename)}>{t("Filename")}</SourceMenu.Item>
-        </SourceMenu.Popup>
-      </SourceMenu.Submenu>
-      {onOpenFile && <><SourceMenu.Separator /><SourceMenu.Item onClick={() => onOpenFile(file.path)}>{t("Open file")}</SourceMenu.Item></>}
+      <ChangedFileMenuEntries entries={entries} onSelect={(entry) => runChangedFileAction(actions, entry)} />
     </SourceMenu.Popup>}
   </div>;
 }
 
-function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, placement = "inline", fileActions = null, wordDiff = true, defaultExpanded = true, reveal = null, review = null }) {
+function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, placement = "inline", fileActions = null, wordDiff = true, defaultExpanded = true, reveal = null, review = null, commentScope = null, imageViewer = null }) {
   // vo defaultCollapsed (panes-diff-view-current.js:5258-5276, :5647): a large
   // diff (Qe) mounts every file collapsed.
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -309,22 +356,18 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
   }, [context]);
   const bodyId = useId();
   const changes = placement === "changes";
-  // Line comments (Changes pane only): one open comment per file; Shift on another line number extends its range.
-  const [comment, setComment] = useState(null);
-  const lineComment = changes ? ({ line, code, anchor, extend }) => setComment(current => {
-    if (extend && current && !current.text) {
-      const start = Math.min(current.start, line), end = Math.max(current.end, line);
-      return { ...current, start, end, code: start === current.start ? `${current.code}\n${code}` : `${code}\n${current.code}`, anchor };
-    }
-    return { start: line, end: line, code, anchor, text: '' };
-  }) : null;
+  const path = file.path || t("Patch");
+  // B14: Changes-pane line comments as inline annotation cards (c44d00c7f ha/ga/Ca/Ho/yo, source-diff-comments.jsx),
+  // kept per session and file (commentScope) and sent with the next message.
+  const bodyRef = useRef(null);
+  const shownHunks = useMemo(() => (context ? context.filter((region) => region.kind !== 'gap') : file.hunks), [context, file.hunks]);
+  const comments = useDiffComments({ file, scope: changes ? commentScope : null, menu: changes, shownHunks, complete: !!regions, path, fileActions, bodyRef });
   // panes-diff-view-current.js:3279 hasBody; a fallback file's body is its raw patch.
   const hasBody = !changes || !!file.fallbackReason || file.hunks.length > 0;
   // The metadata-only body line below is reachable only in the inline placement
   // (a Changes file without hunks has no body, see hasBody).
   const labels = changes ? [] : metadata(file);
   const separators = useMemo(() => diffSeparators(file.hunks), [file.hunks]);
-  const path = file.path || t("Patch");
   const copy = async () => {
     try { await navigator.clipboard.writeText(file.raw); setCopyState(t("Copied patch")); }
     // Catalog clipboard failure wording (en-US ugO0/irMRD), as the code-block copy.
@@ -333,22 +376,23 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
   // Review findings on this file (Rn cards): under the row of the finding's end line; one whose line is not in a
   // hunk sits at the top of the body. The current finding expands its file.
   const fileFindings = useMemo(() => (review ? review.findings.filter((entry) => sameFindingFile(file.path, entry.file)) : []), [review, file.path]);
-  const shownLines = useMemo(() => new Set((context ? context.filter((region) => region.kind !== 'gap') : file.hunks)
-    .flatMap((hunk) => (hunk.rows ?? []).map((row) => row.newLine).filter(Number.isFinite))), [context, file.hunks]);
+  const shownLines = useMemo(() => new Set(shownHunks.flatMap((hunk) => (hunk.rows ?? []).map((row) => row.newLine).filter(Number.isFinite))), [shownHunks]);
   const currentHere = !!review?.currentId && fileFindings.some((entry) => entry.id === review.currentId);
   useLayoutEffect(() => { if (currentHere) setExpanded(true); }, [currentHere, review?.currentSeq]);
   const findingCard = (entry) => <SourceReviewFindingCard key={entry.id} finding={entry} current={entry.id === review.currentId} status={review.statuses?.[entry.id] ?? "open"}
     onDismiss={() => review.onDismiss(entry.id)} onFix={review.onFix ? () => review.onFix(entry.id) : null} onNext={review.onNext ? () => review.onNext(entry.id) : null} />;
-  const renderAfter = fileFindings.length ? (row) => {
-    if (!row || !Number.isFinite(row.newLine)) return null;
-    const here = fileFindings.filter((entry) => entry.endLine === row.newLine);
-    return here.length ? here.map(findingCard) : null;
+  // Under a row: its findings (by new-file end line), then its comment cards (old-file side first).
+  const renderAfter = fileFindings.length || comments.enabled ? (anchors) => {
+    const added = anchors.find((anchor) => anchor?.side === 'additions');
+    const here = added ? fileFindings.filter((entry) => entry.endLine === added.line) : [];
+    const cards = comments.renderCards(anchors);
+    return here.length || cards ? <>{here.map(findingCard)}{cards}</> : null;
   } : null;
   const unplaced = fileFindings.filter((entry) => !shownLines.has(entry.endLine));
   const maximum = file.hunks.reduce((highest, hunk) => Math.max(highest,
     hunk.oldStart + hunk.oldCount - 1, hunk.newStart + hunk.newCount - 1), 1);
   return <section className="sdiff-file" ref={fileRef} data-file-path={file.path || undefined} data-complete-context={regions ? '' : undefined}>
-    {changes ? <ChangesFileHeader file={file} path={path} expanded={expanded} hasBody={hasBody} bodyId={bodyId} onToggle={() => setExpanded((value) => !value)} actions={fileActions} />
+    {changes ? <ChangesFileHeader file={file} path={path} expanded={expanded} hasBody={hasBody} bodyId={bodyId} onToggle={() => setExpanded((value) => !value)} actions={fileActions} imageViewer={imageViewer} />
     : <div className="sdiff-header">
       <button type="button" className="sdiff-file-toggle" aria-expanded={expanded} aria-controls={bodyId}
         title={[path, ...labels].join(" · ")} onClick={() => setExpanded((value) => !value)}>
@@ -366,29 +410,17 @@ function FileDiff({ file, scopeKey, layout, completeContext, foldAll = null, pla
       </button>}
     </div>}
     {!changes && copyState && <div className="sdiff-copy-status" role="status">{copyState}</div>}
-    {expanded && hasBody && <div id={bodyId} className="sdiff-file-body" tabIndex={-1} style={{ "--sdiff-number-width": `${Math.max(3, String(maximum).length)}ch` }}>
+    {expanded && hasBody && <div ref={bodyRef} id={bodyId} className="sdiff-file-body" tabIndex={-1} style={{ "--sdiff-number-width": `${Math.max(3, String(maximum).length)}ch` }} {...comments.bodyProps}>
       {unplaced.length > 0 && unplaced.map(findingCard)}
+      {comments.unplacedCards}
       {file.fallbackReason ? <RawPatch value={file.raw} reason={file.fallbackReason} />
         : context ? context.map(region => region.kind === 'gap'
           ? <ContextGap key={region.id} region={region} onExpand={expand}/>
-          : <DiffHunk key={region.id} hunk={region} file={file} layout={layout} wordDiff={wordDiff} onComment={lineComment} renderAfter={renderAfter} scopeKey={JSON.stringify([scopeKey, file.id, file.path, region.id])}/>)
-        : file.hunks.length ? file.hunks.map((hunk, index) => <DiffHunk key={index} hunk={hunk} separator={separators[index]} file={file} layout={layout} wordDiff={wordDiff} onComment={lineComment} renderAfter={renderAfter} scopeKey={JSON.stringify([scopeKey, file.id, file.path, index])}/>)
+          : <DiffHunk key={region.id} hunk={region} file={file} layout={layout} wordDiff={wordDiff} onComment={comments.onGutterAdd} rowTargets={comments.rowTargets} renderAfter={renderAfter} scopeKey={JSON.stringify([scopeKey, file.id, file.path, region.id])}/>)
+        : file.hunks.length ? file.hunks.map((hunk, index) => <DiffHunk key={index} hunk={hunk} separator={separators[index]} file={file} layout={layout} wordDiff={wordDiff} onComment={comments.onGutterAdd} rowTargets={comments.rowTargets} renderAfter={renderAfter} scopeKey={JSON.stringify([scopeKey, file.id, file.path, index])}/>)
           : <div className="sdiff-metadata-only">{labels.join(" · ") || t("No text hunks in this patch")}</div>}
     </div>}
-    {comment && <SourcePopover anchor={comment.anchor} side="bottom" align="start" className="sdiff-comment-popover"
-      label={comment.end !== comment.start ? t("Comment on lines {start}–{end}", { start: comment.start, end: comment.end }) : t("Comment on line {line}", { line: comment.start })}
-      onClose={() => setComment(null)} initialFocus={() => null}>
-      <div className="sdiff-comment" data-line-comment="">
-        <span className="sdiff-comment-title">{comment.end !== comment.start ? t("Comment on lines {start}–{end}", { start: comment.start, end: comment.end }) : t("Comment on line {line}", { line: comment.start })}</span>
-        <textarea autoFocus rows={3} aria-label={t("Comment")} placeholder={t("What should change here?")} value={comment.text}
-          onChange={event => { const text = event.target.value; setComment(current => current && { ...current, text }); }}
-          onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && comment.text.trim()) { event.preventDefault(); if (addToPrompt(serializeLineComment({ path, ...comment }))) setComment(null); } }}/>
-        <div className="sdiff-comment-actions">
-          <SourceSettingsButton size="sm" variant="ghost" onClick={() => setComment(null)}>{t("Cancel")}</SourceSettingsButton>
-          <SourceSettingsButton size="sm" variant="primary" disabled={!comment.text.trim()} onClick={() => { if (addToPrompt(serializeLineComment({ path, ...comment }))) setComment(null); }}>{t("Add to prompt")}</SourceSettingsButton>
-        </div>
-      </div>
-    </SourcePopover>}
+    {comments.overlays}
   </section>;
 }
 
@@ -422,41 +454,93 @@ function DiffTreeCounts({ additions, deletions }) {
   </span>;
 }
 
-// Ja (:4467-4508): a folder row toggles its subtree.
-function DiffTreeFolder({ node, depth, collapsed, onToggle, ...rest }) {
-  const ref = useTreeRowFocusReturn();
+// c44d00c7f Ar (:623-634): the name is clipped (its box scrolls), or, with the folder shown in the row, a clipped
+// path segment (data-clipped or any overflowing descendant).
+function rowNameClipped(node, detailInRow) {
+  if (!node) return false;
+  if (textOverflows(node)) return true;
+  if (!detailInRow) return false;
+  if (node.querySelector('[data-clipped]')) return true;
+  for (const child of node.querySelectorAll('*')) if (!(child.clientWidth === 0 && child.offsetWidth > 0) && child.scrollWidth > child.clientWidth) return true;
+  return false;
+}
+// c44d00c7f Nr (:653-675): the row's tooltip, side bottom / align start, delay 700, not hoverable, lazy. It names a
+// clipped name; a nested file row (folder not in the row) also names itself while the pointer is over it, with its
+// folder as the detail line. Suppressed while the row's context menu is open.
+function DiffTreeRowTooltip({ name, detail, nameRef, detailInRow = false, suppressed, children }) {
+  const inside = useRef(false);
+  const child = React.cloneElement(children, {
+    onPointerEnter: (event) => { children.props.onPointerEnter?.(event); inside.current = true; },
+    onPointerLeave: (event) => { children.props.onPointerLeave?.(event); inside.current = false; },
+  });
+  return <SourceTooltip side="bottom" align="start" delay={700} hoverable={false} detail={suppressed ? null : detail || null}
+    content={suppressed ? null : () => (rowNameClipped(nameRef.current, detailInRow) ? name : detailInRow ? null : detail && inside.current ? name : null)}>
+    {child}
+  </SourceTooltip>;
+}
+// c44d00c7f vc/yc L.Root + Sc (:6019-6170): a right-click on a Changed files row opens the c219730b0 Gt menu for its
+// path at the pointer (ContextMenu); onOpenChange suppresses the row tooltip while it is open.
+function useTreeRowMenu(rowRef, actions, path, options) {
+  const [menu, setMenu] = useState(null);
+  const onContextMenu = actions?.onCopy ? (event) => { event.preventDefault(); event.stopPropagation(); setMenu({ x: event.clientX, y: event.clientY }); } : undefined;
+  const popup = menu && <SourceMenu.Popup anchor={rowRef.current} trigger={rowRef.current} point={menu} side="bottom" align="start"
+    sideOffset={CONTEXT_MENU_SIDE_OFFSET} alignOffset={CONTEXT_MENU_ALIGN_OFFSET} layer="contextmenu" dataCds="ContextMenu"
+    label={t("{path} actions", { path })} onClose={() => setMenu(null)}>
+    <ChangedFileMenuEntries entries={changedFileEntries(actions, path, options)} onSelect={(entry) => runChangedFileAction(actions, entry, options)} />
+  </SourceMenu.Popup>;
+  return { open: !!menu, onContextMenu, popup };
+}
+
+// Ja / vc (:4467-4508, c44d00c7f :6019-6056): a folder row toggles its subtree; its menu has no Open file.
+function DiffTreeFolder({ node, depth, collapsed, onToggle, actions, ...rest }) {
+  const ref = useTreeRowFocusReturn(), nameRef = useRef(null);
   const isCollapsed = collapsed.has(node.path);
+  const menu = useTreeRowMenu(ref, actions, node.path, { directory: true });
   return <>
-    <button ref={ref} type="button" style={treeIndent(depth)} data-diff-tree-row="" role="treeitem" tabIndex={-1} aria-level={depth + 1}
-      aria-expanded={!isCollapsed} onClick={() => onToggle(node.path)} className={`sdiff-tree-row ${TREE_ROW} ${TREE_ROW_IDLE}`}>
-      <Icon name="CaretRight" size={12} className={`sdiff-tree-caret shrink-0 text-muted transition-transform duration-fast motion-reduce:transition-none${isCollapsed ? '' : ' rotate-90'}`} />
-      <span className="truncate">{node.name}</span>
-    </button>
-    {!isCollapsed && node.children.map((child) => <DiffTreeNode key={child.path} node={child} depth={depth + 1} collapsed={collapsed} onToggle={onToggle} {...rest} />)}
+    <DiffTreeRowTooltip name={node.name} nameRef={nameRef} suppressed={menu.open}>
+      <button ref={ref} type="button" style={treeIndent(depth)} data-diff-tree-row="" role="treeitem" tabIndex={-1} aria-level={depth + 1}
+        aria-expanded={!isCollapsed} onClick={() => onToggle(node.path)} onContextMenu={menu.onContextMenu} className={`sdiff-tree-row ${TREE_ROW} ${TREE_ROW_IDLE}`}>
+        <Icon name="CaretRight" size={12} className={`sdiff-tree-caret shrink-0 text-muted transition-transform duration-fast motion-reduce:transition-none${isCollapsed ? '' : ' rotate-90'}`} />
+        <span ref={nameRef} className="truncate">{node.name}</span>
+      </button>
+    </DiffTreeRowTooltip>
+    {menu.popup}
+    {!isCollapsed && node.children.map((child) => <DiffTreeNode key={child.path} node={child} depth={depth + 1} collapsed={collapsed} onToggle={onToggle} actions={actions} {...rest} />)}
   </>;
 }
 
 // Ya (:4509-4578): kind icon, name (or the folder-prefixed path in the flat
 // list, c784da984 posix with no title), counts; aria-current while selected.
-// Comment counts (Za) and the row context menu (Qa) have no local source.
-function DiffTreeFile({ node, depth, showDirectory, activePath, onSelect, onOpenFile }) {
-  const ref = useTreeRowFocusReturn();
+// c44d00c7f yc (:6057-6127): the Nr tooltip, the Gt context menu (no Open file / Open in / Show in Finder for a
+// removed file), and draggable into the composer (onDragFile: the Files tree's file-context drag payload, main.jsx
+// onDragFiles). Comment counts (Za) have no local source. Local: a removed file is neither attached nor dragged.
+function DiffTreeFile({ node, depth, showDirectory, activePath, onSelect, onOpenFile, actions }) {
+  const ref = useTreeRowFocusReturn(), nameRef = useRef(null);
   const active = activePath === node.path;
   const directory = node.path.slice(0, -(node.name.length + 1));
   const withDirectory = showDirectory && directory !== '';
-  return <button ref={ref} type="button" style={treeIndent(depth)} data-diff-tree-row="" role="treeitem" tabIndex={-1} aria-level={depth + 1}
-    aria-current={active || undefined} className={`sdiff-tree-row ${TREE_ROW} ${active ? TREE_ROW_ACTIVE : TREE_ROW_IDLE}`}
-    onClick={(event) => {
-      // T (:4146-4155): ⌘/Ctrl-click opens a file that still exists.
-      if (onOpenFile && !node.removed && (event.metaKey || event.ctrlKey)) { onOpenFile(node.path); return; }
-      onSelect(node.path);
-    }}>
-    <Icon name={fileKindIcon(node.name)} size={12} className="shrink-0 text-muted" />
-    {withDirectory
-      ? <span className="flex min-w-0 flex-1"><PathSegments path={node.path} title="" /></span>
-      : <span className="truncate min-w-0 flex-1">{node.name}</span>}
-    <DiffTreeCounts additions={node.additions} deletions={node.deletions} />
-  </button>;
+  const menu = useTreeRowMenu(ref, actions, node.path, { removed: !!node.removed });
+  const absolute = actions?.onDragFiles && !node.removed ? absoluteDiffPath(actions.root, node.path) : null;
+  return <>
+    <DiffTreeRowTooltip name={node.name} detail={directory} nameRef={nameRef} detailInRow={withDirectory} suppressed={menu.open}>
+      <button ref={ref} type="button" style={treeIndent(depth)} data-diff-tree-row="" role="treeitem" tabIndex={-1} aria-level={depth + 1}
+        aria-current={active || undefined} className={`sdiff-tree-row ${TREE_ROW} ${active ? TREE_ROW_ACTIVE : TREE_ROW_IDLE}`}
+        draggable={absolute ? true : undefined} onDragStart={absolute ? (event) => actions.onDragFiles(event, [absolute], []) : undefined}
+        onContextMenu={menu.onContextMenu}
+        onClick={(event) => {
+          // T (:4146-4155): ⌘/Ctrl-click opens a file that still exists.
+          if (onOpenFile && !node.removed && (event.metaKey || event.ctrlKey)) { onOpenFile(node.path); return; }
+          onSelect(node.path);
+        }}>
+        <Icon name={fileKindIcon(node.name)} size={12} className="shrink-0 text-muted" />
+        {withDirectory
+          ? <span ref={nameRef} className="flex min-w-0 flex-1"><PathSegments path={node.path} title="" /></span>
+          : <span ref={nameRef} className="truncate min-w-0 flex-1">{node.name}</span>}
+        <DiffTreeCounts additions={node.additions} deletions={node.deletions} />
+      </button>
+    </DiffTreeRowTooltip>
+    {menu.popup}
+  </>;
 }
 
 // qa (:4425-4466)
@@ -518,7 +602,7 @@ function diffTreeFocus(event) {
 
 // Ra + Ba (:4096-4300): "Changed files" tree; folders (or the flat list) first,
 // then the separated Test / Build / Generated sections when grouping by kind.
-function DiffFileTree({ list, tree, activePath, onSelect, onOpenFile }) {
+function DiffFileTree({ list, tree, activePath, onSelect, onOpenFile, actions = null }) {
   const ref = useRef(null);
   // Pa/La: collapsed folders per scope ("source" or a kind), all open by default.
   const [collapsed, setCollapsed] = useState(() => ({}));
@@ -539,7 +623,7 @@ function DiffFileTree({ list, tree, activePath, onSelect, onOpenFile }) {
   }, [activePath, tree, list]);
   const toggleIn = (scope) => (path) => setCollapsed((previous) => ({ ...previous, [scope]: toggleCollapsed(previous[scope] ?? EMPTY_SET, path) }));
   const rows = (nodes, scope, depth) => nodes.map((node) => <DiffTreeNode key={node.path} node={node} depth={depth} showDirectory={!tree}
-    collapsed={collapsed[scope] ?? EMPTY_SET} onToggle={toggleIn(scope)} activePath={activePath} onSelect={onSelect} onOpenFile={onOpenFile} />);
+    collapsed={collapsed[scope] ?? EMPTY_SET} onToggle={toggleIn(scope)} activePath={activePath} onSelect={onSelect} onOpenFile={onOpenFile} actions={actions} />);
   return <div ref={ref} role="tree" aria-label={DIFF_FILE_LIST_LABELS.changedFiles} tabIndex={0} onKeyDown={diffTreeKeyDown} onFocus={diffTreeFocus}
     className="sdiff-file-list-tree h-full overflow-y-auto px-xs py-1.25 outline-none hide-focus-ring">
     {rows(list.nodes, 'source', 0)}
@@ -574,7 +658,9 @@ function DiffTreeSection({ section, open, onToggle }) {
    use-pointer-resize.js: dragging the column under MIN/2 hides it at the end,
    dragging the edge past MIN/2 shows it, a click on the edge shows it, a
    double-click resets the width; keys as the Files tree divider. */
-function ChangesFileLayout({ fileList, entries, activePath, onSelect, onOpenFile, banner, children }) {
+// c44d00c7f al: a carried-over comparison (another scope still loading) dims after 200ms.
+const STALE_CLASS = 'opacity-60 transition-opacity delay-200 duration-100';
+function ChangesFileLayout({ fileList, entries, activePath, onSelect, onOpenFile, actions = null, banner, stale = false, commits = null, children }) {
   const layoutRef = useRef(null);
   const [bodyWidth, setBodyWidth] = useState(0);
   useLayoutEffect(() => {
@@ -658,9 +744,15 @@ function ChangesFileLayout({ fileList, entries, activePath, onSelect, onOpenFile
   return <div ref={layoutRef} className="sdiff-changes-layout" data-file-list-shown={shown || undefined} data-resizing={resizing || undefined}>
     {columnRendered && <div className="sdiff-file-list relative shrink-0 flex flex-col min-h-0 border-r"
       style={{ width: visibleWidth, minWidth: `min(${MIN}px, 100% - 160px)`, maxWidth: `min(${DIFF_FILE_LIST_WIDTH.MAX}px, 100% - 160px)`, display: drag?.hidden ? 'none' : undefined }}>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <DiffFileTree list={list} tree={tree} activePath={activePath} onSelect={onSelect} onOpenFile={onOpenFile} />
+      <div aria-busy={stale || undefined} className={`min-h-0 flex-1 overflow-y-auto${stale ? ` ${STALE_CLASS}` : ''}`}>
+        {/* c44d00c7f ~7190 (Ht && Cc): the tree only while the comparison has files. */}
+        {entries.length > 0 && <DiffFileTree list={list} tree={tree} activePath={activePath} onSelect={onSelect} onOpenFile={onOpenFile} actions={actions} />}
       </div>
+      {/* c44d00c7f ~7210 (Ge): the Commits section under the tree while the branch has commits ahead of its base. */}
+      {commits?.list?.length > 0 && commits.onSelect && <div className="sdiff-commits-section flex shrink-0 flex-col border-t" data-pane-line="" style={{ maxHeight: '40%' }}>
+        <SourceDiffCommits commits={commits.list} total={commits.total} selectedSha={commits.selectedSha ?? null} uncommittedSelected={!!commits.uncommittedSelected}
+          onSelect={commits.onSelect} onSelectUncommitted={commits.onSelectUncommitted} collapsed={!!commits.collapsed} onCollapsedChange={commits.onCollapsedChange} />
+      </div>}
       {shown && <div className="source-tree-divider sdiff-file-list-divider" role="separator" tabIndex={0} aria-label={DIFF_FILE_LIST_LABELS.resize}
         aria-orientation="vertical" aria-valuemin={MIN} aria-valuemax={limit} aria-valuenow={Math.round(visibleWidth)}
         onPointerDown={divider.onPointerDown} onDoubleClick={() => commitWidth(DEFAULT)} onKeyDown={dividerKeyDown}><span /></div>}
@@ -674,17 +766,112 @@ function ChangesFileLayout({ fileList, entries, activePath, onSelect, onOpenFile
         handleFocus.current = 'divider';
         setShown(true);
       }}><span /></div>}
-    <div className="sdiff-changes-main">
+    <div className={`sdiff-changes-main${stale ? ` ${STALE_CLASS}` : ''}`} data-stale={stale || undefined} aria-busy={stale || undefined}>
       {banner}
       <div className="source-changes">{children}</div>
     </div>
   </div>;
 }
 
+// B34 "View image" (c44d00c7f Na/Pa/Fa/ja). Na: the images for the file, refetched when the file or fetcher changes.
+const NO_IMAGES = { before: null, after: null };
+function useDiffFileImages(file, fetchImages) {
+  const [state, setState] = useState(null);
+  useEffect(() => {
+    let live = true;
+    const done = (images) => { if (live) setState({ file, fetchImages, images }); };
+    fetchImages(file).then(done, () => done(NO_IMAGES));
+    return () => { live = false; };
+  }, [file, fetchImages]);
+  return state && state.file === file && state.fetchImages === fetchImages ? state.images : undefined;
+}
+// shared-frame gc (Skeleton) as Fa's loading placeholder; the classes match source-customize.jsx SkeletonBar.
+const IMAGE_SKELETON = "relative max-w-full overflow-hidden rounded bg-[var(--cds-skeleton-base)] after:absolute after:inset-0 after:animate-[cds-shimmer_2s_linear_infinite] after:bg-[linear-gradient(90deg,transparent,var(--cds-skeleton-sheen),transparent)] motion-reduce:after:hidden";
+// Fa: label and, once loaded, "{width} × {height}" and the byte size; the image (object-contain in an h-80 well), a
+// placeholder while loading, or "Image not available" for a missing side or an image that fails to decode.
+function DiffImageFigure({ label, alt, src }) {
+  const [loaded, setLoaded] = useState(null);
+  const size = loaded !== null && loaded.src === src ? loaded.size : undefined;
+  const missing = src === null || size === null;
+  const bytes = typeof src === "string" ? dataUrlByteSize(src) : null;
+  return <figure className="sdiff-image-figure flex min-w-0 flex-col gap-sm">
+    <figcaption className="flex items-baseline justify-between gap-md text-body">
+      <span className="text-secondary">{label}</span>
+      {typeof src === "string" && size && <span className="flex min-w-0 gap-sm text-footnote tabular-nums text-muted">
+        <span>{t("{width} × {height}", { width: size.width.toLocaleString(), height: size.height.toLocaleString() })}</span>
+        {bytes !== null && <span>{formatImageBytes(bytes)}</span>}
+      </span>}
+    </figcaption>
+    <div className="flex h-80 items-center justify-center overflow-hidden rounded bg-surface-1 p-sm shadow-card-ring">
+      {src === undefined && <div data-cds="Skeleton" role="status" className={`${IMAGE_SKELETON} size-full animate-placeholder-reveal`}><span className="sr-only">{t("Loading")}</span></div>}
+      {missing && <span className="text-body text-muted">{t("Image not available")}</span>}
+      {typeof src === "string" && !missing && <img src={src} alt={alt} draggable={false} className="max-h-full max-w-full object-contain"
+        onLoad={(event) => { const { naturalWidth: width, naturalHeight: height } = event.currentTarget; setLoaded({ src, size: { width, height } }); }}
+        onError={() => setLoaded({ src, size: null })} />}
+    </div>
+  </figure>;
+}
+// ja's Dialog (size 2xl) with Pa: header = basename with the folder as the description and a Close button; a modified
+// file shows Before | After side by side from sm up, an added or deleted one a single figure.
+function DiffImageDialog({ file, fetchImages, open, onClose, onExited }) {
+  const images = useDiffFileImages(file, fetchImages);
+  const viewer = diffImageViewer(file);
+  return <SourceDialog open={open} onClose={onClose} onExited={onExited} size="2xl" className="sdiff-image-dialog"
+    title={viewer.title} description={viewer.description}>
+    <div aria-busy={images === undefined} className={`grid grid-cols-1 gap-md${viewer.columns > 1 ? " sm:grid-cols-2" : ""}`}>
+      {viewer.figures.map((figure) => <DiffImageFigure key={figure.side} label={figure.label} alt={figure.alt} src={images?.[figure.side]} />)}
+    </div>
+  </SourceDialog>;
+}
+
+// B34 next / previous change (c44d00c7f Rt, ds/fs/ps, An): DOM reads over the rendered Changes rows.
+const DIFF_ROW_SELECTOR = ".sdiff-row[data-old-line], .sdiff-row[data-new-line]";
+const diffFileSection = (view, id) => [...view.querySelectorAll(".sdiff-file[data-file-path]")].find((node) => node.dataset.filePath === id) ?? null;
+// An: a removed row (or the split view's old column) is the deletions side; its line is the old line number.
+function diffRowPosition(row) {
+  const side = row.dataset.side ? (row.dataset.side === "before" ? "deletions" : "additions") : row.dataset.kind === "removed" ? "deletions" : "additions";
+  const line = Number.parseInt(side === "deletions" ? row.dataset.oldLine : row.dataset.newLine, 10);
+  return Number.isFinite(line) ? { side, lineNumber: line } : null;
+}
+// ds: the topmost line below the sticky header; fs: else the first file still on screen (its top, line 0).
+function diffViewportLine(view, scroller, offset) {
+  const top = scroller.getBoundingClientRect().top + offset;
+  for (const section of view.querySelectorAll(".sdiff-file[data-file-path]")) {
+    if (section.getBoundingClientRect().bottom <= top) continue;
+    for (const row of section.querySelectorAll(DIFF_ROW_SELECTOR)) {
+      const rect = row.getBoundingClientRect();
+      if (rect.height === 0 || rect.bottom <= top) continue;
+      const position = diffRowPosition(row);
+      if (position) return { id: section.dataset.filePath, ...position };
+    }
+  }
+  for (const section of view.querySelectorAll(".sdiff-file[data-file-path]")) {
+    if (section.getBoundingClientRect().bottom > top) return { id: section.dataset.filePath, side: "additions", lineNumber: 0 };
+  }
+  return null;
+}
+function diffChangeRow(view, target) {
+  const section = diffFileSection(view, target.id);
+  if (!section) return null;
+  for (const row of section.querySelectorAll(DIFF_ROW_SELECTOR)) {
+    const position = diffRowPosition(row);
+    if (position && position.side === target.side && position.lineNumber === target.lineNumber) return row;
+  }
+  return null;
+}
+// ps: the change the last press went to is still (partly) below the header and above the bottom.
+function diffChangeVisible(view, scroller, offset, target) {
+  const row = diffChangeRow(view, target);
+  if (!row) return false;
+  const rect = row.getBoundingClientRect(), box = scroller.getBoundingClientRect();
+  return rect.height > 0 && rect.bottom > box.top + offset && rect.top < box.bottom;
+}
+
 /** Render only the actual local Codex/Git patch; no inferred unchanged lines.
  * placement "changes" (the Changes pane, source-session.jsx FilePane) renders the
  * c219730b0 We/Ze/$e header with fileActions {root, onCopy, onOpenFile,
- * onAttachFile}; the default "inline" placement (approval-card FileChanges) keeps
+ * onAttachFile, and for the B16 menus/drag: editors, onOpenInEditor, onRevealFile,
+ * revealRoot, onAttachFiles, onDragFiles}; the default "inline" placement (approval-card FileChanges) keeps
  * its existing header (path · metadata, native title, Copy patch).
  * wordDiff / hideWhitespace are the Changes "Highlight changed words" and "Hide
  * whitespace changes" preferences (panes-tile-current.js:3597-3598, 3805-3835);
@@ -694,15 +881,25 @@ function ChangesFileLayout({ fileList, entries, activePath, onSelect, onOpenFile
  * - large diff (Qe, panes-diff-view-current.js:5221-5232): the listed files'
  *   additions + deletions above 5000 mount every file collapsed, show the
  *   muted banner (:5589-5597) and report onIsLargeChange(isLarge).
+ * - commentScope (B14): the session the line comments belong to (JSON [sessionId, cwd]); with it, each file
+ *   carries the c44d00c7f inline comment cards, the gutter "+", line-number drag, the selection chip and the body
+ *   context menu (source-diff-comments.jsx); fileActions {onSaveComment, onDeleteComment, onCopy} route them.
  * - fileList {shown, width, tree, groupByKind, onShownChange, onWidthChange,
  *   onCanFitChange}: the body is laid out beside the "Changed files" column
  *   (ChangesFileLayout, which also owns the .source-changes scroller), files
  *   follow the column order (Mn tree/list path order, ka by kind), and selecting
- *   a row expands that file and scrolls it to the top (Zt). */
+ *   a row expands that file and scrolls it to the top (Zt).
+ * - stale (B15, c44d00c7f Xc/al): the comparison shown is the previous scope's while the new one loads:
+ *   the column's tree and the body carry aria-busy (the body also data-stale) and dim to 60% after 200ms.
+ * - commits (B15, c44d00c7f Zr): {list, total, selectedSha, uncommittedSelected, onSelect(sha|null),
+ *   onSelectUncommitted, collapsed, onCollapsedChange}; the "Commits" section under the file tree.
+ * - emptyPlaceholder (B15, c44d00c7f cl Ne at :7273): with fileList and no patch, the body shows this
+ *   (the empty Changes state) beside the column, so the Commits section stays reachable. */
 export function SourceDiff({ value = "", scopeKey = "standalone", layout = "unified", wordWrap = true, completeContext = false, onCanFitSplitChange, foldAll = null, placement = "inline", fileActions = null,
-  wordDiff = true, hideWhitespace = false, fileList = null, onIsLargeChange, review = null }) {
+  wordDiff = true, hideWhitespace = false, fileList = null, onIsLargeChange, review = null, commentScope = null, stale = false, commits = null, emptyPlaceholder = null }) {
   const root = useRef(null), [canFitSplit, setCanFitSplit] = useState(true);
-  useLayoutEffect(() => observeDiffSplitFit(root.current, fit => { setCanFitSplit(fit); onCanFitSplitChange?.(fit); }), [scopeKey, onCanFitSplitChange]);
+  const placeholderShown = !!fileList && !!emptyPlaceholder && !String(value ?? "").trim();
+  useLayoutEffect(() => (root.current ? observeDiffSplitFit(root.current, fit => { setCanFitSplit(fit); onCanFitSplitChange?.(fit); }) : undefined), [scopeKey, onCanFitSplitChange, placeholderShown]);
   const actualLayout = layout === "split" && canFitSplit ? "split" : "unified";
   const changes = placement === "changes";
   const parsed = useMemo(() => parseUnifiedDiff(value), [value]);
@@ -738,15 +935,81 @@ export function SourceDiff({ value = "", scopeKey = "standalone", layout = "unif
     if (!scroller) { node.scrollIntoView?.({ block: 'start' }); return; }
     scroller.scrollTop += node.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
   }, [reveal]);
+  // B34 "View image" (c44d00c7f ja/Ia, cccc2cf0a Gb): where the caller can read a side of a changed image
+  // (fileActions.fetchImage, the local repository diff), an image row without a text body offers the viewer; it is
+  // disabled while a carried-over comparison is shown, and a scope change closes it.
+  const fetchImageRef = useRef(null);
+  fetchImageRef.current = fileActions?.fetchImage ?? null;
+  const canFetchImages = changes && typeof fileActions?.fetchImage === "function";
+  const fetchFileImages = useMemo(() => (canFetchImages ? fetchDiffFileImages((request) => fetchImageRef.current?.(request) ?? null) : null),
+    [canFetchImages, scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [imageView, setImageView] = useState(null);
+  const scopeRef = useRef(scopeKey);
+  scopeRef.current = scopeKey;
+  const openImage = useCallback((path) => {
+    const file = sections.find((section) => section.type === "file" && section.path === path);
+    if (file && fetchFileImages && !stale) setImageView({ file, fetchFileImages, scopeKey, open: true });
+  }, [sections, fetchFileImages, stale, scopeKey]);
+  const imageViewer = useMemo(() => (fetchFileImages ? { open: openImage, stale } : null), [fetchFileImages, openImage, stale]);
+  const imageDialog = imageView ? <DiffImageDialog key={`${imageView.scopeKey}:${imageView.file.path}`} file={imageView.file} fetchImages={imageView.fetchFileImages}
+    open={imageView.open && imageView.scopeKey === scopeKey}
+    onClose={() => setImageView((value) => (value ? { ...value, open: false } : value))}
+    onExited={() => setImageView((value) => (value && value.open && value.scopeKey === scopeRef.current ? value : null))} /> : null;
+  // B34 Eo/Rt: F7 / ⇧F7 (⌥F5 / ⇧⌥F5 off Linux) anywhere in the Changes pane (its [data-pane-root] or dialog) scrolls
+  // the next / previous change block (diffChangeTargets) to the middle; collapsed files are skipped. A press steps
+  // from the change the last one went to while it is still on screen, else from the topmost visible line.
+  const changeFiles = useMemo(() => (changes ? sections.filter((section) => section.type === "file" && section.path && !section.fallbackReason)
+    .map((section) => ({ id: section.path, targets: diffChangeTargets(section.path, section.hunks) })) : []), [changes, sections]);
+  const changeFilesRef = useRef(changeFiles);
+  changeFilesRef.current = changeFiles;
+  const lastChange = useRef(null);
+  useEffect(() => {
+    const view = root.current;
+    if (!changes || !view) return undefined;
+    const doc = view.ownerDocument, win = doc.defaultView ?? window;
+    const target = view.closest('[data-pane-root], [role="dialog"], [role="alertdialog"]') ?? view;
+    const platform = `${win.navigator?.userAgentData?.platform ?? ""} ${win.navigator?.platform ?? ""}`;
+    const linux = /linux/i.test(platform) && !/android/i.test(platform);
+    const go = (direction) => {
+      const node = root.current;
+      if (!node || node.offsetParent === null) return null;
+      const scroller = node.closest(".source-changes") ?? node;
+      const offset = diffChangeHeaderOffset(Number.parseFloat(win.getComputedStyle(doc.documentElement).fontSize));
+      const order = [], targets = [];
+      for (const entry of changeFilesRef.current) {
+        order.push(entry.id);
+        if (diffFileSection(node, entry.id)?.querySelector(".sdiff-file-body")) targets.push(...entry.targets);
+      }
+      const last = lastChange.current && diffChangeVisible(node, scroller, offset, lastChange.current) ? lastChange.current : null;
+      const next = pickDiffChange(targets, order, { last, viewport: diffViewportLine(node, scroller, offset) }, direction);
+      const row = next && diffChangeRow(node, next);
+      if (row) {
+        const rect = row.getBoundingClientRect(), box = scroller.getBoundingClientRect();
+        scroller.scrollTop += rect.top - box.top - (box.height - rect.height) / 2;
+      }
+      return next;
+    };
+    const onKeyDown = (event) => {
+      if (event.defaultPrevented) return;
+      const command = diffChangeCommand(event, { linux });
+      if (!command) return;
+      event.preventDefault();
+      if (event.repeat) return;
+      lastChange.current = go(command === "next" ? 1 : -1) ?? lastChange.current;
+    };
+    target.addEventListener("keydown", onKeyDown);
+    return () => target.removeEventListener("keydown", onKeyDown);
+  }, [changes, scopeKey, placeholderShown]);
   const banner = changes && large && entries.length > 0
     ? <div className="sdiff-large-banner shrink-0 px-md py-1.25 text-body text-muted">{DIFF_FILE_LIST_LABELS.largeBanner}</div> : null;
   const view = <div ref={root} key={scopeKey} data-layout={actualLayout} data-word-wrap={wordWrap} data-word-highlight={wordDiff} data-hide-whitespace={hideWhitespace || undefined} data-large-diff={large || undefined} className="source-diff diff sdiff-view" data-source-component="FileDiff" data-placement={placement} aria-label={t("File changes")}>
     {!listed && banner}
     {sections.map((section) => section.type === "file"
       ? <FileDiff key={`${section.id}:${section.path}`} file={section} scopeKey={scopeKey} layout={actualLayout} completeContext={completeContext} foldAll={foldAll} placement={placement} fileActions={fileActions} wordDiff={wordDiff}
-        defaultExpanded={!large} reveal={changes ? reveal : null} review={changes ? review : null} />
+        defaultExpanded={!large} reveal={changes ? reveal : null} review={changes ? review : null} commentScope={changes ? commentScope : null} imageViewer={changes ? imageViewer : null} />
       : <RawPatch key={section.id} value={section.raw} reason={section.reason} />)}
   </div>;
-  if (!listed) return view;
-  return <ChangesFileLayout fileList={fileList} entries={entries} activePath={activePath} onSelect={selectFile} onOpenFile={fileActions?.onOpenFile} banner={banner}>{view}</ChangesFileLayout>;
+  if (!listed) return <>{view}{imageDialog}</>;
+  return <><ChangesFileLayout fileList={fileList} entries={entries} activePath={activePath} onSelect={selectFile} onOpenFile={fileActions?.onOpenFile} actions={fileActions} banner={banner}
+    stale={stale} commits={commits}>{placeholderShown ? <div className="min-h-0 flex-1 h-full">{emptyPlaceholder}</div> : view}</ChangesFileLayout>{imageDialog}</>;
 }

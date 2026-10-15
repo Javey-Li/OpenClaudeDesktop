@@ -3,7 +3,8 @@ import {SourceSettingsButton} from './source-settings-button.jsx';
 import {localUsagePresentation,usageEmptyText,usagePresentation,usageResetLabel} from './usage-model.mjs';
 import {SourceTimestamp} from './source-timestamp.jsx';
 import {formatDayKey,localDayKey} from './home-model.mjs';
-import {COST_FOOTNOTE,CUSTOM_COST_FOOTNOTE,compactTokens,formatMoney,formatTokenCount,usageCostPresentation,usageSpendPresentation} from './usage-cost-model.mjs';
+import {COST_FOOTNOTE,CUSTOM_COST_FOOTNOTE,USAGE_RANGE_DAYS,compactTokens,formatMoney,formatTokenCount,usageCostPresentation,usageSpendPresentation} from './usage-cost-model.mjs';
+import {SourceSegments} from './source-segments.jsx';
 import {coreName} from '../electron/core-registry.mjs';
 import './source-usage.css';
 import {t,tn,getLocale} from '../electron/i18n/index.mjs';
@@ -68,17 +69,29 @@ function CostFootnote({cost,onOpenLink}) {
  if(!cost.priced)return null;
  return <p className="su-footnote">{t('Costs are estimates from the prices the core records; your provider’s bill is authoritative.')}{cost.partial&&' '+t('Models without a published price count tokens but no cost.')}</p>;
 }
-export function CostUsage({cost,onOpenLink}) {
- const used=cost.tiles[0].tokens>0;
+// c71860c77-29nOu6oI W: 'Time range' (7d / 30d / 90d, B) over the core's per-day history, and on a priced source the
+// 'Chart metric' Tokens / Cost (M), Cost disabled while no day in the range has an estimate. The metric sets what the
+// per-day bars measure; both columns stay. onRange/onMetric absent: the 30-day table alone (as before).
+export function CostUsage({cost,onOpenLink,onRange,metric='tokens',onMetric}) {
+ const used=cost.tiles[0].tokens>0,range=cost.range??30;
+ const shown=cost.dailyPriced&&metric==='cost'?'cost':'tokens';
+ const empty=range===30?(cost.source==='deepseek'?t('No DeepSeek usage in the last 30 days.'):t('No usage in the last 30 days.'))
+  :(cost.source==='deepseek'?t('No DeepSeek usage in the last {days} days.',{days:range}):t('No usage in the last {days} days.',{days:range}));
  return <>
   <div className="su-tiles">{cost.tiles.map(tile=><CostTile key={tile.key} tile={tile} cost={cost}/>)}</div>
   {used&&<CostBreakdown cost={cost}/>}
-  <section className="su-section su-days-section" aria-label={t('Daily token usage')}>
-   <div className="su-panel-heading"><h3 className="text-heading-semibold">{t('Last 30 days')}</h3><span>{cost.priced?t('Tokens · est. cost'):t('Tokens')}</span></div>
+  <section className="su-section su-days-section" aria-label={t('Daily token usage')} data-metric={shown}>
+   <div className="su-panel-heading"><h3 className="text-heading-semibold">{range===30?t('Last 30 days'):t('Last {days} days',{days:range})}</h3><span>{cost.priced?t('Tokens · est. cost'):t('Tokens')}</span></div>
+   {(onRange||(cost.priced&&onMetric))&&<div className="su-days-controls">
+    {cost.priced&&onMetric&&<SourceSegments label={t('Chart metric')} value={shown} onChange={onMetric}
+     options={[{value:'tokens',label:t('Tokens')},{value:'cost',label:t('Cost'),disabled:!cost.dailyPriced}]}/>}
+    {onRange&&<SourceSegments className="su-range" label={t('Time range')} value={range} onChange={value=>onRange(Number(value))}
+     options={USAGE_RANGE_DAYS.map(days=>({value:days,label:t('{days}d',{days})}))}/>}
+   </div>}
    {cost.daily.length?<table className="su-days"><thead className="su-days-head"><tr><th scope="col">{t('Date')}</th><th scope="col">{t('Share')}</th><th scope="col">{t('Tokens')}</th>{cost.priced&&<th scope="col">{t('Estimated cost')}</th>}</tr></thead>
-    <tbody>{cost.daily.map(day=><tr key={day.date}><td className="su-day-date">{day.label}</td><td className="su-day-bar" aria-hidden="true"><span className="su-bar"><i style={{width:`${(day.share*100).toFixed(1)}%`}}/></span></td>
+    <tbody>{cost.daily.map(day=><tr key={day.date}><td className="su-day-date">{day.label}</td><td className="su-day-bar" aria-hidden="true"><span className="su-bar"><i style={{width:`${((shown==='cost'?day.costShare??0:day.share)*100).toFixed(1)}%`}}/></span></td>
      <td className="su-day-tokens" title={t('{count} tokens',{count:formatTokenCount(day.tokens,getLocale())})}>{compactTokens(day.tokens)}</td>{cost.priced&&<td className="su-day-cost">{formatMoney(day.cost,cost.currency,getLocale())}</td>}</tr>)}</tbody></table>
-    :<p className="su-empty">{cost.source==='deepseek'?t('No DeepSeek usage in the last 30 days.'):t('No usage in the last 30 days.')}</p>}
+    :<p className="su-empty">{empty}</p>}
   </section>
   <CostFootnote cost={cost} onOpenLink={onOpenLink}/>
  </>;
@@ -221,10 +234,12 @@ export function SourceUsage({readUsage,engine:runningCore,onOpenLink,consumeRese
   return()=>{alive=false;};
  },[revision]);
  const [resetOpen,setResetOpen]=useState(false);
+ // W r / y: the time range (30 days first) and the chart metric, kept while the page is open.
+ const [range,setRange]=useState(30),[metric,setMetric]=useState('tokens');
  const todayKey=localDayKey(new Date());
  const engine=usageCore(runningCore,data);
  const {rows,credits,spending,resetCredits,notice,plan,daily,dailyLabel,lifetimeTokens}=usagePresentation(data,{todayKey,core:coreName(engine),locale:getLocale()});
- const cost=usageCostPresentation(data,{todayKey,locale:getLocale()}),spend=cost?null:usageSpendPresentation(data);
+ const cost=usageCostPresentation(data,{todayKey,locale:getLocale(),days:range}),spend=cost?null:usageSpendPresentation(data);
  // No buckets from the core: what OpenClaude Desktop counted on this Mac (Home's stats), labelled as such.
  const local=!cost&&!daily.length?localUsagePresentation(data?.localStats,{todayKey}):null;
  // One credits group per bucket: its balance and its monthly credit limit together.
@@ -238,7 +253,7 @@ export function SourceUsage({readUsage,engine:runningCore,onOpenLink,consumeRese
   {busy&&!data?<div className="su-loading" role="status"><span>{t('Loading usage limits')}</span>{[0,1,2].map(i=><div className="su-skeleton" aria-hidden="true" key={i}><i/><i/></div>)}</div>:<>
    {cost?rows.length>0&&<div className="su-limits">{rows.map(row=><UsageRow key={row.key} row={row}/>)}</div>
     :<div className="su-limits">{rows.map(row=><UsageRow key={row.key} row={row}/>)}{!rows.length&&<p className="su-empty">{usageEmptyText(engine)}</p>}</div>}
-   {cost&&<CostUsage cost={cost} onOpenLink={onOpenLink}/>}
+   {cost&&<CostUsage cost={cost} onOpenLink={onOpenLink} onRange={setRange} metric={metric} onMetric={setMetric}/>}
    {spend&&<SpendSection spend={spend} engine={engine}/>}
    {creditGroups.map(entry=><CreditsSection key={entry.key} entry={entry}/>)}
    {resetCredits&&<ResetCreditsSection summary={resetCredits} eligible={resetEligible} open={resetOpen} onOpen={()=>setResetOpen(true)} onClose={()=>setResetOpen(false)}

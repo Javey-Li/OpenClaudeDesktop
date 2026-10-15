@@ -38,7 +38,7 @@ test('a text tab renders the breadcrumb subheader and two numbered rows (no Back
   assert.match(markup, /<div class="epitaxy-panel-subheader sfv-subheader">/);
   assert.doesNotMatch(markup, /Back to files|source-file-location|Opening file…|source-panel-error/);
   // The scroller is the .source-file-preview element; its text is the file.
-  assert.match(viewer, /<div class="source-file-preview sfv-scroller select-text" style="--sfv-number-width:3ch">/);
+  assert.match(viewer, /<div class="source-file-preview sfv-scroller select-text" data-word-wrap="true" style="--sfv-number-width:3ch;/);
   assert.equal(text(viewer.slice(viewer.indexOf('<div class="sfv-line"'))), 'a\nb\n');
 });
 
@@ -47,7 +47,7 @@ test('a chip line range marks rows line..endLine with data-active and the scroll
   const markup = renderToStaticMarkup(h(V.SourceFileViewer, { file: tab, displayPath: 'src/app.js', fullPath: '/w/src/app.js', line: 3, endLine: 4, scrollNonce: 1, scopeKey: 'k' }));
   const active = [...markup.matchAll(/<div class="sfv-line" data-line="(\d+)" data-active="">/g)].map((row) => row[1]);
   assert.deepEqual(active, ['3', '4']);
-  assert.match(markup, /class="source-file-preview sfv-scroller select-text" data-active-line="3" data-active-end-line="4"/);
+  assert.match(markup, /class="source-file-preview sfv-scroller select-text" data-word-wrap="true" data-active-line="3" data-active-end-line="4"/);
   // Without a terminal LF the last row has no newline; the gutter is sized by digit count (12 -> 3ch minimum).
   assert.match(markup, /data-line="12"><span class="sfv-number" data-number="12" aria-hidden="true"><\/span><code class="scb-code source-diff-code">line 12<\/code>/);
   assert.deepEqual(jumpRange(5, 300), { first: 5, last: 204 }, 'at most 200 rows (la)');
@@ -85,7 +85,7 @@ test('the plain-text notice appears only for a highlightable file above the high
   const markup = renderToStaticMarkup(h(V.SourceFileViewer, { file: { path: 'big.js', text: long }, displayPath: 'big.js', fullPath: '/w/big.js', scopeKey: 'k' }));
   assert.match(markup, /<p role="note" class="sfv-plain-note">Shown as plain text: formatting this file would be too slow\.<\/p>/);
   assert.equal((markup.match(/class="sfv-line"/g) || []).length, 2100);
-  assert.match(markup, /style="--sfv-number-width:4ch"/);
+  assert.match(markup, /style="--sfv-number-width:4ch;/);
 });
 
 test('model helpers: rows, breadcrumb parts', () => {
@@ -161,7 +161,7 @@ test('images, video and audio render from the file:// URL (alt / aria-label = th
 
 test('media error copy (Un, local reader): the image and media bodies with View as text anyway', async () => {
   const { fileMediaErrorCopy, fileTabReason, FILE_MEDIA_KINDS } = await import('../src/file-unavailable-model.mjs');
-  assert.deepEqual(FILE_MEDIA_KINDS, ['image', 'video', 'audio']);
+  assert.deepEqual(FILE_MEDIA_KINDS, ['image', 'video', 'audio', 'pdf']);
   assert.deepEqual(fileMediaErrorCopy('image'), { title: 'Couldn’t load this file', body: 'This image couldn’t be loaded. It may be too large, or it may have been deleted or moved.', role: undefined, showsPath: false, action: 'view-as-text' });
   assert.equal(fileMediaErrorCopy('video').body, 'This file couldn’t be loaded for preview. It may be too large to preview inline, in a format this browser can’t play, or it may have been deleted or moved.');
   assert.equal(fileTabReason({ path: 'a.png', unavailable: 'image' }), 'image');
@@ -239,4 +239,90 @@ test('source: the pane gives each progressive chunk its own Markdown owner', () 
   const css = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-file-viewer.css'), 'utf8');
   assert.match(css, /\.sfv-prose\.epitaxy-file-prose-chunk \{\s*margin-bottom: var\(--chat-item-gap\);/);
   assert.match(css, /\.sfv-frontmatter > dd \{\s*margin: 0;/);
+});
+
+// B13 (2.31226.0 cd2efac6e Ql :6783-6799, the sandbox branch :6283-6330, su :7141-7176): .html opens on the
+// sandboxed preview frame (the lu "Loading file" cover until it draws) with the View source toggle when the pane
+// hosts frames; .svg draws as an image; a PDF shows in Chromium's viewer; the bodies carry the im file menu.
+test('B13: HTML opens in the preview frame, SVG as the drawn image, PDF in an iframe; source stays one toggle away', () => {
+  const page = { path: 'site/index.html', text: '<!doctype html><h1>Hi</h1>' };
+  const frame = { register: async () => ({ url: 'oc-file-preview://t/site/index.html' }), release: () => {} };
+  const html = renderToStaticMarkup(h(V.SourceFileViewer, { file: page, displayPath: page.path, fullPath: '/w/site/index.html', scopeKey: 'k', previewFrame: frame }));
+  assert.match(html, /data-file-view="preview"/);
+  assert.match(html, /aria-label="View source" data-view-toggle=""/);
+  assert.match(html, /<div data-file-viewer="" data-file-preview="html" class="relative flex-1 min-h-0 flex flex-col"><div class="absolute inset-0"><div class="flex items-center justify-center h-full w-full source-pane-state"><span role="status" aria-label="Loading file"/);
+  assert.doesNotMatch(html, /class="sfv-line"/);
+  // Opened at a line (a chip, Find in file) it starts on the source; without a frame host there is no preview.
+  const atLine = renderToStaticMarkup(h(V.SourceFileViewer, { file: page, displayPath: page.path, fullPath: '/w/site/index.html', scopeKey: 'k', previewFrame: frame, line: 1, scrollNonce: 1 }));
+  assert.match(atLine, /aria-label="Preview"/);
+  assert.match(atLine, /data-file-view="source"/);
+  const bare = renderToStaticMarkup(h(V.SourceFileViewer, { file: page, displayPath: page.path, fullPath: '/w/site/index.html', scopeKey: 'k' }));
+  assert.doesNotMatch(bare, /sfv-view-toggle|data-file-preview/);
+  // The Files pane hosts frames for its workspace.
+  const pane = panel({ view: filesView(page) });
+  assert.match(pane, /data-file-preview="html"/);
+  const svg = renderToStaticMarkup(h(V.SourceFileViewer, { file: { path: 'logo.svg', text: '<svg xmlns="http://www.w3.org/2000/svg"/>' }, displayPath: 'logo.svg', fullPath: '/w/logo.svg', scopeKey: 'k' }));
+  assert.match(svg, /<div data-file-viewer="" data-file-preview="svg" class="flex-1 min-h-0 \[contain:strict\] sfv-media"><div class="h-full overflow-auto p-md flex items-center justify-center"><img src="data:image\/svg\+xml;charset=utf-8,%3Csvg%20xmlns[^"]*" alt="logo\.svg" class="max-w-full max-h-full object-contain"\/>/);
+  assert.match(svg, /aria-label="View source" data-view-toggle=""/);
+  const pdf = renderToStaticMarkup(h(V.SourceFileViewer, { file: { path: 'docs/Spec.pdf', unavailable: 'pdf' }, displayPath: 'docs/Spec.pdf', fullPath: '/w/docs/Spec.pdf', scopeKey: 'k' }));
+  assert.match(pdf, /<div data-file-viewer="" data-file-media="pdf" class="flex-1 min-h-0 \[contain:strict\] sfv-media"><div class="h-full w-full relative overflow-hidden"><iframe src="file:\/\/\/w\/docs\/Spec\.pdf" title="Spec\.pdf" class="h-full w-full border-0 sfv-pdf"><\/iframe>/);
+  assert.doesNotMatch(pdf, /sfv-view-toggle|role="alert"|looks like binary/);
+});
+
+test('B13 source: the frame is sandboxed without same-origin, routes posted links, times out after 20 s; bodies open the file menu', () => {
+  const src = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-file-viewer.jsx'), 'utf8');
+  assert.match(src, /sandbox="allow-scripts" title=\{name\}/);
+  assert.doesNotMatch(src, /allow-same-origin/);
+  assert.match(src, /event\.source !== iframe\.current\.contentWindow/);
+  // Ba / OpenExternal "ask": only a gesture on a link the page wrote opens at once; others ask (cfdfec14c le).
+  assert.match(src, /userActivation\?\.isActive === true && previewLinkWritten\(text, link\.href\)\) openWebLink\(link\.href, link\.event\);\n\s*else setAsk\(\(value\) => value \?\? link\)/);
+  assert.match(src, /<SourceDialog alert size="md" showClose=\{false\} title=\{t\("Open external link"\)\} description=\{t\("You’re leaving Claude to visit an external link:"\)\}\n\s*initialFocusRef=\{cancel\}/);
+  assert.equal(V.EXTERNAL_LINK_ACTIVATION_DELAY_MS, 400);
+  assert.equal(V.PREVIEW_FRAME_TIMEOUT_MS, 20000);
+  assert.match(src, /<div ref=\{bodyRef\} className="sfv-body"[^>]*onContextMenu=\{fileMenu \? openBodyMenu : undefined\}/);
+  assert.match(src, /fileViewerMenu\(fileMenu\.entries\(file\.path, \{ surface: "file_viewer", unavailable: file\.unavailable \}\)/);
+  const session = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-session.jsx'), 'utf8');
+  assert.match(session, /lister=\{folderLister\} fileMenu=\{fileMenu\} previewFrame=\{previewFrame\}/);
+  assert.match(session, /register: \(text, path\) => call\("file:preview-frame", \{ cwd, relative: path, text \}\)/);
+});
+
+// B32 (2.31226.0 cd2efac6e readable mp/bp/Cp :5181-5225 and :5565-5600, Gl :6735-6748, tp :5114-5135, cu :7179-7203).
+test('B32: the missing card offers Try again, and Create file only when the parent folder exists', () => {
+  const buttons = (markup) => [...markup.matchAll(/<button data-step="1"[^>]*data-card-action="([^"]+)"/g)].map((match) => match[1]);
+  const plain = panel({ view: filesView({ path: 'src/missing.js', unavailable: 'missing' }) });
+  assert.deepEqual(buttons(plain), ['retry'], 'creatable unknown: no Create file');
+  assert.match(text(plain), /src\/missing\.jsTry again$/m);
+  const creatable = panel({ view: filesView({ path: 'src/missing.js', unavailable: 'missing', creatable: true }) });
+  assert.deepEqual(buttons(creatable), ['retry', 'create']);
+  assert.match(text(creatable), /Try againCreate file/);
+  const notHere = panel({ view: filesView({ path: 'src/missing.js', unavailable: 'missing', creatable: false }) });
+  assert.deepEqual(buttons(notHere), ['retry']);
+  assert.match(text(notHere), /Couldn’t find this fileIt can’t be created from here\. Ask Claude to create it\.src\/missing\.js/);
+  const image = panel({ view: filesView({ path: 'logo.png', unavailable: 'missing', creatable: true }) });
+  assert.deepEqual(buttons(image), ['retry'], 'Gt: an image is never created empty');
+});
+
+test('B32: outside-root and binary cards put Show in Finder before View as text anyway', () => {
+  const fileActions = { onShowSessionFile: async () => true };
+  const outside = panel({ fileActions, view: filesView({ path: '/etc/hosts', unavailable: 'outside_root' }) });
+  assert.match(text(outside), /may still exist on disk\.\/etc\/hostsShow in Finder/);
+  const binary = panel({ fileActions, view: filesView({ path: 'img.bin', unavailable: 'binary' }) });
+  assert.match(text(binary), /can’t be previewed as text\.Show in FinderView as text anyway/);
+  const none = panel({ view: filesView({ path: 'img.bin', unavailable: 'binary' }) });
+  assert.doesNotMatch(none, /Show in Finder/, 'no reveal without the session reveal action');
+  const tooLarge = panel({ fileActions, view: filesView({ path: 'big.log', unavailable: 'too_large' }) });
+  assert.doesNotMatch(tooLarge, /Show in Finder/, 'too_large inside the root has no reveal');
+});
+
+test('B32 source: card actions, offer flow and breadcrumb segment menus are wired to real services', () => {
+  const viewer = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-file-viewer.jsx'), 'utf8');
+  const session = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-session.jsx'), 'utf8');
+  const main = fs.readFileSync(path.resolve(import.meta.dirname, '../electron/main.cjs'), 'utf8');
+  assert.match(session, /onCreateFile: sessionId \? \(\) => call\("file:save", \{ cwd, relative: preview\.path, text: "", expectedHash: null \}\)/);
+  assert.match(session, /onRetry: \(\) => loadFile\(preview\.path\)/);
+  assert.match(session, /call\("file", \{ cwd, relative: path, \.\.\.\(sessionId \? \{ sessionId \} : \{\}\)/);
+  assert.match(viewer, /createFileFailedMessage\(name\)/);
+  assert.match(viewer, /surface: "file_breadcrumb"/);
+  assert.match(viewer, /setOfferNonce\(\(value\) => value \+ 1\)/, 'the offer is asked again after an add');
+  for (const action of ['case "file:reveal-session"', 'case "file:folder-offer"']) assert.ok(main.includes(action), action);
 });

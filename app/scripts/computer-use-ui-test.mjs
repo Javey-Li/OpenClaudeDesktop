@@ -23,7 +23,7 @@ async function launch(){app=await electron.launch({args:[root],executablePath:pa
 try{
  await integrity();await launch();
  const input=page.getByRole('textbox',{name:'Message DeepSeek',exact:true});
- await fillComposer(page,input,'fixture:computer-use');await page.getByRole('button',{name:'Send message',exact:true}).click();
+ await fillComposer(page,input,'fixture:computer-use');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
  // 1. The live banner while the held key press runs.
  const banner=page.locator('[data-computer-use-banner]');await banner.waitFor();
  await poll(async()=>/Pressing\s*⌘S/.test(await banner.innerText()),'banner shows the current action');

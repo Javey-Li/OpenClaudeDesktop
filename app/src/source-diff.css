@@ -43,6 +43,10 @@
    The toggle keeps its cdf69fdd3 subheader metrics (px-md, gap 4px, 32px) and
    drops the old 24px right reserve: We's w-control spacer reserves Ze now. */
 .sdiff-view[data-placement=changes] .sdiff-file-toggle span, .sdiff-view[data-placement=changes] .sdiff-open-file { display: revert-layer; white-space: revert-layer; }
+/* B34 La 'View image' overlay (flex items-center gap-xs, its pointer-events-auto flex slot and the w-control spacer)
+   and the disabled-reason trigger around the button: the same `.diff span` override, undone. */
+.sdiff-view[data-placement=changes] .sdiff-view-image, .sdiff-view[data-placement=changes] .sdiff-view-image > span { display: revert-layer; white-space: revert-layer; }
+.sdiff-view[data-placement=changes] .sdiff-view-image .source-tooltip-disabled-trigger { display: inline-flex; white-space: normal; }
 .sdiff-view[data-placement=changes] .sdiff-file-toggle { padding-right: var(--cds-pad-md, 8px); }
 .sdiff-path-directory[data-clipped] { opacity: 0; }
 /* Ze reveal: group-hover/group-focus-within on the trigger, always on a coarse
@@ -133,6 +137,17 @@ html[data-reduce-motion="true"] .sdiff-caret { transition: none; }
 .sdiff-tree-row:hover { background:var(--cds-fill-ghost-hover); }
 .sdiff-tree-row[aria-current], .sdiff-tree-row[aria-current]:hover { background:var(--cds-fill-control); }
 .sdiff-tree-row:focus-visible { outline:none; box-shadow:var(--cds-focus-shadow); }
+/* B15 Commits section (c44d00c7f Zr/Kr/Wr): the same `button` reset beats the rows' layered px-xs py-[6px],
+   text-body, text-primary/secondary and the ce9ca5630 a/c fills, so they are restated unlayered too.
+   scroll-mt-(--cds-pad-md) (Kr) is in the 2.31226.0 c6a992d55 copy but not in the loaded one. */
+.sdiff-commit-row, .sdiff-commit-scope { padding:6px var(--cds-pad-xs); background:var(--cds-alpha-0); color:var(--cds-text-primary);
+  font-size:var(--cds-font-size-body); line-height:var(--cds-leading-body); }
+.sdiff-commit-scope { scroll-margin-top:var(--cds-pad-md); }
+.sdiff-commit-row:hover, .sdiff-commit-row[data-pressed], .sdiff-commit-scope:hover { background:var(--cds-fill-ghost-hover); }
+.sdiff-commit-row[aria-pressed="true"], .sdiff-commit-row[aria-pressed="true"]:hover,
+.sdiff-commit-scope[aria-pressed="true"], .sdiff-commit-scope[aria-pressed="true"]:hover { background:var(--cds-fill-control); }
+.sdiff-commit-row:focus-visible, .sdiff-commit-scope:focus-visible, .sdiff-commits-trigger:focus-visible { outline:none; box-shadow:var(--cds-focus-shadow); }
+.sdiff-commits-trigger { padding-right:var(--cds-pad-md); color:var(--cds-text-secondary); font-size:var(--cds-font-size-body); line-height:var(--cds-leading-body); }
 @media (prefers-reduced-motion: reduce) { .sdiff-tree-caret { transition:none; } }
 html[data-reduce-motion="true"] .sdiff-tree-caret { transition:none; }
 /* cn shield: while a handle drags, the whole pane keeps the col-resize cursor
@@ -140,7 +155,11 @@ html[data-reduce-motion="true"] .sdiff-tree-caret { transition:none; }
 .sdiff-changes-layout[data-resizing] { user-select:none; }
 .sdiff-changes-layout[data-resizing] * { cursor:col-resize !important; }
 .sdiff-changes-layout[data-resizing] :is(.sdiff-file-list-divider, .sdiff-file-list-edge) > span { opacity:1; background:var(--cds-fill-primary); }
-/* Line comments: Lr (panes-diff-view-current.js:2053-2068) in the @pierre/diffs gutter utility slot (absolute,
+/* Yn (c44d00c7f): the hidden list's edge is Jn with "start-0 end-auto w-[3px] [&>*]:pointer-events-none", so it leaves
+   the gutter's line-comment '+' (Ca, -left-0.5) clickable. */
+.source-tree-edge.sdiff-file-list-edge { width:3px; }
+.source-tree-edge.sdiff-file-list-edge > * { pointer-events:none; }
+/* Line comments: Ca (c44d00c7f 2925-2943) in the @pierre/diffs gutter utility slot (absolute,
    top/bottom 0, my-auto, -left-0.5): cda9b4504 "flex size-4 items-center justify-center rounded bg-fill-accent
    text-on-accent hover:bg-fill-accent-hover", shown on the hovered line (or while it has keyboard focus). */
 .sdiff-row[data-commentable] { position: relative; }
@@ -152,8 +171,9 @@ html[data-reduce-motion="true"] .sdiff-tree-caret { transition:none; }
 .sdiff-gutter-add:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
 .sdiff-row[data-commentable] > .sdiff-line-number { grid-column: 1; }
 .sdiff-row[data-commentable] > .sdiff-code-cell { grid-column: 2; }
-.sdiff-comment { display: flex; flex-direction: column; gap: var(--cds-gap-sm, 8px); width: min(340px, calc(100vw - 2rem)); }
-.sdiff-comment-title { font-size: var(--cds-font-size-footnote, 12px); color: var(--cds-text-secondary); }
-.sdiff-comment textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 6px 8px; border: 1px solid var(--cds-border); border-radius: 6px; background: var(--cds-surface-1); color: var(--cds-text-primary); font: inherit; font-size: var(--cds-font-size-body, 13px); }
-.sdiff-comment textarea:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
-.sdiff-comment-actions { display: flex; justify-content: flex-end; gap: var(--cds-gap-xs, 4px); }
+/* B14: c44d00c7f ha/ga comment cards sit in the row's annotation slot (full width, sans text, selectable), and the
+   @pierre/diffs line-number drag tints the picked rows. */
+.sdiff-comment-row { min-width: 0; letter-spacing: normal; font-feature-settings: normal; }
+.sdiff-row[data-commentable] > .sdiff-line-number { cursor: var(--cds-cursor-interactive, pointer); }
+.sdiff-view.diff .sdiff-row:is([data-line-selected], [data-comment-range]) { background: color-mix(in srgb, var(--cds-fill-accent) 14%, transparent); }
+.sdiff-view.diff .sdiff-row:is(.added, .removed):is([data-line-selected], [data-comment-range]) { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--cds-fill-accent) 14%, transparent); }

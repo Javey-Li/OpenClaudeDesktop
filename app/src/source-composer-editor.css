@@ -32,3 +32,18 @@
 .sc-mention-chip-label::selection{background:transparent;}
 /* The "ultracode" keyword while it opts the turn into a dynamic workflow (Claude Code highlights it in the prompt). */
 .sc-ultracode-keyword { color: var(--cds-text-pro); font-weight: 500; }
+/* B31: the composer's marks and code block (shared-5 :15975-16060: link, strike, inline code, CodeBlock yD
+   'code-block' > pre > code), the link bubble (ca80fca8d KM) and the Edit link dialog (qM). */
+.sc-composer .sc-input.ProseMirror a.sc-composer-link{color:var(--cds-text-accent);text-decoration:underline;text-decoration-color:color-mix(in oklab,currentColor 40%,transparent);text-underline-offset:2px;cursor:text;}
+.sc-composer .sc-input.ProseMirror s{text-decoration:line-through;}
+.sc-composer .sc-input.ProseMirror code.sc-inline-code{padding:0 3px;border-radius:4px;background:var(--cds-alpha-2,rgba(0,0,0,.06));color:var(--cds-prose-code-color,var(--cds-text-danger,inherit));font-family:var(--font-code,var(--cds-font-mono,ui-monospace,monospace));font-size:.9em;}
+.sc-composer .sc-input.ProseMirror pre.sc-code-block{margin:4px 0;padding:6px var(--cds-pad-md,8px);border-radius:8px;background:var(--cds-alpha-2,rgba(0,0,0,.06));white-space:pre-wrap;overflow-wrap:anywhere;direction:ltr;font:400 var(--cds-font-size-code,12px)/var(--cds-leading-code,17px) var(--font-code,var(--cds-font-mono,ui-monospace,monospace));color:var(--cds-text-primary);}
+.sc-composer .sc-input.ProseMirror pre.sc-code-block code{font:inherit;background:none;padding:0;}
+.sc-link-bubble{position:fixed;z-index:50;isolation:isolate;display:flex;align-items:center;gap:4px;padding:var(--cds-pad-xs,4px);border-radius:var(--cds-radius--lg,8px);background:var(--cds-surface-3);box-shadow:inset 0 0 0 var(--cds-ring-inner,0px) var(--cds-ring-color,transparent),0 0 0 var(--cds-ring-outer,0px) var(--cds-ring-color,transparent),var(--cds-shadow-popover);color:var(--cds-text-primary);overflow-wrap:break-word;font:400 var(--cds-font-size-body,13px)/var(--cds-leading-body,19px) var(--cds-font-sans);}
+.sc-link-fields{display:flex;flex-direction:column;gap:12px;margin-top:8px;}
+.sc-link-field{display:flex;min-width:0;flex-direction:column;gap:var(--cds-gap-sm,4px);}
+.sc-link-field label{color:var(--cds-text-primary);font:500 var(--cds-font-size-body,13px)/var(--cds-leading-body,19px) var(--cds-font-sans);}
+.sc-link-field > input[data-cds=TextInput]{box-sizing:border-box;width:100%;min-width:0;height:var(--cds-h-control--lg,36px);margin:0;padding:0 var(--cds-pad-md,8px);border:0;border-radius:var(--cds-radius,6px);background:var(--cds-fill-field);box-shadow:inset 0 0 0 1px var(--cds-fill-field-ring);color:var(--cds-text-primary);font:400 var(--cds-font-size-body,14px)/var(--cds-leading-body,20px) var(--cds-font-sans);outline:none;}
+.sc-link-field > input[data-cds=TextInput]:hover:not(:focus):not([aria-invalid=true]){box-shadow:inset 0 0 0 1px var(--cds-border-strong);}
+.sc-link-field > input[data-cds=TextInput][aria-invalid=true]{box-shadow:inset 0 0 0 1px var(--cds-fill-danger);}
+.sc-link-field > input[data-cds=TextInput]:focus-visible{box-shadow:var(--cds-focus-shadow);}

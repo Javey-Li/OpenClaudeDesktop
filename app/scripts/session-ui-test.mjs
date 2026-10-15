@@ -174,7 +174,7 @@ async function send(text) {
   await page
     .getByRole("textbox", { name: "Message DeepSeek", exact: true })
     .fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator("[data-approval-presentation=card]").waitFor();
 }
 async function decide(prompt, button, result, inspect) {
@@ -658,7 +658,7 @@ try {
     "fixture-only transient busy event keeps the standalone label in steady secondary gray with no gradient or animation in both motion modes; completed state clears Working; the feed is aria-busy with a 'Currently streaming message' tail, then 'Message N'",
   );
 
-  await page.getByRole("button", {name: "Session options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Plan", exact: true}).click();
+  await page.getByRole("button", {name: "View options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Plan", exact: true}).click();
   await page.getByText("Respect user decision", { exact: true }).waitFor();
   assert.equal(
     await page.locator(".source-plan li[data-state=completed]").count(),
@@ -704,13 +704,14 @@ try {
     await page.locator(".source-side-tile").first().getByRole("button", { name: "Close panel", exact: true }).click();
     await page.waitForTimeout(80);
   }
-  await page.getByRole("button", {name: "Session options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Files", exact: true}).click();
-  // F11: the tree is "Project files" and the viewer scroller is .source-file-preview (cd2efac6e jo).
+  await page.getByRole("button", {name: "View options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Files", exact: true}).click();
+  // F11: the tree is "Project files"; the viewer scroller is .source-file-preview (cd2efac6e jo), and a writable text
+  // tab opens in the CodeMirror editor (.sfv-editor, the Oct 12 file-editor port), so either holds the text.
   const tree = page.getByRole("tree", { name: "Project files" });
   await tree.getByRole("button", { name: "nested", exact: true }).click();
   await tree.getByRole("button", { name: "deep.txt", exact: true }).click();
   await page
-    .locator(".source-file-preview")
+    .locator(".source-file-preview, .sfv-editor")
     .filter({ hasText: "NESTED_FILE_PREVIEW" })
     .waitFor();
   // Preview tab name carries the sr-only ", preview" hint (panes-tabs-current.js:436-441).
@@ -718,10 +719,11 @@ try {
   // (design-system.css:4083-4093), i.e. display block, so accname name-from-content pads it
   // with spaces (Playwright innerAccumulatedElementText) and the exact name is "deep.txt , preview".
   await page.getByRole("tab", { name: "deep.txt , preview", exact: true }).dblclick();
-  await page.getByRole("button", { name: "Show file tree", exact: true }).click();
+  // B33: the tree coachmark (portaled to body) has its own "Show file tree" action, so use the header toggle.
+  await page.locator(".source-pane-header").getByRole("button", { name: "Show file tree", exact: true }).click();
   await tree.getByRole("button", { name: "alpha.txt", exact: true }).click();
   await page
-    .locator(".source-file-preview")
+    .locator(".source-file-preview, .sfv-editor")
     .filter({ hasText: "FIRST_FILE_PREVIEW" })
     .waitFor();
   assert.equal(
@@ -733,7 +735,7 @@ try {
   );
   await page.getByRole("tab", { name: "deep.txt", exact: true }).click();
   await page
-    .locator(".source-file-preview")
+    .locator(".source-file-preview, .sfv-editor")
     .filter({ hasText: "NESTED_FILE_PREVIEW" })
     .waitFor();
   // pe close button: aria-hidden, label "Close file" (panes-tile-current.js:6671).
@@ -741,7 +743,7 @@ try {
     .locator('.source-file-tab[data-file-path="nested/deep.txt"] > button[aria-label="Close file"][aria-hidden="true"]')
     .click();
   await page
-    .locator(".source-file-preview")
+    .locator(".source-file-preview, .sfv-editor")
     .filter({ hasText: "FIRST_FILE_PREVIEW" })
     .waitFor();
   await fs.writeFile(
@@ -809,15 +811,15 @@ try {
 
   // R09 Plan document (panes-tile-current.js kp/Dp/Mp; panes-toggle-current.js:3262-3272): a proposed plan with no
   // todos still offers the Plan row, and the pane shows its Markdown without a Tasks section.
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).waitFor();
   assert.equal(await page.getByRole("menuitemcheckbox", { name: "Plan", exact: true }).count(), 0, "no plan, no Plan row");
   await page.keyboard.press("Escape");
   await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).waitFor({ state: "detached" });
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill("fixture:plan-document");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.getByText("PLAN_FIXTURE_REPLY", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Plan", exact: true }).click();
   await page.locator(".source-plan-document h1").filter({ hasText: "Plan fixture heading" }).waitFor();
   metrics.planDocument = await page.locator(".source-plan").evaluate((node) => ({

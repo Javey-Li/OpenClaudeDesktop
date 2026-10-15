@@ -60,3 +60,41 @@ test("the purple top tier is the ultra/ultracode id, never just the last level",
   assert.equal(hasTopTierEffort(["ultra", "low"]), false, "only the last option counts");
   assert.equal(hasTopTierEffort([]), false); assert.equal(hasTopTierEffort(undefined), false);
 });
+
+// B30 c593f7513 lp I (:6011-6111): 'Default' on the model new sessions use; a current model the catalog no longer
+// lists becomes a disabled 'deprecated' row after the main rows (shared-8 Hk T = [...main, deprecated]).
+test("shapeModelCatalog badges the default model and appends the unsupported current model", async () => {
+  const { shapeModelCatalog } = await import("../src/model-menu-model.mjs");
+  const models = [model("a"), model("b", { badge: { message: "New" } }), model("c")];
+  const shaped = shapeModelCatalog({ models, selected: "a", defaultModel: "c" });
+  assert.deepEqual(shaped.map((entry) => entry.badge?.message ?? null), [null, "New", "Default"]);
+  assert.equal(shapeModelCatalog({ models, selected: "a", defaultModel: "b" })[1].badge.message, "New", "a catalog badge wins");
+  assert.equal(shapeModelCatalog({ models, selected: "a" }).length, 3, "no unsupported row while the current model is listed");
+  const gone = shapeModelCatalog({ models, selected: "retired", defaultModel: "a" });
+  assert.deepEqual(gone.at(-1), { id: "retired", model: "retired", displayName: "Unsupported model", section: "deprecated", disabled: true, unsupported: true });
+  assert.deepEqual(shapeModelCatalog({ models: [], selected: "retired" }), [], "an empty catalog adds nothing (N.models.length > 0)");
+  const sections = modelMenuSections({ models: [...["a", "b", "c", "d", "e"].map((id) => model(id)), gone.at(-1)], selected: "retired" });
+  assert.deepEqual([ids(sections.primary), ids(sections.overflow)], [["a", "b", "c", "d", "retired"], ["e"]]);
+  assert.deepEqual(ids(modelMenuSections({ models: [model("a"), { ...gone.at(-1) }], selected: "a" }).primary), ["a"], "a deprecated row shows only as the current model");
+});
+
+// B30 c8e04f916 C q/J/ve/Q + c2d9b9a76 mark: the first non-warning badge marks its stop; '{name} ({badge})'.
+test("effort slider badges: the default level is marked, value text names the badge, warning badges add the note", async () => {
+  const { markDefaultEffort, effortMark, effortValueText, effortWarning } = await import("../src/model-menu-model.mjs");
+  const levels = [{ reasoningEffort: "low" }, { reasoningEffort: "medium" }, { reasoningEffort: "high" }];
+  const marked = markDefaultEffort(levels, "medium");
+  assert.deepEqual(marked[1].badge, { message: "Default", variant: "neutral" });
+  assert.equal(marked[0], levels[0], "other levels are untouched");
+  assert.deepEqual(markDefaultEffort(["low", "high"], "high")[1], { reasoningEffort: "high", badge: { message: "Default", variant: "neutral" } });
+  assert.equal(markDefaultEffort(levels, ""), levels);
+  const options = marked.map((level) => ({ ...level, id: level.reasoningEffort, name: effortName(level.reasoningEffort) }));
+  assert.deepEqual(effortMark(options), { index: 1, label: "Default" });
+  assert.equal(effortValueText(options, 1), "Medium (Default)");
+  assert.equal(effortValueText(options, 2), "High");
+  assert.equal(effortValueText([{ id: "x" }, { id: "y" }], 1), "Level 2 of 2");
+  const warned = [{ id: "high", name: "High" }, { id: "max", name: "Max", badge: { message: "High usage", variant: "warning" } }];
+  assert.equal(effortMark(warned), null, "a warning badge is no mark");
+  assert.equal(effortWarning(warned[1]), "DeepSeek thinks longer with Max effort and uses your limits faster than High.");
+  assert.equal(effortWarning({ ...warned[1], tooltip: { content: "Own note" } }), "Own note");
+  assert.equal(effortWarning(warned[0]), undefined);
+});

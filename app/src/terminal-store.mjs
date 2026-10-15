@@ -7,6 +7,7 @@
 // xterm and stays testable. A view: { write(data), reset(), dispose(), element } — the store keeps at most
 // MAX_CACHED_TERMINALS of them (least recently shown first out; they re-attach from the main process's kept output).
 import { MAX_CACHED_TERMINALS, unseenData } from "./terminal-pane-model.mjs";
+import { createInlineOutput, feedInlineOutput, inlineOutputText, pickRunTab, promptAfterInput, INLINE_SILENCE_MS, INLINE_START_MS } from "./code-block-run-model.mjs";
 
 export function ownerKeyOf(sessionId, homeWorkspace) {
   return sessionId ? sessionId : homeWorkspace ? `home:${homeWorkspace}` : null;
@@ -18,6 +19,13 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
   const listeners = new Set();
   const openedListeners = new Set();
   const enterAt = new Map(); // id → last Enter keystroke time (auto-close on `exit`)
+  // A code block's "Run in terminal" (B20, ca41b3815 inlineRun): at most one run is tracked, its output read from the
+  // tab's stream into the block (code-block-run-model.mjs). records: finished runs whose output went to the model
+  // (c26fb8b6b G byRunId), so their block keeps showing it after another run starts.
+  let inline = null, inlineGeneration = 0, silenceTimer = null, startTimer = null;
+  const inlineListeners = new Set();
+  const records = new Map();
+  const prompts = new Map(); // id → "clean" | "dirty": unsent input at the prompt (ca41b3815 promptLines)
   let version = 0;
   const notify = () => { version += 1; for (const listener of [...listeners]) { try { listener(); } catch {} } };
 
@@ -56,6 +64,9 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
   function receive(event) {
     if (!event || typeof event !== "object") return;
     if (event.kind === "data") {
+      // Before the run's tab is known (a dedicated run's "run" reply may come after its first output), every tab's
+      // output waits in the queue; dispatched() keeps the run tab's.
+      if (inline && !inline.settled && (event.id === inline.ptyKey || (inline.ptyKey === null && inline.queue))) inlineData(event);
       const entry = views.get(event.id);
       if (!entry) return;
       if (entry.queue) { entry.queue.push(event); return; }
@@ -65,9 +76,22 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
     }
     // ⌘K in some window: every other view of that terminal clears too (the kept output is gone: terminal-service "clear").
     if (event.kind === "cleared") { const entry = views.get(event.id); if (entry && !entry.queue) { try { entry.view.clear?.(); } catch {} entry.written = event.end; } return; }
-    if (event.kind === "state") { upsert(event.info); notify(); return; }
+    if (event.kind === "state") {
+      upsert(event.info);
+      const ended = event.info && event.info.status !== "running" && event.info.status !== "starting";
+      if (inline && !inline.settled && ended && event.info.id === inline.ptyKey) inlineShellEnded(event.info);
+      else if (inline && !inline.settled && ended && inline.ptyKey === null && inline.queue) inline.queue.push(event);
+      notify();
+      return;
+    }
     // "moved": the terminal now belongs to another owner (a session the New session page started): its view stays.
-    if (event.kind === "removed") { drop(event.id, event.owner, { keepView: event.reason === "moved" }); notify(); return; }
+    if (event.kind === "removed") {
+      drop(event.id, event.owner, { keepView: event.reason === "moved" });
+      if (event.reason !== "moved") prompts.delete(event.id);
+      if (event.reason !== "moved" && inline && !inline.settled && event.id === inline.ptyKey) inlineShellEnded(null);
+      notify();
+      return;
+    }
     if (event.kind === "opened") {
       const state = ownerState(event.owner);
       state.active = event.id;
@@ -75,6 +99,71 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
       notify();
     }
   }
+  // ---- Inline run (code-block-run-model.mjs; ca41b3815 runInline / appendInlineOutput / settle) ----
+  const emitInline = () => { for (const listener of [...inlineListeners]) { try { listener(); } catch {} } };
+  const setInline = (patch) => { inline = inline ? { ...inline, ...patch } : null; emitInline(); };
+  function clearInlineTimers() { clearTimeout(silenceTimer); clearTimeout(startTimer); silenceTimer = startTimer = null; }
+  function settleInline(endedBy, extra = {}) {
+    if (!inline || inline.settled) return;
+    clearInlineTimers();
+    setInline({ settled: true, endedBy: inline.endedBy ?? endedBy, prev: null, queue: null, ...extra });
+  }
+  // A plain run with no command marks settles once its output has been quiet for a moment (ca41b3815 gt "silence").
+  function armSilence() {
+    clearTimeout(silenceTimer);
+    const generation = inline?.generation;
+    silenceTimer = setTimeout(() => { if (inline?.generation === generation && !inline.settled && inline.quietSettles) settleInline("silence"); }, INLINE_SILENCE_MS);
+  }
+  function inlineChunk(data) {
+    const run = inline;
+    feedInlineOutput(run.reader, data);
+    const output = inlineOutputText(run.reader, run.command);
+    const visible = output.replace(/\x1b\[[0-9;]*m/g, "").trim() !== "";
+    inline = { ...run, output, hasVisibleOutput: visible, altScreen: run.reader.alt, ...(visible || run.reader.cleared ? { prev: null } : {}) };
+  }
+  function inlineData(event) {
+    if (inline.at === null) { inline.queue?.push(event); return; }
+    const start = Number.isFinite(event.end) ? event.end - event.data.length : inline.at;
+    if (Number.isFinite(event.end) && event.end <= inline.at) return;
+    inlineChunk(event.data.slice(Math.max(0, inline.at - start)));
+    if (inline.reader.finished) { settleInline("idle", { exitCode: inline.reader.exitCode }); return; }
+    if (inline.reader.started) { clearTimeout(silenceTimer); inline.quietSettles = false; }
+    else if (inline.quietSettles) armSilence();
+    emitInline();
+  }
+  function inlineShellEnded(info) {
+    const exitCode = Number.isInteger(info?.exitCode) ? info.exitCode : inline.reader?.exitCode ?? null;
+    if (inline.mode === "dedicated" || inline.hasVisibleOutput) settleInline(inline.mode === "dedicated" ? "exit" : "shell-exit", { exitCode });
+    else settleInline("shell-exit", { errorKind: "shell-exited" });
+  }
+  function startInline({ id, owner, command, mode }) {
+    if (inline && !inline.settled) settleInline("superseded");
+    clearInlineTimers();
+    records.delete(id);
+    const previous = inline?.id === id && inline.output ? { output: inline.output, altScreen: inline.altScreen } : null;
+    inline = { id, generation: ++inlineGeneration, owner, command, mode, ptyKey: null, at: null, queue: [], reader: createInlineOutput(mode),
+      output: "", hasVisibleOutput: false, altScreen: false, dispatched: false, settled: false, endedBy: null, exitCode: null,
+      errorKind: null, error: null, quietSettles: false, prev: previous };
+    emitInline();
+    return inline.generation;
+  }
+  const current = (generation) => inline?.generation === generation && !inline.settled;
+  // The tab's output from offset `at` on belongs to the run; events that came before the offset was known replay now.
+  function dispatched(generation, ptyKey, at, { quietSettles }) {
+    if (!current(generation)) return false;
+    const queued = inline.queue ?? [];
+    inline = { ...inline, ptyKey, at: Number.isFinite(at) ? at : 0, queue: null, dispatched: true, quietSettles };
+    for (const event of queued) {
+      if (!current(generation)) break;
+      if (event.kind === "state") { if (event.info?.id === ptyKey) inlineShellEnded(event.info); }
+      else if (event.id === ptyKey) inlineData(event);
+    }
+    if (!current(generation)) return false;
+    if (quietSettles) armSilence();
+    emitInline();
+    return true;
+  }
+
   let unsubscribe = null, hello = null;
   function connect() {
     if (!bridge || unsubscribe) return;
@@ -114,8 +203,8 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
       return info;
     },
     /** Shell mode ('!command' on a core without its own): a tab running the command; wait() returns its output. */
-    async run(sessionId, command) {
-      const info = await bridge.call("run", { sessionId, command });
+    async run(sessionId, command, { quiet = false } = {}) {
+      const info = await bridge.call("run", { sessionId, command, ...(quiet ? { quiet: true } : {}) });
       upsert(info);
       ownerState(sessionId).active = info.id;
       notify();
@@ -177,6 +266,7 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
     },
     input(id, data) {
       if (!bridge) return;
+      prompts.set(id, promptAfterInput(prompts.get(id), data));
       if (data.includes("\r")) enterAt.set(id, Date.now());
       bridge.write(id, data);
     },
@@ -216,10 +306,89 @@ export function createTerminalStore({ bridge = globalThis.desktop?.terminal ?? n
       }
       return entry.view;
     },
+    updateViewOptions(options) { for (const {view} of views.values()) for (const [key,value] of Object.entries(options)) if (view.term?.options[key] !== value && view.term) view.term.options[key]=value; },
     hasView(id) { return views.has(id); },
     /** Any tab of `owner` with a running command (the titlebar's "Terminal (command running)" dot). */
     busy(owner) { return !!owners.get(owner)?.tabs.some((tab) => tab.busy === true && tab.status === "running"); },
-    dispose() { unsubscribe?.(); unsubscribe = null; for (const entry of views.values()) { try { entry.view.dispose(); } catch {} } views.clear(); },
+    /** The tracked code-block run (null when none), replaced on every change; subscribeInline() hears the changes. */
+    inlineRun() { return inline; },
+    subscribeInline(listener) { inlineListeners.add(listener); return () => inlineListeners.delete(listener); },
+    /** A finished run whose output went to the model, kept for its block: { output, error } or undefined. */
+    runRecord(id) { return records.get(id); },
+    /** The tab a run was typed into, while that run is the tracked one and its tab is still open (c03935b01 Mt). */
+    inlineTab(id) {
+      if (!inline || inline.id !== id || !inline.ptyKey) return null;
+      return ownerState(inline.owner).tabs.some((tab) => tab.id === inline.ptyKey) ? { owner: inline.owner, id: inline.ptyKey } : null;
+    },
+    /**
+     * Type a code block's command at an idle prompt of the owner's terminals, or in a new tab (c11959232 run "plain",
+     * c03935b01 It); its output is read into inlineRun(). Resolves { ptyKey, fresh } or null when superseded.
+     */
+    async runInline({ id, sessionId = null, homeWorkspace = null, command, onTab = null }) {
+      if (!bridge) throw new Error("The terminal isn’t available.");
+      const owner = ownerKeyOf(sessionId, homeWorkspace);
+      const generation = startInline({ id, owner, command, mode: "typed" });
+      try {
+        await store.load(owner, sessionId, homeWorkspace).catch(() => null);
+        const probe = await bridge.call("probe", params(sessionId, homeWorkspace)).catch(() => null);
+        if (!current(generation)) return null;
+        const state = ownerState(owner);
+        const target = pickRunTab({ tabs: state.tabs, activeId: state.active, probe, dirty: (tab) => prompts.get(tab) === "dirty" });
+        const info = target ? state.tabs.find((tab) => tab.id === target) : await store.create(owner, sessionId, homeWorkspace, {});
+        if (!current(generation)) return null;
+        store.select(owner, info.id);
+        inline = { ...inline, ptyKey: info.id };
+        try { onTab?.(info); } catch {}
+        // A new shell first runs its startup files; the command is typed once its prompt is up ("ready": the main
+        // process waits for the first output and a short quiet spell, and says where the output stood then).
+        const ready = await bridge.call("ready", { ...params(sessionId, homeWorkspace), id: info.id });
+        if (!current(generation)) return null;
+        bridge.write(info.id, `${command}\r`);
+        prompts.set(info.id, "clean");
+        enterAt.set(info.id, Date.now());
+        // A shell with the integration marks the command's start and end (OSC 133 C/D); one without settles on quiet,
+        // as does an integrated one that never marks the start.
+        if (!dispatched(generation, info.id, ready?.at, { quietSettles: !info.shellIntegration })) return null;
+        if (info.shellIntegration) startTimer = setTimeout(() => { if (current(generation) && !inline.reader.started) { inline.quietSettles = true; armSilence(); } }, INLINE_START_MS);
+        return { ptyKey: info.id, fresh: !target };
+      } catch (error) {
+        if (current(generation)) settleInline("error", { errorKind: "failed", error: error?.message || String(error) });
+        throw error;
+      }
+    },
+    /**
+     * Run a code block's command in a tab of its own whose output goes to the model when it ends (the composer's
+     * '!' run; c11959232 runCaptured): its output streams into inlineRun() too. Resolves the tab's info.
+     */
+    async runDedicated({ id, sessionId, command }) {
+      if (!bridge) throw new Error("The terminal isn’t available.");
+      const generation = startInline({ id, owner: ownerKeyOf(sessionId, null), command, mode: "dedicated" });
+      try {
+        const info = await store.run(sessionId, command, { quiet: true });
+        if (current(generation)) { inline = { ...inline, ptyKey: info.id }; dispatched(generation, info.id, 0, { quietSettles: false }); }
+        return info;
+      } catch (error) {
+        if (current(generation)) settleInline("error", { errorKind: "failed", error: error?.message || String(error) });
+        throw error;
+      }
+    },
+    /** Keep a finished run's output for its block (its output went to the model). */
+    recordRun(id) {
+      if (!inline || inline.id !== id) return;
+      records.delete(id);
+      records.set(id, { output: inline.output, error: inline.errorKind === "shell-exited" ? "shell-exited" : inline.error, exitCode: inline.exitCode });
+      while (records.size > 200) records.delete(records.keys().next().value);
+      inline = { ...inline }; // a new snapshot, so blocks read the record
+      emitInline();
+    },
+    /** Cancel: ^C to the command once typed, and the run ends (ca41b3815 cancelInlineRun; c11959232 cancel). */
+    cancelInlineRun() {
+      if (!inline || inline.settled) return;
+      if (inline.dispatched && inline.ptyKey) bridge?.write(inline.ptyKey, "\x03");
+      settleInline("cancel");
+    },
+    dismissInlineRun() { clearInlineTimers(); inline = null; emitInline(); },
+    dispose() { clearInlineTimers(); unsubscribe?.(); unsubscribe = null; for (const entry of views.values()) { try { entry.view.dispose(); } catch {} } views.clear(); },
   };
   return store;
 }

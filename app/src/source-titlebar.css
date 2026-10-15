@@ -100,6 +100,12 @@
 .st-title-input[aria-invalid="true"] {
   outline-color: var(--cds-fill-danger) !important;
 }
+/* c593f7513 Om (8180-8205): the header session caret, a ghost icon-only Button (CaretDown sm) in text-secondary
+   between the title and the folder chip. */
+.st-toolbar .st-session-caret {
+  flex: none;
+  color: var(--cds-text-secondary);
+}
 .st-toolbar .st-folder {
   display: inline-flex;
   align-items: center;

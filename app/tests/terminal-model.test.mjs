@@ -93,12 +93,15 @@ test('labels, auto-close, the toggle keys and the terminal key actions', () => {
   assert.equal(terminalError(new Error("Error invoking remote method 'terminal:call': Error: Unknown terminal."), 'x'), '未知的终端。');
   setLocale('en-US');
   assert.equal(terminalError(null, 'fallback'), 'fallback');
-  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 0 }), true);
-  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 1 }, 0), false);
-  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 1 }, 1000, 2500), true, 'exit typed within 2s');
-  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 1 }, 1000, 3500), false);
-  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 0, signal: 'SIGHUP' }, 0), false);
-  assert.equal(shouldAutoClose({ status: 'running', exitCode: 0 }), false);
+  // cccc2cf0a r_: only a shell the user typed into closes its tab (terminal-service userTyped, reset by a restart).
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 0, userTyped: true }), true);
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 0 }), false, 'an agent-opened tab nobody typed in stays open');
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 0, userTyped: false }, 1000, 1500), false);
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 1, userTyped: true }, 0), false);
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 1, userTyped: true }, 1000, 2500), true, 'exit typed within 2s');
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 1, userTyped: true }, 1000, 3500), false);
+  assert.equal(shouldAutoClose({ status: 'exited', exitCode: 0, signal: 'SIGHUP', userTyped: true }, 0), false);
+  assert.equal(shouldAutoClose({ status: 'running', exitCode: 0, userTyped: true }), false);
   const key = (init) => ({ type: 'keydown', key: '', code: '', ...init });
   assert.equal(isTerminalToggle(key({ ctrlKey: true, code: 'Backquote', key: '`' })), true);
   assert.equal(isTerminalToggle(key({ metaKey: true, code: 'KeyJ', key: 'j' })), true);

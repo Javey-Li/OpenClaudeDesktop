@@ -137,7 +137,7 @@ test('Usage page source: formatted dates and counts, Last updated beside Refresh
  assert.match(page,/const tokenCount=value=>new Intl\.NumberFormat\(getLocale\(\)\)\.format\(value\);/);
  assert.match(page,/const todayKey=localDayKey\(new Date\(\)\);/);assert.match(page,/usagePresentation\(data,\{todayKey,core:coreName\(engine\),locale:getLocale\(\)\}\)/);
  // DeepSeek core: the estimated-cost layout replaces the limits copy and the token table only when the bridge sent `deepseek`.
- assert.match(page,/const cost=usageCostPresentation\(data,\{todayKey,locale:getLocale\(\)\}\),spend=cost\?null:usageSpendPresentation\(data\);/);assert.match(page,/\{!cost&&daily\.length>0&&<section/);
+ assert.match(page,/const cost=usageCostPresentation\(data,\{todayKey,locale:getLocale\(\),days:range\}\),spend=cost\?null:usageSpendPresentation\(data\);/);assert.match(page,/\{!cost&&daily\.length>0&&<section/);
  // Every string the page shows goes through t(): the empty-limits copy comes translated from usageEmptyText.
  assert.match(page,/<p className="su-empty">\{usageEmptyText\(engine\)\}<\/p>/);
  // The daily table heading is translated too (usagePresentation returns the English source).

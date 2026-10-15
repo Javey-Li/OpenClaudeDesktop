@@ -24,7 +24,8 @@ export const APP_TOOL_NAMES = Object.freeze([
   'read_console_messages', 'read_network_requests', 'resize_window', 'list_terminal_tabs', 'read_terminal', 'run_in_terminal', 'stop_terminal_tab', 'Workflow', 'WorkflowStop',
   'open_terminal_tab', 'AskUserQuestion', 'PushNotification', 'SendUserFile', 'ReportFindings', 'mark_chapter', 'spawn_task', 'dismiss_task',
   'Monitor', 'MonitorStop', 'CronCreate', 'CronList', 'CronDelete', 'WebFetch', 'scroll', 'hover', 'find', 'preview_batch',
-  'NotebookEdit', 'list_sessions', 'get_session', 'set_session_title', 'reveal_path', 'open_in_editor',
+  'NotebookEdit', 'list_sessions', 'get_session', 'list_events', 'set_session_title', 'reveal_path', 'open_in_editor',
+  'get_window_layout', 'open_session_in', 'close_split', 'set_sidebar_collapsed',
 ])
 
 /** {name, command, args, env, instructions} (env holds the socket and token; instructions text or null) or null. */

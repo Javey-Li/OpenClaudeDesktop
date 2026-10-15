@@ -105,6 +105,19 @@ setInterval(() => {
 process.stdin.on('end', () => process.exit(0));
 // A held turn streams slowly until it is interrupted or the queue drains it.
 // "fixture:hold-review" marks the turn non-steerable like a real review turn.
+function sideToolsFixture(thread, turn) {
+  const actions=[{type:'read',name:'README.md',path:path.join(thread.cwd,'README.md')},{type:'search',query:'needle',path:thread.cwd},{type:'listFiles',path:thread.cwd}];
+  let index=0,timer,done=false;
+  const finish=status=>{if(done)return;done=true;clearTimeout(timer);streams.delete(thread.id);complete(thread,status==='completed'?'SIDE_TOOL_REPLY':'',status);};
+  const next=()=>{
+    if(done)return;
+    if(index>=actions.length){timer=setTimeout(()=>finish('completed'),1000);return;}
+    const action=actions[index++],item={id:`side-tool-${turn.id}-${index}`,type:'commandExecution',status:'inProgress',command:'fixture inspection',commandActions:[action],cwd:thread.cwd,aggregatedOutput:''};
+    turn.items.push(item);notify('item/started',{threadId:thread.id,turnId:turn.id,item});
+    timer=setTimeout(()=>{if(done)return;item.status='completed';item.exitCode=0;notify('item/completed',{threadId:thread.id,turnId:turn.id,item});next();},1000);
+  };
+  streams.set(thread.id,{pause:()=>clearTimeout(timer),cancel:()=>finish('interrupted')});timer=setTimeout(next,100);
+}
 function holdFixture(thread, turn, nonSteerable) {
   const item = { id: `reply-${turn.id}`, type: 'agentMessage', text: '' };
   turn.items.push(item); turn.nonSteerable = !!nonSteerable;
@@ -624,7 +637,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const fork = { id, cwd: thread.cwd, name: thread.name, preview: thread.preview, forkedFromId: thread.id, createdAt: at, updatedAt: at, turns, archived: false, historyMode: historyMode(thread) };
       db.threads[id] = fork; loaded.add(id); persist();
       if (paginated(fork) && !p.excludeTurns) notify('deprecationNotice', { summary: PAGINATED_FULL_HISTORY_DEPRECATION, details: null });
-      result = { thread: p.excludeTurns ? metadataOnly(fork) : withMode(fork) }; break;
+      result = { thread: p.excludeTurns ? metadataOnly(fork) : withMode(fork) };
+      const forkDelay=p.ephemeral?Math.max(0,Math.min(2000,Number(readCustomize()?.sideForkDelayMs)||0)):0;
+      if(forkDelay){const response=result;setTimeout(()=>send({id:m.id,result:response}),forkDelay);return;}break;
     }
     case 'thread/backgroundTerminals/list': {
       logRequest(m.method,p);result={data:structuredClone(thread?.backgroundTerminals||[]),nextCursor:null};
@@ -744,6 +759,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const text=p.input[0].text;
       if (startDelay > 0) { if (text==='disconnect') setTimeout(()=>process.exit(0),startDelay+100); else if (text.startsWith('fixture:complete')) setTimeout(()=>complete(thread,'Fixture response'),startDelay+20); return; }
       if(text==='disconnect'){setTimeout(()=>process.exit(0),100);return;}
+      if(text==='fixture:side-close'){
+        const close=()=>{streams.delete(thread.id);loaded.delete(thread.id);delete db.threads[thread.id];persist();notify('thread/closed',{threadId:thread.id});};
+        const timer=setTimeout(close,250);streams.set(thread.id,{pause:()=>clearTimeout(timer),cancel:()=>{clearTimeout(timer);close();}});return;
+      }
+      if(text==='fixture:side-tools'){sideToolsFixture(thread,turn);return;}
       if(text==='fixture:hold' || text==='fixture:hold-review') { holdFixture(thread, turn, text==='fixture:hold-review'); return; }
       if(text==='fixture:status-stats') { holdFixture(thread, turn, false); return; }
       if(text==='fixture:compact-reads') {
@@ -761,6 +781,15 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         };
         streams.set(thread.id,{pause:()=>clearTimeout(timer),cancel:()=>{stopped=true;clearTimeout(timer);streams.delete(thread.id);complete(thread,'COMPACT_READ_STOPPED','interrupted');}});
         timer=setTimeout(tick,60);return;
+      }
+      if(text==='fixture:complete artifact') {
+        const files = [{ path: path.join(thread.cwd, 'research-report.md'), description: 'Research findings' }, { path: path.join(thread.cwd, 'results.csv'), description: 'Result data' }, { path: path.join(thread.cwd, 'pixel.png'), description: 'Preview image' }];
+        fs.writeFileSync(files[0].path, '# Research report\nVerified fixture output.\n');
+        fs.writeFileSync(files[1].path, 'name,value\nfixture,42\n');
+        fs.writeFileSync(files[2].path, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aOZkAAAAASUVORK5CYII=', 'base64'));
+        const output = { id: `artifact-${turn.id}`, type: 'dynamicToolCall', status: 'completed', tool: 'present', arguments: {}, codeDesktop: { deliverables: files } };
+        turn.items.push(output); persist(); notify('item/completed', { threadId: thread.id, turnId: turn.id, item: output });
+        complete(thread,'Fixture artifact ready'); return;
       }
       if(text.startsWith('fixture:complete')){complete(thread,'Fixture response');return;}
       // Runs (a visible reply, no completion) until the suite drops the

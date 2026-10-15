@@ -46,7 +46,7 @@ async function launch() {
 }
 async function send(page, text) {
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
 }
 let { app, page } = await launch();
 try {
@@ -96,9 +96,9 @@ try {
   );
   await send(page, "Run the terminal command sleep 30, then reply DONE.");
   await page.locator('.source-step[data-state="busy"]').waitFor({ timeout: 90000 });
-  await page.getByRole("button", { name: "Stop response" }).click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
   await page
-    .getByRole("button", { name: "Stop response" })
+    .locator('[data-testid="code-prompt-stop"]:not([inert] *)')
     .waitFor({ state: "detached", timeout: 30000 });
   events.push(...(await page.evaluate(() => window.testEvents)));
   assert.ok(events.some((e) => e.method === "item/agentMessage/delta"));

@@ -31,7 +31,7 @@ html.cds-root {
      small legacy lane, measured by the scrollbar-mode suite, never hard-coded.
      The lane's paint is the loaded design-system rule html,[data-theme]
      { scrollbar-color: hsla(var(--border-300) / 35%) transparent }
-     (design-system.css:1266-1268, /assets/v1/c6a992d55-Vcbdv79k.css) which
+     (design-system.css:1266-1268, /assets/v1/c6a992d55-C0zTICcS.css) which
      index.html's data-theme="claude" root matches; scrollbar-color inherits,
      and no local scroller overrides it (the scrollbar-mode suite asserts this). */
   scrollbar-width: thin;
@@ -161,6 +161,7 @@ textarea:focus {
   color: var(--cds-text-secondary);
 }
 .sidebar-toolbar > .code-icon-button,
+.sidebar-toolbar > .df-sidebar-hover-reveal > .code-icon-button,
 .sidebar-toolbar > .source-nav-buttons > .code-icon-button {
   width: 24px;
   height: 28px;
@@ -391,7 +392,7 @@ textarea:focus {
   margin: 0 -8px;
 }
 /* pw's utilities sit in @layer utilities / components of the loaded
-   c6a992d55-Vcbdv79k.css, so the unlayered button reset at the top of this
+   c6a992d55-C0zTICcS.css, so the unlayered button reset at the top of this
    file (padding 0, transparent background, focus-visible outline) wins over
    them whatever their specificity. Restate only the colliding declarations
    from pw's class string: pl-[var(--df-row-px)] pr-2,

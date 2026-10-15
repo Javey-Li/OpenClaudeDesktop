@@ -1,7 +1,10 @@
 // Independent adapter: scroll-messages-current:16884–16909/17118–17151;
 // panes-tile-current:15894–16155. No synthetic child transcript entries.
 import { describeVerb } from './description-verb-model.mjs';
-import { t } from '../electron/i18n/index.mjs';
+import { genericToolLabel } from './generic-tool-model.mjs';
+import { t, tn } from '../electron/i18n/index.mjs';
+import { compactTokens } from './context-usage-model.mjs';
+import { formatDuration } from './command-row-model.mjs';
 const TOOL_TYPES = new Set(['commandExecution','fileChange','mcpToolCall','dynamicToolCall','collabAgentToolCall','webSearch','imageView','imageGeneration','computerUse']);
 const TERMINAL = new Set(['completed','failed','stopped']);
 export function agentStatus(status) {
@@ -58,6 +61,26 @@ function toolName(item) {
   }
   return ({fileChange:'Edit',webSearch:t('Web search'),collabAgentToolCall:t('Agent'),imageView:t('View image'),imageGeneration:t('Image generation')})[item.type] || [item.server,item.tool || item.name].filter(Boolean).join(' · ') || t('Tool');
 }
+// jC (cccc2cf0a :11451-11454): a running agent's last tool as the running verb the transcript row would read
+// (c52b02f3f Pf with no input: Read → 'Reading', Grep/Glob → 'Searching', LS → 'Listing', Bash → 'Running a command',
+// Edit → 'Editing', WebSearch → 'Searching web', Agent → 'Running agent', any other tool → 'Using {label}').
+export function toolRunningVerb(item) {
+  if (!item) return null;
+  if (item.type === 'commandExecution') {
+    const action=item.commandActions?.length===1 && item.commandActions[0];
+    return ({read:t('Reading'),search:t('Searching'),listFiles:t('Listing')})[action?.type] || t('Running a command');
+  }
+  if (item.type === 'fileChange') {
+    const kinds=new Set((item.changes || []).map(change=>typeof change?.kind==='string' ? change.kind : change?.kind?.type));
+    return kinds.size===1 && kinds.has('add') ? t('Creating') : kinds.size===1 && kinds.has('delete') ? t('Deleting') : t('Editing');
+  }
+  if (item.type === 'collabAgentToolCall') return t('Running agent');
+  if (item.type === 'imageView') return t('Reading');
+  if (item.type === 'imageGeneration') return t('Generating image');
+  if (item.type === 'computerUse') return t('Using the computer');
+  if (['webSearch','mcpToolCall','dynamicToolCall'].includes(item.type)) return genericToolLabel(item,'busy').label;
+  return null;
+}
 export function agentView(state, item, id = agentTargets(item)[0]) {
   const thread=state.threads?.[id], items=state.items?.[id] || [];
   // Read the latest genuine parent operation's status, not just spawn's ack.
@@ -69,8 +92,20 @@ export function agentView(state, item, id = agentTargets(item)[0]) {
   const lastText=[...items].reverse().find(entry=>entry.type==='agentMessage' && entry.text?.trim())?.text;
   const result=lastText || observed?.message || latest?.agentsStates[id]?.message || item.agentsStates?.[id]?.message || null;
   return {id,name:agentName(thread,item),model:thread?.model || item.model || null,status,items,prompt:item.prompt || null,
-    toolCallCount:tools.length,latestToolName:tools.length ? toolName(tools.at(-1)) : null,result,
+    toolCallCount:tools.length,latestToolName:tools.length ? toolName(tools.at(-1)) : null,latestToolVerb:tools.length ? toolRunningVerb(tools.at(-1)) : null,result,
     completedObservedAt:observed?.completedObservedAt || null};
+}
+// zw / _p (cccc2cf0a :13175-13190, c5da7eb42 :2270-2276): a completed sub-agent's transcript ends with a muted
+// stats line once its tool calls (loaded child items), tokens (its usage) and duration (its turn facts) are all known.
+export function agentConclusionStats(state, agent) {
+  if (agent?.status !== 'completed' || !agent.id || !Object.hasOwn(state?.items || {}, agent.id)) return null;
+  const tokens=state.usage?.[agent.id]?.total?.totalTokens, durationMs=state.taskTurnFacts?.[agent.id]?.durationMs;
+  return Number.isFinite(tokens) && Number.isFinite(durationMs) ? { toolUses:agent.toolCallCount, tokens, durationMs } : null;
+}
+// dAbHM3tAVv: '{toolUses} tool calls · {tokens} tokens · {duration}' ('1 token' for exactly one).
+export function agentConclusionText(stats) {
+  if (!stats) return '';
+  return [tn(stats.toolUses,'{count} tool call','{count} tool calls'), stats.tokens===1 ? t('1 token') : t('{tokens} tokens',{tokens:compactTokens(stats.tokens)}), formatDuration(Math.round(stats.durationMs/1000))].join(' · ');
 }
 export function agentPromptNeeded(items, prompt) {
   if (!prompt || items[0]?.type === 'userMessage') return false;

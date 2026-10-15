@@ -258,7 +258,9 @@ test('native core (Codex): the store re-lists after a change; the page offers ma
   assert.doesNotMatch(html, /cz-form/, 'no inline add form in the page body');
   assert.match(html, /data-cz-available=""/);
   assert.match(html, /data-available-plugin="hello@demo-market"/);
-  assert.match(html, /<h3>Installed<\/h3>/);
+  // B24: the installed plugin is a "Your plugins" row (c6a2a31c4 Br) with its ⋮ "More actions for {name}" menu.
+  assert.match(html, /data-testid="plugins-tabbed-list-row"[^>]*data-plugin-id="done@demo-market"/);
+  assert.match(html, /aria-label="More actions for done" aria-haspopup="menu"/);
   assert.doesNotMatch(html, /Built-in plugins|DeepSeek Harness/);
   const form = renderToStaticMarkup(React.createElement(M.AddMarketplaceForm, { store: pageStore, onClose() {}, copy: customizeCore({ engine: 'codex' }) }));
   assert.match(form, /Add a plugin marketplace to Codex from a git URL, owner\/repo or a local folder\./);
@@ -307,4 +309,26 @@ test('native core (Codex): workspace sharing rows, validated share operations an
   const fresh = renderToStaticMarkup(React.createElement(M.PluginShareControls, { plugin: { ...row, share: null }, store: {} }));
   assert.match(fresh, /Share this plugin with your ChatGPT workspace\./);
   assert.doesNotMatch(fresh, /Stop sharing|Copy link/);
+});
+
+test('B24 Manage marketplaces row (c6a2a31c4 Us): name from the installed plugins, the source, a ⋮ menu; pluginRows keep the marketplace id', () => {
+  const rows = pluginRows({ marketplaces: [{ name: 'demo-market', path: '/m/marketplace.json', interface: { displayName: 'Demo Market' },
+    plugins: [{ id: 'done@demo-market', name: 'done', installed: true, enabled: true }] }] });
+  assert.equal(rows[0].marketplaceId, 'demo-market');
+  const html = renderToStaticMarkup(React.createElement(M.MarketplaceRow, { marketplace: { name: 'demo-market', sourceType: 'git', source: 'https://github.com/o/demo' }, plugins: rows, store: {} }));
+  assert.match(html, /^<li class="flex items-start gap-sm rounded-lg border border-strong px-md py-sm" data-testid="manage-marketplace-row" data-marketplace="demo-market"><div class="flex min-w-0 flex-1 flex-col gap-xs"><span class="min-w-0 truncate text-body font-medium text-primary">Demo Market<\/span><p class="break-all text-caption text-secondary">https:\/\/github.com\/o\/demo<\/p><\/div>/);
+  assert.match(html, /<button aria-label="More actions for Demo Market" aria-haspopup="menu" aria-expanded="false" type="button" data-cds="Button" data-variant="ghost" data-size="sm" data-cds-icon-only=""/);
+  assert.doesNotMatch(html, /Remove marketplace\?/, 'the confirm stays closed until Remove is picked');
+  assert.doesNotMatch(html, /Last updated/, 'no last_updated in the config: no line');
+  // Us: "Last updated: {when}" from the config's last_updated (MarketplaceConfig).
+  const dated = renderToStaticMarkup(React.createElement(M.MarketplaceRow, { marketplace: { name: 'demo-market', sourceType: 'git', source: 'o/demo', lastUpdated: '2026-10-01T09:30:00Z' }, plugins: rows, store: {} }));
+  assert.match(dated, /<p class="text-caption text-muted" data-marketplace-updated="">Last updated: Oct 1, 2026, [^<]+<\/p><\/div>/);
+});
+
+test('B24 review: the New / Disabled badges are the CDS Badge (shared-frame Xo xs: Ho accent / neutral classes, pb-[0.05em] text)', async () => {
+  const L = await server.ssrLoadModule('/src/source-customize-list.jsx');
+  const fresh = renderToStaticMarkup(React.createElement(L.NewBadge, { reason: 'added' }));
+  assert.match(fresh, /<span data-cds="Badge" data-variant="accent" data-size="xs" class="inline-flex items-center gap-1 align-middle h-control-nested whitespace-nowrap rounded-chip px-sm font-sans text-caption font-medium leading-\[round\(1\.25em,1px\)\] shrink-0 bg-tint-blue text-accent" data-cz-new=""><span class="pb-\[0\.05em\]">New<\/span><\/span>/);
+  assert.match(renderToStaticMarkup(React.createElement(L.OffBadge)), /class="[^"]* bg-neutral text-secondary"><span class="pb-\[0\.05em\]">Disabled<\/span>/);
+  assert.equal(renderToStaticMarkup(React.createElement(L.NewBadge, { reason: null })), '');
 });

@@ -95,6 +95,38 @@ test('preview kinds, media kinds and the file:// preview URL', async () => {
   assert.equal(filePreviewUrl('/w/a b/photo.png'), 'file:///w/a%20b/photo.png');
 });
 
+// B13 (2.31226.0 cd2efac6e Ql :6783-6799): .htm/.html and .svg take the sandbox arm; a PDF is shown like media.
+test('B13 preview kinds: html and svg previews, pdf media, the SVG image URL and the frame link message', async () => {
+  const { filePreviewKind, fileMediaKind, svgPreviewUrl, previewFrameLink, PREVIEW_FRAME_LINK } = await import('../src/file-preview-model.mjs');
+  assert.deepEqual(filePreviewKind('site/index.html'), { kind: 'html', delimiter: null });
+  assert.deepEqual(filePreviewKind('OLD.HTM'), { kind: 'html', delimiter: null });
+  assert.deepEqual(filePreviewKind('logo.SVG'), { kind: 'svg', delimiter: null });
+  assert.equal(filePreviewKind('page.xhtml'), null);
+  assert.equal(filePreviewKind('index.html.bak'), null);
+  assert.equal(fileMediaKind('docs/Spec.PDF'), 'pdf');
+  assert.equal(fileMediaKind('logo.svg'), null, 'svg is text with a preview, not media');
+  assert.equal(svgPreviewUrl('<svg xmlns="http://www.w3.org/2000/svg"/>'), 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E');
+  assert.deepEqual(previewFrameLink({ type: PREVIEW_FRAME_LINK, href: 'https://example.com/a?b#c', metaKey: true, button: 0 }),
+    { href: 'https://example.com/a?b#c', event: { button: 0, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false } });
+  assert.equal(previewFrameLink({ type: PREVIEW_FRAME_LINK, href: 'http://localhost:5173/', button: 1 }).event.button, 1);
+  for (const data of [null, 'x', { type: 'other', href: 'https://a.b/' }, { type: PREVIEW_FRAME_LINK, href: 'javascript:alert(1)' },
+    { type: PREVIEW_FRAME_LINK, href: 'file:///etc/passwd' }, { type: PREVIEW_FRAME_LINK, href: 'not a url' }, { type: PREVIEW_FRAME_LINK, href: 1 }])
+    assert.equal(previewFrameLink(data), null, JSON.stringify(data));
+});
+
+test('B13 review: the frame link "ask" checks (cd2efac6e za, cfdfec14c U/W)', async () => {
+  const { previewLinkWritten, externalLinkWarnings } = await import('../src/file-preview-model.mjs');
+  const html = '<p><a class="x" href="https://example.com/a?b=1">a</a> <a href=\'http://b.org\'>b</a> <a href=rel.html>r</a></p>';
+  assert.equal(previewLinkWritten(html, 'https://example.com/a?b=1'), true);
+  assert.equal(previewLinkWritten(html, 'http://b.org/'), true, 'compared as resolved hrefs');
+  assert.equal(previewLinkWritten(html, 'https://evil.example/'), false, 'a link a script made up is not written');
+  const many = Array.from({ length: 257 }, (_, i) => `<a href="https://e.com/${i}">x</a>`).join('');
+  assert.equal(previewLinkWritten(many, 'https://e.com/0'), false, 'more than Ia = 256 written links always ask');
+  assert.deepEqual(externalLinkWarnings('https://xn--mnchen-3ya.de/x'), { hasPunycode: true, decodedHostname: 'münchen.de', hasUserinfo: false, host: null });
+  assert.deepEqual(externalLinkWarnings('https://user:pw@evil.com:8443/'), { hasPunycode: false, decodedHostname: null, hasUserinfo: true, host: 'evil.com:8443' });
+  assert.deepEqual(externalLinkWarnings('https://example.com/'), { hasPunycode: false, decodedHostname: null, hasUserinfo: false, host: null });
+});
+
 test('CSV preview parse (c02d6193d p): header detection, quotes, delimiter sniffing and the limits', async () => {
   const { parseCsvPreview, csvTruncationCaption } = await import('../src/file-preview-model.mjs');
   assert.deepEqual(parseCsvPreview('name,count\nalpha,1\n"b, c",2\n', ','),

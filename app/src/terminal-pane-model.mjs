@@ -18,11 +18,108 @@ export function tabLabel(info, count) {
   if (info?.title) return info.title;
   return count > 1 ? t("Terminal {n}", { n: info?.number ?? 1 }) : t("Terminal");
 }
+/**
+ * cccc2cf0a r_ shell_pty_close: the tab closes only when the user typed into this shell (W.current, reset by a
+ * restart: terminal-service `userTyped`), and it then exited with 0 or within 2s of their Enter (typed `exit`). An
+ * agent-opened tab, or one nobody typed in, stays open on "Shell exited.".
+ */
 export function shouldAutoClose(info, lastEnterAt = 0, now = Date.now()) {
-  if (!info || info.status !== "exited") return false;
+  if (!info || info.status !== "exited" || info.userTyped !== true) return false;
   if (info.exitCode === 0 && !info.signal) return true;
   return lastEnterAt > 0 && now - lastEnterAt <= EXIT_AFTER_ENTER_MS;
 }
+/** Zg/r_ rename: the field starts with the tab's own name (empty for a numbered tab); an empty submit clears it. */
+export function renameDraft(info) {
+  return typeof info?.title === "string" ? info.title : "";
+}
+/** "More terminals" (cfe7c4b3b ot): the tabs scrolled out of the strip, never the selected one. entries: [{id,start,end}]. */
+export function hiddenTerminalTabs(entries, { scrollLeft = 0, clientWidth = 0, activeId = null } = {}) {
+  const right = scrollLeft + clientWidth;
+  return (Array.isArray(entries) ? entries : [])
+    .filter((tab) => tab.id !== activeId && (tab.end <= scrollLeft + 1 || tab.end > right + 1))
+    .map((tab) => tab.id);
+}
+
+// ---------------------------------------------------------------------------
+// Paths dropped on the terminal (cccc2cf0a lg/og/sg/cg, c73f45bc3 Fo quoteShellPath, shared-28 ek/lk/jk). Every path
+// is quoted for the shell; one that cannot be quoted safely refuses the whole drop.
+
+// Td (shared-150 mB without its RTL ranges): control, line/paragraph separators, invisible and format characters.
+const DROP_REFUSED = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]|\p{Default_Ignorable_Code_Point}|\p{Cf}/u;
+const CONTROL = /[\x00-\x1f\x7f-\x9f]/;
+const QUOTE_OR_HISTORY = /['\u2018-\u201b!]/;
+const LITERAL_SHELLS = new Set(["ash", "bash", "dash", "fish", "sh", "zsh"]);
+const AUTOMOUNT_ROOTS = new Set(["net", ".vol", ".file"]);
+const shellName = (shell) => String(shell ?? "").split(/[\\/]/).pop() || String(shell ?? "");
+/** c643524cf: PowerShell (Windows builds), which only takes a full drive path. */
+export function isPowerShell(shell) {
+  const name = shellName(shell);
+  return name === "powershell.exe" || name === "pwsh.exe";
+}
+/** shared-28 ek: an automounter path (/net, /.vol, /.file, also behind /Volumes/X or /System/Volumes/Data) a stat would mount. */
+export function isAutomountPath(value) {
+  const text = value === "~" || /^~[\\/]/.test(value) ? `/~/${value.slice(2)}` : value;
+  if (typeof text !== "string" || !text.startsWith("/")) return false;
+  if (text.length > 4096) return true;
+  let chains = [[]];
+  for (const part of text.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      chains.forEach((chain) => chain.pop());
+      const empty = chains.findIndex((chain) => chain.length === 0);
+      chains = chains.filter((chain, index) => chain.length > 0 || index === empty);
+      continue;
+    }
+    const name = part.normalize("NFKC").toLowerCase();
+    let volume = false;
+    for (const chain of chains) {
+      chain.push(name);
+      if (AUTOMOUNT_ROOTS.has(chain[0] ?? "")) return true;
+      if ((chain.length === 2 && chain[0] === "volumes") || (chain.length === 3 && chain[0] === "system" && chain[1] === "volumes" && chain[2] === "data")) volume = true;
+    }
+    if (volume && (chains.push([]), chains.length > 64)) return true;
+  }
+  return false;
+}
+/** shared-28 lk/zO: an absolute POSIX path with "", "." and ".." segments resolved. */
+export function normalizePosixPath(value) {
+  if (!value.startsWith("/")) return value;
+  const parts = [];
+  for (const part of value.split(/\/+/)) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") { if (parts.length) parts.pop(); continue; }
+    parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+/**
+ * c73f45bc3 Fo for a local shell: a single-quoted path, or null when it cannot be given to this shell safely.
+ * skipShellCheck: the shell is unknown (og passes it for an in-app drag when the desktop does not report the shell).
+ */
+export function quoteShellPath(value, shell, { skipShellCheck = false, windows = false } = {}) {
+  if (typeof value !== "string" || CONTROL.test(value)) return null;
+  if (isAutomountPath(value)) return null;
+  if (windows && /[\u2018-\u201b]/.test(value)) return null;
+  if (!windows && isPowerShell(shell)) {
+    if (!/^[A-Za-z]:[\\/]/.test(value) || value.includes("::") || QUOTE_OR_HISTORY.test(value) || /[&|<>%^]/.test(value)) return null;
+    return `'${value.replaceAll("\\", "/")}'`;
+  }
+  if (windows) return /^[A-Za-z]:[\\/]/.test(value) ? `'${value.replace(/'/g, "''")}'` : null;
+  if (value.includes("\\")) return null;
+  if (QUOTE_OR_HISTORY.test(value) && !skipShellCheck && !LITERAL_SHELLS.has(shellName(shell))) return null;
+  return `'${normalizePosixPath(value).replace(/'/g, "'\\''")}'`;
+}
+/** cccc2cf0a cg: the dropped paths quoted and joined with a trailing space, or null when any one is refused (og). */
+export function terminalDropText(paths, shell, options = {}) {
+  const list = Array.isArray(paths) ? paths : [];
+  const quoted = list.flatMap((path) => (typeof path === "string" && !DROP_REFUSED.test(path) ? quoteShellPath(path, shell, options) ?? [] : []));
+  return quoted.length < list.length ? null : `${quoted.join(" ")} `;
+}
+/** rg: why a drop inserted nothing. */
+export const DROP_ERRORS = Object.freeze({
+  refused: "Can’t insert this path. It isn’t one the terminal can be given safely.",
+  noPath: "Can’t insert a path. Drop a file or folder that is saved on this computer.",
+});
 
 // ---------------------------------------------------------------------------
 // Keys.
@@ -41,7 +138,7 @@ export function isTerminalToggle(event) {
  *   "line-start" / "line-end"   ⌘← / ⌘→ (Ctrl-A / Ctrl-E)    "word-left" / "word-right"     ⌥← / ⌥→
  *   null         xterm handles it (or the app, for other ⌘ chords: xterm leaves those alone)
  */
-export function terminalKeyAction(event) {
+export function terminalKeyAction(event,{bufferType="normal",mac=true}={}) {
   if (!event || event.type !== "keydown" || event.isComposing) return null;
   if (isTerminalToggle(event)) return "toggle";
   const meta = !!event.metaKey, ctrl = !!event.ctrlKey, alt = !!event.altKey, shift = !!event.shiftKey;
@@ -50,12 +147,12 @@ export function terminalKeyAction(event) {
     if (!shift && event.code === "KeyF") return "find";
     if (!shift && event.code === "KeyA") return "select-all";
     if (event.code === "KeyG") return shift ? "find-previous" : "find-next";
-    // ⇧⌘L attachTerminalOutput (2.2553.1 cccc2cf0a Dm): the selection goes to this session's composer.
+    // ⇧⌘L attachTerminalOutput: selected text, or visible rows when no selection exists.
     if (shift && event.code === "KeyL") return "attach-selection";
-    if (!shift && event.key === "ArrowLeft") return "line-start";
-    if (!shift && event.key === "ArrowRight") return "line-end";
+    if (mac && bufferType === "normal" && !shift && event.key === "ArrowLeft") return "line-start";
+    if (mac && bufferType === "normal" && !shift && event.key === "ArrowRight") return "line-end";
   }
-  if (alt && !meta && !ctrl && !shift) {
+  if (mac && bufferType === "normal" && alt && !meta && !ctrl && !shift) {
     if (event.key === "ArrowLeft") return "word-left";
     if (event.key === "ArrowRight") return "word-right";
   }

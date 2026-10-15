@@ -10,6 +10,7 @@ import {
   buildSidebarGroups, buildNestedRuns, bulkTargets, CLASSIC_GROUP_OPTIONS, CLASSIC_SORT_OPTIONS,
   CLASSIC_STATUS_OPTIONS, clearSidebarFilters, folderName, hasSidebarFilters, lineageKind, movePinned,
   nestedStubCounts, nestedStubText, normalizeSidebarPreferences, sessionArchived, sessionName, sessionState, showAllSessionsPreferences, sidebarEmptyHasNonDefaultFilter, sidebarEmptyVariant, truncateRuns,
+  showFewerRows, stickyListFailure, toggleCollapsedGroup, expandCollapsedGroup,
   OTHER_PROJECT_KEY, customOrderKey, isCustomOrderKey, moveSection, sectionOrderKeys, sortSectionsAlphabetically, withSectionOrder,
 } from "./sidebar-model";
 // A sub-agent's approval is attributed to the session that owns it: the
@@ -19,7 +20,10 @@ import { hasPendingApproval, latestTurnError } from "./state.js";
 import { describeTurnError } from "./turn-error-model.mjs";
 import { archiveBlockedByField, archiveChord, archiveNeighbour, collectJumpRows, createJumpHints, isTypingTarget } from "./sidebar-jump-model.mjs";
 import { useSourceToasts } from "./source-toast.jsx";
-import { SESSION_DRAG_TYPE } from "./split-view-model.mjs";
+import { useSidebarRowDrag, SidebarDragGhost, PinnedDropRow } from "./source-sidebar-drag.jsx";
+import { dragRowStyle, pinnedOrderAfterDrop } from "./sidebar-drag-model.mjs";
+import { sessionPaneDropHost, splitStore } from "./source-split-view.jsx";
+import { digitFor, moveToGroupRows, multiHotkeys, multiMenuState, openSessionLast, pinTargets } from "./sidebar-bulk-model.mjs";
 import {
   clearSelection, createSelection, isSelected, pruneSelection, selectRange, setSelection as replaceSelection, toggleSelection,
 } from "./sidebar-selection.mjs";
@@ -33,6 +37,8 @@ import { SourceSwitch } from "./source-switch.jsx";
 import { hiddenSessionsNotice } from "./session-engine-model.mjs";
 import { SourceSidebarPalette } from "./source-sidebar-palette.jsx";
 import { paletteActions } from "./sidebar-palette-model.mjs";
+import { JUMP_COMMANDS } from "./focus-region-model.mjs";
+import { jumpToRegions, regionJumpAvailable } from "./use-focus-regions.js";
 import "./source-sidebar.css";
 import { getAssistantName, t, tn } from "../electron/i18n/index.mjs";
 import { coreForEngine, coreName, coreSupports } from "../electron/core-registry.mjs";
@@ -44,9 +50,10 @@ import { coreForEngine, coreName, coreSupports } from "../electron/core-registry
  * UI ContextMenu): data-cds ContextMenu, cursor anchor with the positioner's
  * context-menu defaults sideOffset -5 / alignOffset 2, and al('contextmenu')
  * layer offset 30. */
-export function SourceSidebarMenu({ anchor, label, onClose, children, point, kind, initialHighlight }) {
+// align: shared-21 IV X.Popup align = e.align ?? "end" (the title bar's header session menu passes "start").
+export function SourceSidebarMenu({ anchor, label, onClose, children, point, kind, initialHighlight, align }) {
   const cursor = !!point;
-  return <SourceMenu.Popup anchor={anchor} point={point} side="bottom" align={cursor ? "start" : "end"}
+  return <SourceMenu.Popup anchor={anchor} point={point} side="bottom" align={cursor ? "start" : align ?? "end"}
     sideOffset={cursor ? CONTEXT_MENU_SIDE_OFFSET : kind === "filter" ? 4 : undefined}
     alignOffset={cursor ? CONTEXT_MENU_ALIGN_OFFSET : 0} layer={cursor ? "contextmenu" : "menu"}
     dataCds={cursor ? "ContextMenu" : "Menu"} label={label} onClose={onClose}
@@ -55,10 +62,11 @@ export function SourceSidebarMenu({ anchor, label, onClose, children, point, kin
   </SourceMenu.Popup>;
 }
 
-// String children are looked up (literal item copy is localized; translated text passes through).
-function Choice({ children, checked, radio, onClick, disabled, disabledReason, shortcut, keepOpen, icon, variant, digit }) {
+// String children are looked up (literal item copy is localized; translated text passes through). `raw` marks a
+// user-provided label (a custom group name, shared-21 lz `children: e.name`): shown verbatim, never looked up.
+export function Choice({ children, checked, radio, onClick, disabled, disabledReason, shortcut, keepOpen, icon, variant, digit, raw = false }) {
   return <SourceMenu.Item checked={checked} checkedRole={radio ? "radio" : "checkbox"} disabled={disabled} variant={variant} digit={digit}
-    disabledReason={disabledReason} shortcut={shortcut} keepOpen={keepOpen} icon={icon} onClick={onClick}>{t(children)}</SourceMenu.Item>;
+    disabledReason={disabledReason} shortcut={shortcut} keepOpen={keepOpen} icon={icon} onClick={onClick}>{raw ? children : t(children)}</SourceMenu.Item>;
 }
 
 function Divider() { return <SourceMenu.Separator />; }
@@ -112,7 +120,6 @@ export function SourceSidebarFilterMenu({ preferences, onChange, onClose, knownF
 // sidebar-session.js GH: while a row menu is open, letter hotkeys are read at
 // the document level except when the key is typed into an editable control.
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"]';
-const digitFor = (index) => (index < 9 ? String(index + 1) : undefined);
 // Base UI menu store setOpen (vendor-frame-BmPfNbgY.js:26059-26062, :23720): only a trigger press with
 // event.detail 0 (Enter / Space) is a keyboard open that highlights the first item; a pointer open (and a
 // right-click) highlights nothing and focuses the popup ("popup", source-menu.jsx), so the highlight follows the
@@ -125,10 +132,10 @@ const bulkFailedMessage = (verb, count) => tn(count, `{count} session couldn’t
 
 /**
  * Session row menu (sidebar-session-items.js M single / N multi). Letter keys
- * (p u r f a d; u a d for multi) are handled by a document-level capture
+ * (p u r f a d; p u a d for multi) are handled by a document-level capture
  * listener while the menu is open, never while a submenu is open or the key
- * is typed into an editable target. Items with no local backing (Copy link,
- * Share, Set model, project/cloud/runner items) are not rendered. Export (e)
+ * is typed into an editable target. Items with no local backing (project/cloud/
+ * runner items) are not rendered. Export (e)
  * saves the transcript as /export does (sidebar-session-items.js:467-473), and
  * 'Keep computer awake' (:672-690) keeps the Mac awake while this one session
  * runs (sessionMetadata keepAwake, desktop-settings power()).
@@ -136,20 +143,26 @@ const bulkFailedMessage = (verb, count) => tn(count, `{count} session couldn’t
 export function SourceSidebarSessionMenu({
   session, metadata = {}, customGroups = [], state = {}, onAction, onRename, onCreateGroup, onClose,
   onDelete, onFork, forkUnavailable, multi, pinnedSiblings, nested, editors = [], shareable = false,
+  // ce4f4374c Ae isUnarchiving: this session's Unarchive is in flight ("Unarchiving…", disabled).
+  unarchiving = false,
   // Split view and windows (main.jsx; official lE/uE and cE): splitItem(id) → {kind:"open"} | {kind:"close", side} | null.
   windowActions = null,
+  // c593f7513 wm/Om header menu (k = Rt with canPin false, no readState, hideMoveToGroup, keepAwake and paneItems
+  // dropped): no Move up/down, Pin, Mark as read/unread, nested toggle, Move to group or Keep computer awake;
+  // settingsItems (the Transcript view submenu) fill ce4f4374c's settings section (ke) above Archive/Delete.
+  header = false, settingsItems = null,
 }) {
-  const submenuOpen = useRef(false);
+  // The open submenu (its name) and each numbered submenu's digits (official onKeyDownCapture on those popups: 1-9
+  // without modifiers pick an entry while it is open); letter hotkeys stand down while any submenu is open.
+  const openSubmenu = useRef(null);
   const hotkeys = useRef(new Map());
-  // Multi "Move {count} to group" digits (official onKeyDownCapture on that
-  // submenu popup): 1-9 without modifiers pick an entry while it is open.
   const digitActions = useRef(new Map());
   useEffect(() => {
     const handler = (event) => {
       if (event.defaultPrevented || event.isComposing || event.repeat) return;
       if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
       if (event.target instanceof Element && event.target.closest(EDITABLE_SELECTOR)) return;
-      const run = submenuOpen.current ? digitActions.current.get(event.key) : hotkeys.current.get(event.key.toLowerCase());
+      const run = openSubmenu.current ? digitActions.current.get(openSubmenu.current)?.get(event.key) : hotkeys.current.get(event.key.toLowerCase());
       if (!run) return;
       event.preventDefault(); event.stopPropagation();
       run();
@@ -157,30 +170,41 @@ export function SourceSidebarSessionMenu({
     document.addEventListener("keydown", handler, true);
     return () => document.removeEventListener("keydown", handler, true);
   }, []);
-  const trackSubmenu = (open) => { submenuOpen.current = open; };
+  const trackSubmenu = (name) => (open) => {
+    if (open) openSubmenu.current = name;
+    else if (openSubmenu.current === name) openSubmenu.current = null;
+  };
+  const numbered = (actions) => new Map(actions.slice(0, 9).map((action, index) => [String(index + 1), action]));
   const act = (action, payload) => { onClose(); onAction(action, session, payload); };
   if (multi) {
-    const { count, sessions: selected, onBulk } = multi;
+    // ce4f4374c Me over c39a247c4 ve: Pin {count} / Unpin {count} (only when some selected row would change; p pins,
+    // else unpins), Mark {count} as unread, Move {count} to group, Set model for {count} (Ne: the model catalog,
+    // numbered), then Archive / Unarchive {count} and Delete {count}.
+    const { count, sessions: selected, onBulk, pin = null, unpin = null, models = [] } = multi;
     const allArchived = selected.length > 0 && selected.every(sessionArchived);
-    const run = (action, payload) => { onClose(); onBulk(action, selected, payload); };
-    hotkeys.current = new Map([
-      ["u", () => run("mark-unread")],
-      ["a", () => run(allArchived ? "unarchive" : "archive")],
-      ["d", () => run("delete")],
-    ]);
+    const run = (action, payload, targets = selected) => { onClose(); onBulk(action, targets, payload); };
+    const runPin = () => run("pin", undefined, pin.sessions), runUnpin = () => run("unpin", undefined, unpin.sessions);
+    const setModel = (model) => run("set-model", { model });
+    const keyed = { pin: runPin, unpin: runUnpin, "mark-unread": () => run("mark-unread"), archive: () => run("archive"), unarchive: () => run("unarchive"), delete: () => run("delete") };
+    hotkeys.current = new Map(multiHotkeys({ pin, unpin }, { allArchived }).map(([key, action]) => [key, keyed[action]]));
     const moveEntries = customGroups.length + 1 + (onCreateGroup ? 1 : 0);
     digitActions.current = new Map([
-      ...customGroups.map((group) => () => run("move-to-group", { groupId: group.id })),
-      () => run("move-to-group", { groupId: null }),
-      ...(onCreateGroup ? [() => { onClose(); onCreateGroup(selected); }] : []),
-    ].slice(0, 9).map((action, index) => [String(index + 1), action]));
+      ["move", numbered([
+        ...customGroups.map((group) => () => run("move-to-group", { groupId: group.id })),
+        () => run("move-to-group", { groupId: null }),
+        ...(onCreateGroup ? [() => { onClose(); onCreateGroup(selected); }] : []),
+      ])],
+      ["model", numbered(models.map((model) => () => setModel(model.id)))],
+    ]);
     return <div className="source-session-menu-contents" data-multi-count={count}>
+      {pin && <Choice shortcut="p" onClick={runPin}>{t("Pin {count}", { count: pin.count })}</Choice>}
+      {unpin && <Choice shortcut={pin ? undefined : "p"} onClick={runUnpin}>{t("Unpin {count}", { count: unpin.count })}</Choice>}
       <Choice shortcut="u" onClick={() => run("mark-unread")}>{t("Mark {count} as unread", { count })}</Choice>
-      {(customGroups.length > 0 || onCreateGroup) && <SourceMenu.Submenu onOpenChange={trackSubmenu}>
+      {(customGroups.length > 0 || onCreateGroup) && <SourceMenu.Submenu onOpenChange={trackSubmenu("move")}>
         <SourceMenu.SubmenuTrigger label={t("Move {count} to group", { count })}>{t("Move {count} to group", { count })}</SourceMenu.SubmenuTrigger>
         <SourceMenu.Popup label={t("Move {count} to group", { count })}>
           <SourceMenu.Group>
-            {customGroups.map((group, index) => <Choice key={group.id} shortcut={digitFor(index)} digit={digitFor(index)}
+            {customGroups.map((group, index) => <Choice key={group.id} raw shortcut={digitFor(index)} digit={digitFor(index)}
               onClick={() => run("move-to-group", { groupId: group.id })}>{group.name}</Choice>)}
             {customGroups.length > 0 && <Divider />}
             <Choice shortcut={digitFor(customGroups.length)} digit={digitFor(customGroups.length)}
@@ -193,12 +217,26 @@ export function SourceSidebarSessionMenu({
           </>}
         </SourceMenu.Popup>
       </SourceMenu.Submenu>}
+      {/* Ne: no submenu without a model to pick (f.length === 0). Model names are the catalog's own (verbatim). */}
+      {models.length > 0 && <SourceMenu.Submenu onOpenChange={trackSubmenu("model")}>
+        <SourceMenu.SubmenuTrigger label={t("Set model for {count}", { count })}>{t("Set model for {count}", { count })}</SourceMenu.SubmenuTrigger>
+        <SourceMenu.Popup label={t("Set model for {count}", { count })}>
+          {models.map((model, index) => <Choice key={model.id} raw shortcut={digitFor(index)} digit={digitFor(index)}
+            onClick={() => setModel(model.id)}>{model.name}</Choice>)}
+        </SourceMenu.Popup>
+      </SourceMenu.Submenu>}
       <Divider />
       <Choice shortcut="a" onClick={() => run(allArchived ? "unarchive" : "archive")}>{allArchived ? t("Unarchive {count}", { count }) : t("Archive {count}", { count })}</Choice>
       <Choice shortcut="d" variant="danger" onClick={() => run("delete")}>{t("Delete {count}", { count })}</Choice>
     </div>;
   }
-  digitActions.current = new Map();
+  // shared-21 lz: the Move to group rows and their 1-9 digits (onKeyDownCapture while that submenu is open).
+  const moveRows = moveToGroupRows({ customGroups, currentGroupId: metadata.customGroupId, canCreate: !!onCreateGroup });
+  const moveActions = moveRows.filter((row) => row.kind !== "separator").map((row) => row.kind === "create"
+    ? () => { onClose(); onCreateGroup([session]); } : () => act("move-to-group", { groupId: row.id }));
+  digitActions.current = new Map([["move", numbered(moveActions)]]);
+  // ce4f4374c Oe (:837-870) / shared-21 vV openPr: the session's PR (core binding or the band's gh lookup) opens first, g.
+  const prUrl = [session.prInfo?.url, session.prLink, session.codeDesktop?.pr?.url].find((value) => typeof value === "string" && /^https:\/\//i.test(value)) ?? null;
   const busy = sessionState(session, state) === "working" || hasPendingApproval(state, session.id);
   const running = !!state.active?.[session.id];
   const canArchive = !running;
@@ -211,14 +249,15 @@ export function SourceSidebarSessionMenu({
     if (ids) act("pinned-order", { ids });
   };
   hotkeys.current = new Map([
-    ["p", () => act(metadata.pinned ? "unpin" : "pin")],
+    ...(!header ? [["p", () => act(metadata.pinned ? "unpin" : "pin")]] : []),
     ["r", () => { onClose(); onRename(); }],
-    ...(canArchive ? [["a", () => act(archived ? "unarchive" : "archive")]] : []),
-    ...(!busy ? [["u", () => act(metadata.unread ? "mark-read" : "mark-unread")]] : []),
+    ...(canArchive && !(archived && unarchiving) ? [["a", () => act(archived ? "unarchive" : "archive")]] : []),
+    ...(!busy && !header ? [["u", () => act(metadata.unread ? "mark-read" : "mark-unread")]] : []),
     ...(onFork && !forkReason ? [["f", () => { onClose(); onFork(session); }]] : []),
     ...(onDelete && canArchive ? [["d", () => { onClose(); onDelete(session); }]] : []),
     ...(!running ? [["e", () => act("export")]] : []),
     ...(shareable && session.codeDesktop?.shareUrl ? [["c", () => act("copy-share-link")]] : []),
+    ...(prUrl ? [["g", () => act("open-pr", { url: prUrl })]] : []),
   ]);
   const splitItem = windowActions?.splitItem?.(session.id) ?? null;
   // c80a67939 g/_/b/x: one "Open in" submenu. Its layout section holds Split view (only for a session this window
@@ -237,18 +276,22 @@ export function SourceSidebarSessionMenu({
   const openInRow = (entry, index) => <SourceMenu.Item key={entry.key} data-testid={entry.testId} shortcut={digitFor(index)} digit={digitFor(index)}
     onClick={entry.run}>{entry.label}</SourceMenu.Item>;
   return <div className="source-session-menu-contents">
+    {prUrl && <>
+      <Choice shortcut="g" onClick={() => act("open-pr", { url: prUrl })}>{t("Open PR")}</Choice>
+      {openInLayout.length + openInTargets.length === 0 && <Divider />}
+    </>}
     {openInLayout.length + openInTargets.length > 0 && <>
-      <Submenu label={t("Open in")} onOpenChange={trackSubmenu}>
+      <Submenu label={t("Open in")} onOpenChange={trackSubmenu("open-in")}>
         {openInLayout.map((entry, index) => openInRow(entry, index))}
         {openInLayout.length > 0 && openInTargets.length > 0 && <Divider />}
         {openInTargets.map((entry, index) => openInRow(entry, openInLayout.length + index))}
       </Submenu>
       <Divider />
     </>}
-    {pinnedAt > 0 && <Choice onClick={() => reorder("up")}>{t("Move up")}</Choice>}
-    {pinnedAt !== -1 && pinnedAt < pinnedSiblings.length - 1 && <Choice onClick={() => reorder("down")}>{t("Move down")}</Choice>}
-    <Choice shortcut="p" onClick={() => act(metadata.pinned ? "unpin" : "pin")}>{metadata.pinned ? t("Unpin") : t("Pin")}</Choice>
-    {!busy && <Choice shortcut="u" onClick={() => act(metadata.unread ? "mark-read" : "mark-unread")}>{metadata.unread ? t("Mark as read") : t("Mark as unread")}</Choice>}
+    {pinnedAt > 0 && !header && <Choice onClick={() => reorder("up")}>{t("Move up")}</Choice>}
+    {!header && pinnedAt !== -1 && pinnedAt < pinnedSiblings.length - 1 && <Choice onClick={() => reorder("down")}>{t("Move down")}</Choice>}
+    {!header && <Choice shortcut="p" onClick={() => act(metadata.pinned ? "unpin" : "pin")}>{metadata.pinned ? t("Unpin") : t("Pin")}</Choice>}
+    {!busy && !header && <Choice shortcut="u" onClick={() => act(metadata.unread ? "mark-read" : "mark-unread")}>{metadata.unread ? t("Mark as read") : t("Mark as unread")}</Choice>}
     <Choice shortcut="r" onClick={() => { onClose(); onRename(); }}>{t("Rename")}</Choice>
     <Choice shortcut="e" disabled={running} disabledReason={running ? t("Available when {assistant} finishes this turn", { assistant: getAssistantName() }) : undefined}
       onClick={() => act("export")}>{t("Export")}</Choice>
@@ -260,30 +303,44 @@ export function SourceSidebarSessionMenu({
       <Choice onClick={() => act("unshare")}>{t("Stop sharing")}</Choice>
     </>}
     {onFork && <Choice shortcut="f" disabled={!!forkReason} disabledReason={forkReason} onClick={() => { onClose(); onFork(session); }}>{t("Fork")}</Choice>}
-    {nested && nested.childCount > 0 && <Choice onClick={() => { onClose(); nested.onToggle(); }}>{nested.collapsed ? t("Show nested sessions") : t("Hide nested sessions")}</Choice>}
-    {(customGroups.length > 0 || onCreateGroup) && <>
+    {!header && nested && nested.childCount > 0 && <Choice onClick={() => { onClose(); nested.onToggle(); }}>{nested.collapsed ? t("Show nested sessions") : t("Hide nested sessions")}</Choice>}
+    {!header && (customGroups.length > 0 || onCreateGroup) && <>
       <Divider />
-      <Submenu label={t("Move to group")} onOpenChange={trackSubmenu}>
-        {customGroups.map((group) => <Choice key={group.id} checked={metadata.customGroupId === group.id}
-          onClick={() => act("move-to-group", { groupId: group.id })}>{group.name}</Choice>)}
-        {metadata.customGroupId && <Choice onClick={() => act("move-to-group", { groupId: null })}>{t("Remove from group")}</Choice>}
-        {onCreateGroup && <>
-          {customGroups.length > 0 && <Divider />}
-          <Choice onClick={() => { onClose(); onCreateGroup([session]); }}>{t("New group…")}</Choice>
-        </>}
+      {/* shared-21 lz (showIcon false, closeMenuForHotkeys): numbered radio rows for the groups (checked: the
+          session's), 'Ungrouped' (cz) while it is in one, then 'New group…'. */}
+      <Submenu label={t("Move to group")} onOpenChange={trackSubmenu("move")}>
+        {moveRows.map((row, index) => row.kind === "separator" ? <Divider key={`sep-${index}`} />
+          : row.kind === "group" ? <Choice key={row.id} raw radio checked={row.checked} shortcut={row.digit} digit={row.digit}
+            onClick={() => act("move-to-group", { groupId: row.id })}>{row.name}</Choice>
+          : row.kind === "ungrouped" ? <Choice key="ungrouped" radio checked={false} shortcut={row.digit} digit={row.digit}
+            onClick={() => act("move-to-group", { groupId: null })}>{t("Ungrouped")}</Choice>
+          : <Choice key="create" shortcut={row.digit} digit={row.digit} onClick={() => { onClose(); onCreateGroup([session]); }}>{t("New group…")}</Choice>)}
       </Submenu>
     </>}
-    {/* sidebar-session-items.js:665-683: a menuitemcheckbox with an xs Switch that stays open, so the change shows. */}
-    <SourceMenu.Item keepOpen role="menuitemcheckbox" aria-checked={metadata.keepAwake === true} description={t("Only for this session")} data-keep-awake=""
-      trailing={<SourceSwitch decorative size="xs" checked={metadata.keepAwake === true} />}
-      onClick={() => onAction("keep-awake", session, { value: metadata.keepAwake !== true })}>{t("Keep computer awake")}</SourceMenu.Item>
+    {/* ce4f4374c Yt && an: a separator above the ke section (Keep computer awake) whenever items precede it.
+        sidebar-session-items.js:665-683: a menuitemcheckbox with an xs Switch that stays open, so the change shows. */}
+    {header ? settingsItems && <>
+      <Divider />
+      {settingsItems}
+    </> : <>
+      <Divider />
+      <SessionKeepAwakeItem session={session} metadata={metadata} onAction={onAction} />
+    </>}
     <Divider />
-    <Choice shortcut="a" disabled={!canArchive} onClick={() => act(archived ? "unarchive" : "archive")}>
-      {archived ? t("Unarchive") : t("Archive")}
+    <Choice shortcut="a" disabled={!canArchive || (archived && unarchiving)} onClick={() => act(archived ? "unarchive" : "archive")}>
+      {archived ? (unarchiving ? t("Unarchiving…") : t("Unarchive")) : t("Archive")}
     </Choice>
     {onDelete && <Choice shortcut="d" variant="danger" disabled={!canArchive} disabledReason={canArchive ? undefined : t("Stop the running task before deleting it.")}
       onClick={() => { onClose(); onDelete(session); }}>{t("Delete")}</Choice>}
   </div>;
+}
+
+/** sidebar-session-items.js:665-683 / ce4f4374c ke: 'Keep computer awake', a menuitemcheckbox with an xs Switch that
+ * stays open (sessionMetadata keepAwake). The row menu and the title bar's View options menu (cf74bc599 ZT O) share it. */
+export function SessionKeepAwakeItem({ session, metadata = {}, onAction }) {
+  return <SourceMenu.Item keepOpen role="menuitemcheckbox" aria-checked={metadata.keepAwake === true} description={t("Only for this session")} data-keep-awake=""
+    trailing={<SourceSwitch decorative size="xs" checked={metadata.keepAwake === true} />}
+    onClick={() => onAction("keep-awake", session, { value: metadata.keepAwake !== true })}>{t("Keep computer awake")}</SourceMenu.Item>;
 }
 
 /** sidebar-rows.js:8060-8088 aO: every leading status glyph sits in a 14px-minimum centred span with
@@ -504,7 +561,8 @@ const emptyPictogramPath = () => (emptyPictoPath ??= EMPTY_PICTO_RECTS.map(([x, 
 /** sidebar-groups.js:7688-7699 xO (scale .55 from OO) + 7721-7760 OO: the
  * filtered variant offers "Show all sessions" when a handler exists
  * (sidebar-main.js:13774-13778 onShowAllSessions, code mode only). */
-export function SourceSidebarEmpty({ variant, onShowAllSessions }) {
+export function SourceSidebarEmpty({ variant, onShowAllSessions, onRetry }) {
+  if (variant === "load-failed") return <SourceSidebarLoadFailed onRetry={onRetry} />;
   if (variant === "filtered") return <div className="source-sidebar-empty" data-empty-variant="filtered">
     <p className="source-sidebar-empty-text">{t("No sessions match the current filters")}</p>
     {onShowAllSessions && <button type="button" className="source-sidebar-show-all hide-focus-ring" onClick={onShowAllSessions}>{t("Show all sessions")}</button>}
@@ -516,6 +574,112 @@ export function SourceSidebarEmpty({ variant, onShowAllSessions }) {
       <path d={emptyPictogramPath()} fill="hsl(var(--pictogram-200))" />
     </svg></div>
   </div>;
+}
+
+/** shared-21 YQ (readable 18199-18225): "Couldn’t load your sessions" as an
+ * alert with a small Try again that stays busy until the reload settles (kp +
+ * nb refetch; locally onRetry reads the list again or reconnects the core). */
+function SourceSidebarLoadFailed({ onRetry }) {
+  const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+  return <div className="source-sidebar-empty" data-empty-variant="load-failed">
+    <p role="alert" className="source-sidebar-empty-text">{t("Couldn’t load your sessions")}</p>
+    {onRetry && <SourceSettingsButton size="sm" busy={busy} onClick={() => {
+      setBusy(true);
+      Promise.resolve().then(onRetry).catch(() => {}).finally(() => { if (mounted.current) setBusy(false); });
+    }}>{t("Try again")}</SourceSettingsButton>}
+  </div>;
+}
+
+/** shared-21 lK (readable 14548-14571), the FrameSidebarNav ErrorBoundary
+ * fallback (shared-22 15368-15373): "Sidebar failed to load." and a secondary
+ * Try again that remounts. The source boundary wraps only the nav; the local
+ * list state lives in SourceSidebar itself, so main.jsx wraps the whole
+ * sidebar and this fallback keeps the aside frame (toolbar strip and body). */
+export class SourceSidebarBoundary extends React.Component {
+  state = { failed: false, attempt: 0 };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch() {
+    // Nothing is logged or persisted: session metadata can carry user content.
+  }
+  render() {
+    if (!this.state.failed) return <React.Fragment key={this.state.attempt}>{this.props.children}</React.Fragment>;
+    return <aside className="app-sidebar dframe-sidebar source-sidebar cds-root" aria-label={t("Sidebar")} data-variant="web" data-density="compact" data-platform="desktop">
+      <div className="sidebar-toolbar df-titlebar window-drag"><div className="traffic-space" /></div>
+      <div className="dframe-sidebar-body source-sidebar-failed" data-testid="sidebar">
+        <p className="source-sidebar-failed-text">{t("Sidebar failed to load.")}</p>
+        <SourceSettingsButton variant="secondary" onClick={() => {
+          try { this.props.onReset?.(); } finally { this.setState((state) => ({ failed: false, attempt: state.attempt + 1 })); }
+        }}>{t("Try again")}</SourceSettingsButton>
+      </div>
+    </aside>;
+  }
+}
+
+/** shared-21 y0/x0/S0 (readable 21120-21144): a polite status span whose text
+ * clears after 4s; the nonce toggles a zero-width space so a repeat is read again. */
+const ANNOUNCEMENT_MS = 4000;
+function useSidebarAnnouncement() {
+  const [announcement, setAnnouncement] = useState({ nonce: 0, text: "" });
+  const announce = useCallback((text) => setAnnouncement((previous) => ({ nonce: previous.nonce + 1, text })), []);
+  useEffect(() => {
+    if (announcement.text === "") return undefined;
+    const timer = setTimeout(() => announce(""), ANNOUNCEMENT_MS);
+    return () => clearTimeout(timer);
+  }, [announcement, announce]);
+  return { announcement, announce };
+}
+
+/** shared-21 Bz/Hz (readable 11298-11313, attached by Vz as capture handlers on the
+ * code session list, 11514-11517): after a Show less click the list swallows the
+ * rest of that multi-click (detail > 1) for 500ms, so the second click does not
+ * open or rename the row that moved under the pointer. */
+let multiClickGuardUntil = 0;
+const guardMultiClick = (ms) => { multiClickGuardUntil = performance.now() + ms; };
+const swallowGuardedMultiClick = (event) => {
+  if (performance.now() < multiClickGuardUntil && event.nativeEvent.detail > 1) { event.stopPropagation(); event.preventDefault(); }
+};
+
+/** shared-21 H0 (readable 21209-21357) for a local bucket: "Show {count} more"
+ * while rows are hidden, "Show less" once revealed to the end (xg
+ * showFewerRows "collapse"), or a held Show less (aria-disabled, data-held,
+ * described by "You have something open near the end of this list.", CDS
+ * tooltip lazy/delay 350/right/multiline) when folding would hide the open row.
+ * Each action is announced in a role=status span (S0). A click inside a row
+ * hands focus to the button first so folding never drops it (T). */
+export function SourceShowMoreButton({ bucketLabel, count = 0, fewer, onShowMore, onShowLess }) {
+  const { announcement, announce } = useSidebarAnnouncement();
+  const describedBy = useId();
+  const showLess = fewer !== undefined, held = fewer === "held";
+  const heldText = held ? t("You have something open near the end of this list.") : undefined;
+  const button = <button type="button" className="source-show-more" data-row="" data-roving-item=""
+    aria-disabled={held || undefined} aria-describedby={held ? describedBy : undefined} data-held={held ? "" : undefined}
+    aria-label={showLess ? t("Show less in {bucketLabel}", { bucketLabel }) : t("Show {count} more in {group}", { count, group: bucketLabel })}
+    onClick={(event) => {
+      if (held) return;
+      if (event.detail > 1) return;
+      if (showLess) {
+        const active = event.currentTarget.ownerDocument.activeElement;
+        const scope = event.currentTarget.closest(".dframe-sidebar") ?? event.currentTarget.ownerDocument;
+        if (active && scope.contains(active) && active.closest("[data-row-key]")) event.currentTarget.focus({ preventScroll: true });
+        onShowLess?.();
+        announce(t("Showing less in {bucketLabel}", { bucketLabel }));
+        if (event.detail > 0) guardMultiClick(500);
+        return;
+      }
+      onShowMore?.(event);
+      if (count > 0) announce(t("Showing {count} more in {bucketLabel}", { count, bucketLabel }));
+    }}>
+    <span className="source-leading-slot df-leading-slot" aria-hidden="true" />{showLess ? t("Show less") : t("Show {count} more", { count })}
+  </button>;
+  // H0 always wraps the button in Sh (empty content = no tooltip) and always renders the hidden description, so
+  // the button is not remounted (and keeps focus) when the held state comes or goes.
+  return <>
+    <SourceTooltip content={heldText} delay={350} side="right" multiline closeOnClick={false}>{button}</SourceTooltip>
+    <span id={describedBy} hidden>{heldText}</span>
+    <span className="source-sr-only" role="status">{announcement.text}{announcement.nonce % 2 === 1 ? "\u200B" : ""}</span>
+  </>;
 }
 
 /** sidebar-groups.js:7761-7830 AO single-line rows: df-leading-slot with a
@@ -651,13 +815,19 @@ const EMPTY_REVEALED = new Map();
 const SELECTION_SAFE_SELECTOR = '[data-row], [data-cds-portal], [role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"]';
 
 export function SourceSidebar({
-  collapsed, onCollapse, onCollapsedChange, historyAt = 0, historyLength = 1, travel, mode = "code", onMode,
+  collapsed, onCollapse, onCollapsedChange, historyAt = 0, historyLength = 1, travel, mode = "code", onMode, modeBusy = false,
   onNew, groups = [], sessions, current, state = {}, onOpen, onProject, onMenu, onAccount, accountMenuOpen = false, connectionMenuOpen = false,
   displayName = t("Local user"), accountLabel, search = "", setSearch, showSearch, setShowSearch, searchMatches = null,
   onFolder, sidebarWidth = 288, setSidebarWidth, section, setSection, sidebarFloor = SIDEBAR_WIDTH.MIN, onSidebarFloor, fullScreen = false,
   trafficLightSpacer, cdsFont = "sans",
   sidebarPreferences, onSidebarPreferencesChange, sessionMetadata = {}, customGroups = [], pinnedOrder = [],
   knownFolders, fallbackCwd = "", onSessionAction, onCreateGroup, onGroupAction, loading = false,
+  // B37 shared-19 FK/IK: a single Delete opens main's one-dialog worktree check (SourceSessionDeleteDialog) when given.
+  onConfirmDelete,
+  // shared-21 BQ/VQ: the session list failed to load (core not connected, or the read failed); onRetryLoad reads it again.
+  loadFailed = false, onRetryLoad,
+  // Session ids whose Unarchive is in flight (ce4f4374c Ae isUnarchiving).
+  unarchiving = null,
   engine = "codex", hiddenSessions, onRetryHidden, onForgetHidden, forkUnavailable,
   // Fidelity F08: Folder grouping by repo identity + the persisted section order, and the collapsed
   // hover peek owned by main.jsx (peekOpen mirrors .dframe-root[data-hovering]).
@@ -666,16 +836,25 @@ export function SourceSidebar({
   windowActions = null,
   // ⌘K palette (source-sidebar-palette.jsx): Settings › section rows, and whether the core has full-text search.
   onOpenSettings, deepSearch = false,
+  // () => the open session's and its panes' palette commands (main.jsx: sidebar-palette-model.mjs paletteActions'
+  // session / panes / prompts / onShortcuts / onFileUpload / onTogglePane / onClosePane), called while the palette is open.
+  paletteCommands = null,
   // The footer aux control shows only while the core is not connected (source aux slot is empty in code mode).
   connectionIssue = false,
+  // ce4f4374c Ne: the model catalog (main.jsx models) the multi-selection's 'Set model for {count}' lists.
+  models = null,
 }) {
   const toasts = useSourceToasts();
+  const bulkModels = useMemo(() => (Array.isArray(models) ? models : []).map((model) => ({ id: model?.model || model?.id, name: model?.displayName || model?.name || model?.model || model?.id }))
+    .filter((model) => typeof model.id === "string" && model.id), [models]);
   // Ro addSuccess / addError (sidebar-groups.js:18676-18682): row and bulk results are CDS toasts.
   const notify = (message, options) => toasts?.add(message, options);
   const notifyError = (reason, fallback = t("Something went wrong")) => notify(reason?.message || (reason ? String(reason) : fallback), { variant: "danger" });
   const [localPreferences, setLocalPreferences] = useState(() => normalizeSidebarPreferences(sidebarPreferences));
   const preferences = normalizeSidebarPreferences(sidebarPreferences ?? localPreferences);
-  const [closed, setClosed] = useState(new Set()), [menu, setMenuState] = useState(null);
+  const [menu, setMenuState] = useState(null);
+  // shared-50 G collapsedGroups: folded group keys persist with the sidebar preferences.
+  const closed = useMemo(() => new Set(preferences.collapsedGroups), [preferences.collapsedGroups]);
   // Every open gets a fresh token so the popup remounts instead of re-targeting
   // a live instance (a right-click while another sidebar menu is open).
   const menuToken = useRef(0);
@@ -741,21 +920,31 @@ export function SourceSidebar({
     node.style.width = previous;
     onSidebarFloor(floor);
   }, [fullScreen, collapsed, onSidebarFloor, trafficLightSpacer]);
+  const lastChatSurface = useRef('cowork');
+  if (mode !== 'code') lastChatSurface.current = mode;
+  const [surfaceMenu, setSurfaceMenu] = useState(null);
   const sourceSessions = useMemo(() => sessions ?? groups.flatMap(([, items]) => items), [sessions, groups]);
   const folders = useMemo(() => knownFolders ?? groups.map(([cwd]) => cwd), [knownFolders, groups]);
   // The list itself is never filtered by text: what is typed searches in the ⌘K palette (source-sidebar-palette.jsx).
   const displayed = useMemo(() => buildSidebarGroups({ sessions: sourceSessions,
-    preferences, metadata: sessionMetadata, customGroups, knownFolders: folders,
+    preferences: mode === "code" ? preferences : { ...preferences, groupBy: "date" }, metadata: sessionMetadata, customGroups, knownFolders: folders,
     state, search: "", fallbackCwd, pinnedOrder, repoIdentities, projectOrder, contentMatches: null,
-  }), [sourceSessions, preferences.groupBy, preferences.sortBy, preferences.status,
+  }), [mode, sourceSessions, preferences.groupBy, preferences.sortBy, preferences.status,
     preferences.stateActivityDays, preferences.showEmptyGroups, sessionMetadata, customGroups, folders, state, fallbackCwd, pinnedOrder,
     repoIdentities, projectOrder]);
   // sidebar-groups.js:21476-21486 CO(visible, total, hasNonDefaultFilter) + wO
   // hasArchived; the archived probe is the loaded session list here. The
   // hasNonDefaultFilter is fO (:7600-7609), not the filter badge's test.
   const visibleCount = displayed.reduce((sum, group) => sum + group.sessions.length, 0);
-  const emptyVariant = sidebarEmptyVariant({ visible: visibleCount, total: sourceSessions.length,
-    hasNonDefaultFilter: sidebarEmptyHasNonDefaultFilter(preferences), hasArchived: sourceSessions.some(sessionArchived) });
+  // shared-21 19180-19195: Ge = VQ({failed: BQ(..), loading, list: statusFilter}); Ke = loading && !Ge ? undefined
+  // (the skeleton) : HQ(visible, total, filtered, Ge), then UQ. VQ's sticky state is kept across renders here.
+  const [failureState, setFailureState] = useState(() => ({ list: preferences.status, failed: false }));
+  const failure = stickyListFailure(failureState, { failed: loadFailed, loading, list: preferences.status });
+  if (failure !== failureState) setFailureState(failure);
+  const listFailed = failure.failed;
+  const listLoading = loading && !listFailed;
+  const emptyVariant = listLoading ? undefined : sidebarEmptyVariant({ visible: visibleCount, total: sourceSessions.length,
+    hasNonDefaultFilter: sidebarEmptyHasNonDefaultFilter(preferences), hasArchived: sourceSessions.some(sessionArchived), failed: listFailed });
   // sidebar-groups zF/WF/GF/KF per bucket: lineage runs from real Thread fields.
   const runsByGroup = useMemo(() => new Map(displayed.map((group) => [group.key, buildNestedRuns(group.sessions, sessionMetadata)])), [displayed, sessionMetadata]);
   const collapsedNested = useMemo(() => new Set(preferences.collapsedNested), [preferences.collapsedNested]);
@@ -943,25 +1132,53 @@ export function SourceSidebar({
   // toasts (sidebar-groups.js:6219-6240 multi-select 'Archived {n} sessions',
   // key group-bulk-{action}; :18866-18915 Older bucket 'Archived {n} older
   // sessions', key {action}-older-bulk; both 3s; KT partial-failure addError).
+  // c39a247c4 ve: Pin / Unpin {count} (F) and Set model for {count} (P) run over the selection with the open session
+  // last (_e); Set model reports 'Model set for {count} sessions' for the sessions whose model changed (3s) and
+  // 'Model couldn’t be set for …' for failures.
   const runBulk = async (action, targets, payload, { older = false } = {}) => {
-    const list = action === "archive" || action === "delete" ? targets.filter((session) => session.id !== current) : targets;
+    const list = action === "archive" || action === "delete" ? targets.filter((session) => session.id !== current)
+      : action === "pin" || action === "unpin" || action === "set-model" ? openSessionLast(targets, current) : targets;
     const results = await mapConcurrent(list, 8, (session) => onSessionAction(action, session, payload));
     const done = results.filter((result) => result.status === "fulfilled").length;
     const failed = results.length - done;
     if (done > 0 && (action === "archive" || action === "delete")) notify(bulkDoneMessage(action === "archive" ? "Archived" : "Deleted", done, older ? "older session" : "session"),
       { variant: "neutral", key: older ? `${action}-older-bulk` : `group-bulk-${action}`, timeout: 3000 });
-    if (failed > 0) notify(action === "archive" || action === "delete"
+    if (action === "set-model") {
+      const changed = results.filter((result) => result.status === "fulfilled" && result.value?.changed !== false).length;
+      if (changed > 0) notify(tn(changed, "Model set for {count} session", "Model set for {count} sessions"), { variant: "neutral", key: "bulk-set-model", timeout: 3000 });
+      if (failed > 0) notify(tn(failed, "Model couldn’t be set for {count} session. Try again.", "Model couldn’t be set for {count} sessions. Try again."), { variant: "danger" });
+    } else if (failed > 0) notify(action === "archive" || action === "delete"
       ? bulkFailedMessage(action === "archive" ? "archived" : "deleted", failed)
       : results.find((result) => result.status === "rejected")?.reason?.message || t("Some sessions could not be updated."), { variant: "danger" });
     setSelectionState(clearSelection);
   };
   // A single Delete goes straight to the session action (the open session is
   // allowed and navigates home); bulk Delete skips the open session like archive.
-  const requestDelete = (targets) => setConfirm({ ...deleteConfirmCopy(targets, { engine }),
+  const requestDelete = (targets) => targets.length === 1 && onConfirmDelete ? onConfirmDelete(targets[0]) : setConfirm({ ...deleteConfirmCopy(targets, { engine }),
     onConfirm: targets.length === 1 ? () => onSessionAction("delete", targets[0]) : () => runBulk("delete", targets) });
-  const toggleGroup = (key) => setClosed((previous) => {
-    const next = new Set(previous); next.has(key) ? next.delete(key) : next.add(key); return next;
-  });
+  // shared-22 4276-4285 U: toggleGroupCollapsed(key) on the persisted store.
+  const toggleGroup = (key) => updatePreferences(toggleCollapsedGroup(preferences, key));
+  // shared-22 yS (readable 4198-4235) with mS/_S (4182-4190): per grouping, the bucket each open row was last seen
+  // in. When the open session lands in a folded bucket for the first time (or moves to another Folder bucket),
+  // expandGroup unfolds it and its row scrolls into view. Locally the open rows are the current session.
+  const openRowBuckets = useRef(new Map());
+  const pendingOpenRowScroll = useRef(null);
+  const openGroupBy = mode === "code" ? preferences.groupBy : "date";
+  useEffect(() => {
+    for (const seen of openRowBuckets.current.values()) for (const id of seen.keys()) if (id !== current) seen.delete(id);
+    if (!current) return;
+    let seen = openRowBuckets.current.get(openGroupBy);
+    if (!seen) openRowBuckets.current.set(openGroupBy, seen = new Map());
+    for (const group of displayed) {
+      const previous = seen.get(current);
+      if (previous === group.key || !group.sessions.some((session) => session.id === current)) continue;
+      seen.set(current, group.key);
+      if (closed.has(group.key) && (previous === undefined || (openGroupBy === "project" && !group.customGroupId))) {
+        pendingOpenRowScroll.current = { id: current, key: group.key };
+        updatePreferences(expandCollapsedGroup(preferences, group.key));
+      }
+    }
+  }, [current, displayed, closed, openGroupBy]);
   const allParentIds = () => [...runsByGroup.values()].flatMap((entry) => entry.runs.filter((run) => run.parentId !== null).map((run) => run.parentId));
   const toggleNested = (parentId, all = false) => {
     const collapse = !collapsedNested.has(parentId);
@@ -973,7 +1190,7 @@ export function SourceSidebar({
     {/* sidebar-groups.js:5352-5377 _w: aria-label and Kl content "Search" with the
         search_palette shortcut (⇧⌘K), hoverable false; it opens the command palette in
         search mode (DF("search"), source-sidebar-palette.jsx). */}
-    {setShowSearch && <ToolButton label="Search" icon="Search" tooltip={{ content: "Search", shortcut: "cmd+shift+k", hoverable: false }}
+    {mode === "code" && setShowSearch && <ToolButton label="Search" icon="Search" tooltip={{ content: "Search", shortcut: "cmd+shift+k", hoverable: false }}
       onClick={() => setShowSearch("search")} />}
     {/* sidebar-main.js:12290-12350 lI: hp (shared-frame Nu, default side "top",
         shared-frame-C_2npUJq.js:4588) {content, hoverable:false, open:false
@@ -1031,6 +1248,48 @@ export function SourceSidebar({
     setMenu({ kind: "session", session, multi, ...extra });
   };
   const pinnedIds = displayed.find((group) => group.kind === "pinned")?.sessions.map((session) => session.id) || [];
+  // shared-19 DY (source-sidebar-drag.jsx): rows lift with the pointer and drop into the Pinned list (pin / reorder),
+  // below it (unpin), onto a custom group section, onto the session area (split view) or out of the window (a new
+  // window at the cursor). A selected row carries the selection (visible order) onto a group section.
+  const dragContext = useRef(null);
+  dragContext.current = {
+    selectionKeys: (key) => {
+      const sel = selectionRef.current;
+      return sel.selectedKeys.size > 1 && isSelected(sel, key) ? visibleOrderRef.current.filter((id) => isSelected(sel, id)) : null;
+    },
+    isShown: (id) => id === current || splitStore.isShown(id),
+    canTearOff: (session) => !!windowActions?.onOpenWindow && !!session && !sessionArchived(session),
+    canSplit: (session) => !!windowActions?.onOpenSplit && !!session && !sessionArchived(session),
+    splitOpen: () => splitStore.getState().open,
+    onDrop: (outcome, drag, snapshot) => {
+      const session = drag.session;
+      if (outcome.type === "pane") { sessionPaneDropHost()?.drop(drag.paneDraft ? null : session.id, outcome.pane); return; }
+      if (!session) return;
+      if (outcome.type === "window") { windowActions?.onOpenWindow?.(session, { position: outcome.position }); return; }
+      if (outcome.type === "group") {
+        const targets = outcome.keys.map((id) => sessionById.get(id)).filter(Boolean);
+        if (targets.length > 1) void runBulk("move-to-group", targets, { groupId: outcome.groupId });
+        else void runAction("move-to-group", session, { groupId: outcome.groupId });
+        return;
+      }
+      if (outcome.type === "unpin") { void runAction("unpin", session); return; }
+      // H(): pin at the slot ({type:"pin", at}) / reorder ({type:"reorder", from, to}): the persisted Pinned order.
+      // A folded Pinned list shows no rows (ZO A && V drop row), so its slot 0 is the top of the list.
+      const before = outcome.before ?? (outcome.type === "pin" && outcome.at === 0 && snapshot?.pinnedKeys.length === 0 ? pinnedIds[0] ?? null : null);
+      const order = pinnedOrderAfterDrop(pinnedIds, session.id, before);
+      void (async () => {
+        try {
+          if (outcome.type === "pin") await onSessionAction("pin", session);
+          await onSessionAction("pinned-order", session, { ids: order });
+        } catch (reason) { notifyError(reason); }
+      })();
+    },
+  };
+  const { drag, begin: beginDrag } = useSidebarRowDrag({ navRef, context: dragContext });
+  const canDragRows = !!onSessionAction;
+  const shiftStyle = (key) => dragRowStyle(drag, key);
+  // kJ: a single row that can pin is being dragged (opens the empty Pinned stub and its drop row).
+  const pinDropOpen = !!drag?.canPin && drag.keys.length === 1;
   const renderRow = (session, { nested = null, parent = null, childCount = 0 } = {}) => {
     // The open session's row is selected only while the main view shows it (section "new"), not while Artifacts or
     // Routines replaces it: then their nav row is the one selected, and clicking the session row goes back to it.
@@ -1043,10 +1302,12 @@ export function SourceSidebar({
     const lineage = kind === "fork" ? t("Forked from {name}", { name: sessionName(parent) }) : kind ? t("Started by {assistant} from {name}", { assistant: getAssistantName(), name: sessionName(parent) }) : null;
     const hint = jumpHints?.[session.id];
     // sidebar-groups.js:17202-17213: rows carry data-row-key and data-jump-hint-row for the pj hints.
-    return <div key={session.id} className="source-session-row" data-row="" data-source-session-id={session.id}
+    return <div key={session.id} className="source-session-row df-drag-shiftable" data-row="" data-source-session-id={session.id}
       data-selected={selected ? "focused" : undefined} data-menu-open={menu?.session?.id === session.id || undefined}
       data-unread={sessionMetadata[session.id]?.unread || undefined} data-archived={sessionArchived(session) || undefined}
       data-nested={nested || undefined} data-child-count={childCount || undefined} data-row-key={session.id} data-jump-hint-row=""
+      data-drag-key={session.id} style={shiftStyle(session.id)}
+      onPointerDown={canDragRows ? (event) => beginDrag(event, { key: session.id, session, label: shownName(session) }) : undefined}
       onContextMenu={(event) => {
         if (!onSessionAction) return;
         event.preventDefault();
@@ -1054,22 +1315,8 @@ export function SourceSidebar({
       }}>
       <button type="button" className="source-session-open" data-row-main-button="" data-roving-item=""
         aria-current={shown ? "page" : undefined}
-        // Split view: a row dragged onto the session area opens there (source-split-view.jsx SESSION_DRAG_TYPE).
-        draggable={windowActions && !sessionArchived(session) ? true : undefined}
-        onDragStart={windowActions ? (event) => {
-          if (!event.dataTransfer) return;
-          event.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
-          event.dataTransfer.setData("text/plain", shownName(session));
-          event.dataTransfer.effectAllowed = "move";
-        } : undefined}
-        // Dropped outside the window (the official "drag it out from the sidebar"): the session opens in its own window.
-        onDragEnd={windowActions?.onOpenWindow ? (event) => {
-          if (event.dataTransfer?.dropEffect && event.dataTransfer.dropEffect !== "none") return;
-          const { screenX: x, screenY: y } = event;
-          if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return;
-          const outside = x < window.screenX || y < window.screenY || x > window.screenX + window.outerWidth || y > window.screenY + window.outerHeight;
-          if (outside && !sessionArchived(session)) windowActions.onOpenWindow(session);
-        } : undefined}
+        // The row is a pointer drag (onPointerDown above): never a native drag (an image or text drag).
+        draggable={false}
         onMouseDown={(event) => { if (event.shiftKey) event.preventDefault(); }}
         onClick={(event) => rowClick(event, session)}
         onDoubleClick={onSessionAction ? (event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey) setRenaming(session.id); } : undefined}
@@ -1084,9 +1331,9 @@ export function SourceSidebar({
             Xs {side "right", hoverable:false, lazy}; content is the title only
             while zD says it is truncated (inner scrollWidth > label
             offsetWidth), resolved when the tooltip opens, and none while
-            dragging (ic) — here: while this row's menu is open (renaming swaps
-            in RenameRow; there is no row drag). No native title. */}
-        <SourceTooltip side="right" hoverable={false} open={menu?.session?.id === session.id ? false : undefined}
+            dragging (ic) — here: while a row is dragged or this row's menu is
+            open (renaming swaps in RenameRow). No native title. */}
+        <SourceTooltip side="right" hoverable={false} open={drag || menu?.session?.id === session.id ? false : undefined}
           content={() => textOverflows(document.querySelector(`[data-source-session-id="${CSS.escape(session.id)}"] .source-session-name`)) ? shownName(session) : undefined}>
           <span className="source-session-name"><span className="source-session-title">{shownName(session)}</span>{lineage && <span className="source-sr-only"> {lineage}</span>}</span>
         </SourceTooltip>
@@ -1117,7 +1364,11 @@ export function SourceSidebar({
     const { unread, working } = nestedStubCounts(hidden, { isUnread: (row) => !!sessionMetadata[row.id]?.unread, isWorking: (row) => sessionState(row, state) === "working" });
     const stubText = nestedStubText(hidden.length, kept.length > 0);
     const stubLabel = unread > 0 ? t("Show {sessions}, {count} new", { sessions: stubText, count: unread }) : t("Show {sessions}", { sessions: stubText });
-    return <div key={`nest:${run.parentId}`} className="source-nested df-accordion-guide df-family" data-nested-parent={run.parentId} data-collapsed={folded || undefined}>
+    // uJ data-pinned-family: a family under a pinned head moves with it while that head is dragged (shared-22 uS:
+    // df-drag-shiftable with the head's own drag style, so it shifts with the head and hides while the head is carried).
+    const pinnedFamily = group?.kind === "pinned";
+    return <div key={`nest:${run.parentId}`} className={"source-nested df-accordion-guide df-family" + (pinnedFamily ? " df-drag-shiftable" : "")} data-nested-parent={run.parentId} data-collapsed={folded || undefined}
+      data-pinned-family={pinnedFamily ? "" : undefined} style={pinnedFamily ? shiftStyle(run.parentId) : undefined}>
       {/* sidebar-groups.js:13749-13785 rI: Kl {content, lazy, delay 350, side
           "right"}; trackCursorAxis "y" has no local tooltip counterpart. */}
       <SourceTooltip content={folded ? t("Show nested sessions") : t("Hide nested sessions")} delay={350} side="right">
@@ -1128,7 +1379,8 @@ export function SourceSidebar({
         onClick={(event) => { event.stopPropagation(); if (event.detail > 1) return; toggleNested(run.parentId, event.altKey); }} />
       </SourceTooltip>
       {kept.map((row) => renderRow(row, { nested: run.parentId, parent }))}
-      {hidden.length > 0 && <button type="button" className="df-family-stub" data-row="" data-roving-item="" aria-label={stubLabel}
+      {hidden.length > 0 && <button type="button" className="df-family-stub df-drag-shiftable" data-row="" data-roving-item="" aria-label={stubLabel}
+        data-drag-key={`label:stub:${run.parentId}`} style={shiftStyle(`label:stub:${run.parentId}`)}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => { if (event.detail > 1) return; toggleNested(run.parentId); }}>
         <span className="source-nested-stub-text">{stubText}</span>
@@ -1152,11 +1404,34 @@ export function SourceSidebar({
       return { epoch: revealEpoch, byKey };
     });
   };
+  // shared-21 xg K (readable 28293-28295) showFewerRows: the bucket folds back to the keep-visible floor (the open,
+  // selected and awaiting-input rows stay shown); H0 T then scrolls the button into view (block nearest).
+  const pendingShowLessScroll = useRef(null);
+  const showLess = (group, floor) => {
+    pendingShowLessScroll.current = group.key;
+    setRevealState((previous) => {
+      const byKey = new Map(previous.epoch === revealEpoch ? previous.byKey : []);
+      byKey.set(group.key, floor);
+      return { epoch: revealEpoch, byKey };
+    });
+  };
   useEffect(() => {
     const id = pendingRevealFocus.current;
-    if (!id) return;
-    pendingRevealFocus.current = null;
-    document.querySelector(`[data-source-session-id="${CSS.escape(id)}"] [data-row-main-button]`)?.focus();
+    if (id) {
+      pendingRevealFocus.current = null;
+      document.querySelector(`[data-source-session-id="${CSS.escape(id)}"] [data-row-main-button]`)?.focus();
+    }
+    const key = pendingShowLessScroll.current;
+    if (key) {
+      pendingShowLessScroll.current = null;
+      navRef.current?.querySelector(`[data-group-key="${CSS.escape(key)}"] .source-show-more`)?.scrollIntoView({ block: "nearest" });
+    }
+    // yS second effect: once the bucket is unfolded, the open row scrolls into view (block nearest).
+    const opened = pendingOpenRowScroll.current;
+    if (opened && !closed.has(opened.key)) {
+      pendingOpenRowScroll.current = null;
+      navRef.current?.querySelector(`[data-row-key="${CSS.escape(opened.id)}"]`)?.scrollIntoView({ block: "nearest" });
+    }
   });
   const renderGroupRows = (group) => {
     const entry = runsByGroup.get(group.key);
@@ -1169,11 +1444,20 @@ export function SourceSidebar({
         ? run.rows.map((session) => renderRow(session, { childCount: childCounts.get(session.id) || 0 }))
         : renderNested(run, group))}
       {/* sidebar-groups.js:17516-17525 BD / 7177-7231 VD: after the rows while
-          rows are hidden; AD classes with a df-leading-slot spacer. */}
-      {truncated?.hiddenCount > 0 && <button type="button" className="source-show-more" data-row="" data-roving-item=""
-        aria-label={t("Show {count} more in {group}", { count: truncated.revealCount, group: group.label })} onClick={(event) => showMore(group, truncated, event)}>
-        <span className="source-leading-slot df-leading-slot" aria-hidden="true" />{t("Show {count} more", { count: truncated.revealCount })}
-      </button>}
+          rows are hidden; AD classes with a df-leading-slot spacer. shared-21 H0
+          (21209-21357): once revealed to the end it becomes Show less (xg showFewerRows). */}
+      {(() => {
+        if (!truncated) return null;
+        const floorOf = () => truncateRuns(entry.runs, { truncateAt: truncateAtFor(group), extraRevealed: 0, keepVisibleIds, shownRows: (run) => splitRun(run).kept }).extraRevealed;
+        const fewer = truncated.hiddenCount === 0 ? showFewerRows({ total: truncated.total, truncateAt: truncateAtFor(group), extraRevealed: truncated.extraRevealed,
+          hiddenCount: 0, floor: truncated.extraRevealed > 0 ? floorOf() : 0 }) : undefined;
+        if (truncated.hiddenCount === 0 && !fewer) return null;
+        // og shiftKey label:showmore:{key}: the button moves with the rows while a drag opens a gap above it.
+        return <div key="show-more" className="df-drag-shiftable" data-drag-key={`label:showmore:${group.key}`} style={shiftStyle(`label:showmore:${group.key}`)}>
+          <SourceShowMoreButton bucketLabel={group.label} count={truncated.revealCount} fewer={fewer}
+            onShowMore={(event) => showMore(group, truncated, event)} onShowLess={() => showLess(group, floorOf())} />
+        </div>;
+      })()}
     </>;
   };
   const olderTargets = (group, action) => bulkTargets(group.sessions, { metadata: sessionMetadata, currentId: current, state, action });
@@ -1212,24 +1496,34 @@ export function SourceSidebar({
   // (shared-frame-C_2npUJq.js:1196-1208 Li: cds-root, data-density compact
   // on desktop, data-platform, data-font), so the sidebar gets compact tokens,
   // the desktop default cursor and the --cds-font-sans family.
-  return <aside className="app-sidebar dframe-sidebar source-sidebar cds-root" aria-label={t("Sidebar")} data-variant="web" data-density="compact" data-platform="desktop" data-font={cdsFont}>
+  // ca1d33d05 jt / kt (F6 page areas): the "navigation" stop is the whole aside, or while collapsed the peek card
+  // (the body) when it shows; focus anywhere in it holds the stop.
+  return <aside data-surface={mode} className="app-sidebar dframe-sidebar source-sidebar cds-root" aria-label={t("Sidebar")} data-variant="web" data-density="compact" data-platform="desktop" data-font={cdsFont}
+    data-focus-region={collapsed ? undefined : "navigation"} data-focus-region-holds={collapsed ? undefined : "contains"}>
     <div ref={toolbarRef} className="sidebar-toolbar df-titlebar window-drag">
       <div className="traffic-space" />
       {/* sidebar-groups.js:5320 hw: "Hide sidebar" with CDS tooltip Kl
           {shortcut:"cmd+b", hoverable:false} and no native title; the sidebar
           is hidden (visibility) while collapsed, so this is the open state only. */}
-      <ToolButton label={t("Hide sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.hide} icon="Sidebar" onClick={onCollapse} />
+      {/* shared-21 tK: df-sidebar-hover-reveal flex (shared-styles: .7 until the sidebar is hovered or holds focus-visible). */}
+      <div className="df-sidebar-hover-reveal flex">
+        <ToolButton label={t("Hide sidebar")} tooltip={SIDEBAR_TOGGLE_TOOLTIP.hide} icon="Sidebar" onClick={onCollapse} />
+      </div>
       {/* sidebar-session.js:10732-10800 qM in the sidebar placement. */}
       <SourceNavButtons placement="sidebar" historyAt={historyAt} historyLength={historyLength} travel={travel} />
       {/* sidebar-groups.js:1815-1830 Ze {tooltipSide "bottom"} -> shared-7 SR:
           icon-only segments get Xa {content, side, hoverable:false}, no native
           title. The cmd+alt+left/right hint (xy) has no local shortcut. */}
       <div className="mode-switch" role="radiogroup" aria-label={t("Mode")}>
-        {/* The official 'Claude' segment is Anthropic's chat product; here it is a read-only chat with the running core,
-            so it is named for what it does (main.jsx switchMode explains it once when chosen). */}
-        {[[t("Chat (read-only)"), "chat", "Chat", t("{assistant} answers and reads files, but can’t edit files or run commands.", { assistant: getAssistantName() })],
-          [t("Code"), "code", "Code", undefined]].map(([label, value, icon, detail]) => <SourceTooltip key={value} content={label} detail={detail} side="bottom" hoverable={false}>
-          <button role="radio" aria-label={label} aria-checked={mode === value} onClick={() => onMode?.(value)}><Icon name={icon} /></button>
+        {[[t("Claude"), lastChatSurface.current, "Chats"], [t("Code"), "code", "Code"]].map(([label, value, icon], index) => <SourceTooltip key={value} content={label} side="bottom" hoverable={false}>
+          <button role="radio" aria-label={label} aria-checked={mode === value} tabIndex={mode === value ? 0 : -1} disabled={modeBusy}
+            onClick={() => onMode?.(value)} onKeyDown={event => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : (index + 1) % 2;
+              event.currentTarget.parentElement.querySelectorAll('[role="radio"]')[next]?.focus();
+              onMode?.([lastChatSurface.current, 'code'][next]);
+            }}><Icon name={icon} /></button>
         </SourceTooltip>)}
       </div>
     </div>
@@ -1238,20 +1532,28 @@ export function SourceSidebar({
     {collapsed && <div className="dframe-peek-bridge" aria-hidden="true" onPointerEnter={onPeekEnter} onPointerLeave={onPeekLeave} />}
     {/* sidebar-main.js:14918-14925: the body is the peek card while collapsed (id = the trigger's
         aria-controls); it is inert while the card is hidden. */}
-    <div className="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover" inert={collapsed && !peekOpen ? true : undefined}
+    <div className="dframe-sidebar-body" data-testid="sidebar" id="frame-peek-popover" data-focus-region={collapsed ? "navigation" : undefined} data-focus-region-holds={collapsed ? "contains" : undefined} inert={collapsed && !peekOpen ? true : undefined}
       onPointerEnter={collapsed ? onPeekEnter : undefined} onPointerLeave={collapsed ? onPeekLeave : undefined}>
+      {mode !== 'code' && <div className="mb-2">
+        <button type="button" className="df-search-field surface-sidebar-search" onClick={() => setShowSearch?.('search')} aria-label={t('Search')} aria-keyshortcuts="Meta+k">
+          <span className="source-leading-slot"><Icon name="Search" size={16} /></span><span>{t('Search')}</span>
+        </button>
+      </div>}
       <div className="source-sidebar-primary">
         {/* sidebar-groups.js:12741-12767 zP: New is selected (y = _ && !v) only
             on the new route for the mode (aP :12310), never while a session is
             open; aria-current follows it and aria-keyshortcuts is always
             Rl("cmd+n") = "Meta+n" (shared-frame vo keeps a one-letter key as
             typed after po lowercases it). */}
-        {[["New", "Add", "new"], ["Artifacts", "Artifacts", "artifacts"], ["Routines", "Clock", "routines"], ["Customize", "Tool", "customize"]].map(([label, icon, key]) => {
+        {(mode === 'code' ? [["New", "Add", "new"], ["Artifacts", "Artifacts", "artifacts"], ["Routines", "Clock", "routines"], ["Customize", "Tool", "customize"]]
+          : [["New", "Add", "new"], ["Projects", "Projects", "projects"], ["Artifacts", "Artifacts", "artifacts"], ["Scheduled", "Clock", "routines"], ["Design", "Palette", "design"], ["Customize", "Tool", "customize"]]).map(([label, icon, key]) => {
           const selected = key === "new" ? section === "new" && !current : section === key;
           // shared-21 ND (:7590-7597) puts "group" on every plain row button, so the
           // New glyph's group-hover / group-data-[selected=focused] utilities resolve.
           return <button key={key} type="button" className="source-sidebar-nav-row group" data-selected={selected ? "focused" : undefined}
             aria-current={key === "new" && selected ? "page" : undefined} aria-keyshortcuts={key === "new" ? "Meta+n" : undefined}
+            // shared-19 MY: New session drags into the session area as a new split side (a draft pane).
+            onPointerDown={key === "new" && mode === "code" && windowActions?.onOpenSplit ? (event) => beginDrag(event, { key: "__new-session-drag-source__", label: t("New session"), draft: true }) : undefined}
             onClick={() => key === "new" ? onNew?.() : setSection?.(key)}>
             {/* sidebar-groups.js:12828-12842: only New's df-leading-slot holds mD
                 (:7062-7073) - span.df-new-circle around Icon Add "sm" (16, shared-frame
@@ -1261,17 +1563,21 @@ export function SourceSidebar({
             {key === "new"
               ? <span className="source-leading-slot df-leading-slot"><span className="df-new-circle flex shrink-0 items-center justify-center rounded-full">
                 <Icon name="Add" size={16} className="text-secondary group-hover:text-primary group-data-[selected=focused]:text-primary" /></span></span>
-              : <span className="source-leading-slot"><Icon name={icon} size={16} /></span>}<span>{t(label)}</span>
+              : <span className="source-leading-slot"><Icon name={icon} size={16} /></span>}<span>{t(label)}</span>{mode !== "code" && key === "projects" && <span className="surface-new-badge">{t("New")}</span>}
             {key === "new" && <kbd aria-hidden="true">⌘ N</kbd>}
           </button>;
         })}
       </div>
+      {mode !== 'code' && <button type="button" className="source-sidebar-nav-row surface-more" aria-haspopup="menu" aria-expanded={!!surfaceMenu}
+        onClick={event => setSurfaceMenu(surfaceMenu ? null : event.currentTarget)}><span className="source-leading-slot"><Icon name="CaretRight" size={16} /></span>{t('More')}</button>}
       {/* There is no standalone 'Routines ›' label in the code sidebar (sidebar-groups.js:6530-6700 UE, qE.code):
           Routines is only the relabelled 'scheduled' nav row above. Search is the ⌘K palette, not a field here. */}
       {/* dframe-nav-scroll: the loaded shared-styles copy of desktop-layout.css:799-801
           masks the top 12px while data-scrolled is set. */}
-      <nav ref={navRef} className="source-session-list df-session-list dframe-nav-scroll" aria-label={t("Sessions")} aria-busy={loading}
-        data-scrolled={scrolled || undefined}
+      <nav ref={navRef} className="source-session-list df-session-list dframe-nav-scroll" aria-label={t("Sessions")} aria-busy={listLoading}
+        data-scrolled={scrolled || undefined} data-pin-dragging={drag ? "" : undefined}
+        onPointerDownCapture={swallowGuardedMultiClick} onMouseDownCapture={swallowGuardedMultiClick}
+        onClickCapture={swallowGuardedMultiClick} onDoubleClickCapture={swallowGuardedMultiClick}
         onScroll={(event) => {
           const nav = event.currentTarget;
           if (nav.scrollLeft !== 0) nav.scrollLeft = 0;
@@ -1328,11 +1634,23 @@ export function SourceSidebar({
             {onForgetHidden && <button type="button" className="source-sidebar-hidden-action" onClick={() => onForgetHidden()}>{t("Remove from sidebar")}</button>}
           </span>}
         </div>}
-        {displayed.length === 0 && <div className="source-group-heading"><span>{preferences.status === "archived" ? t("Archived") : t("Sessions")}</span><div className="source-group-actions">{headerControls}</div></div>}
-        {displayed.map((group, index) => <section key={group.key} className="source-session-group" data-group-key={group.key}>
+        {displayed.length === 0 && <div className="source-group-heading"><span>{preferences.status === "archived" ? t("Archived") : t(mode === "code" ? "Sessions" : "Recents")}</span><div className="source-group-actions">{headerControls}</div></div>}
+        {/* shared-22 ZO: with nothing pinned the Pinned list is a stub that opens (df-pin-section-reveal) while a single
+            row that can pin is dragged, holding XO's drop row. */}
+        {canDragRows && !displayed.some((group) => group.kind === "pinned") && <section className="source-pinned-drop df-pin-section-reveal" data-pinned-list=""
+          data-stub={pinDropOpen ? undefined : ""} inert={pinDropOpen ? undefined : true}>
+          <div className="source-pinned-drop-heading" data-sidebar-group-label=""><span>{t("Pinned")}</span></div>
+          <div className="source-group-rows" data-pinned-rows=""><PinnedDropRow hot={drag?.slotIdx != null} dragging={pinDropOpen} /></div>
+        </section>}
+        {displayed.map((group, index) => <section key={group.key} className="source-session-group" data-group-key={group.key}
+          data-pinned-list={group.kind === "pinned" ? "" : undefined}
+          // shared-22 SS De: a custom group section (and Ungrouped) is a drop target (data-group-list = its id, "" = none).
+          data-group-list={group.kind === "custom" && onSessionAction ? group.customGroupId ?? "" : undefined}
+          data-group-label={group.kind === "custom" && onSessionAction ? shownGroupLabel(group) : undefined}>
           {/* sidebar-session.js:15909-16030 OB/kB/MB (project) and :16275-16432 XB (custom): the group
               label row is a ContextMenu trigger; the Other and Ungrouped buckets have none. */}
-          <div className="source-group-heading" data-sidebar-group-label="" data-menu-open={menu?.kind === "group" && menu.group.key === group.key || undefined}
+          <div className="source-group-heading df-drag-shiftable" data-sidebar-group-label="" data-menu-open={menu?.kind === "group" && menu.group.key === group.key || undefined}
+            data-drag-key={`label:${group.key}`} style={shiftStyle(`label:${group.key}`)}
             onContextMenu={groupMenuKind(group) ? (event) => {
               if (event.target instanceof Element && event.target.closest("input")) return;
               event.preventDefault();
@@ -1375,14 +1693,25 @@ export function SourceSidebar({
               {index === 0 && headerControls}
             </div>
           </div>
-          {!closed.has(group.key) && <div className="source-group-rows" data-group-rows="">
+          {!closed.has(group.key) && <div className="source-group-rows" data-group-rows="" data-pinned-rows={group.kind === "pinned" ? "" : undefined}>
             {renderGroupRows(group)}
             {/* sidebar-groups.js:17505-17516: an empty custom group invites a drop; xB elsewhere. */}
-            {group.sessions.length === 0 && <p className="source-empty-group">{group.customGroupId ? t("Drag or move sessions here") : t("No active sessions")}</p>}
+            {group.sessions.length === 0 && <p className="source-empty-group df-drag-shiftable" data-drag-key={`label:hint:${group.key}`}
+              style={shiftStyle(`label:hint:${group.key}`)}>{group.customGroupId ? t("Drag or move sessions here") : t("No active sessions")}</p>}
           </div>}
+          {/* ZO (A && V): a folded Pinned list still takes a dragged row. */}
+          {group.kind === "pinned" && closed.has(group.key) && drag?.canPin && drag.keys.length === 1 && <div className="source-group-rows" data-pinned-rows="">
+            <PinnedDropRow hot={drag.slotIdx != null} dragging />
+          </div>}
+          {/* shared-22 SS (readable 4490-4503): the target section's band while a row is held over it. */}
+          {group.kind === "custom" && onSessionAction && (() => {
+            const hot = !!drag?.groupIntent && drag.groupIntent.groupId === (group.customGroupId ?? null);
+            return <div aria-hidden="true" className={"source-group-drop-band pointer-events-none absolute inset-x-0 rounded-lg transition-[background-color,box-shadow] " + (hot ? "bg-accent-muted ring-2 ring-inset ring-fill-accent" : "")}
+              style={{ top: `calc(max(0px, var(--df-group-band-mt, var(--df-group-pt)) - 6px) - ${hot ? drag.groupIntent.extendTopPx : 0}px)`, bottom: hot ? -drag.groupIntent.extendBottomPx : 0 }} />;
+          })()}
         </section>)}
-        {loading && sourceSessions.length === 0 && <SourceSidebarSkeleton rows={3} />}
-        {!loading && emptyVariant && <SourceSidebarEmpty variant={emptyVariant}
+        {listLoading && sourceSessions.length === 0 && <SourceSidebarSkeleton rows={3} />}
+        {mode === "code" && emptyVariant && <SourceSidebarEmpty variant={emptyVariant} onRetry={onRetryLoad}
           onShowAllSessions={() => updatePreferences(showAllSessionsPreferences(preferences))} />}
         {preferences.groupBy === "custom" && onCreateGroup && <button className="source-create-group" onClick={() => setGroupDialog({ kind: "create" })}>
           <Icon name="Add" size={14} />{t("New group")}
@@ -1423,12 +1752,18 @@ export function SourceSidebar({
       </div>
     </div>
     {setSidebarWidth && <SidebarResizeHandle width={sidebarWidth} minWidth={sidebarFloor} onCommit={setSidebarWidth} onCollapse={onCollapse} onCollapsedChange={onCollapsedChange} />}
+    <SidebarDragGhost drag={drag} />
+    {surfaceMenu && <SourceMenu.Popup anchor={surfaceMenu} side="right" label={t('More')} onClose={() => setSurfaceMenu(null)}>
+      <SourceMenu.Item icon="Chats" checked={mode === 'chat'} checkedRole="radio" onClick={() => { setSurfaceMenu(null); onMode?.('chat'); }}>{t('Chat')}</SourceMenu.Item>
+      <SourceMenu.Item icon="Tasks" checked={mode === 'cowork'} checkedRole="radio" onClick={() => { setSurfaceMenu(null); onMode?.('cowork'); }}>{t('Cowork')}</SourceMenu.Item>
+    </SourceMenu.Popup>}
     {menu && <SourceSidebarMenu key={menu.token} anchor={menu.anchor} point={menu.point} kind={menu.kind} initialHighlight={menu.entry ?? "popup"}
       label={t(menu.kind === "filter" ? "Filter sessions" : menu.kind === "group" ? "Group options" :menu.kind === "older" ? "Older sessions" : menu.kind === "whitespace" ? "Sessions list options" : "Session options")}
       onClose={() => setMenu(null)}>
       {menu.kind === "filter" && <SourceSidebarFilterMenu preferences={preferences} onChange={updatePreferences} onClose={() => setMenu(null)} knownFolders={folders} customGroups={customGroups} />}
       {menu.kind === "session" && <SourceSidebarSessionMenu session={menu.session} metadata={sessionMetadata[menu.session.id]} customGroups={customGroups}
         state={state} onAction={runAction} onClose={() => setMenu(null)} onRename={() => setRenaming(menu.session.id)}
+        unarchiving={!!unarchiving?.has?.(menu.session.id)}
         onCreateGroup={onCreateGroup ? (targets) => setGroupDialog({ kind: "create", sessions: targets }) : undefined}
         onDelete={(target) => requestDelete([target])} onFork={(target) => runAction("fork", target)} forkUnavailable={forkUnavailable}
         pinnedSiblings={pinnedIds} editors={editors} shareable={shareable} windowActions={menu.multi ? null : windowActions}
@@ -1436,7 +1771,13 @@ export function SourceSidebar({
           const count = [...runsByGroup.values()].flatMap((entry) => entry.runs).find((run) => run.parentId === menu.session.id)?.rows.length || 0;
           return count ? { childCount: count, collapsed: collapsedNested.has(menu.session.id), onToggle: () => toggleNested(menu.session.id) } : null;
         })()}
-        multi={menu.multi ? { count: selectedSessions.length, sessions: selectedSessions, onBulk: (action, targets, payload) => action === "delete" ? requestDelete(targets) : runBulk(action, targets, payload) } : undefined} />}
+        multi={menu.multi ? { count: selectedSessions.length, sessions: selectedSessions, models: bulkModels,
+          ...(() => {
+            const { pin, unpin } = multiMenuState(selectedSessions, sessionMetadata);
+            return { pin: pin ? { ...pin, sessions: pinTargets(selectedSessions, sessionMetadata, true) } : null,
+              unpin: unpin ? { ...unpin, sessions: pinTargets(selectedSessions, sessionMetadata, false) } : null };
+          })(),
+          onBulk: (action, targets, payload) => action === "delete" ? requestDelete(targets) : runBulk(action, targets, payload) } : undefined} />}
       {menu.kind === "group" && (() => {
         const group = menu.group, custom = groupMenuKind(group) === "custom";
         const keys = sectionKeysOf(custom), own = custom ? customOrderKey(group.customGroupId) : group.projectKey, at = keys.indexOf(own);
@@ -1499,7 +1840,9 @@ export function SourceSidebar({
         showSearch is false or the entry mode ("default" for ⌘K, "search" for ⇧⌘K / Search). */}
     {setShowSearch && <SourceSidebarPalette open={!!showSearch} entry={showSearch === "search" ? "search" : "default"} onClose={() => setShowSearch(false)}
       query={search} setQuery={setSearch} sessions={sourceSessions} folders={folders} contentMatches={searchMatches} deepSearch={deepSearch}
-      state={state} metadata={sessionMetadata} actions={paletteActions({ onNew, setSection, onToggleSidebar: onCollapse, onOpenSettings })}
+      state={state} metadata={sessionMetadata} actions={paletteActions({ onNew, setSection, onToggleSidebar: onCollapse, onOpenSettings,
+        jumps: showSearch ? JUMP_COMMANDS.filter((command) => regionJumpAvailable(command.regions)) : [], onJump: jumpToRegions,
+        ...(showSearch && typeof paletteCommands === "function" ? paletteCommands() : null) })}
       onOpenSession={onOpen} onStartSession={onStartSession} onNew={onNew} onProject={onProject} />}
   </aside>;
 }

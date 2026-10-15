@@ -231,7 +231,7 @@ try {
       });
     }, true);
   });
-  await page.locator(".sc-input").focus();
+  await page.locator("form.sc-composer .sc-input").focus();
   let keyboardReached = false;
   for (let i = 0; i < 24; i++) {
     await page.keyboard.press("Shift+Tab");
@@ -288,7 +288,7 @@ try {
   metrics.copiedTextLength = expectedText.length;
   checks.push("Keyboard Copy writes exact full Markdown with empty-fragment double separators and aggregate-only trim plus matching text/html; accessible name stays Copy and success lasts 2000ms");
 
-  await page.locator(".sc-input").focus();
+  await page.locator("form.sc-composer .sc-input").focus();
   await page.mouse.move(100, 700);
   await waitOpacity(targetTurn, 0);
   await page.locator('[data-transcript-item-id="footer-static-first"]').hover();
@@ -408,7 +408,7 @@ try {
   await control({ op: "item", turnId: liveTurn, item: textItem("footer-live-first", "First **live** fragment.") });
   await control({ op: "item", turnId: liveTurn, item: toolItem("footer-live-middle", "printf live-middle") });
   await control({ op: "item", turnId: liveTurn, item: textItem("footer-live-second", "Second fragment."), completed: false });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor();
   assert.equal(await footer(liveTurn).count(), 0, "Completed text inside an active turn has no tail footer");
   assert.equal(await footer(targetTurn).count(), 1, "An older finished turn stays eligible");
   assert.equal(await page.locator(".stf-footer").count(), histories.length + 1);
@@ -444,7 +444,7 @@ try {
   assert.equal(during.following, "false");
   await control({ op: "complete", turnId: liveTurn });
   await footer(liveTurn).waitFor({ state: "attached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal(await footer(liveTurn).count(), 1);
   assert.equal(await footer(liveTurn).evaluate(node => node.previousElementSibling?.dataset.transcriptItemId), "footer-live-tail");
   assert.equal(await page.locator(".stf-footer").count(), histories.length + 2);

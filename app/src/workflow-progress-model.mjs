@@ -32,16 +32,20 @@ export function workflowEvent(run,event,at){
  return next;
 }
 export const workflowAgentState=(agent,now)=>agent.state==='progress'?(agent.progressSupported!==false&&!(agent.activeTools>0)&&Number.isFinite(agent.lastProgressAt)&&now-agent.lastProgressAt>90000?'stalled':'running'):agent.state==='done'?'done':agent.state==='error'?'error':agent.state==='skipped'?'skipped':'pending';
+// c62da1b56 ge/he: agents without a phase gather in one last group, 'Agents' (or 'Other agents' beside real phases);
+// a settled run's phase whose agents never started reads 'Not run' (status notRun), not 'Pending'.
+export const WORKFLOW_AGENTS_GROUP=Number.MAX_SAFE_INTEGER;
 export function workflowPhases(run,now){
- const groups=new Map();let current;
+ const groups=new Map();
  const group=(index,title)=>{let p=groups.get(index);if(!p){p={index,title:title??`Phase ${index+1}`,agents:[]};groups.set(index,p);}else if(title&&p.title.startsWith('Phase '))p.title=title;return p;};
  for(const p of run.workflowProgress||[]){
-  if(p.type==='workflow_phase'){current=group(p.index,p.title);continue;}
+  if(p.type==='workflow_phase'){group(p.index,p.title);continue;}
   if(p.type!=='workflow_agent')continue;
-  (p.phaseIndex===undefined?(current||group(0)):group(p.phaseIndex,p.phaseTitle)).agents.push({...p,displayState:workflowAgentState(p,now)});
+  (p.phaseIndex===undefined?group(WORKFLOW_AGENTS_GROUP):group(p.phaseIndex,p.phaseTitle)).agents.push({...p,displayState:workflowAgentState(p,now)});
  }
- const settled=run.status&&run.status!=='running';
- return [...groups.values()].sort((a,b)=>a.index-b.index).map(p=>({...p,done:p.agents.filter(a=>a.state==='done').length,status:p.agents.some(a=>a.state==='error')?'error':p.agents.some(a=>a.state==='progress')?(settled?'done':'running'):!p.agents.length||p.agents.every(a=>a.displayState==='pending')?'pending':p.agents.every(a=>a.state==='done'||a.state==='skipped')||settled?'done':'running',tokens:p.agents.reduce((sum,a)=>sum+(a.tokens||0),0)}));
+ const settled=run.status&&run.status!=='running',others=groups.get(WORKFLOW_AGENTS_GROUP);
+ if(others)others.title=groups.size>1?t('Other agents'):t('Agents');
+ return [...groups.values()].sort((a,b)=>a.index-b.index).map(p=>({...p,done:p.agents.filter(a=>a.state==='done').length,status:p.agents.some(a=>a.state==='error')?'error':p.agents.some(a=>a.state==='progress')?(settled?'done':'running'):!p.agents.length||p.agents.every(a=>a.displayState==='pending')?(settled?'notRun':'pending'):p.agents.every(a=>a.state==='done'||a.state==='skipped')||settled?'done':'running',tokens:p.agents.reduce((sum,a)=>sum+(a.tokens||0),0)}));
 }
 export function workflowSummary(summary,description){
  if(!summary||summary===description)return '';

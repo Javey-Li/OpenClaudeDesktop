@@ -142,7 +142,7 @@ async function geometry() {
 }
 async function openFiles() {
   await page
-    .getByRole("button", { name: "Session options", exact: true })
+    .getByRole("button", { name: "View options", exact: true })
     .click();
   await page
     .getByRole("menuitemcheckbox", { name: "Files", exact: true })

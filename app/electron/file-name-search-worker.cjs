@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { matchPath, compareMatches } = require('./file-name-matcher.cjs');
+const { matchPath, compareMatches, orderFolderQuery } = require('./file-name-matcher.cjs');
 
 const FALLBACK_EXCLUDES = new Set(['.git', 'node_modules', '.DS_Store']);
 const vanished = error => ['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code);
@@ -44,7 +44,8 @@ function cleanRelative(value, limits) {
     !value.split('/').some(part => part === '' || part === '.' || part === '..' || part === '.git');
 }
 
-function safeRegularFile(root, relative, identity, limits) {
+// B33: a folder row (directory = true) gets the same walk, ending at a real directory instead of a file.
+function safeRegularFile(root, relative, identity, limits, directory = false) {
   if (!cleanRelative(relative, limits)) return false;
   const parts = relative.split('/');
   if (parts.length - 1 > limits.maxDepth) return false;
@@ -54,7 +55,7 @@ function safeRegularFile(root, relative, identity, limits) {
       current = path.join(current, parts[i]);
       const info = fs.lstatSync(current);
       if (info.isSymbolicLink() || info.dev !== identity.dev) return false;
-      if (i < parts.length - 1 ? !info.isDirectory() : !info.isFile()) return false;
+      if (i < parts.length - 1 || directory ? !info.isDirectory() : !info.isFile()) return false;
     }
     return inside(root, fs.realpathSync(current));
   } catch (error) { if (vanished(error)) return false; throw error; }
@@ -159,7 +160,7 @@ async function run(request, limits) {
     output.root = root;
     if (!identity.isDirectory()) throw failure('INVALID_ROOT', 'The workspace root is not a directory.');
     if (root === path.parse(root).root) throw failure('ROOT_TOO_BROAD', 'Choose a project directory, not the filesystem root.');
-    if (request.query.startsWith('?')) throw failure('CONTENT_SEARCH_UNSUPPORTED', 'This API searches filenames only.');
+    if (request.mode!=='content'&&request.query.startsWith('?')) throw failure('CONTENT_SEARCH_UNSUPPORTED', 'This API searches filenames only.');
     if (!request.query && !request.browse) { output.complete = true; return output; }
     const candidates = new Set();
     let indexBytes = 0;
@@ -173,19 +174,40 @@ async function run(request, limits) {
     }
     if (!(await enumerateGit(root, limits, output, add))) enumerateFilesystem(root, identity, limits, output, add);
     output.scanned.candidates = candidates.size;
+    if(request.mode==='content'){
+      await require('./file-content-search.cjs').searchContents({root,identity,candidates,request,limits,output,safeRegularFile});
+    }else{
     const ranked = [];
     for (const relative of candidates) {
       const matched = request.query ? matchPath(relative, request.query) : browseRank(relative);
       if (matched) ranked.push({ path: relative, name: path.basename(relative), directory: false, ...matched });
     }
+    // B33 (cccc2cf0a Re queryFn :4384-4395): a Files pane filter ending in '/' also lists folders (the folders that
+    // hold the enumerated files), ordered by Fv; any other filter lists files only.
+    const folders = request.folders === true && request.query.endsWith('/');
+    if (folders) {
+      const directories = new Set();
+      for (const relative of candidates) {
+        for (let at = relative.lastIndexOf('/'); at > 0; at = relative.lastIndexOf('/', at - 1)) {
+          const directory = relative.slice(0, at);
+          if (directories.has(directory)) break;
+          directories.add(directory);
+        }
+      }
+      for (const relative of directories) {
+        const matched = matchPath(relative, request.query);
+        if (matched) ranked.push({ path: relative, name: path.basename(relative), directory: true, ...matched });
+      }
+    }
     ranked.sort(compareMatches);
     let responseBytes = Buffer.byteLength(JSON.stringify({ ...output, warnings: [...new Set(output.warnings)], truncationReasons: [...new Set(output.truncationReasons)] })) + 2048;
-    for (const match of ranked) {
-      if (!safeRegularFile(root, match.path, identity, limits)) continue;
+    for (const match of folders ? orderFolderQuery(ranked, request.query) : ranked) {
+      if (!safeRegularFile(root, match.path, identity, limits, match.directory)) continue;
       if (output.matches.length >= limits.maxResults) { output.truncationReasons.push('result-limit'); break; }
       responseBytes += Buffer.byteLength(JSON.stringify(match));
       if (responseBytes > limits.maxResultBytes) { output.truncationReasons.push('result-output-limit'); break; }
       output.matches.push(match);
+    }
     }
     const finalRoot = fs.lstatSync(root);
     if (finalRoot.isSymbolicLink() || finalRoot.ino !== identity.ino || finalRoot.dev !== identity.dev || fs.realpathSync(request.root) !== root)
@@ -197,7 +219,7 @@ async function run(request, limits) {
   } catch (error) {
     output.matches = [];
     output.complete = false;
-    const known = ['INVALID_ROOT', 'ROOT_TOO_BROAD', 'CONTENT_SEARCH_UNSUPPORTED', 'GIT_FAILED', 'GIT_PROTOCOL', 'PATH_ENCODING', 'WORKSPACE_CHANGED'];
+    const known = ['INVALID_ROOT', 'ROOT_TOO_BROAD', 'CONTENT_SEARCH_UNSUPPORTED', 'INVALID_PATTERN', 'GIT_FAILED', 'GIT_PROTOCOL', 'PATH_ENCODING', 'WORKSPACE_CHANGED'];
     output.error = {
       code: known.includes(error.code) ? error.code : error.code === 'ENOENT' ? 'ROOT_NOT_FOUND' : 'FILESYSTEM_ERROR',
       message: known.includes(error.code) ? error.message : error.code === 'ENOENT' ? 'The workspace root no longer exists.' : 'Cannot read the workspace filename index.',

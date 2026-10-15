@@ -3,16 +3,23 @@ import { t } from "../electron/i18n/index.mjs";
 // Appearance model (pure): the /theme argument, the resolved light/dark mode
 // and which running transitions a mode flip finishes.
 
-// cc43287c9-BMbiZYzF.js:11206-11224 LI/RI/zI: "/theme <arg>" sets light, dark
-// or follow-system; "auto" is the source's own name for system, so both map to
-// the local "system" preference. No argument, an unknown word or extra lines
-// open the picker (the source opens Settings > General with "Theme"
-// highlighted, :33718-33730); locally Appearance lives on the Preferences page.
+// cc43287c9-Bchz60VT.js:34306-34325 t4/n4/r4 (2.31226.0): "/theme <arg>" sets light, dark or follow-system;
+// "auto" is the source's own name for system, so both map to the local "system" preference. Besides the
+// English words, r4 takes the interface language's own names for the three choices (c4 :34659-34666 passes a
+// Map of formatMessage(SF.auto|light|dark).toLowerCase(), ce2be2435 SF: System / Light / Dark), so 浅色 /
+// 深色 / 跟随系统 work under zh-CN. Text on more than one line is {extraLines} (the source's "extra_lines":
+// c4 shows the shared single-line notice and keeps the draft). No argument or an unknown word opens the
+// picker (the source opens Settings > General with "Theme" highlighted); locally Appearance lives on the
+// Preferences page.
 const THEME_ARGUMENTS = new Map([["light", "light"], ["dark", "dark"], ["system", "system"], ["auto", "system"]]);
-export function parseThemeCommand(args) {
+// The localized names (lower-cased): read per call, after the locale is fixed for this window.
+export const localizedThemeWords = () => new Map([[t("System").toLowerCase(), "system"], [t("Light").toLowerCase(), "light"], [t("Dark").toLowerCase(), "dark"]]);
+export function parseThemeCommand(args, localized = localizedThemeWords()) {
   const text = typeof args === "string" ? args : "";
-  if (/[\r\n]/.test(text.trim())) return { open: "appearance" };
-  const theme = THEME_ARGUMENTS.get(text.trim().toLowerCase());
+  // r4 trims the whole input, then tests the rest after "/theme": a line break before the word counts, a trailing one does not.
+  if (/[\r\n]/.test(text.trimEnd())) return { extraLines: true };
+  const word = text.trim().toLowerCase();
+  const theme = THEME_ARGUMENTS.get(word) ?? localized?.get(word);
   return theme ? { set: theme } : { open: "appearance" };
 }
 // shared-7 xh "Appearance set to …" toast names.

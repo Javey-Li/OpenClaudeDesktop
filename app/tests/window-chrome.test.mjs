@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import chrome from '../electron/window-chrome.cjs';
-const { windowBackground, WINDOW_BACKGROUND, trafficLightPosition, scaleTrafficLights, clampZoomFactor, zoomLevelAfter, ZOOM_LEVEL, ZOOM_STEP } = chrome;
+const { windowBackground, WINDOW_BACKGROUND, trafficLightPosition, scaleTrafficLights, clampZoomFactor, zoomLevelAfter, ZOOM_LEVEL, ZOOM_STEP, ZOOM_HINT_KEY, zoomFactorHint } = chrome;
 
 test('window background follows the resolved appearance (index.chunk-ChZ67Jhw.js ssn/jP)', () => {
   assert.deepEqual(WINDOW_BACKGROUND, { light: '#fcfcfb', dark: '#151515' });
@@ -37,4 +37,29 @@ test('zoom steps follow ONr/SNr: ±.5 levels clamped to the Kon range, reset to 
   assert.ok(Math.abs(1.2 ** ZOOM_LEVEL.MAX - 5) < 1e-9 && Math.abs(1.2 ** ZOOM_LEVEL.MIN - 0.25) < 1e-9);
   assert.equal(zoomLevelAfter(1, {}), 1);
   assert.equal(zoomLevelAfter(Number.NaN, { delta: 'x' }), 0);
+});
+
+test('iSi snaps a step back onto the 0.5 grid; a zero step only clamps (B38)', () => {
+  // A level restored from a factor hint carries float noise: the next step lands on the grid again.
+  const restored = Math.log(1.2 ** 0.5) / Math.log(1.2);
+  assert.equal(zoomLevelAfter(restored, { delta: ZOOM_STEP }), 1);
+  assert.equal(zoomLevelAfter(0.3, { delta: ZOOM_STEP }), 1);
+  assert.equal(zoomLevelAfter(0.2, { delta: -ZOOM_STEP }), -0.5);
+  assert.ok(Object.is(zoomLevelAfter(0.5, { delta: -ZOOM_STEP }), 0), '+0 turns -0 into 0');
+  assert.ok(Object.is(zoomLevelAfter(-0.4, { delta: ZOOM_STEP }), 0));
+  // iSi(0) (the main window's focus) keeps an off-grid level and only clamps it.
+  assert.equal(zoomLevelAfter(0.3, { delta: 0 }), 0.3);
+  assert.equal(zoomLevelAfter(40, { delta: 0 }), ZOOM_LEVEL.MAX);
+});
+
+test('pBn/mBn zoom factor hint: a finite number, clamped; anything else is 100%', () => {
+  assert.equal(ZOOM_HINT_KEY, 'windowControlsZoomFactor');
+  assert.equal(zoomFactorHint(1.2), 1.2);
+  assert.equal(zoomFactorHint(undefined), 1);
+  assert.equal(zoomFactorHint('1.5'), 1);
+  assert.equal(zoomFactorHint(Number.POSITIVE_INFINITY), 1);
+  assert.equal(zoomFactorHint(0.1), 0.25);
+  assert.equal(zoomFactorHint(12), 5);
+  // SBn(): the main window's first traffic-light position follows the hint.
+  assert.deepEqual(trafficLightPosition(zoomFactorHint(1.25)), { x: 22, y: 22 });
 });

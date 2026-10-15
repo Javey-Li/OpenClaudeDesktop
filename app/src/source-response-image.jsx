@@ -1,12 +1,18 @@
-import React,{useEffect,useRef,useState} from 'react';
+import React,{createContext,useContext,useEffect,useRef,useState} from 'react';
 import {SourceMenu} from './source-menu.jsx';
 import {responseImageTarget,imagePng} from './response-image-model.mjs';
 import {useSourceToasts} from './source-toast.jsx';
 import './source-response-image.css';
 import {t} from '../electron/i18n/index.mjs';
 
+// cd5a31703 dI / TI: an image inside a transcript message belongs to the message's context menu, whose first items are
+// Copy image and Save image (c26fb8b6b Ge). SourceTranscript provides the opener (target, point, image) → opened; an
+// image outside a message (or a row without a message menu) keeps its own Copy image / Save image menu, as Ke does.
+export const ResponseImageMenuContext=createContext(null);
+
 export function SourceResponseImage({src,alt='',cwd,call,fallback}) {
   const toasts=useSourceToasts();
+  const openMessageMenu=useContext(ResponseImageMenuContext);
   const target=responseImageTarget(src,cwd);
   const [image,setImage]=useState(()=>target.kind==='data'?{dataUrl:target.url,name:'image'}:null);
   const [failed,setFailed]=useState(false),[ready,setReady]=useState(false),[menu,setMenu]=useState(null),[notice,setNotice]=useState(null);
@@ -33,6 +39,11 @@ export function SourceResponseImage({src,alt='',cwd,call,fallback}) {
     // cfc63964b O: addError("Couldn’t copy image." mpiKUCMipZ / "Couldn’t save image." Bb7iLWtweK, {error}); the reason is logged.
     } catch(error) {if(active.current){const text=kind==='copy'?t('Couldn’t copy image.'):t('Couldn’t save image.');console.warn(text,error);if(toasts)toasts.add(text,{variant:'danger'});else setNotice({error:true,text});}}
   };
+  // TI w: the message menu with the image items first; its own menu when no message menu takes it.
+  const openMenu=point=>{
+    const handle={src:image.dataUrl,fileName:image.name,copy:()=>{void run('copy');},save:()=>{void run('save');}};
+    if(!openMessageMenu?.(ref.current,point,handle))setMenu(point);
+  };
   if(target.kind==='empty')return null;
   if(failed || !['data','file'].includes(target.kind))return fallback;
   return <>
@@ -40,8 +51,8 @@ export function SourceResponseImage({src,alt='',cwd,call,fallback}) {
       {image && <img ref={ref} src={image.dataUrl} alt={ready?alt:''} aria-hidden={!ready || undefined} tabIndex={-1}
         className="sri-image" hidden={!ready} onLoad={()=>setReady(true)} onError={()=>setFailed(true)}
         onDragStart={event=>event.preventDefault()}
-        onContextMenu={event=>{event.preventDefault();event.stopPropagation();setMenu({x:event.clientX,y:event.clientY});}}
-        onKeyDown={event=>{if(event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey){event.preventDefault();event.stopPropagation();const rect=ref.current.getBoundingClientRect();setMenu({x:rect.left,y:rect.bottom});}}} />}
+        onContextMenu={event=>{event.preventDefault();event.stopPropagation();openMenu({x:event.clientX,y:event.clientY});}}
+        onKeyDown={event=>{if(event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey){event.preventDefault();event.stopPropagation();const rect=ref.current.getBoundingClientRect();openMenu({x:rect.left,y:rect.bottom});}}} />}
       {!ready && <span className="sri-placeholder" aria-hidden="true" />}
       {!ready && alt && <span className="source-sr-only">{alt}</span>}
     </span>

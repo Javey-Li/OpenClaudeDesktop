@@ -1,13 +1,37 @@
 import React, {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {Icon} from './icons.jsx';
 import {SourceSpark} from './source-spark.jsx';
-import {agentTargets,agentView,agentOperationLabel,agentPromptNeeded,agentRowLabel} from './agent-model.mjs';
+import {agentTargets,agentView,agentOperationLabel,agentPromptNeeded,agentRowLabel,agentConclusionStats,agentConclusionText} from './agent-model.mjs';
 import {commandRowState} from './command-row-model.mjs';
 import {groupFileTools} from './file-tool-model.mjs';
 import {reasoningPlacement} from './reasoning-model.mjs';
 import './source-agent.css';
 import {SourceSettingsButton} from './source-settings-button.jsx';
 import {t} from '../electron/i18n/index.mjs';
+import {createStickToBottom} from './task-output-follow.mjs';
+import {SourceClearFinishedTasks} from './source-background-tasks.jsx';
+
+const UP_KEYS=new Set(['ArrowUp','PageUp','Home']);
+// Ow (cccc2cf0a :12810-12840): a running sub-agent opened with entries jumps to the bottom once and follows new
+// output (qa stick-to-bottom, c7f8992b4) until the reader scrolls up.
+function useSubagentFollow(start) {
+  const scroller=useRef(null),content=useRef(null),follow=useRef(null),started=useRef(false);
+  follow.current??=createStickToBottom();
+  useLayoutEffect(()=>{if(start&&!started.current){started.current=true;follow.current.snap(scroller.current);}},[start]);
+  useLayoutEffect(()=>{follow.current.follow(scroller.current);});
+  useEffect(()=>{
+    const element=content.current,View=element?.ownerDocument?.defaultView?.ResizeObserver;
+    if(!element||typeof View!=='function')return undefined;
+    const observer=new View(()=>follow.current.follow(scroller.current));observer.observe(element);
+    return()=>observer.disconnect();
+  },[]);
+  return {scroller,content,handlers:{
+    onScroll:event=>{if(event.target===event.currentTarget)follow.current.scrolled(event.currentTarget);},
+    onWheel:event=>{if(!event.ctrlKey&&event.deltaY<0&&Math.abs(event.deltaY)>Math.abs(event.deltaX))follow.current.release();},
+    // Ka (c7f8992b4 C): with a modifier only ArrowUp/Home still read as "up" (Cmd+ArrowUp jumps to the top); Shift+Tab too.
+    onKeyDown:event=>{if((!(event.metaKey||event.ctrlKey||event.altKey)||event.key==='ArrowUp'||event.key==='Home')&&(UP_KEYS.has(event.key)||(event.shiftKey&&(event.key===' '||event.key==='Tab')))&&!event.target.closest?.('input,textarea,select,[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]'))follow.current.release();},
+  }};
+}
 
 export function SourceAgentTool({item,context,inGroup,Step,defaultOpen,forcedOpen,sessionKey,pendingApprovalItemIds}) {
   const targets=agentTargets(item);
@@ -50,18 +74,20 @@ export function SourceAgentTool({item,context,inGroup,Step,defaultOpen,forcedOpe
   });
 }
 
-function AgentTranscript({agent,item,renderItem,loading,error,transcriptView}) {
+function AgentTranscript({agent,item,renderItem,loading,error,transcriptView,stats}) {
   const [now,setNow]=useState(Date.now());
   const until=agent.status==='completed' && !agent.items.length && !agent.result && agent.completedObservedAt ? agent.completedObservedAt+2500 : 0;
   useEffect(()=>{setNow(Date.now());if(until>Date.now()){const timer=setTimeout(()=>setNow(Date.now()),until-Date.now());return()=>clearTimeout(timer);}},[until]);
   const running=agent.status==='running' || until>now;
   const visible=agent.items.filter(entry=>entry.type!=='subAgentActivity');
   const resultNeeded=agent.result && !visible.some(entry=>entry.type==='agentMessage' && entry.text===agent.result);
-  return <div className="sag-transcript" data-child-thread={agent.id} aria-busy={loading || undefined}><div className="sag-entries">
+  const {scroller,content,handlers}=useSubagentFollow(agent.status==='running' && visible.length>0);
+  return <div ref={scroller} className="sag-transcript" data-child-thread={agent.id} aria-busy={loading || undefined} {...handlers}><div ref={content} className="sag-entries">
     {agent.model && <p className="sag-model-note">{t("Model")} <span>{agent.model}</span></p>}
     {agentPromptNeeded(visible,agent.prompt) && renderItem({id:`${item.id}-prompt`,type:'userMessage',content:[{type:'text',text:agent.prompt}]},agent.id)}
     {groupFileTools(visible,transcriptView).map((entry,index,rows)=><React.Fragment key={entry.id}>{renderItem(entry,agent.id,entry.type==='reasoning'?reasoningPlacement(rows,index,transcriptView):undefined)}</React.Fragment>)}
     {resultNeeded && renderItem({id:`${item.id}-result`,type:'agentMessage',text:agent.result},agent.id)}
+    {stats && !running && !loading && <p className="sag-stats" data-subagent-stats="">{agentConclusionText(stats)}</p>}
     {error && <p role="alert" className="source-tool-error">{error}</p>}
     {running || loading ? <div role="status" className="sag-thinking"><SourceSpark size={18} state="thinking"/><span className="source-sr-only">{t("Thinking…")}</span></div> : !visible.length && !agent.result && <p className="sag-empty">{agent.status==='unknown'?t('No activity yet'):t(agent.status==='failed'?'No result — task failed':agent.status==='stopped'?'No result — task stopped':'No result — task ended')}</p>}
   </div></div>;
@@ -95,14 +121,18 @@ export function SourceTasksPane({transcriptView="normal",state,sessionId,views=[
   const item=current && (state.items[current.ownerId || sessionId] || []).find(item=>item.id===current.toolId);
   const agent=current && agentView(state,item||{},current.threadId);
   const spawns=(state.items[sessionId] || []).filter(item=>item.type==='collabAgentToolCall' && item.tool==='spawnAgent');
+  // rw (cccc2cf0a :12505-12522, mounted :13790): "Clear finished tasks" leads the header's trailing controls while
+  // the task list shows (not under a sub-agent view), disabled rather than hidden when nothing has finished.
+  const clear=views.length===0 && background && sessionId ? <SourceClearFinishedTasks sessionId={sessionId}/> : null;
+  const trailing=node=>!clear ? node : React.isValidElement(node) && typeof node.type!=='string' ? React.cloneElement(node,{leading:<>{clear}{node.props.leading}</>}) : <>{clear}{node}</>;
   return <aside ref={pane} className="source-file-panel detail-panel sag-pane" aria-label={t("Background tasks")} onKeyDown={event=>{
     if(event.key==='Escape' && !event.defaultPrevented && !event.target.closest('[role="menu"]')){event.preventDefault();event.stopPropagation();onClose();}
   }}>
     <header className="source-pane-header" data-pane-header="tasks">
       {views.length>0 && <button className="source-icon-button" aria-label={t("Back")} onClick={onBack}><Icon name="CaretLeft" size={16}/></button>}
-      <span className="sag-pane-title">{current?.description || t('Background tasks')}</span>{/* ka [H, t, o] then pe (panes-toggle-current.js:1627-1632): handle after the title */}{headerCenter}{controls}
+      <span className="sag-pane-title">{current?.description || t('Background tasks')}</span>{/* ka [H, t, o] then pe (panes-toggle-current.js:1627-1632): handle after the title */}{headerCenter}{trailing(controls)}
     </header>
-    {agent ? <AgentTranscript transcriptView={transcriptView} key={current.threadId} agent={agent} item={item||{}} renderItem={renderItem} loading={loadState.id===current.threadId && loadState.pending} error={loadState.id===current.threadId && loadState.error}/> : !current&&background ? background : <div className="sag-transcript">
+    {agent ? <AgentTranscript transcriptView={transcriptView} key={current.threadId} agent={agent} stats={agentConclusionStats(state,agent)} item={item||{}} renderItem={renderItem} loading={loadState.id===current.threadId && loadState.pending} error={loadState.id===current.threadId && loadState.error}/> : !current&&background ? background : <div className="sag-transcript">
       {current ? <p className="sag-empty">{t("No activity yet")}</p> : spawns.map(item=><React.Fragment key={item.id}>{renderItem(item,sessionId)}</React.Fragment>)}
       {!current && !spawns.length && <p className="sag-empty">{t("No activity yet")}</p>}
     </div>}

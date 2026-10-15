@@ -1,13 +1,13 @@
 import {fileRunState} from "../src/file-tool-model.mjs";
 import test from 'node:test';import assert from 'node:assert/strict';
-import {backgroundTasks,taskSections,taskOutput,dismissedTasks} from '../src/background-tasks-model.mjs';
+import {backgroundTasks,taskSections,taskOutput,dismissedTasks,earlierOutputCut,createDismissedTasksStore,DISMISSED_TASKS_KEY,stopsInDuration,stopsInLabel,monitorTasks} from '../src/background-tasks-model.mjs';
 import {reduce,emptyState} from '../src/state.js';import background from '../electron/background-tasks.cjs';
 const terminal={itemId:'cmd',processId:'42',command:'sleep 30',cwd:'/tmp'};
 const state=(item)=>({...emptyState,approvalConnectionId:'c',items:{parent:item?[item]:[]},background:{parent:{connectionId:'c',terminals:[terminal],knownTerminals:{cmd:terminal}}}});
 test('tasks use actual process membership, timestamps and status; missing terminal remains unknown, not completed',()=>{let s=state();let tasks=backgroundTasks(s,'parent');assert.equal(tasks[0].status,'running');assert.equal(tasks[0].startedAt,null);s.background.parent.terminals=[];tasks=backgroundTasks(s,'parent');assert.equal(tasks[0].status,'unknown');assert.equal(taskSections(tasks).finished.length,0);assert.equal(taskSections(tasks).unknown.length,1);s=state({id:'cmd',type:'commandExecution',processId:'42',command:'false',status:'completed',exitCode:1,durationMs:3});assert.equal(backgroundTasks(s,'parent')[0].status,'completed');assert.equal(backgroundTasks(s,'parent')[0].durationMs,3);assert.equal(backgroundTasks(state(),'parent',{connected:false})[0].status,'unknown');});
 test('child tasks are isolated, usage stays absent until reported and live turn identity enables stop',()=>{const s={...emptyState,items:{parent:[{id:'spawn',type:'collabAgentToolCall',tool:'spawnAgent',receiverThreadIds:['child'],agentsStates:{child:{status:'running'}}}],other:[{id:'x',type:'commandExecution',processId:'foreign',status:'inProgress'}]},active:{child:'turn-c'},usage:{child:{total:{totalTokens:19}}},taskTurnFacts:{child:{startedAt:20}}};const tasks=backgroundTasks(s,'parent');assert.equal(tasks.length,1);assert.equal(tasks[0].turnId,'turn-c');assert.equal(tasks[0].tokens,19);assert.equal(tasks[0].toolUses,null);assert.equal(tasks[0].startedAt,20000);assert.equal(backgroundTasks(s,'other').length,1);});
 test('background snapshots are tied to connection and retain missing terminal metadata for unknown state',()=>{let s={...emptyState,approvalConnectionId:'c'};assert.equal(reduce(s,{type:'backgroundSnapshot',id:'p',connectionId:'stale',snapshot:{terminals:[terminal]}}),s);s=reduce(s,{type:'backgroundSnapshot',id:'p',connectionId:'c',snapshot:{terminals:[terminal],children:[]}});s=reduce(s,{type:'backgroundSnapshot',id:'p',connectionId:'c',snapshot:{terminals:[],children:[]}});assert.equal(backgroundTasks(s,'p')[0].description,'sleep 30');assert.equal(backgroundTasks(s,'p')[0].status,'unknown');});
-test('dismissal is bounded, new running work reappears, output tail is exact',()=>{const map=Object.fromEntries(Array.from({length:120},(_,i)=>['s'+i,['old']]));const next=dismissedTasks(map,'active',Array.from({length:1200},(_,i)=>String(i)),['1199']);assert.equal(Object.keys(next).length,100);assert.equal(next.active.length,1000);assert.equal(next.active.includes('1199'),false);assert.equal(taskOutput('a'.repeat(8001)),'… (1 chars truncated)\n'+'a'.repeat(8000));});
+test('dismissal is bounded, new running work reappears, output tail is exact',()=>{const map=Object.fromEntries(Array.from({length:120},(_,i)=>['s'+i,['old']]));const next=dismissedTasks(map,'active',Array.from({length:1200},(_,i)=>String(i)),['1199']);assert.equal(Object.keys(next).length,100);assert.equal(next.active.length,1000);assert.equal(next.active.includes('1199'),false);assert.equal(taskOutput('a'.repeat(8001)),'(Earlier output not shown)\n'+'a'.repeat(8000));});
 test('terminal stop requires an observed member on the exact connection; ack does not synthesize state',async()=>{const calls=[],owner={connection:{approvalConnectionId:'c',approvalConnectionEpoch:3},approvalSnapshot:()=>({closed:false}),start:async()=>{},request:async(method,params)=>{calls.push({method,params});return method==='thread/list'?{data:[{id:'child',parentThreadId:'p'},{id:'foreign',parentThreadId:'x'}],nextCursor:null}:method==='thread/backgroundTerminals/list'?{data:[terminal],nextCursor:null}:{terminated:true};}};const operations=background.createBackgroundTasks({getClient:()=>owner,getConfig:()=>({threadIds:['p']})});await assert.rejects(operations.read({threadId:'foreign'}),/Unknown/);const snapshot=await operations.read({threadId:'p'});assert.equal(snapshot.children.length,1);assert.throws(()=>operations.terminate({threadId:'p',processId:'42',expected:{connectionId:'old',connectionEpoch:3}}),/connection changed/);await assert.rejects(async()=>operations.terminate({threadId:'p',processId:'alien',expected:{connectionId:'c',connectionEpoch:3}}),/no longer/);const result=await operations.terminate({threadId:'p',processId:'42',expected:{connectionId:'c',connectionEpoch:3}});assert.deepEqual(result,{terminated:true});assert.equal(calls.filter(c=>c.method.endsWith('/terminate')).length,1);assert.equal(snapshot.terminals.length,1);});
 
 test('a restarted connection on the same client invalidates snapshots and stop membership',async()=>{const owner={connection:{approvalConnectionId:'a',approvalConnectionEpoch:1},approvalSnapshot:()=>({closed:false}),start:async()=>{},request:async(method)=>method==='thread/list'?{data:[],nextCursor:null}:{data:[terminal],nextCursor:null}};const operations=background.createBackgroundTasks({getClient:()=>owner,getConfig:()=>({threadIds:['p']})});await operations.read({threadId:'p'});owner.connection={approvalConnectionId:'b',approvalConnectionEpoch:2};owner.request=async()=>({data:[],nextCursor:null});await assert.rejects(async()=>operations.terminate({threadId:'p',processId:'42',expected:{connectionId:'b',connectionEpoch:2}}),/no longer/);owner.request=async()=>{owner.connection={...owner.connection};return {data:[],nextCursor:null};};await assert.rejects(operations.read({threadId:'p'}),/Connection changed/);});
@@ -107,4 +107,83 @@ test('a terminal the core cannot stop (codeDesktop.stoppable false) is marked so
  const s={...emptyState,approvalConnectionId:'c',items:{parent:[]},background:{parent:{connectionId:'c',terminals:[own],knownTerminals:{cmd:own}}}};
  assert.equal(backgroundTasks(s,'parent')[0].stoppable,false);
  assert.equal(Object.hasOwn(backgroundTasks(state(),'parent')[0],'stoppable'),false);
+});
+
+// lC / sC (cccc2cf0a :11080-11129): the tail starts after the first line break inside the cut.
+test('long task output keeps the last 8000 characters from a whole line under the reference label',()=>{
+ const text='head\n'+'x'.repeat(7990)+'\nline two\nlast';
+ assert.equal(taskOutput('short\ntext'),'short\ntext');
+ const out=taskOutput(text);assert.ok(out.startsWith('(Earlier output not shown)\n'));
+ assert.equal(out,'(Earlier output not shown)\nline two\nlast');
+ assert.equal(earlierOutputCut('abc\n'),'abc\n','a lone trailing break keeps the tail');
+});
+function memoryStorage(seed){const data=new Map(seed?[[DISMISSED_TASKS_KEY,JSON.stringify(seed)]]:[]);return {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),data};}
+// ES / wS / TS (cccc2cf0a :10501-10583) behind rw (:12505-12522).
+test('the dismissed store is shared by the header button and the list: clear dismisses only finished ids, persists, and notifies',()=>{
+ const storage=memoryStorage({old:['x']}),store=createDismissedTasksStore(storage);let calls=0;const off=store.subscribe(()=>calls++);
+ assert.deepEqual(store.dismissed('old'),['x']);assert.equal(store.dismissed('s'),store.dismissed('s'),'stable empty snapshot');
+ assert.equal(store.clear('s'),false,'nothing finished: the disabled button does nothing');assert.equal(calls,0);
+ store.setFinished('s',['a','b']);assert.deepEqual(store.finished('s'),['a','b']);const snap=store.finished('s');store.setFinished('s',['a','b']);assert.equal(store.finished('s'),snap,'unchanged ids keep the snapshot');
+ assert.equal(store.clear('s'),true);assert.deepEqual(store.dismissed('s'),['a','b']);assert.deepEqual(store.finished('s'),[]);
+ assert.deepEqual(JSON.parse(storage.data.get(DISMISSED_TASKS_KEY)),{old:['x'],s:['a','b']});
+ assert.equal(store.restore('s',['b']),true);assert.deepEqual(store.dismissed('s'),['a']);assert.equal(store.restore('s',['zzz']),false);
+ assert.ok(calls>=3);off();const before=calls;store.dismiss('s',['c']);assert.equal(calls,before);
+ assert.deepEqual(createDismissedTasksStore(memoryStorage()).dismissed('s'),[]);
+ assert.deepEqual(createDismissedTasksStore({getItem:()=>{throw new Error('blocked');},setItem:()=>{throw new Error('blocked');}}).dismissed('s'),[]);
+});
+// QS / OC (cccc2cf0a :11030-11059, :11432-11446).
+test('Stops in uses QS whole units and hides in the final second',()=>{
+ assert.equal(stopsInDuration(45_400,'en-US'),'45s');
+ assert.equal(stopsInDuration(270_000,'en-US'),'4m 30s');
+ assert.equal(stopsInDuration(12*60_000+30_000,'en-US'),'12m','seconds drop from five minutes up');
+ assert.equal(stopsInDuration((2*60+15)*60_000,'en-US'),'2h 15m');
+ assert.equal(stopsInDuration(27*3600_000,'en-US'),'1d 3h');
+ assert.equal(stopsInLabel(10_999,10_000,'en-US'),null);assert.equal(stopsInLabel(undefined,0,'en-US'),null);
+ assert.equal(stopsInLabel(10_000+300_000,10_000,'en-US'),'Stops in 5m');
+});
+test('a running Monitor row carries its deadline; a finished one does not',()=>{
+ const [run,done]=monitorTasks([{id:'m1',command:'tail',status:'running',startedAt:1,stopsAt:300001},{id:'m2',command:'tail',status:'completed',startedAt:1,durationMs:5,stopsAt:9}]);
+ assert.equal(run.stopsAt,300001);assert.equal(Object.hasOwn(done,'stopsAt'),false);
+});
+
+// B35 (c03935b01 openTaskRowsBySession / stoppingIdsBySession): open rows and pending stops kept per session.
+test('task rows store keeps open rows and pending stops per session across remounts',async()=>{
+ const {createTaskRowsStore}=await import('../src/background-tasks-model.mjs');
+ const store=createTaskRowsStore();let emits=0;store.subscribe(()=>emits++);
+ const empty=store.openRows('a');assert.equal(store.openRows('a'),empty,'stable empty snapshot');
+ store.setRowsOpen('a',['bash:1'],true);assert.equal(store.isOpen('a','bash:1'),true);assert.equal(store.isOpen('b','bash:1'),false);
+ const snap=store.openRows('a');store.setRowsOpen('a',['bash:1'],true);assert.equal(store.openRows('a'),snap,'no-op keeps the snapshot');
+ store.setRowsOpen('a',['bash:1'],false);assert.equal(store.isOpen('a','bash:1'),false);
+ assert.equal(store.markStopping('a','task','bash:2'),true);assert.equal(store.markStopping('a','task','bash:2'),false,'one stop at a time');
+ store.markStopping('a','loop','job');assert.deepEqual([...store.stopping('a','task')],['bash:2']);assert.deepEqual([...store.stopping('a','loop')],['job']);assert.equal(store.stopping('b','task').size,0);
+ store.releaseStopping('a','task',['bash:2','missing']);assert.equal(store.stopping('a','task').size,0);store.releaseStopping('a','loop','job');
+ const before=emits;store.releaseStopping('a','loop','job');assert.equal(emits,before,'nothing to release emits nothing');
+ store.setRowsOpen(null,['x'],true);assert.equal(store.isOpen(undefined,'x'),true,'no session shares one bucket');
+ store.forget('a');store.forget(null);assert.equal(store.openRows('a').size,0);
+});
+// B35 (cccc2cf0a jC → c52b02f3f Pf): a running agent's last tool reads as the running verb.
+test('a running agent card shows its last tool as the transcript running verb',async()=>{
+ const {toolRunningVerb}=await import('../src/agent-model.mjs');
+ assert.equal(toolRunningVerb({type:'commandExecution',commandActions:[{type:'read'}]}),'Reading');
+ assert.equal(toolRunningVerb({type:'commandExecution',commandActions:[{type:'search'}]}),'Searching');
+ assert.equal(toolRunningVerb({type:'commandExecution',commandActions:[{type:'listFiles'}]}),'Listing');
+ assert.equal(toolRunningVerb({type:'commandExecution',commandActions:[{type:'unknown'}]}),'Running a command');
+ assert.equal(toolRunningVerb({type:'fileChange',changes:[{kind:{type:'update'}}]}),'Editing');
+ assert.equal(toolRunningVerb({type:'fileChange',changes:[{kind:{type:'add'}}]}),'Creating');
+ assert.equal(toolRunningVerb({type:'webSearch',query:'x'}),'Searching web');
+ assert.equal(toolRunningVerb({type:'collabAgentToolCall'}),'Running agent');
+ assert.equal(toolRunningVerb({type:'mcpToolCall',server:'github',tool:'list_issues'}),'Using github: list issues');
+ const s={...emptyState,items:{parent:[{id:'spawn',type:'collabAgentToolCall',tool:'spawnAgent',receiverThreadIds:['child'],agentsStates:{child:{status:'running'}}}],child:[{id:'c1',type:'commandExecution',commandActions:[{type:'read'}],status:'inProgress'}]},active:{child:'turn'}};
+ const task=backgroundTasks(s,'parent').find(entry=>entry.kind==='agent');assert.equal(task.lastTool,'Reading');
+});
+// B35 (cccc2cf0a zw, c5da7eb42 _p): a completed sub-agent's stats footnote.
+test('a completed sub-agent transcript ends with tool calls, tokens and duration once all are known',async()=>{
+ const {agentConclusionStats,agentConclusionText}=await import('../src/agent-model.mjs');
+ const s={items:{child:[]},usage:{child:{total:{totalTokens:12345}}},taskTurnFacts:{child:{durationMs:65000}}};
+ assert.deepEqual(agentConclusionStats(s,{id:'child',status:'completed',toolCallCount:3}),{toolUses:3,tokens:12345,durationMs:65000});
+ assert.equal(agentConclusionText({toolUses:3,tokens:12345,durationMs:65000}),'3 tool calls · 12.3k tokens · 1m 5s');
+ assert.equal(agentConclusionText({toolUses:1,tokens:1,durationMs:2000}),'1 tool call · 1 token · 2s');
+ assert.equal(agentConclusionStats(s,{id:'child',status:'running',toolCallCount:3}),null);
+ assert.equal(agentConclusionStats({...s,taskTurnFacts:{}},{id:'child',status:'completed',toolCallCount:3}),null,'unknown duration');
+ assert.equal(agentConclusionStats({...s,items:{}},{id:'child',status:'completed',toolCallCount:0}),null,'transcript not loaded');
 });

@@ -16,17 +16,17 @@ test("composer staging: the follow-up is scheduled from the updater React actual
   assert.match(main, /function followStaging\(\{ notices, infos, pending \}\) \{[\s\S]*?call\("attachments:stage"/);
 });
 
-test("split view: the unfocused side's titlebar actions fade out, the ring needs ⌘ held, and ⌘-drag swaps the sides", async () => {
+test("split view: the unfocused pane's titlebar actions fade out, the ring needs ⌘ held, and a ⌘-drag (or the grip) moves a pane", async () => {
   const css = await src("source-split-view.css");
   assert.match(css, /\.split-pane:not\(\[data-focused\]\) \.workspace-toolbar \.st-trailing \{\n\s+opacity: 0;\n\s+transition: opacity 0\.12s ease-out;/);
   assert.match(css, /:not\(\[data-focused\]\):hover \.workspace-toolbar \.st-trailing,/);
   assert.doesNotMatch(css, /\.split-pane\[data-focused\]::after/, "no always-on focused ring");
-  assert.match(css, /\[data-cmd-held\]\[data-split\]:not\(\[data-tabs\]\):not\(\[data-pane-dragging\]\) \.split-pane:hover::after \{\n\s+opacity: 1;\n\s+transition-delay: 0\.6s;/);
   assert.doesNotMatch(css, /cursor:\s*pointer/);
   const jsx = await src("source-split-view.jsx");
-  assert.match(jsx, /host\.setAttribute\("data-cmd-held", ""\)/);
-  assert.match(jsx, /if \(moved\) store\.swap\(\);/);
-  assert.match(jsx, /drop\.mode === "move" \? t\("Move here"\)/);
+  // V$: ⌘ held marks the host; the reference sheet draws the ring (.dframe-pane-host[data-cmd-held] .dframe-pane:hover:before).
+  assert.match(jsx, /host\.toggleAttribute\("data-cmd-held", mac \? !!event\.metaKey/);
+  assert.match(jsx, /if \(!cancelled && chosen !== null\) store\.dropPane\(index, chosen\);/);
+  assert.match(jsx, /<span className="dframe-drop-overlay-label">\{t\(paneDropLabel\(split, drop\)\)\}<\/span>/);
 });
 
 test("/theme opens Preferences on the Theme row; the large-workflow limits are per side", async () => {

@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {workflowEvent,workflowCells,workflowPhases,mergeWorkflow,workflowAgentState,workflowSummary} from '../src/workflow-progress-model.mjs';
+import {workflowEvent,workflowCells,workflowPhases,mergeWorkflow,workflowAgentState,workflowSummary,WORKFLOW_AGENTS_GROUP} from '../src/workflow-progress-model.mjs';
 import {parseWorkflowLaunch} from '../src/workflow-launch-model.mjs';
 import {commandUnavailable,parseSessionCommand} from '../src/session-command-model.mjs';
 test('workflow launch supports quoted local paths, plan/resume and exact JSON values',()=>{assert.deepEqual(parseWorkflowLaunch('"/tmp/a b.js" --plan --resume run-1 --args {"query":"x -- y"}'),{file:'/tmp/a b.js',plan:true,resumeId:'run-1',args:{query:'x -- y'}});assert.throws(()=>parseWorkflowLaunch('foo --args []'),/JSON object/);assert.throws(()=>parseWorkflowLaunch('foo --unknown'),/Use/);assert.equal(parseSessionCommand('/workflows').error,null);assert.equal(commandUnavailable(parseSessionCommand('/workflow').command,{current:'p',connected:true}),'Enable Dynamic workflows in Code settings first');});
@@ -9,9 +9,10 @@ test('repeated real phase names share one execution identity and cached agents d
 test('script metadata is displayed only when supplied by the actual engine event',()=>{const run={id:'x',description:'file.js',workflowProgress:[]};const next=workflowEvent(run,{type:'metadata',name:'Inspect',title:'Readable title',description:'Check the project'},1);assert.equal(next.name,'Inspect');assert.equal(next.title,'Readable title');assert.equal(next.description,'Check the project');assert.equal(run.name,undefined);});
 
 
-test('Claude pending cells and unindexed agents follow the current phase without inventing work',()=>{
+test('Claude pending cells; unindexed agents gather in the last Other agents group (c62da1b56 ge) without inventing work',()=>{
  const run={status:'running',workflowProgress:[{type:'workflow_phase',index:2,title:'Review'},{type:'workflow_agent',id:'q',state:'queued',label:'Queued'},{type:'workflow_agent',id:'r',state:'progress',label:'Working',lastProgressAt:0}]};
- const phases=workflowPhases(run,90001);assert.equal(phases.length,1);assert.equal(phases[0].title,'Review');assert.equal(phases[0].agents.length,2);assert.equal(workflowAgentState(phases[0].agents[0],90001),'pending');assert.equal(phases[0].agents[1].displayState,'stalled');
+ const all=workflowPhases(run,90001);assert.deepEqual(all.map(p=>[p.title,p.status,p.agents.length]),[['Review','pending',0],['Other agents','running',2]]);
+ const phases=all.slice(1);assert.equal(phases[0].index,WORKFLOW_AGENTS_GROUP);assert.equal(workflowAgentState(phases[0].agents[0],90001),'pending');assert.equal(phases[0].agents[1].displayState,'stalled');
  assert.equal(workflowCells(phases[0].agents,1).length,1);assert.deepEqual(workflowCells(phases[0].agents,0),[]);
  assert.equal(workflowPhases({status:'running',workflowProgress:[{type:'workflow_phase',index:0,title:'Later'}]},0)[0].status,'pending');
 });
@@ -63,4 +64,14 @@ test('a skipped agent is skipped, not failed, in live events, grids and phase st
  // Settling does not turn a skipped agent into an error.
  const settled=workflowEvent(run,{type:'settled',status:'stopped'},5);
  assert.equal(settled.workflowProgress.find(p=>p.id==='a').state,'skipped');
+});
+
+test('c62da1b56 ge/he: a phaseless run is one Agents group; a settled run never started reads notRun',()=>{
+ const agent=(id,state,extra={})=>({type:'workflow_agent',id,index:1,label:id,state,...extra});
+ const only=workflowPhases({status:'running',workflowProgress:[agent('a','done')]},0);
+ assert.deepEqual(only.map(p=>[p.index,p.title,p.status]),[[WORKFLOW_AGENTS_GROUP,'Agents','done']]);
+ const rows=[{type:'workflow_phase',index:1,title:'Scan'},{type:'workflow_phase',index:2,title:'Fix'},agent('s','done',{phaseIndex:1,phaseTitle:'Scan'}),agent('q','start',{phaseIndex:2,phaseTitle:'Fix'})];
+ assert.deepEqual(workflowPhases({status:'running',workflowProgress:rows},0).map(p=>[p.title,p.status]),[['Scan','done'],['Fix','pending']]);
+ assert.deepEqual(workflowPhases({status:'stopped',workflowProgress:rows},0).map(p=>[p.title,p.status]),[['Scan','done'],['Fix','notRun']]);
+ assert.deepEqual(workflowPhases({status:'completed',workflowProgress:[{type:'workflow_phase',index:3,title:'Later'}]},0).map(p=>p.status),['notRun']);
 });

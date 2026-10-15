@@ -56,7 +56,7 @@ function FeedbackButton({ kind, pressed, onRate, busy, setBusy }) {
   </SourceTooltip>;
 }
 
-function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered, focused, rating = null, onFork = null }) {
+function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered, focused, rating = null, onFork = null, pin = null }) {
   const [rateBusy, setRateBusy] = useState(false);
   const root = useRef(null), copyButton = useRef(null), focusRequested = useRef(false);
   const [latched, setLatched] = useState(false);
@@ -83,7 +83,7 @@ function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered
     </div> : <div className="stf-toolbar" data-cds="MessageActions" data-reveal="fade"
       role="toolbar" aria-label={t("Message actions")} tabIndex={-1}
       onKeyDown={event => {
-        // Roving focus over Copy and, where offered, Fork from here and Good / Bad response.
+        // Roving focus over Copy and, where offered, Fork from here, Pin as chapter and Good / Bad response.
         const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
         const index = turnFooterKeyIndex(event, { count: buttons.length,
           current: buttons.indexOf(event.currentTarget.ownerDocument.activeElement),
@@ -107,13 +107,25 @@ function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered
           </button>
         </SourceTooltip>
         {/* Z0 (approval-current.js:43120-43128): Fork from here (ArrowSplitRight) after Copy, before the ratings. */}
-        {typeof onFork === 'function' && <SourceTooltip content={t("Fork from here")} automatic={true} hoverable={false}>
+        {/* PI (cd5a31703 :25826-25843): the tooltip's detail line and aria-description explain the fork (EI.fork). */}
+        {typeof onFork === 'function' && <SourceTooltip content={t("Fork from here")} detail={t("Starts a new session from this point. This one stays as it is.")} automatic={true} hoverable={false}>
           <button type="button" className="stf-copy stf-fork" data-cds="Button" data-variant="ghost" data-cds-icon-only="" data-cds-ghost=""
-            data-message-action="fork" aria-label={t("Fork from here")} tabIndex={-1}
+            data-message-action="fork" aria-label={t("Fork from here")} aria-description={t("Starts a new session from this point. This one stays as it is.")} tabIndex={-1}
             onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && event.repeat) event.preventDefault(); }}
             onClick={() => onFork()}>
             <span className="stf-button-backdrop" aria-hidden="true"><span data-cds-part="paint" /></span>
             <Icon name="ArrowSplitRight" size={16} />
+          </button>
+        </SourceTooltip>}
+        {/* H6e (cd5a31703 :76980-77060): Pin as chapter / Unpin chapter (Pin / PinFilled, aria-pressed) after Fork,
+            before the ratings. pin {pinned, onToggle}: the turn's first assistant row in the session-chapters store. */}
+        {pin && typeof pin.onToggle === 'function' && <SourceTooltip content={pin.pinned ? t("Unpin chapter") : t("Pin as chapter")} automatic={true} hoverable={false}>
+          <button type="button" className="stf-copy stf-pin" data-cds="Button" data-variant="ghost" data-cds-icon-only="" data-cds-ghost=""
+            data-message-action="pin" aria-label={pin.pinned ? t("Unpin chapter") : t("Pin as chapter")} aria-pressed={!!pin.pinned} tabIndex={-1}
+            onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && event.repeat) event.preventDefault(); }}
+            onClick={() => pin.onToggle()}>
+            <span className="stf-button-backdrop" aria-hidden="true"><span data-cds-part="paint" /></span>
+            <Icon name={pin.pinned ? 'PinFilled' : 'Pin'} size={16} />
           </button>
         </SourceTooltip>}
         {rating && <>
@@ -135,8 +147,9 @@ function TurnFooter({ identity, turnId, text, completedAtMs, interacted, hovered
 // source entry.timestamp (56825 K = isStreaming ? undefined : timestamp). Null
 // while the turn runs or when Codex reported no completion time: no <time>.
 // onFork: Fork from here for this finished turn, where the session can fork at a turn (null otherwise).
-export function SourceTurnFooter({ sessionKey, turnId, text = '', completedAtMs = null, interacted = false, hovered = false, focused = false, rating = null, onFork = null }) {
+// pin: {pinned, onToggle} — Pin as chapter / Unpin chapter for this turn (null where there is nothing to pin).
+export function SourceTurnFooter({ sessionKey, turnId, text = '', completedAtMs = null, interacted = false, hovered = false, focused = false, rating = null, onFork = null, pin = null }) {
   const identity = JSON.stringify([sessionKey, turnId]);
   return <TurnFooter key={identity} identity={identity} turnId={turnId} text={text} completedAtMs={completedAtMs}
-    interacted={interacted} hovered={hovered} focused={focused} rating={rating} onFork={onFork} />;
+    interacted={interacted} hovered={hovered} focused={focused} rating={rating} onFork={onFork} pin={pin} />;
 }

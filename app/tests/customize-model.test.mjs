@@ -397,7 +397,10 @@ test("Customize copy and controls follow boot.core: Codex servers keep config.to
   assert.deepEqual(deepseek.pluginTabDescriptions, { skills: "Invoke by typing / in chat, or let DeepSeek use them automatically for relevant tasks.",
     connectors: "Tools and data sources this plugin connects to. Connect each one so DeepSeek can use it.",
     hooks: "Commands this plugin runs automatically — on session events, or when its skills are used.",
-    tools: "Tools this plugin adds. DeepSeek can call them while it works." });
+    tools: "Tools this plugin adds. DeepSeek can call them while it works.",
+    // B24 c24c8737b Dc / Ns helper lines (the Commands one is a server message there: none locally).
+    agents: "Specialized AI assistants that can be invoked to handle specific types of tasks.", commands: "",
+    monitors: "Background commands that run automatically during your session." });
   assert.equal(deepseek.connectorRemoveNote, "However, DeepSeek won’t be able to access new content or perform new tasks.");
   assert.doesNotMatch(JSON.stringify(customizeCore(null)), /Claude/);
   assert.equal(customizeCore({ engine: "deepseek-harness", capabilities: { skillToggle: false } }).configFile, "the DeepSeek core profile");

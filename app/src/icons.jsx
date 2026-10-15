@@ -1,12 +1,14 @@
 import React from "react";
 import glyphs from "./generated/icons.json";
-// Glyph mapping and optical weight formula from shared-frame-C_2npUJq.js (2.2553.1; same map/formula as 2.110.1).
+// Glyph mapping from shared-frame-DVFSKIcx.js Ka.icons (2.31226.0, in step with the vendored c0f671921-CWPPK3vl font);
+// the optical weight formula (Ka.wght) is unchanged since 2.110.1.
 export function Icon({
   name,
   size = 16,
   weight = "regular",
   className = "",
   style,
+  glyphMap = glyphs,
   ...props
 }) {
   const master = size <= 18 ? 16 : 20;
@@ -35,7 +37,7 @@ export function Icon({
       style={{ fontSize: size, fontWeight: w, ...style }}
       {...props}
     >
-      {String.fromCodePoint(glyphs[name] || glyphs.Placeholder)}
+      {String.fromCodePoint(glyphMap[name] || glyphMap.Placeholder)}
     </span>
   );
 }

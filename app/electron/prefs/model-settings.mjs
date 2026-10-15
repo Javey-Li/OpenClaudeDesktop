@@ -2,9 +2,10 @@
 // Pure: imported by the main process (settingsPatch, model-settings.cjs) and
 // the renderer (Settings → Models, withEffortDefaults for the model menus).
 //
-//   params   {[modelId]: {maxTokens?, temperature?, effort?}}
-//            maxTokens / temperature travel to the DeepSeek bridge as
+//   params   {[modelId]: {maxTokens?, temperature?, contextWindow?, effort?}}
+//            maxTokens / temperature / contextWindow travel to the DeepSeek bridge as
 //            params.codeDesktop.customization.modelParams (model-params.js);
+//            contextWindow replaces the model's context capacity, which the core compacts by;
 //            effort only replaces the catalog's defaultReasoningEffort here.
 //   prices   null (the official table) | {[modelId]: {displayName?, offPeak, peak}}
 //            CNY per 1M tokens; account/usage/read gets it as
@@ -63,6 +64,11 @@ export function modelParamError(field, value) {
       return t('Temperature must be a number from {min} to {max}.', { min: TEMPERATURE_MIN, max: TEMPERATURE_MAX });
     return null;
   }
+  if (field === 'contextWindow') {
+    if (!Number.isInteger(value) || value < CONTEXT_WINDOW_MIN || value > CONTEXT_WINDOW_MAX)
+      return t('Context window must be a whole number of tokens from {min} to {max}, such as 128K or 1M.', { min: CONTEXT_WINDOW_MIN.toLocaleString('en-US'), max: CONTEXT_WINDOW_MAX.toLocaleString('en-US') });
+    return null;
+  }
   if (field === 'effort') return typeof value === 'string' && EFFORT.test(value) ? null : t('Choose a reasoning effort.');
   return t('Unknown model parameter.');
 }
@@ -73,17 +79,18 @@ export function priceError(value) {
     : t('Prices must be numbers from 0 to {max} CNY per 1M tokens.', { max: PRICE_MAX.toLocaleString('en-US') });
 }
 
+const PARAM_FIELDS = ['maxTokens', 'temperature', 'contextWindow', 'effort'];
 function paramsEntry(value, strict) {
   if (!isRecord(value)) { if (strict) throw new Error(t('Invalid model parameters.')); return null; }
   const entry = {};
-  for (const field of ['maxTokens', 'temperature', 'effort']) {
+  for (const field of PARAM_FIELDS) {
     const raw = value[field];
     if (raw === undefined || raw === null || raw === '') continue;
     const error = modelParamError(field, raw);
     if (error) { if (strict) throw new Error(error); continue; }
     entry[field] = field === 'temperature' ? round(raw, 2) : raw;
   }
-  if (strict) for (const key of Object.keys(value)) if (!['maxTokens', 'temperature', 'effort'].includes(key)) throw new Error(t('Unknown model parameter.'));
+  if (strict) for (const key of Object.keys(value)) if (!PARAM_FIELDS.includes(key)) throw new Error(t('Unknown model parameter.'));
   return Object.keys(entry).length ? entry : null;
 }
 
@@ -160,13 +167,14 @@ export function withEffortDefaults(models, modelSettings) {
   });
 }
 
-/** {[wireModelId]: {maxTokens?, temperature?}} for the bridge, or null when nothing applies. */
+/** {[wireModelId]: {maxTokens?, temperature?, contextWindow?}} for the bridge, or null when nothing applies. */
 export function modelParamsForCore(modelSettings) {
   const out = {};
   for (const [id, entry] of Object.entries(normalize(modelSettings).params)) {
     const core = {};
     if (entry.maxTokens !== undefined) core.maxTokens = entry.maxTokens;
     if (entry.temperature !== undefined) core.temperature = entry.temperature;
+    if (entry.contextWindow !== undefined) core.contextWindow = entry.contextWindow;
     if (Object.keys(core).length) out[id] = core;
   }
   return Object.keys(out).length ? out : null;
@@ -205,6 +213,9 @@ export function setModelParam(settings, modelId, field, value) {
   const entry = { ...(current.params[modelId] || {}) };
   if (value === undefined || value === '') delete entry[field];
   else entry[field] = field === 'temperature' ? round(value, 2) : value;
+  // The core keeps max output tokens of the window free for the reply: a window no larger leaves nothing to read.
+  if (entry.maxTokens !== undefined && entry.contextWindow !== undefined && entry.maxTokens >= entry.contextWindow)
+    throw new Error(t('Max output tokens must be smaller than the context window.'));
   const params = { ...current.params };
   if (Object.keys(entry).length) params[modelId] = entry; else delete params[modelId];
   return compact({ ...current, params });

@@ -1,7 +1,7 @@
 // Slash commands, ⌘; and Home sign-in gated on what the running core serves (core-registry capabilities and
 // descriptors), copy naming the core; reconnect onto another core reloads the session list; onboarding's
 // Connect step runs DeepSeek Harness.
-import test, {before, after} from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -10,15 +10,7 @@ import {accountIdentity,accountMenuLines,coreSignInPrompt} from '../src/account-
 import zhCN from '../electron/i18n/zh-CN/index.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
-// source-side-chat.jsx through Vite's SSR loader (JSX and CSS imports), as settings-shell-render.test.mjs does.
-let server,sideQuestionUnsupported;
-before(async()=>{
- globalThis.document??={body:{nodeType:1},documentElement:{dataset:{}}};
- const {createServer}=await import('vite'),react=(await import('@vitejs/plugin-react')).default;
- server=await createServer({configFile:false,root,plugins:[react()],server:{middlewareMode:true,hmr:false,watch:null},appType:'custom',logLevel:'error'});
- ({sideQuestionUnsupported}=await server.ssrLoadModule('/src/source-side-chat.jsx'));
-});
-after(()=>server?.close());
+import { sideQuestionUnsupported } from '../src/side-chat-controls.mjs';
 const ready={current:'a',connected:true,hasHistory:true};
 const btw=sessionCommands.find(c=>c.id==='btw'),workflow=sessionCommands.find(c=>c.id==='workflow');
 
@@ -167,7 +159,7 @@ test('main.jsx wires the gates: ⌘; and the side chat, the sign-in card, accoun
 });
 
 test('zh-CN covers the new copy with the same placeholders',()=>{
- for(const key of ['Not available with {core} yet','Not available with this core yet','/{command} didn’t finish.','Sign in or add an API key in Settings › Preferences › Account so {name} can answer.','Open Settings','Sign in to {name} to start a session.','Sign in to {name}']){
+ for(const key of ['Not available with {core} yet','Not available with this core yet','/{command} didn’t finish.','Sign in or add an API key in Settings › General › Account so {name} can answer.','Open Settings','Sign in to {name} to start a session.','Sign in to {name}']){
   assert.equal(typeof zhCN[key],'string',key);
   assert.deepEqual(zhCN[key].match(/\{\w+\}/g)||[],key.match(/\{\w+\}/g)||[],key);
  }

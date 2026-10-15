@@ -1,5 +1,5 @@
 // The session's web link opener (main.jsx provides it around its tiles): replies' links call it with the click, so a
-// link to a page on this computer can open in that session's Preview pane (preview-links-model.mjs webLinkRoute).
+// Code web links use the original destination chooser and the session's Preview tabs.
 // Without a provider (Settings, dialogs) a link opens in the default browser as before.
 import React from "react";
 

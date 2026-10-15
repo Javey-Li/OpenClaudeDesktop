@@ -6,7 +6,7 @@ const build=JSON.parse(await fs.readFile(path.join(root,'dist/build-info.json'))
 const env={...process.env,CODE_DESKTOP_DATA:profile};delete env.CODEX_BINARY;delete env.ELECTRON_RUN_AS_NODE;delete env.CODE_DESKTOP_DEV_URL;let app,page;
 const prefs=async()=>JSON.parse(await fs.readFile(pref));
 async function slash(value){const editor=page.getByRole('textbox',{name:'Message DeepSeek'});await editor.fill(value);await editor.press('Enter');}
-async function settled(marker){await page.locator('.assistant-message').filter({hasText:marker}).waitFor({timeout:180000});await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'detached',timeout:180000});}
+async function settled(marker){await page.locator('.assistant-message').filter({hasText:marker}).waitFor({timeout:180000});await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({state:'detached',timeout:180000});}
 try{
  app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),args:[root],env});page=await app.firstWindow();page.setDefaultTimeout(60000);await page.waitForFunction(()=>document.querySelector('.sc-model-trigger')&&!document.querySelector('.sc-model-trigger').disabled);
  const catalog=await page.evaluate(async()=>(await window.desktop.call('init')).models);const chosen=catalog.find(m=>m.isDefault)||catalog[0];report.model=chosen.model;report.fastTier=chosen.serviceTiers.find(t=>t.name.toLowerCase()==='fast');assert.ok(report.fastTier);

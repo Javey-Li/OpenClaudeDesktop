@@ -98,7 +98,9 @@ test('mark_chapter is a chapter heading; a failed one is a row', () => {
   assert.equal(chapterOf({ ...item, status: 'failed' }), null);
   assert.deepEqual(transcriptChapters([item, call('screenshot', {})]).map((chapter) => chapter.title), ['Test verification']);
   const html = renderToStaticMarkup(React.createElement(S.SourceMessage, { item, sessionKey: 's1' }));
-  assert.match(html, /^<h2 class="source-message source-chapter" data-transcript-item-id="ch1" data-chapter="" id="chapter-ch1" title="Run the suites">Test verification<\/h2>$/);
+  // CX (cd5a31703 :60429-60494): the h2 is addressed as epitaxy-ch-<id> for the Session chapters rail, which carries the
+  // summary as its entry's title; the heading itself has none.
+  assert.match(html, /^<h2 id="epitaxy-ch-ch1" class="source-message source-chapter" data-chapter="" data-chapter-source="claude" data-transcript-item-id="ch1">Test verification<\/h2>$/);
 });
 
 test('suggested tasks: newest first, withdrawn by dismiss_task or the user, shown as the Suggested task card', () => {

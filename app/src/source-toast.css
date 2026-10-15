@@ -13,7 +13,13 @@
 .source-toast-content[data-behind]{visibility:hidden;opacity:0}
 .source-toast-content>[data-cds=Icon]{flex-shrink:0}
 .source-toast-card[data-variant=neutral] .source-toast-content>[data-cds=Icon]{color:var(--cds-text-secondary)}
-.source-toast-message{flex:1;min-width:0;overflow-wrap:break-word;font-weight:500}
+/* aV nV "min-w-0 flex-1 text-pretty break-words": title font-medium, description font-normal, action mt-pad-md.
+   pre-line keeps a multi-line notice (staged attachment infos joined with \n) on separate lines. */
+.source-toast-text{flex:1;min-width:0;text-wrap:pretty;overflow-wrap:break-word}
+.source-toast-message{font-weight:500;white-space:pre-line}
+.source-toast-description{margin:0;font-weight:400;white-space:pre-line}
+.source-toast-action{margin-top:var(--cds-pad-md)}
+.source-toast-action:empty{display:none}
 .source-toast-dismiss{display:flex;flex-shrink:0;align-items:center;justify-content:center;margin:-2px -4px -4px;padding:4px;border:0;border-radius:var(--cds-radius);background:transparent;color:inherit;outline:none;transition:background-color var(--cds-dur-fast)}
 .source-toast-dismiss:hover{background:var(--cds-fill-ghost-hover)}
 .source-toast-dismiss:focus-visible,.source-toast-card:focus-visible .source-toast-surface{box-shadow:var(--cds-focus-shadow)}

@@ -182,7 +182,7 @@ function createSessionOperations({ getClient, getConfig, save, emit, verifyGit =
       if (active.has(threadId) || thread.status?.type === 'active' || recentTurns.some(turn => turn.status === 'inProgress'))
         throw new Error('This session is still running. Wait or stop it first.');
       const { PERMISSION_MODES, threadPermissionParams, validateBypassRequest } = await import('./permission-policy.mjs');
-      if (!PERMISSION_MODES.includes(payload.permission) || !['chat', 'code'].includes(payload.mode)) throw new Error('Choose a valid permission mode.');
+      if (!PERMISSION_MODES.includes(payload.permission) || !['chat', 'code', 'cowork'].includes(payload.mode)) throw new Error('Choose a valid permission mode.');
       // The mode hint goes only to a core with capabilities.permissionHints (the DeepSeek core); Codex never sees it.
       const overrides = threadPermissionParams({permission: payload.permission, mode: payload.mode, review: operation === 'review',
         hints: !!owner.serverInfo && coreSupports(owner.serverInfo, 'permissionHints'), afterPlan: payload.afterPlan});
@@ -217,7 +217,7 @@ function createSessionOperations({ getClient, getConfig, save, emit, verifyGit =
         // workflowReminders: the fork's history carries the parent's ultracode reminders, so it starts from the parent's
         // reminder state (workflow-tool-service.cjs reminderStore): turning ultracode off there still says so.
         const reminders = config.sessionMetadata[threadId]?.workflowReminders;
-        config.sessionMetadata[fork.id] = { additionalFolders: [...(config.sessionMetadata[threadId]?.additionalFolders || [])], forkedFrom: threadId, ...(chosen ? { forkedAtTurn: chosen } : {}),
+        config.sessionMetadata[fork.id] = { ...(config.sessionMetadata[threadId]?.surface ? { surface: config.sessionMetadata[threadId].surface } : {}), additionalFolders: [...(config.sessionMetadata[threadId]?.additionalFolders || [])], forkedFrom: threadId, ...(chosen ? { forkedAtTurn: chosen } : {}),
           ...(reminders && typeof reminders === 'object' ? { workflowReminders: { ...reminders } } : {}) };
         save();
         const name = typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim().slice(0, 120)

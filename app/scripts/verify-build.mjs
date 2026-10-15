@@ -16,7 +16,8 @@ for(const entry of build.sources){
 }
 assert.equal(digest(JSON.stringify(build.sources)),build.sourceSha256,'Build source manifest digest');
 for(const entry of assets.files){
-  assert.equal(digest(await fs.readFile(path.join(source,entry.source))),entry.sourceSha256,`Official source mismatch: ${entry.source}`);
+  // sourceDir: the design-system CSS, fonts and icon map come from 2.31226.0 (prepare-ui.mjs designSource, B38).
+  assert.equal(digest(await fs.readFile(path.join(entry.sourceDir?path.resolve(root,entry.sourceDir):source,entry.source))),entry.sourceSha256,`Official source mismatch: ${entry.source}`);
   assert.equal(digest(await fs.readFile(path.join(root,entry.output))),entry.outputSha256,`Prepared asset mismatch: ${entry.output}`);
   if(entry.output.startsWith('public/'))assert.equal(digest(await fs.readFile(path.join(root,'dist',entry.output.slice(7)))),entry.outputSha256,`Built asset mismatch: ${entry.output}`);
 }

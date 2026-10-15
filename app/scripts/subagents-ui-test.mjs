@@ -72,7 +72,7 @@ async function collapse(id) {
 }
 async function send(text) {
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
 }
 // Resolve a CDS token to the colour the renderer actually paints.
 async function tokenColor(name) {

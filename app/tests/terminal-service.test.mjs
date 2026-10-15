@@ -354,3 +354,29 @@ for (const backend of ['pty', 'script']) {
     } finally { await terminals.dispose(); }
   });
 }
+
+// B20: a code block's Run asks which shells are idle now ("probe"), waits for a new shell's prompt and learns where the
+// output stood ("ready"), and a bash-turn run from a code block opens no pane in other windows ("run" quiet).
+test('code-block run: probe reports live/busy shells, ready returns the output offset, quiet run announces no tab', { timeout: 30000 }, async () => {
+  const folder = tempFolder();
+  const terminals = service(folder);
+  const sender = fakeSender();
+  try {
+    const info = await terminals.call('create', { sessionId: 's1' }, sender);
+    const ready = await terminals.call('ready', { sessionId: 's1', id: info.id }, sender);
+    assert.ok(ready.at > 0, 'the prompt came first');
+    assert.equal(ready.at, output(sender, info.id).length, 'everything before the offset reached the window');
+    assert.deepEqual(await terminals.call('probe', { sessionId: 's1' }, sender), { live: [info.id], busy: [], unknown: [] });
+    terminals.input(sender, info.id, 'sleep 30\r');
+    assert.ok(await until(async () => (await terminals.call('probe', { sessionId: 's1' }, sender)).busy.includes(info.id)), 'sleep makes it busy');
+    terminals.input(sender, info.id, '\x03');
+    const before = sender.events.length;
+    const run = await terminals.call('run', { sessionId: 's1', command: 'echo quiet-run', quiet: true }, sender);
+    assert.ok(!sender.events.slice(before).some((event) => event.kind === 'opened'), 'no opened event');
+    const probe = await terminals.call('probe', { sessionId: 's1' }, sender);
+    assert.ok(!probe.live.includes(run.id), 'a run tab is never typed into');
+    const done = await terminals.call('wait', { sessionId: 's1', id: run.id, timeoutMs: 10000 }, sender);
+    assert.match(done.output, /quiet-run/);
+    await assert.rejects(terminals.call('ready', { sessionId: 's1', id: 'term-nope00' }, sender), /Unknown terminal/);
+  } finally { await terminals.dispose(); }
+});

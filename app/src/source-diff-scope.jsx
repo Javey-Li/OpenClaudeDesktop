@@ -3,7 +3,7 @@ import { Icon } from "./icons";
 import { SourceMenu, useMenuPopup } from "./source-menu.jsx";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import {
-  DIFF_SCOPE_LABELS, diffScopeParam, diffScopeSections, diffScopeTrigger, filterSearchItems, resolveDiffScope,
+  DEFAULT_DIFF_SCOPE, DIFF_SCOPE_LABELS, UNCOMMITTED_DIFF_SCOPE, commitScopeGone, diffScopeParam, diffScopeSections, diffScopeTrigger, filterSearchItems, resolveDiffScope,
 } from "./diff-scope-model.mjs";
 import { t } from "../electron/i18n/index.mjs";
 import "./source-diff-scope.css";
@@ -100,6 +100,7 @@ export function SourceDiffScope({ trigger, sections = [] }) {
 }
 
 const EMPTY_ENTRY = Object.freeze({});
+const COMMITS_FETCH_LIMIT = 101;
 const NO_BRANCHES = Object.freeze({ cwd: null, list: [], loaded: false, error: false });
 
 /** Per-session diff scope for the Changes pane (Od/zm state, held per session
@@ -126,20 +127,25 @@ export function useDiffScope({ call, cwd, sessionId, status, active = false, ref
   useEffect(() => {
     if (!active || !isRepo || !base || !cwd) return undefined;
     let live = true;
-    call("workspace-git-commits", { cwd, sessionId, ...(override ? { base: override } : {}) })
+    // B15: 101 rows = the Commits section's 100 (c44d00c7f qr) plus one; the menu shows the first 50.
+    call("workspace-git-commits", { cwd, sessionId, limit: COMMITS_FETCH_LIMIT, ...(override ? { base: override } : {}) })
       .then((result) => {
         if (!live) return;
         const list = Array.isArray(result?.commits) ? result.commits : [];
         // `total` = rev-list --count base..HEAD, so "N older commits not shown" is the real N (zm m.length − 50).
         setCommits({ key: listKey, list, total: Number.isSafeInteger(result?.total) ? result.total : list.length });
       })
-      .catch(() => { if (live) setCommits({ key: listKey, list: [], total: 0 }); });
+      .catch(() => { if (live) setCommits({ key: listKey, list: [], total: 0, failed: true }); });
     return () => { live = false; };
     // fetchKey covers cwd, session, HEAD, base and Refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, isRepo, fetchKey]);
   const commitList = commits.key === listKey ? commits.list : [];
   const commitTotal = commits.key === listKey ? commits.total : 0;
+  // cccc2cf0a Xb te: a commit scope whose sha has left the loaded base..HEAD list (amended, rebased, reset)
+  // goes back to "All changes". Only a complete, successfully read list can tell that the sha is gone.
+  const selectedCommitGone = commits.key === listKey && commitScopeGone(scope, { list: commitList, total: commitTotal, failed: commits.failed });
+  useEffect(() => { if (selectedCommitGone) update({ scope: DEFAULT_DIFF_SCOPE }); }, [selectedCommitGone, update]);
   const loadBranches = useCallback(() => {
     if (!cwd) return;
     call("workspace-git-branches", { cwd })
@@ -156,10 +162,19 @@ export function useDiffScope({ call, cwd, sessionId, status, active = false, ref
     // Im I(): opening the list drops an override that names the checked-out branch, then refetches.
     onBaseMenuOpen: () => { if (override && override === current) update({ base: undefined }); loadBranches(); },
   }), [trigger?.ariaLabel, scope, base, defaultBase, override, current, isRepo, commitList, commitTotal, branchState, update, loadBranches]);
+  // B15 Commits section (cccc2cf0a Xb H/U/B): a commit row narrows to that commit, null is "All changes";
+  // "Uncommitted changes" is offered while the working tree is dirty or that scope is picked.
+  const selectCommit = useCallback((sha) => update({ scope: sha ? { kind: "commit", sha } : DEFAULT_DIFF_SCOPE }), [update]);
+  const selectUncommitted = useCallback(() => update({ scope: UNCOMMITTED_DIFF_SCOPE }), [update]);
+  const commitsSection = useMemo(() => (!trigger || commitList.length === 0 ? null : {
+    list: commitList, total: commitTotal, selectedSha: scope.kind === "commit" ? scope.sha : null, uncommittedSelected: scope.kind === "uncommitted",
+    onSelect: selectCommit, onSelectUncommitted: status?.workingTreeDirty === true || scope.kind === "uncommitted" ? selectUncommitted : undefined,
+  }), [!trigger, commitList, commitTotal, scope, selectCommit, selectUncommitted, status?.workingTreeDirty]); // eslint-disable-line react-hooks/exhaustive-deps
   return {
     param,
     base: override || undefined,
     kind: scope.kind,
     control: trigger ? <SourceDiffScope trigger={trigger} sections={sections} /> : null,
+    commits: commitsSection,
   };
 }

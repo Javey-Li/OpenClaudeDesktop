@@ -20,7 +20,7 @@ export const PERMISSION_MODES = Object.freeze(['auto', 'ask', 'acceptEdits', 'pl
 const AFTER_PLAN = Object.freeze(['auto', 'ask', 'acceptEdits', 'bypass']);
 // The Codex protocol's collaboration modes (ModeKind).
 export const NATIVE_MODES = Object.freeze(['plan', 'default']);
-const planning = ({ permission, mode, review }) => permission === 'plan' && mode === 'code' && !review;
+const planning = ({ permission, mode, review }) => permission === 'plan' && mode !== 'chat' && !review;
 // hints (cores with capabilities.permissionHints; Codex never receives the field): a read-only
 // sandbox alone cannot tell Plan from chat or review, so the bridge also gets
 // the mode and the permission an approved plan continues with (afterPlan).
@@ -28,7 +28,7 @@ const planning = ({ permission, mode, review }) => permission === 'plan' && mode
 // (approvalsReviewer auto_review: on-request in workspace-write, a reviewer agent decides each escalation and asks
 // only for risky ones), so Auto and Accept edits differ on Codex too. main.cjs keeps it only where the core has it.
 export function threadPermissionParams({ permission = 'auto', mode = 'code', review = false, hints = false, afterPlan = 'auto', autoReview = false } = {}) {
-  if (!PERMISSION_MODES.includes(permission) || !['code', 'chat'].includes(mode)) throw new Error('Choose a valid permission mode.');
+  if (!PERMISSION_MODES.includes(permission) || !['code', 'chat', 'cowork'].includes(mode)) throw new Error('Choose a valid permission mode.');
   const readOnly = review || mode === 'chat' || permission === 'plan';
   const bypass = permission === 'bypass' && !readOnly;
   const native = hints !== true;
@@ -44,7 +44,7 @@ export function threadPermissionParams({ permission = 'auto', mode = 'code', rev
     ...(hints === true ? { codeDesktop: { permissionMode: hintedMode({ permission, mode, review }), afterPlan: AFTER_PLAN.includes(afterPlan) ? afterPlan : 'auto' } } : {}) };
 }
 function hintedMode({ permission, mode, review }) {
-  if (permission === 'plan' && mode === 'code' && !review) return 'plan';
+  if (permission === 'plan' && mode !== 'chat' && !review) return 'plan';
   return review ? 'review' : mode === 'chat' ? 'chat' : permission;
 }
 // A hinted core's plan review (the DeepSeek bridge's exit_plan_mode, question id 'plan-review') was
@@ -83,7 +83,7 @@ export const planResponseRequestsBypass = (payload) => payload?.codeDesktop?.aft
 //   Plan, Ask, chat      read-only: Plan never edits, and Ask's per-edit approval has no card here
 export const WORKFLOW_ACCESS = Object.freeze(['read-only', 'workspace-write', 'danger-full-access']);
 export function workflowAccess({ permission = 'auto', mode = 'code' } = {}) {
-  if (!PERMISSION_MODES.includes(permission) || mode !== 'code' || permission === 'plan' || permission === 'ask') return 'read-only';
+  if (!PERMISSION_MODES.includes(permission) || !['code', 'cowork'].includes(mode) || permission === 'plan' || permission === 'ask') return 'read-only';
   return permission === 'bypass' ? 'danger-full-access' : 'workspace-write';
 }
 // networkAccess (Settings › Code › Sandbox network access, config.sandboxNetworkAccess): whether commands in the

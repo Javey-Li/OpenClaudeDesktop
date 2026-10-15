@@ -77,7 +77,7 @@ export function SourceSessionNotices({ notices, onReveal, onTrust, trusting = fa
             : <p className="ssn-details"><bdi>{noticeInline(notice.details)}</bdi></p>)}
           {notice.path && <p className="ssn-details ssn-path" title={notice.path}><bdi>{notice.path}{notice.line ? `:${notice.line}` : ""}</bdi></p>}
           {(trust || (notice.path && onReveal) || actions.length > 0) && <div className="ssn-actions">
-            {actions.map((action) => <button key={action.label} type="button" className="ssn-action" onClick={() => action.run()}>{action.label}</button>)}
+            {actions.map((action) => <button key={action.label} type="button" className="ssn-action" aria-disabled={action.busy === true || undefined} aria-busy={action.busy === true || undefined} onClick={() => { if (action.busy !== true) action.run(); }}>{action.label}</button>)}
             {trust && <button type="button" className="ssn-action" disabled={trusting} onClick={() => onTrust()}>{trusting ? t("Trusting…") : t("Trust this folder")}</button>}
             {notice.path && onReveal && <button type="button" className="ssn-action" onClick={() => onReveal(notice.path)}>{t("Show in Finder")}</button>}
           </div>}

@@ -3,30 +3,39 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import './build-workflow-parser.mjs';
 import './build-workflow-schema.mjs';
+import './verify-chat-ui.mjs';
+import './prepare-current-chat-ui.mjs';
+import './verify-code-editor.mjs';
+import './verify-terminal-shell.mjs';
+import './verify-release-notes.mjs';
 const root = path.resolve(import.meta.dirname, "..");
 const source = path.resolve(root, "../reference/current-2.2553.1/ion-dist/assets/v1");
+// B38: the design-system stylesheets, their fonts and the Anthropicons map (which must match the icon font) come from
+// the current installed frontend (2.31226.0); the other extractions below still read 2.2553.1.
+const designSource = path.resolve(root, "../reference/installed-2.31226.0-20261012/ion-dist/assets/v1");
 const dest = path.join(root, "public/assets/v1");
 await fs.rm(dest, { recursive: true, force: true });
 await fs.mkdir(dest, { recursive: true });
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const provenance = [];
-async function copyAsset(name, target = path.join(dest, name)) {
-  const bytes = await fs.readFile(path.join(source, name));
+async function copyAsset(name, target = path.join(dest, name), from = source) {
+  const bytes = await fs.readFile(path.join(from, name));
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, bytes);
-  provenance.push({ source: name, output: path.relative(root, target), sourceSha256: digest(bytes), outputSha256: digest(bytes) });
+  provenance.push({ source: name, ...(from === source ? {} : { sourceDir: path.relative(root, from) }), output: path.relative(root, target), sourceSha256: digest(bytes), outputSha256: digest(bytes) });
 }
 // Extract the actual numeric font map, including non-contiguous future glyphs.
-const iconSourceName = "shared-frame-C_2npUJq.js";
-const iconSource = await fs.readFile(path.join(source, iconSourceName), "utf8");
-const iconBlock = iconSource.match(/icons:\{(Activity:57344,[^}]+)\},next:/)?.[1];
+const iconSourceName = "shared-frame-DVFSKIcx.js";
+const iconSource = await fs.readFile(path.join(designSource, iconSourceName), "utf8");
+// 2.31226.0 Ka={icons:{…},secondary:{…},next:…}: `icons` already lists the secondary set's glyphs too.
+const iconBlock = iconSource.match(/icons:\{(Activity:57344,[^}]+)\},(?:secondary|next):/)?.[1];
 if (!iconBlock) throw new Error("Anthropicons map changed; trace the source before updating extraction.");
 const glyphs = Object.fromEntries([...iconBlock.matchAll(/([A-Za-z][A-Za-z0-9]*):(\d+)/g)].map((m) => [m[1], Number(m[2])]));
 if (Object.keys(glyphs).length < 300 || !glyphs.ArrowReturn || !glyphs.StopCircle) throw new Error("Incomplete Anthropicons map");
 const iconOutput = JSON.stringify(glyphs, null, 2) + "\n";
 await fs.mkdir(path.join(root, "src/generated"), { recursive: true });
 await fs.writeFile(path.join(root, "src/generated/icons.json"), iconOutput);
-provenance.push({ source: iconSourceName, sourceSha256: digest(iconSource), output: "src/generated/icons.json", outputSha256: digest(iconOutput), transform: "Numeric icons map extracted without executing source", count: Object.keys(glyphs).length });
+provenance.push({ source: iconSourceName, sourceDir: path.relative(root, designSource), sourceSha256: digest(iconSource), output: "src/generated/icons.json", outputSha256: digest(iconOutput), transform: "Numeric icons map extracted without executing source", count: Object.keys(glyphs).length });
 await copyAsset("c838f53ee-DqwARLA7.json", path.join(root, "public/reference/clawd-laptop.json"));
 await copyAsset("cf27cae7f-IGfSpeOJ.js", path.join(root, "public/reference/lottie-player.js"));
 // Extract the original 24px spark geometry from the installed compiled logo module.
@@ -72,16 +81,21 @@ const mcpIllustration=JSON.stringify({viewBox:'0 0 70 71',width:70,height:71,pat
 await fs.writeFile(path.join(root,'src/generated/mcp-empty.json'),mcpIllustration);
 provenance.push({source:mcpSourceName,sourceSha256:digest(mcpSource),output:'src/generated/mcp-empty.json',outputSha256:digest(mcpIllustration),transform:'Four static SVG paths and theme colors extracted without executing source'});
 const files = [
-  "c6a992d55-Vcbdv79k.css",
-  "shared-styles-DunnEebG.css",
-  "shared-frame-DTHtnNBp.css",
+  "ce598b86c-CivZuY3L.css",
+  "c6a992d55-C0zTICcS.css",
+  "shared-styles-CTu5t_TM.css",
+  "shared-frame-Vh6rJ546.css",
 ];
+await copyAsset("c25011d97-Dg-b7-mk.png");
+for (const name of ['session-progress.svg', 'session-progress-dark.svg', 'session-artifacts.svg', 'session-artifacts-dark.svg']) {
+  await copyAsset('../../images/illustrations/' + name, path.join(root, 'public/images/illustrations', name));
+}
 const copied = ["claude-spark.svg"];
 for (const file of files) {
-  const raw = await fs.readFile(path.join(source, file), "utf8");
+  const raw = await fs.readFile(path.join(designSource, file), "utf8");
   for (const m of raw.matchAll(/url\(["']?\/assets\/v1\/([^\s)"']+)/g)) {
     const name = m[1];
-    await copyAsset(name);
+    await copyAsset(name, undefined, designSource);
     copied.push(name);
   }
   await fs.writeFile(
@@ -89,14 +103,14 @@ for (const file of files) {
     raw.replaceAll("/assets/v1/", "./"),
   );
   copied.push(file);
-  provenance.push({ source: file, output: "public/assets/v1/" + file, sourceSha256: digest(raw), outputSha256: digest(raw.replaceAll("/assets/v1/", "./")) });
+  provenance.push({ source: file, sourceDir: path.relative(root, designSource), output: "public/assets/v1/" + file, sourceSha256: digest(raw), outputSha256: digest(raw.replaceAll("/assets/v1/", "./")) });
 }
 provenance.push({ source: "shared-7-DsClUbcz.js", sourceSha256: digest(logoModule), output: "public/assets/v1/claude-spark.svg", outputSha256: digest(await fs.readFile(path.join(dest, "claude-spark.svg"))), transform: "Original mf spark path wrapped in SVG" });
 await fs.writeFile(
   path.join(root, "public/ui-provenance.json"),
   JSON.stringify(
     {
-      source: "Local Claude Desktop 2.2553.1 installation",
+      source: "Local Claude Desktop 2.2553.1 installation; design-system CSS, fonts and icon map from 2.31226.0",
       purpose: "Private local UI study; original assets retain their ownership",
       cssModification: "Only asset URL paths made relative",
       files: [...new Map(provenance.map((entry) => [entry.output, entry])).values()],

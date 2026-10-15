@@ -293,7 +293,7 @@ try {
   // 2b. A handled request is consumed: closing and reopening the pane must not replay it.
   await page.locator(".source-side-tile").getByRole("button", { name: "Close panel", exact: true }).click();
   await page.locator(".source-side-tile").waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click();
   await page.getByRole("complementary", { name: "Files panel" }).waitFor();
   await frames(8);
@@ -391,7 +391,7 @@ try {
   checks.push("1201 characters collapse to a 256px clipped, masked column with non-interactive links and a ghost xxs flush Show more; 1200 characters do not");
 
   // 6. Show more: mousedown keeps composer focus; click expands and restores anchors; collapsed bubble keeps the 85% ceiling.
-  await page.locator(".sc-input").focus();
+  await page.locator(".sc-input.epitaxy-prompt-input").focus(); // the main composer; the side chat field is also .sc-input
   const toggle = bubble("um-long-user").locator("button.suc-show-more");
   await toggle.scrollIntoViewIfNeeded();
   const box = await toggle.boundingBox();
@@ -512,8 +512,10 @@ try {
   await page.mouse.click(codeBubble.x + 5, codeBubble.y + codeBubble.height / 2, { button: "right" });
   const userMenu = page.getByRole("menu", { name: "Message actions", exact: true });
   await userMenu.waitFor();
-  metrics.userMenu = await userMenu.locator('[role="menuitem"]').allTextContents();
-  assert.deepEqual(metrics.userMenu.map(text => text.replace(/[\uE000-\uF8FF⌘⇧]/g, "").trim()), ["Copy message", "Copy message as Markdown", "Attach message as context", "Rewind to here", "Fork from here"]);
+  // B12: Rewind to here / Fork from here carry a description line (cd5a31703 zNe), so read each item's label.
+  metrics.userMenu = await userMenu.locator('[role="menuitem"]').evaluateAll(nodes => nodes.map(node => node.dataset.label));
+  assert.deepEqual(metrics.userMenu, ["Copy message", "Copy message as Markdown", "Attach message as context", "Rewind to here", "Fork from here"]);
+  assert.deepEqual(await userMenu.locator('[role="menuitem"] .smenu-description').allTextContents(), ["Removes this message and what follows", "Starts a new session, keeps this one"]);
   await userMenu.getByRole("menuitem", { name: "Copy message as Markdown", exact: true }).click();
   await userMenu.waitFor({ state: "detached" });
   for (let attempt = 0; attempt < 40 && await readClipboard() !== CODE; attempt += 1) await new Promise(resolve => setTimeout(resolve, 50));

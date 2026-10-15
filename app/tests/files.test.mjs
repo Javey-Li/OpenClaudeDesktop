@@ -25,8 +25,8 @@ test("preview classifies missing, outside, large, binary and empty files and kee
     );
     assert.deepEqual(await readFile(p, "ok.txt"), { path: "ok.txt", text: "Hello" });
     assert((await listFiles(p)).some((f) => f.name === "ok.txt"));
-    assert.deepEqual(await readFile(p, "missing.js"), { path: "missing.js", unavailable: "missing" });
-    assert.deepEqual(await readFile(p, "nested/missing.js"), { path: "nested/missing.js", unavailable: "missing" });
+    assert.deepEqual(await readFile(p, "missing.js"), { path: "missing.js", unavailable: "missing", creatable: true });
+    assert.deepEqual(await readFile(p, "nested/missing.js"), { path: "nested/missing.js", unavailable: "missing", creatable: false }, "B32: no parent folder to create it in");
     assert.deepEqual(await readFile(p, "../outside.txt"), { path: "../outside.txt", unavailable: "outside_root" });
     assert.deepEqual(await readFile(p, "../nope.txt"), { path: "../nope.txt", unavailable: "outside_root" }, "a missing path outside is still outside");
     assert.deepEqual(await readFile(p, path.join(root, "outside.txt")), { path: path.join(root, "outside.txt"), unavailable: "outside_root" });
@@ -96,7 +96,10 @@ test("readFile classifies png/mp4/mp3 as media without a read; NUL text stays bi
     assert.deepEqual(await readFile(root, "nul.txt"), { path: "nul.txt", unavailable: "binary" });
     assert.deepEqual(await readFile(root, "icon.svg"), { path: "icon.svg", text: "<svg/>" }, "svg is text (no allowSvg)");
     assert.deepEqual(await readFile(root, "photo.png", { force: true }), { path: "photo.png", unavailable: "too_large", size: 2 * 1024 * 1024 }, "forced: the bytes are read");
-    assert.deepEqual(await readFile(root, "missing.png"), { path: "missing.png", unavailable: "missing" });
+    assert.deepEqual(await readFile(root, "missing.png"), { path: "missing.png", unavailable: "missing", creatable: true });
+    // B13: a PDF is classified like media (Chromium's viewer shows it from its file:// URL), never read.
+    await fs.writeFile(path.join(root, "Spec.PDF"), Buffer.from("%PDF-1.4\0"));
+    assert.deepEqual(await readFile(root, "Spec.PDF"), { path: "Spec.PDF", kind: "pdf", size: 9, unavailable: "pdf" });
   } finally {
     await fs.chmod(path.join(root, "clip.mp4"), 0o644).catch(() => {});
     await fs.rm(root, { recursive: true, force: true });

@@ -10,9 +10,11 @@ import { t } from "../electron/i18n/index.mjs";
 export const FILE_TAB_LABELS = Object.freeze({
   closeTab: t("Close file"),
   closeOtherTabs: t("Close other files"),
+  closeTabsToRight: t("Close files to the right"),
   closeAllTabs: t("Close all files"),
   keepTab: t("Keep open"),
   previewTabHint: t("preview"),
+  deletedTabHint: t("deleted"),
   closeTabDeleteHint: t("Press Delete or Backspace to close the file"),
   // le (panes-tile-current.js:6669-6710): the overflow trigger and its rows'
   // hint, and the Control+Shift+Arrow reorder hint every tab is described by.
@@ -83,11 +85,12 @@ export function tabTooltip({ label, detail, clipped = false, suppressed = false 
   return { content: detail === undefined && !clipped ? null : label, detail };
 }
 
-export function tabMenuItems({ preview = false, solo = false } = {}) {
+export function tabMenuItems({ preview = false, solo = false, hasTabsToRight = false } = {}) {
   return [
     preview && { action: "keep", label: FILE_TAB_LABELS.keepTab },
     { action: "close", label: FILE_TAB_LABELS.closeTab },
     !solo && { action: "close-others", label: FILE_TAB_LABELS.closeOtherTabs },
+    hasTabsToRight && { action: "close-right", label: FILE_TAB_LABELS.closeTabsToRight },
     !solo && { action: "close-all", label: FILE_TAB_LABELS.closeAllTabs },
   ].filter(Boolean);
 }
@@ -102,4 +105,10 @@ export function fileViewerMenuItems({ onFind, onCopyContents, onDownload, onRelo
     onDownload && { value: "download-file", label: t("Download file"), onSelect: onDownload },
     onReload && { value: "reload-file", label: t("Reload file"), disabled: !!reloading, onSelect: onReload },
   ].filter(Boolean);
+}
+
+// 2.31226.0 c03935b01 closeFileTabsToRight: missing/last tab is a no-op.
+export function fileTabsToRight(tabs, path) {
+  const index = tabs.findIndex(tab => tab.path === path);
+  return index < 0 ? [] : tabs.slice(index + 1).map(tab => tab.path);
 }

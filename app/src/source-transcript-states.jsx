@@ -7,7 +7,7 @@ import { t } from "../electron/i18n/index.mjs";
 // Transcript pane states of approval-entry-current.js (2.2553.1):
 // _d :1141-1190 pending -> gd -> Zw skeleton, :4211-4217 xu load failure and
 // :4224-4233 Cl "No messages yet". Class strings are the source strings; every
-// utility they name is in the loaded original /assets/v1/c6a992d55-Vcbdv79k.css.
+// utility they name is in the loaded original /assets/v1/c6a992d55-C0zTICcS.css.
 
 // ion-dist shared-8-B5xbG2px.js O_: per-paragraph line widths of the k_ skeleton.
 export const SKELETON_PARAGRAPHS = [["w-[96%]", "w-full", "w-[92%]", "w-[58%]"], ["w-full", "w-[94%]", "w-[41%]"], ["w-[97%]", "w-[90%]", "w-[66%]"]];
@@ -59,13 +59,14 @@ export function SourceTranscriptSkeleton({ hasEarlier = false, holdReason = "rou
   </div>;
 }
 
-// EmptyState u (ion-dist cc0a875c8-B6xI6vLN.js): root r, optional string icon
+// EmptyState u (ion-dist cc0a875c8-B6xI6vLN.js): root r, optional string icon or an element (a Spinner)
 // (Icon size "lg" = 24px glyph, class i "!size-7 text-muted" = 28px box), text
-// block a, title o, body s, actions c. The children slot is unused by these callers.
-export function SourceEmptyState({ icon, title, body, actions, role }) {
+// block a (textRole: Jh's role=alert names the text only, not the actions), title o, body s, actions c. The children
+// slot is unused by these callers.
+export function SourceEmptyState({ icon, title, body, actions, role, textRole }) {
   return <div role={role} className="flex h-full flex-col items-center justify-center gap-md px-lg py-lg text-center source-empty-state">
-    {icon && <Icon name={icon} size={24} className="!size-7 text-muted" aria-hidden="true" />}
-    <div className="flex flex-col items-center gap-1">
+    {typeof icon === "string" ? <Icon name={icon} size={24} className="!size-7 text-muted" aria-hidden="true" /> : icon ?? null}
+    <div role={textRole} className="flex flex-col items-center gap-1">
       <p className="max-w-[36ch] break-words text-body text-primary">{title}</p>
       {body && <p className="max-w-[36ch] break-words text-footnote text-muted">{body}</p>}
     </div>

@@ -45,4 +45,31 @@ function compareMatches(a, b) {
   return b.rankScore - a.rankScore || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 }
 
-module.exports = { matchPath, compareMatches };
+// B33 (shared-18 YB/XB, JB = Intl.Collator(undefined, {numeric: true})): a folder's direct children are listed
+// folders first, then by name in numeric collation order, with code-unit order as the tiebreak.
+let collator = null;
+function compareNames(a, b) {
+  if (a === b) return 0;
+  collator ??= new Intl.Collator(undefined, { numeric: true });
+  return collator.compare(a, b) || (a < b ? -1 : 1);
+}
+function compareTreeEntries(a, b) {
+  return a.directory === b.directory ? compareNames(a.name, b.name) : a.directory ? -1 : 1;
+}
+
+// B33 (cccc2cf0a Fv :4151-4163): a filter ending in '/' names a folder. Entries whose path starts with it
+// (case-insensitive) and have no further '/' (its direct children, files and folders) come first in tree order,
+// then the deeper entries under it, then everything else, each keeping the ranked order it had.
+function orderFolderQuery(matches, query) {
+  const prefix = query.toLowerCase();
+  const children = [], deeper = [], others = [];
+  for (const match of matches) {
+    if (!match.path.toLowerCase().startsWith(prefix)) others.push(match);
+    else if (match.path.includes('/', query.length)) deeper.push(match);
+    else children.push(match);
+  }
+  children.sort(compareTreeEntries);
+  return [...children, ...deeper, ...others];
+}
+
+module.exports = { matchPath, compareMatches, compareTreeEntries, orderFolderQuery };

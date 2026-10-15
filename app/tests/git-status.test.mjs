@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 
-const { workspaceGitStatus, workspaceGitDiff } = createRequire(import.meta.url)('../electron/git-status.cjs');
+const { workspaceGitStatus, workspaceGitDiff, workspaceGitImage } = createRequire(import.meta.url)('../electron/git-status.cjs');
 const execute = promisify(execFile);
 const git = (cwd, args) => execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args], {
   cwd, encoding: 'utf8', timeout: 10000, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
@@ -429,6 +429,10 @@ test('scope: commit:<sha> is that commit\'s own patch; commits and branches feed
   assert.deepEqual(listed.commits.map((entry) => entry.subject), ['Second', 'Fixture baseline']);
   assert.equal(listed.commits[1].sha, first); assert.equal(listed.commits[1].shortSha, first.slice(0, listed.commits[1].shortSha.length));
   assert.equal(listed.total, 2);
+  // B15 Commits section rows (c44d00c7f Wr): the author and the committer date in Unix seconds.
+  const author = (await git(cwd, ['log', '-1', '--format=%an%x1f%ct', first])).stdout.trim().split('\x1f');
+  assert.equal(listed.commits[1].authorName, author[0]); assert.equal(listed.commits[1].date, Number(author[1]));
+  assert.ok(listed.commits[1].date > 0);
   const limited = await workspaceGitCommits(cwd, { limit: 1 });
   assert.equal(limited.commits.length, 1); assert.equal(limited.total, 2, 'total counts every commit past the fetched rows');
   assert.deepEqual((await workspaceGitBranches(cwd)).sort(), ['feature', 'main']);
@@ -485,4 +489,42 @@ test('large unchanged context falls back to useful partial patch instead of raw 
 
 test('empty complete-context query has an explicit empty payload for non-repositories',async(t)=>{
  const cwd=await directory(t,false);assert.deepEqual(await workspaceGitDiff(cwd,{completeContext:true}),{patch:'',completeContext:false});
+});
+
+test('B34 workspaceGitImage: before at the scope base, after in the working tree or commit, null when absent or unsafe', async (t) => {
+  const cwd = await directory(t);
+  const one = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]), two = Buffer.from([0x89, 0x50, 0x4e, 0x47, 2]);
+  const url = (bytes, type = 'image/png') => `data:${type};base64,${bytes.toString('base64')}`;
+  await fs.writeFile(path.join(cwd, 'logo.png'), one);
+  await fs.writeFile(path.join(cwd, 'gone.jpg'), one);
+  await write(cwd, 'notes.txt', 'text\n');
+  await commit(cwd);
+  const first = (await git(cwd, ['rev-parse', 'HEAD'])).stdout.trim();
+  await fs.writeFile(path.join(cwd, 'logo.png'), two);
+  await commit(cwd);
+  const second = (await git(cwd, ['rev-parse', 'HEAD'])).stdout.trim();
+  await fs.writeFile(path.join(cwd, 'logo.png'), one);
+  await fs.rm(path.join(cwd, 'gone.jpg'));
+  await fs.writeFile(path.join(cwd, 'new.webp'), two);
+  // Uncommitted: HEAD (the second commit) against the working tree.
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'logo.png', side: 'before', scope: 'uncommitted' }), url(two));
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'logo.png', side: 'after', scope: 'uncommitted' }), url(one));
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'gone.jpg', side: 'after', scope: 'uncommitted' }), null, 'deleted from the tree');
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'gone.jpg', side: 'before', scope: 'uncommitted' }), url(one, 'image/jpeg'));
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'new.webp', side: 'before', scope: 'uncommitted' }), null, 'not in HEAD');
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'new.webp', side: 'after', scope: 'uncommitted' }), url(two, 'image/webp'));
+  // A commit scope: its first parent against the commit itself; a root commit has no before.
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'logo.png', side: 'before', scope: `commit:${second}` }), url(one));
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'logo.png', side: 'after', scope: `commit:${second}` }), url(two));
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'logo.png', side: 'before', scope: `commit:${first}` }), null);
+  // Branch scope without a remote compares against the branch's own HEAD.
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'logo.png', side: 'before' }), url(two));
+  // Not an image, outside the repository, or a symlink: null without reading.
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'notes.txt', side: 'after' }), null);
+  assert.equal(await workspaceGitImage(cwd, { filePath: '../escape.png', side: 'after' }), null);
+  assert.equal(await workspaceGitImage(cwd, { filePath: '/etc/x.png', side: 'after' }), null);
+  await fs.symlink(path.join(cwd, 'logo.png'), path.join(cwd, 'link.png'));
+  assert.equal(await workspaceGitImage(cwd, { filePath: 'link.png', side: 'after' }), null);
+  await assert.rejects(workspaceGitImage(cwd, { filePath: 'logo.png', side: 'sideways' }), TypeError);
+  assert.equal(await workspaceGitImage(await directory(t, false), { filePath: 'logo.png', side: 'after' }), null, 'not a repository');
 });

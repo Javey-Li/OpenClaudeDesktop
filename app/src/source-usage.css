@@ -135,3 +135,6 @@ p.su-credit-limit{color:var(--cds-text-secondary)}
 .su-local-models .su-legend-name{max-width:calc(14rem * var(--cds-rem-scale,1))}
 .su-local-models .su-meter,.su-local-models .su-indicator{display:block;min-width:0}
 .su-local-caption{caption-side:top;text-align:start;padding-top:12px;font-weight:500;color:var(--cds-text-secondary)}
+/* c71860c77-29nOu6oI W: the Chart metric and Time range segmented controls (size sm) above the per-day rows. */
+.su-days-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--cds-gap-sm,8px);margin-top:var(--cds-gap-sm,8px)}
+.su-days-controls>.su-range{margin-inline-start:auto}

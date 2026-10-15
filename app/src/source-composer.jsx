@@ -1,11 +1,13 @@
+import {acceptsFileContextDrag,dropFileContextDrag} from "./file-context-drag.mjs";
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
+import { SourceChatComposer } from "./source-chat-composer.jsx";
 import { SourcePet } from "./source-pet";
 import { SourceTooltip } from "./source-tooltip";
 import { SourceMenu, menuTriggerProps, useMenuPopup } from "./source-menu";
 import { SourceComposerEditor } from "./source-composer-editor";
 import { SourceSlashMenu, SlashHint } from "./source-slash-menu";
-import { matchCommands, parseSessionCommand, slashQuery, sessionCommands, sessionCommandHint, sessionCommandDescription, slashSkills, slashCustomCommands } from "./session-command-model.mjs";
+import { matchCommands, parseSessionCommand, slashToken, sessionCommands, sessionCommandHint, sessionCommandDescription, slashSkills, slashCustomCommands } from "./session-command-model.mjs";
 import { SourceComposerAttachments } from "./source-composer-attachments";
 import { SourceMentionDropdown } from "./source-mention-dropdown";
 import { SourceEmojiDropdown } from "./source-emoji-dropdown.jsx";
@@ -17,12 +19,12 @@ import { MODE_MENU_KEYS } from "./chin-shortcuts.mjs";
 import { shortcutCaps } from "./source-shortcut";
 import { INITIAL_PROMPT_HISTORY, promptHistoryStep, promptHistoryStatus, historySearchStep, historySearchStatus, isHistorySearchKey, HISTORY_SEARCH_HINT_DELAY } from "./prompt-history-model.mjs";
 import "./source-shortcut.css";
-import { usageTriggerCopy, usagePanelCopy, contextRingGeometry, contextRingStroke, CONTEXT_RING_TRACK, compactAction } from "./context-usage-model.mjs";
+import { usageTriggerCopy, usagePanelCopy, contextRingGeometry, contextRingStroke, CONTEXT_RING_TRACK, compactAction, autoCompactHintText } from "./context-usage-model.mjs";
 import { planWindowSummary, usageResetCountdown } from "./usage-model.mjs";
-import { effortName, hasTopTierEffort, isTopTierEffort } from "./model-menu-model.mjs";
+import { effortMark, effortName, effortValueText, effortWarning, hasTopTierEffort, isTopTierEffort } from "./model-menu-model.mjs";
 import { EffortLitOverlay } from "./source-effort-lit.jsx";
 import { useReducedMotion } from "./use-reduced-motion.js";
-import { modelAcceptsImages } from "./composer-attachments-model.mjs";
+import { modelAcceptsImages, splitClipboardFolders } from "./composer-attachments-model.mjs";
 import { BRANCH_EMPTY_MESSAGE, BRANCH_SEARCH_PLACEHOLDER, BRANCH_TOOLTIP, branchTriggerLabel, enterSelection, filterBranches } from "./branch-picker-model.mjs";
 import { SourcePopover, SourcePopoverClose, SourcePopoverTitle } from "./source-popover";
 import "./source-composer.css";
@@ -46,8 +48,13 @@ export const WORKTREE_TOOLTIP = t("Work in an isolated copy of the repository");
 // the header 'Mode'. Closed while a chin menu is open (local menuKind, like Add/usage).
 // The visible caps (⇧⌘M) of that spec.
 export const MODE_MENU_SHORTCUT = shortcutCaps(MODE_MENU_KEYS, true).map(cap => cap.label).join("");
+// Manual (ca80fca8d Kt :20107-20116, N$ :28909-28914): with Auto on offer (every local core offers it) the Manual
+// mode's chin label is text-warning and its tooltip (and hidden aria-description) reads 'Claude asks before making
+// changes. Auto is recommended.', the assistant being the running core's; the bypass danger copy still wins (_t ?? vt).
+export const manualModeWarning = (permission) => permission === "ask";
+export const MANUAL_MODE_WARNING = () => t("DeepSeek asks before making changes. Auto is recommended.");
 export const modeTooltip = ({ permission, menuKind }) => ({
-  content: permission === "bypass" ? t("DeepSeek can modify or delete files without asking") : t("Mode"),
+  content: permission === "bypass" ? t("DeepSeek can modify or delete files without asking") : manualModeWarning(permission) ? MANUAL_MODE_WARNING() : t("Mode"),
   shortcut: MODE_MENU_KEYS, open: menuKind ? false : undefined,
 });
 
@@ -138,15 +145,19 @@ export function caretViewportRect(textarea, position) {
 //    (data-disabled on the card) only for archived sessions and real locks (`editable`); loading and a
 //    lost connection keep it typeable and only gate sending (`canSubmit`); data-busy while a turn runs.
 export function SourceComposer({
+  surfacePreviewPrompt, onClearSurfacePreview,
   fastMode = false, fastAvailable = false, speedLabel = null,
-  draft, setDraft, textarea, attachments = [], onRemoveAttachment, onOpenAttachmentFile, onStageFiles, onSubmit,
+  draft, setDraft, textarea, attachments = [], onRemoveAttachment,
+  // The draft's agent and GitHub issue pills (ca80fca8d pk value 'agent' / 'issue'); an issue alone can be sent
+  // (cc43287c9 hasAttachments: !!selectedIssue): {kind, label, icon, loading?, onOpen?, onRemove, content?}.
+  contextPills = [], onOpenAttachmentFile, onStageFiles, onAddFolders, fileContextOwner, onSubmit,
   running, sending, stopping = false, editable = true, canSubmit = true, escapeClaimed = false, onEmptyArrowUp,
   // Esc Esc (code-workspace.js Gl): opens Rewind from an empty, idle composer; null where the session can't rewind.
   onRewind = null,
-  mentions = [], mentionActions, onStop, onReconnect, reconnectLabel, warning, connectingHint, workdir, workspaceInfo, onMenu,
-  model, effort = "", permission, permissionOpen = false, modelOpen = false, modelsLoading = false, menuKind, worktree, setWorktree, usage, usageFresh = false, planUsage = null, mode, onCodeMode, onFolder,
+  mentions = [], mentionActions, onStop, onReconnect, reconnectLabel, warning, connectingHint, gitRequired, workdir, workspaceInfo, onMenu,
+  model, effort = "", permission, permissionOpen = false, modelOpen = false, modelsLoading = false, menuKind, worktree, setWorktree, usage, usageFresh = false, planUsage = null, mode = "code", onCodeMode, onMode, onFolder, surfaceFolder, surfaceFolderLabel,
   folderMenu = true,
-  showPet = false, showContext = showPet, onAddFolder, additionalFolders = [], onRemoveFolder, beforeComposer,
+  showPet = false, showContext = showPet, onAddFolder, additionalFolders = [], onRemoveFolder, beforeComposer, afterComposer, draftGroup = null, onClearDraftGroup,
   commandContext, onCommand, commandScope, searchFiles, onMention, queueEnabled = false, placeholder,
   // The core's suggested next prompt (codeDesktop/promptSuggestion: MiMo's predicted prompt, Qwen's follow-up
   // suggestion): shown as the empty editor's placeholder, Tab puts it in the draft.
@@ -154,6 +165,8 @@ export function SourceComposer({
   getHumanPrompts, historyResetKey,
   // cc43287c9 :28620 stayOnDraftHint = cn === 'draft' && !Yn: the Home draft offers 'Send and stay here' (⌘⏎).
   stayOnDraft = false,
+  // ⌘⌥⏎ 'Send in a forked session' works here (an open session whose core serves thread/fork): the Send tooltip's row.
+  forkAvailable = false,
   // Dynamic workflows: {ignored, onToggle} while the draft has the "ultracode" keyword (alt+w ignores it for this
   // prompt, as Claude Code's chat:workflowKeywordToggle), and whether ultracode mode is on (its status line).
   workflowKeyword = null, ultracode = false,
@@ -163,8 +176,11 @@ export function SourceComposer({
 }) {
   const editor = useRef(null);
   const worktreeLabelId = useId(), worktreeDescriptionId = useId();
+  const manualWarning = manualModeWarning(permission);
   const commandId = useId();
-  const [commandIndex, setCommandIndex] = useState(0), [dismissed, setDismissed] = useState(false);
+  // dismissed: the text offset of the '/' trigger Escape (or a pick / send) closed — shared-5 _S dismissedTriggerFrom;
+  // it stays closed until that '/' is edited away. slashCaret re-renders on caret moves (onSelect/onClick/arrows).
+  const [commandIndex, setCommandIndex] = useState(0), [dismissed, setDismissedAt] = useState(null), [slashCaret, setSlashCaret] = useState(null), renderedCaret = useRef(null), renderedText = useRef("");
   const [commandFocus,setCommandFocus]=useState(false),[commandCaret,setCommandCaret]=useState(null),[hintCaret,setHintCaret]=useState(null);
   // Prompt-history recall (c099c328d :10677-10697 Zi/Vj with caretAfterRecall "end"); the model
   // state lives in a ref, the strip state (Vj navState) in React state. historyNav = nav !== null
@@ -204,20 +220,51 @@ export function SourceComposer({
   // queued (the component always has work pending), each commit then leaves a default-lane update behind, and React
   // counts that chain as nested updates until it throws "Maximum update depth exceeded" (#185).
   useEffect(() => { if (composerNotice !== null) setComposerNotice(null); }, [draft]);
-  const query=slashQuery(draft), suggestions=commandContext&&query!==null?matchCommands(query,commandContext):[];
-  const showCommands=!!onCommand&&commandFocus&&query!==null&&!dismissed&&suggestions.length>0&&!historyNav&&!bashMode&&!search;
-  const selected=Math.min(commandIndex,Math.max(0,suggestions.length-1));
-  useEffect(()=>{if(commandIndex!==0)setCommandIndex(0);if(dismissed&&!draft.startsWith('/'))setDismissed(false);},[draft]);
-  useEffect(()=>{setDismissed(false);setCommandIndex(0);},[commandScope]);
+  // B05 C4: the '/' list opens for the caret's slash token anywhere in the draft (slashToken: shared-5 mS/yS), not only
+  // for a draft that starts with '/'. The live editor gives the caret and the start of its text run (after a chip).
+  const caretNode=editor.current,liveCaret=caretNode&&Number.isInteger(caretNode.selectionStart)&&caretNode.selectionStart===caretNode.selectionEnd?caretNode.selectionStart:caretNode?-1:(slashCaret??editorText.length);
+  renderedCaret.current=liveCaret;renderedText.current=editorText;
+  const token=bashMode||liveCaret<0||caretNode?.caretInCode?null:slashToken(editorText,liveCaret,{boundary:caretNode?.textRunStart,dismissedAt:dismissed});
+  const query=token?token.query:null, suggestions=commandContext&&query!==null?matchCommands(query,commandContext):[];
+  // c5cd1b4dc :3586-3625: the list shows while its commands load (a skeleton row) or after one failed (the retry
+  // header), even before any row matches.
+  const commandsLoading=commandContext?.commandsLoading===true,commandsFailed=commandContext?.commandsFailed===true;
+  const showCommands=!!onCommand&&commandFocus&&query!==null&&(suggestions.length>0||commandsLoading||commandsFailed)&&!historyNav&&!bashMode&&!search;
+  const selected=Math.min(commandIndex,Math.max(0,suggestions.length-1)),tokenStart=token?.start??0;
+  const setDismissed=useCallback((value)=>{const node=editor.current,caret=node&&node.selectionStart===node.selectionEnd?node.selectionStart:-1;
+    const current=value&&caret>=0?slashToken(node.value,caret,{boundary:node.textRunStart}):null;setDismissedAt(value?(current?.start??null):null);},[]);
+  // Only a caret move the last render did not see re-renders. A selection change from typing (the editor's text is
+  // ahead of the last render) is left to the draft update, which reads the live caret: a setSlashCaret per keystroke
+  // under fast typing chains updates into React's "Maximum update depth exceeded" (#185).
+  const syncSlashCaret=useCallback(()=>{const node=editor.current,caret=node&&node.selectionStart===node.selectionEnd?node.selectionStart:-1;
+    if(node&&typeof node.value==='string'&&node.value!==renderedText.current)return;if(caret!==renderedCaret.current)setSlashCaret(caret);},[]);
+  // The dismissed trigger follows edits made before it (shared-5 onTransaction maps dismissedTriggerFrom through each
+  // transaction): the changed span of the text moves it by the length change; an edit over the '/' itself drops it.
+  const dismissedText=useRef(editorText);
+  useEffect(()=>{if(commandIndex!==0)setCommandIndex(0);const previous=dismissedText.current;dismissedText.current=editorText;if(dismissed===null)return;
+    let at=dismissed;if(previous!==editorText){let start=0,end=0;while(start<previous.length&&start<editorText.length&&previous[start]===editorText[start])start++;
+      while(end<previous.length-start&&end<editorText.length-start&&previous[previous.length-1-end]===editorText[editorText.length-1-end])end++;
+      if(previous.length-end<=at)at+=editorText.length-previous.length;else if(start<=at)at=null;}
+    if(at===null||editorText[at]!=='/')setDismissedAt(null);else if(at!==dismissed)setDismissedAt(at);},[draft]);
+  useEffect(()=>{setDismissedAt(null);setCommandIndex(0);},[commandScope]);
+  // 'Type / again to retry': a '/' list opened after a load failed asks for the failed lists again.
+  const retryCommandsRef=useRef(null);retryCommandsRef.current=commandContext?.retryCommands;
+  const slashOpenKey=showCommands?tokenStart:null;
+  useEffect(()=>{if(slashOpenKey!==null&&commandsFailed)retryCommandsRef.current?.();},[slashOpenKey]);
   useLayoutEffect(()=>{
     if(!showCommands)return;
-    const update=()=>{const node=editor.current;if(!node)return;setCommandCaret(caretViewportRect(node,0));setHintCaret(caretViewportRect(node,node.selectionStart));};
+    // iS clientRect: the menu sits at the '/' of the caret's token (decorationNode), wherever it is in the draft.
+    const update=()=>{const node=editor.current;if(!node)return;setCommandCaret(caretViewportRect(node,tokenStart));setHintCaret(caretViewportRect(node,node.selectionStart));};
     update();window.addEventListener('resize',update);window.addEventListener('scroll',update,true);
     return()=>{window.removeEventListener('resize',update);window.removeEventListener('scroll',update,true);};
-  },[draft,commandFocus,showCommands]);
+  },[draft,commandFocus,showCommands,tokenStart]);
   useEffect(()=>{const node=editor.current;const open=()=>{dismissHistoryNav();setDismissed(false);};node?.addEventListener('open-slash',open);return()=>node?.removeEventListener('open-slash',open);},[]);
-  // A chosen skill row inserts the chip marked kind 'skill' (command.kind from matchCommands).
-  const chooseCommand=id=>{setDismissed(true);const command=suggestions.find(value=>value.id===id);if(command)editor.current?.insertCommand(command);};
+  // A chosen skill row inserts the chip marked kind 'skill' (command.kind from matchCommands), in place of the caret's
+  // '/' token (c5cd1b4dc qt: deleteRange(range).insertContent(chip, ' ')); text before and after it stays.
+  // The range comes from the live editor (its text and caret), not a render that may lag the last keystroke.
+  const chooseCommand=id=>{const command=suggestions.find(value=>value.id===id);setDismissedAt(null);if(!command)return;const node=editor.current,caret=node&&node.selectionStart===node.selectionEnd?node.selectionStart:-1;
+    const live=node&&caret>=0&&typeof node.value==='string'?slashToken(node.value,caret,{boundary:node.textRunStart,dismissedAt:dismissed}):null,range=live??token;
+    node?.insertCommand(command,range?{start:range.start,end:range.end}:null);};
   // c099c328d-CbkcmYSW.js:10637-10673 li/di: the names a draft restored from text turns back into chips.
   const commandSkills=commandContext?.skills,commandCustom=commandContext?.customCommands;
   const compactInstructions=commandContext?.compactInstructions===true,workflowEngine=commandContext?.workflowEngine,perTokenBilling=commandContext?.perTokenBilling===true;
@@ -263,7 +310,7 @@ export function SourceComposer({
   const [mentionDismissed, setMentionDismissed] = useState(null);
   const updateMention = useCallback(() => {
     const element = editor.current;
-    if (!element || !searchFilesRef.current || historyNavRef.current || bashModeRef.current || searchRef.current || element.selectionStart !== element.selectionEnd) { if (mentionRef.current !== null) setMention(null); return; }
+    if (!element || !searchFilesRef.current || historyNavRef.current || bashModeRef.current || searchRef.current || element.caretInCode || element.selectionStart !== element.selectionEnd) { if (mentionRef.current !== null) setMention(null); return; }
     const token = mentionToken(element.value, element.selectionStart);
     if (!token || mentionDismissed === `${token.start}:${element.value.slice(token.start, token.end)}`) { if (mentionRef.current !== null) setMention(null); return; }
     const caret = caretViewportRect(element, token.start);
@@ -292,6 +339,14 @@ export function SourceComposer({
     const token = mentionToken(element.value, element.selectionStart) || current.token;
     onMention?.(option);
     setMention(null);
+    // An agent row (ca80fca8d jj: onSelect resolves null) leaves nothing behind: the '@query' token goes (shared-5 KD
+    // deletes the placeholder chip and its space), the pick only chose the new session's agent.
+    if (option.kind === "agent") {
+      if (element.replaceText) { element.replaceText(token.start, token.end, ""); return; }
+      const next = element.value.slice(0, token.start) + element.value.slice(token.end);
+      setDraft(bashModeRef.current ? `!${next}` : next);
+      return;
+    }
     if (element.insertMention) { element.insertMention(token, option); return; }
     const result = insertMention(element.value, token, option.path);
     setDraft(result.text);
@@ -309,7 +364,7 @@ export function SourceComposer({
   emojiRef.current = emoji;
   const updateEmoji = useCallback(() => {
     const element = editor.current;
-    if (!element || historyNavRef.current || bashModeRef.current || searchRef.current || element.selectionStart !== element.selectionEnd) { if (emojiRef.current !== null) setEmoji(null); return; }
+    if (!element || historyNavRef.current || bashModeRef.current || searchRef.current || element.caretInCode || element.selectionStart !== element.selectionEnd) { if (emojiRef.current !== null) setEmoji(null); return; }
     const token = emojiToken(element.value, element.selectionStart);
     if (emojiDismissed.current !== null && element.value[emojiDismissed.current] !== ":") emojiDismissed.current = null;
     const options = token && emojiDismissed.current !== token.start ? emojiMatches(token.query) : [];
@@ -334,7 +389,7 @@ export function SourceComposer({
   const command = parseSessionCommand(draft, commandContext);
   const hostCommand = !!command && !command.skill && !command.custom;
   const disabled = !editable;
-  const hasContent = !!editorText.trim() || attachments.length > 0;
+  const hasContent = !!editorText.trim() || attachments.length > 0 || contextPills.some((pill) => pill.content === true);
   const attachmentsReady = attachments.every((entry) => entry.status === "ready");
   const canSend = hasContent && (hostCommand ? !!draft.trim() : !sending && editable && canSubmit && attachmentsReady && (!running || queueEnabled));
   // Official showStop = busy && !interrupting (main composer), then Ki: while
@@ -527,148 +582,34 @@ export function SourceComposer({
     event.preventDefault();
     submit(submitPriority(action, running, { stayOnDraft }));
   };
+  // cc43287c9 cg (:42396-42411): the clipboard splits into folders and files (Go = shared-50 kk). Images take the image
+  // lane; any other file with a path on disk (copied in Finder) is attached like a drop ($h → lB), and only a
+  // pathless non-image (raw clipboard data) gets the image-type notice (stageComposerFiles' clipboard lane). Folders go
+  // to the folder handler (sg: the draft's working folder, or Add folder).
   const paste = (event) => {
     if (!acceptsFiles) return;
-    const files = Array.from(event.clipboardData?.files || []);
-    if (!files.length) return;
+    const { folders, files } = splitClipboardFolders(event.clipboardData?.items, event.clipboardData?.files);
+    const takeFolders = folders.length > 0 && !!onAddFolders;
+    if (!files.length && !takeFolders) return;
     event.preventDefault();
-    onStageFiles(files, { source: "paste", imagesOnly: true, imagesAllowed: modelAcceptsImages(model) });
+    if (files.length) onStageFiles(files, { source: "paste", imagesAllowed: modelAcceptsImages(model) });
+    if (takeFolders) onAddFolders(folders, { source: "paste" });
   };
+  // nonImageFileDrop / folderDrop (cc43287c9 :44024-44025 tg / sg): a dropped folder takes the same folder route.
   const drop = (event) => {
     setDragOver(false);
     if (!acceptsFiles) return;
-    const files = Array.from(event.dataTransfer?.files || []);
-    if (!files.length) return;
+    if(dropFileContextDrag(event,fileContextOwner))return;
+    const { folders, files } = splitClipboardFolders(event.dataTransfer?.items, event.dataTransfer?.files);
+    const takeFolders = folders.length > 0 && !!onAddFolders;
+    if (!files.length && !takeFolders) return;
     event.preventDefault();
-    onStageFiles(files, { source: "drop", imagesAllowed: modelAcceptsImages(model) });
+    if (files.length) onStageFiles(files, { source: "drop", imagesAllowed: modelAcceptsImages(model) });
+    if (takeFolders) onAddFolders(folders, { source: "drop" });
   };
 
-  return (
-    <div className="composer-zone sc-zone" data-epitaxy-chat-column data-toast-safe-region="">
-      {showContext && <div className="sc-context-row">
-        {/* cc43287c9-BMbiZYzF.js:20979-20985: the env pill sits in ko{content 'Where Claude runs'} (here the
-            agent is DeepSeek); Z.Root/Popup side top, align start. */}
-        <ComposerButton className="sc-context-chip" icon="Laptop" iconSize={16} label={t("Local environment")}
-          tooltip={{ content: "Where DeepSeek runs", ...ENV_TOOLTIP }} onClick={open("local")}
-          {...menuTriggerProps({ open: menuKind === "local", onOpen: (entry, event) => onMenu("local", event.currentTarget, undefined, entry) })}>{t("Local")}</ComposerButton>
-        {/* lH (:21638-21850): ko{content 'Working directory', detail: the path in a block, RTL-ellipsised
-            <bdi>}; the trigger is named by its basename. With no folder and nothing recent (b) the chip is a
-            plain button that browses directly; otherwise it opens the Recent menu (main.jsx 'home-folder'). */}
-        <ComposerButton className="sc-context-chip sc-folder-chip" icon="Folder" iconSize={16} label={basename(workdir)}
-          tooltip={{ content: "Working directory", detail: workdir ? <span className="sc-tooltip-path"><bdi>{workdir}</bdi></span> : undefined }}
-          {...(folderMenu ? menuTriggerProps({ open: menuKind === "home-folder", onOpen: (entry, event) => onMenu("home-folder", event.currentTarget, undefined, entry) }) : {})}
-          onClick={folderMenu ? open("home-folder") : () => onFolder?.()}><span>{basename(workdir)}</span></ComposerButton>
-        {workspaceInfo?.isRepo && (
-          <div className="sc-branch-worktree">
-            {/* hT (:22009-22035): tooltip 'Branch to start from', triggerLabel c ?? '—'; the searchable list is main.jsx 'branch'. */}
-            <ComposerButton className="sc-branch-chip" icon="GitBranch" iconSize={16} label={t("Branch")}
-              tooltip={{ content: BRANCH_TOOLTIP }} onClick={open("branch")}
-              {...menuTriggerProps({ open: menuKind === "branch", disabled: running || sending, onOpen: (entry, event) => onMenu("branch", event.currentTarget, undefined, entry) })}
-              disabled={running || sending}><span>{branchTriggerLabel(workspaceInfo.branch)}</span></ComposerButton>
-            <span className="sc-worktree-divider" aria-hidden="true" />
-            {/* :22042-22074: ko{content O, hoverable:false, collisionPadding} around the label; the checkbox is
-                labelled by 'worktree' and described by an sr-only copy of O (no native title). */}
-            <SourceTooltip content={WORKTREE_TOOLTIP} {...ENV_TOOLTIP}>
-              <label className="sc-worktree">
-                <span className="sc-worktree-checkbox">
-                  <input type="checkbox" checked={!!worktree} disabled={running || sending}
-                    aria-labelledby={worktreeLabelId} aria-describedby={worktreeDescriptionId}
-                    onChange={(event) => setWorktree(event.target.checked)} />
-                  <Icon name="Check" size={16} weight="strong" style={{ fontSize: 12 }} />
-                </span>
-                <span id={worktreeLabelId}>{t("worktree")}</span>
-                <span id={worktreeDescriptionId} className="sc-sr-only">{WORKTREE_TOOLTIP}</span>
-              </label>
-            </SourceTooltip>
-          </div>
-        )}
-        {/* GV/YB (:21198-21220, :18891-18915): an added folder keeps the source's native title = its path. */}
-        {additionalFolders.map((path) => (
-          <span className="sc-context-chip sc-extra-folder" key={path} title={path}>
-            <Icon name="Folder" size={16} />
-            <span>{basename(path)}</span>
-            {onRemoveFolder && <button type="button" aria-label={t("Remove {name}", { name: basename(path) })}
-              disabled={running || sending} onClick={() => onRemoveFolder(path)}>
-              <Icon name="X" size={12} />
-            </button>}
-          </span>
-        ))}
-        {/* :22076-22093: ko{content 'Add another folder', hoverable:false, collisionPadding}. */}
-        {workdir && onAddFolder && <ComposerButton className="sc-context-chip sc-add-folder" label={t("Add another folder")} icon="FolderPlus" iconSize={16}
-          tooltip={{ content: "Add another folder", ...ENV_TOOLTIP }} onClick={onAddFolder} />}
-      </div>}
-      {beforeComposer}
-      {!warning && blockedSubmit && connectingHint && (
-        <div className="sc-warning-row" role="status" data-tone="info" data-pet={showPet || undefined}>
-          <span className="sc-warning-text">{connectingHint}</span>
-        </div>
-      )}
-      {warning && (
-        // The Home pet (.sc-pet, 80px, right-anchored) rises over this row: data-pet reserves its width so the
-        // right-aligned Retry stays visible and clickable.
-        <div className="sc-warning-row" role="status" data-cds-composer-warning="" data-pet={showPet || undefined}>
-          <span className="sc-warning-text">{warning}</span>
-          {onReconnect && <button type="button" className="sc-warning-action" onClick={onReconnect}>{reconnectLabel || t("Retry")}</button>}
-        </div>
-      )}
-      {(workflowKeyword || ultracode) && !warning && (
-        // Claude Code's prompt-input notices: the keyword's (30s there, while it's in the draft here) and ultracode's status.
-        <div className="sc-warning-row sc-workflow-notice" role="status" data-tone="workflow" data-pet={showPet || undefined} data-workflow-notice={workflowKeyword ? (workflowKeyword.ignored ? "ignored" : "keyword") : "ultracode"}>
-          <span className="sc-warning-text">{workflowKeyword
-            ? (workflowKeyword.ignored ? t("Ultracode keyword ignored for this prompt · ⌥W to undo") : t("Dynamic workflow requested for this turn · ⌥W to ignore"))
-            : <><span className="sc-ultracode-word">{t("ultracode")}</span>{" · "}{t("xhigh effort + dynamic workflows for maximum thoroughness")}</>}</span>
-        </div>
-      )}
-      {composerNotice && (
-        // Qt.addError (c099c328d :10795): a send the composer refuses says why above the card until the next edit.
-        <div role="alert" className="inline-error sc-composer-notice" data-composer-notice="">
-          <span>{composerNotice}</span>
-          <ComposerButton icon="X" label={t("Dismiss error")} tooltip={{ content: "Dismiss error" }} onClick={() => setComposerNotice(null)} />
-        </div>
-      )}
-      {showPet && <SourcePet />}
-      <form ref={card} className="composer sc-composer epitaxy-prompt" data-cds-shell=""
-        data-cds="ChatComposer" data-busy={running || sending || undefined} data-disabled={disabled || undefined}
-        data-drag-over={dragOver || undefined} data-bash-mode={bashMode || undefined}
-        onDragOver={(event) => { if (acceptsFiles && event.dataTransfer?.types?.includes("Files")) { event.preventDefault(); setDragOver(true); } }}
-        onDragLeave={() => setDragOver(false)} onDrop={drop}
-        onSubmit={(event) => { event.preventDefault(); submit(running ? "next" : undefined); }}>
-        {showCommands && <SourceSlashMenu commands={suggestions} selected={selected} onSelect={chooseCommand} onHover={setCommandIndex} id={commandId} query={query||''} caret={commandCaret} editorRef={editor} onDismiss={()=>setDismissed(true)} preSession={!commandContext.current}/>}
-        {showCommands&&query===''&&<SlashHint editorRef={editor} getCaret={caretViewportRect} caret={hintCaret} text={t("Type to filter")}/>}
-        {/* Em :8928-8966: sr-only live statuses next to the card — bash mode (while the core has it), then the history
-            search or the History strip. */}
-        {bashAvailable && <span className="sc-sr-only" role="status" data-bash-status="">{bashMode ? t("Bash mode. Press Escape to return to chat.") : t("Chat mode")}</span>}
-        <span className="sc-sr-only" role="status" data-history-status="">{search ? historySearchStatus(search, t) : promptHistoryStatus(historyNav)}</span>
-        <div className="sc-surface">
-          {/* Nn.Header (:9021-9025): the 'bash' pro badge, then the history hint (wm: search or History strip). */}
-          {(bashMode || search || historyNav) && <div className="sc-history-header-grid">
-            <div className="sc-history-header-clip">
-              <div className="sc-history-header" data-cds="ChatComposerHeader" aria-hidden="true">
-                {bashMode && <span className="sc-bash-badge" data-cds="Badge" data-variant="pro" data-size="sm" title={t("Run as a shell command")}>{t("bash")}</span>}
-                {search ? <>
-                  <span className="sc-history-search-label" data-failed={search.failed || undefined}>{t("Search history:")}</span>
-                  <span className="sc-history-search-query">{search.query}<span className="sc-history-search-caret">{"▎"}</span></span>
-                  <span className="sc-history-search-hints" aria-hidden="true" data-shown={search.showHints || undefined}>
-                    <kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↑</kbd>
-                    <kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↓</kbd>
-                    {t("cycle")}
-                    <span aria-hidden="true">·</span>
-                    <kbd data-cds="Kbd" className="scds-key sc-history-kbd">esc</kbd>
-                    {t("cancel")}
-                  </span>
-                </> : historyNav ? <>
-                  <span className="sc-history-count">{t("History {index}/{total}", { index: historyNav.index, total: historyNav.total })}</span>
-                  {historyNav.hasDraft && <>
-                    <span aria-hidden="true">·</span>
-                    <span className="sc-history-draft"><kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↓</kbd> {t("to restore your draft")}</span>
-                  </>}
-                </> : null}
-              </div>
-            </div>
-          </div>}
-          <SourceComposerAttachments entries={attachments} onRemove={onRemoveAttachment} onOpenFile={onOpenAttachmentFile} disabled={sending} />
-          <div className="sc-input-row">
-            <SourceComposerEditor className="sc-input epitaxy-prompt-input" data-cds="ChatComposerEditor"
+  const editorElement = (
+<SourceComposerEditor className="sc-input epitaxy-prompt-input" data-cds="ChatComposerEditor" data-focus-region={disabled ? undefined : "composer"} data-focus-region-order="pane" data-focus-region-clear-on-input="" data-focus-region-holds=".epitaxy-prompt" data-focus-region-ring-on={'[data-cds="ChatComposer"] > *, .epitaxy-prompt'}
               inputRef={assignEditor} scope={commandScope} aria-label={t("Message DeepSeek")} rows={1} disabled={disabled}
               keywordHighlight={!!workflowKeyword && !workflowKeyword.ignored}
               mentions={mentions} chips={chipCatalog} mentionActions={mentionActions}
@@ -679,53 +620,14 @@ export function SourceComposer({
               onBlur={() => { setCommandFocus(false); setMention(null); setEmoji(null); }} onFocus={() => setCommandFocus(true)}
               // Bash mode: the editor holds the command, the draft keeps the leading '!' for the send path.
               value={editorText} onChange={(event) => { setDraft(bashModeRef.current ? `!${event.target.value}` : event.target.value); if (mentionDismissed !== null) setMentionDismissed(null); requestAnimationFrame(() => { updateMention(); updateEmoji(); }); }}
-              onSelect={() => { if (mentionRef.current) updateMention(); if (emojiRef.current) updateEmoji(); }}
-              onClick={() => { updateMention(); updateEmoji(); }} onKeyUp={(event) => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { updateMention(); updateEmoji(); } }}
-              emoticons={!bashMode}
-              onPaste={paste} onKeyDown={keyDown} />
-            {/* Nn.Overlay (:9031-9039): the suggested prompt alone, 'truncate text-muted', aria-hidden. */}
-            {showSuggestion && <div className="sc-suggestion-ghost" aria-hidden="true" data-prompt-suggestion-ghost="">{suggestion}</div>}
-            {/* c099c328d A(sm,{showStop:Ki,stop,send}): both controls share one grid cell and crossfade. */}
-            <SubmitCrossfade showStop={showStop}
-              stop={
-                // c099c328d stop: hn{content 'Stop', shortcut Vt?void 0:'escape', hoverable:!1, lazy, open Ki?void 0:!1}
-                // around Ut{ghost iconOnly icon Ih, aria-keyshortcuts Vt?void 0:nn('escape') → 'Escape', className jh}.
-                // Vt (Escape claimed elsewhere) ↔ local menuKind or escapeClaimed. Accessible name stays 'Stop response' (HANDOFF 0.2.112).
-                <SourceTooltip content={t("Stop")} shortcut={menuKind || escapeClaimed ? undefined : "escape"} hoverable={false} open={menuKind || !showStop ? false : undefined}>
-                  <div className="sc-submit-slot">
-                    <ComposerButton className="sc-submit" label={t("Stop response")} tooltip={false} icon="Stop"
-                      aria-keyshortcuts={menuKind || escapeClaimed ? undefined : "Escape"} onClick={() => onStop?.({ trigger: "button" })}
-                      onMouseDown={(event) => event.preventDefault()} />
-                  </div>
-                </SourceTooltip>
-              }
-              send={
-                // c099c328d ga: Ut{ghost iconOnly icon Nh (ArrowReturn sm text-secondary group-disabled/btn:text-disabled),
-                // aria-keyshortcuts nn('enter') → 'Enter', busy/busyLabel 'Sending', className `${jh} ${Fh}`};
-                // send tooltip open:!Ki&&void 0 → closed while Stop is the active control.
-                <SourceTooltip content={t("Send")} shortcut="enter" open={menuKind || showStop ? false : undefined}
-                  // c099c328d :8870-8895: the second row is 'Queue for later' while busy, else 'Send and stay here' (de) on the
-                  // Home draft. No ⌘⌥⏎ fork row (q): thread/fork is unsupported on the DeepSeek core.
-                  secondaryHint={stopAvailable && queueEnabled ? { label: t("Queue for later"), shortcut: "cmd+enter" }
-                    : stayOnDraft && !running ? { label: t("Send and stay here"), shortcut: "cmd+enter" } : undefined}>
-                  <div className="sc-submit-slot">
-                    <button className="sc-button sc-icon-button sc-submit" data-cds="Button" type="submit"
-                      aria-label={t("Send message")} aria-keyshortcuts="Enter" disabled={!canSend} aria-busy={sending || undefined}
-                      onMouseDown={(event) => event.preventDefault()}>
-                      {sending ? <><span className="sc-spinner" aria-hidden="true" /><span className="sc-sr-only">{t("Sending")}</span></> : <Icon name="ArrowReturn" size={16} />}
-                    </button>
-                  </div>
-                </SourceTooltip>
-              } />
-          </div>
-        </div>
-      </form>
-      {mentionOpen && <SourceMentionDropdown options={mention.options} highlighted={mention.highlighted} caret={mention.caret}
-        onSelect={acceptMention} onHover={(index) => { if (index !== null) setMention((current) => (current ? { ...current, highlighted: index } : current)); }}
-        onClose={closeMention} />}
-      {emojiOpen && !mentionOpen && <SourceEmojiDropdown options={emoji.options} highlighted={emoji.highlighted} caret={emoji.caret}
-        onSelect={acceptEmoji} onHover={(index) => setEmoji((current) => (current ? { ...current, highlighted: index } : current))}
-        onClose={() => setEmoji(null)} />}
+              onSelect={() => { syncSlashCaret(); if (mentionRef.current) updateMention(); if (emojiRef.current) updateEmoji(); }}
+              onClick={() => { syncSlashCaret(); updateMention(); updateEmoji(); }} onKeyUp={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { syncSlashCaret(); updateMention(); updateEmoji(); } }}
+              emoticons={!bashMode} bashMode={bashMode}
+              onPaste={paste} onKeyDown={keyDown}
+              // ca80fca8d br: type-to-focus '!' on an empty editor turns bash mode on, as typing it there does (keyDown above).
+              onFocusInsert={(char) => { if (char !== "!" || !bashAvailable || bashModeRef.current || (editor.current?.value ?? editorText)) return false; setDraft("!"); return true; }} />
+  );
+  const chin = (
       <div className="composer-footer sc-chin" data-cds="ChatComposerChin" data-size="xs">
         <div className="sc-chin-leading">
           <ComposerButton className="sc-add" label={t("Add")} icon="Add" onClick={open("add")} disabled={sending}
@@ -739,17 +641,22 @@ export function SourceComposer({
               rn = !r || lt > 0: Mode, Model and Effort stay usable while a turn runs; the choice is saved at once and goes
               out with the next turn/start (and, on the DeepSeek core, to the running agent — main.jsx). `sending` still
               gates them: a turn/start in flight was built from the previous choice. */}
-          {/* Chat mode (title-bar switch) runs every turn read-only whatever the permission chip says: the chin names it,
-              and a click goes back to Code. */}
-          {mode === "chat" && <ComposerButton className="sc-chat-mode" icon="Chat" label={t("Chat (read-only)")} onClick={onCodeMode} disabled={!onCodeMode}
-            data-chat-mode="" tooltip={{ content: "Switch to Code", detail: t("In Chat mode, {assistant} can’t edit files or run commands.", { assistant: getAssistantName() }) }}>
-            <span>{t("Chat (read-only)")}</span></ComposerButton>}
-          <ComposerButton className="sc-permission" label={t("Permission mode")} onClick={open("permission")}
+          {mode !== "chat" && <ComposerButton className="sc-permission" label={t("Permission mode")} onClick={open("permission")}
             {...menuTriggerProps({ open: permissionOpen, onOpen: (entry, event) => onMenu("permission", event.currentTarget, undefined, entry), disabled: sending || permission == null })}
             tooltip={modeTooltip({ permission, menuKind })}
             // permission null: the saved mode hasn't loaded yet (startup), so the chip names no mode rather than a wrong one.
-            disabled={sending || permission == null} aria-busy={permission == null || undefined}>
-            {/* cf6ae6197 `ht = triggerLabel ?? label`: the full item label. */}{permission == null ? t("Mode") : permissionLabel(permission)}</ComposerButton>
+            disabled={sending || permission == null} aria-busy={permission == null || undefined}
+            aria-description={manualWarning && !sending ? MANUAL_MODE_WARNING() : undefined}>
+            {/* ca80fca8d O$/A$ (:28797-28907): the label sits in 'grid grid-cols-[minmax(0,1fr)]' and truncates
+                ('overflow-x-clip text-ellipsis whitespace-nowrap', text-warning for Manual); the hidden description span
+                is the button's aria-description here; while the mode loads, W$ (:28821-28833) lays a skeleton over the
+                invisible label. */}
+            <span className="sc-permission-label">
+              {permission == null
+                ? <span className="sc-permission-text sc-permission-loading"><span className="sc-permission-invisible">{t("Mode")}</span>
+                    <span data-cds="Skeleton" className="smenu-skeleton sc-permission-skeleton" aria-hidden="true" /></span>
+                : <span className="sc-permission-text" data-warning={manualWarning && !sending ? "" : undefined}>{permissionLabel(permission)}</span>}
+            </span></ComposerButton>}
         </div>
         <div className="sc-chin-trailing">
           {/* shared-14 kS: while the catalog loads the trigger is disabled and shows a
@@ -781,6 +688,211 @@ export function SourceComposer({
           {fastAvailable && <span role="status" aria-live="polite" className="sr-only">{fastMode ? (speedLabel && speedLabel.toLowerCase() !== "fast" ? t("{speed} speed on", { speed: speedLabel }) : t("Fast mode on")) : t("Fast mode off")}</span>}
         </div>
       </div>
+  );
+  return (
+    <div className="composer-zone sc-zone" data-epitaxy-chat-column data-toast-safe-region="">
+      {showContext && <div className="sc-context-row">
+        {/* cc43287c9-BMbiZYzF.js:20979-20985: the env pill sits in ko{content 'Where Claude runs'}; Z.Root/Popup
+            side top, align start. ComposerButton's t() names the running core's assistant (i18n named(): 'Where
+            Codex runs', 'Kimi 的运行位置'), so the DeepSeek source string follows the core. */}
+        <ComposerButton className="sc-context-chip" icon="Laptop" iconSize={16} label={t("Local environment")}
+          tooltip={{ content: "Where DeepSeek runs", ...ENV_TOOLTIP }} onClick={open("local")}
+          {...menuTriggerProps({ open: menuKind === "local", onOpen: (entry, event) => onMenu("local", event.currentTarget, undefined, entry) })}>{t("Local")}</ComposerButton>
+        {/* lH (:21638-21850): ko{content 'Working directory', detail: the path in a block, RTL-ellipsised
+            <bdi>}; the trigger is named by its basename. With no folder and nothing recent (b) the chip is a
+            plain button that browses directly; otherwise it opens the Recent menu (main.jsx 'home-folder'). */}
+        <ComposerButton className="sc-context-chip sc-folder-chip" icon="Folder" iconSize={16} label={basename(workdir)}
+          tooltip={{ content: "Working directory", detail: workdir ? <span className="sc-tooltip-path"><bdi>{workdir}</bdi></span> : undefined }}
+          {...(folderMenu ? menuTriggerProps({ open: menuKind === "home-folder", onOpen: (entry, event) => onMenu("home-folder", event.currentTarget, undefined, entry) }) : {})}
+          onClick={folderMenu ? open("home-folder") : () => onFolder?.()}><span>{basename(workdir)}</span></ComposerButton>
+        {/* B29 pE: a repository whose git can't run (workspaceInfo.gitUnavailable) keeps the worktree option, so it can be
+            turned off as rY/nY say; there is no branch list to pick from then. */}
+        {(workspaceInfo?.isRepo || workspaceInfo?.gitUnavailable) && (
+          <div className="sc-branch-worktree">
+            {/* hT (:22009-22035): tooltip 'Branch to start from', triggerLabel c ?? '—'; the searchable list is main.jsx 'branch'. */}
+            <ComposerButton className="sc-branch-chip" icon="GitBranch" iconSize={16} label={t("Branch")}
+              tooltip={{ content: BRANCH_TOOLTIP }} onClick={open("branch")}
+              {...menuTriggerProps({ open: menuKind === "branch", disabled: running || sending || !workspaceInfo.isRepo, onOpen: (entry, event) => onMenu("branch", event.currentTarget, undefined, entry) })}
+              disabled={running || sending || !workspaceInfo.isRepo}><span>{branchTriggerLabel(workspaceInfo.branch)}</span></ComposerButton>
+            <span className="sc-worktree-divider" aria-hidden="true" />
+            {/* :22042-22074: ko{content O, hoverable:false, collisionPadding} around the label; the checkbox is
+                labelled by 'worktree' and described by an sr-only copy of O (no native title). */}
+            <SourceTooltip content={WORKTREE_TOOLTIP} {...ENV_TOOLTIP}>
+              <label className="sc-worktree">
+                <span className="sc-worktree-checkbox">
+                  <input type="checkbox" checked={!!worktree} disabled={running || sending}
+                    aria-labelledby={worktreeLabelId} aria-describedby={worktreeDescriptionId}
+                    onChange={(event) => setWorktree(event.target.checked)} />
+                  <Icon name="Check" size={16} weight="strong" style={{ fontSize: 12 }} />
+                </span>
+                <span id={worktreeLabelId}>{t("worktree")}</span>
+                <span id={worktreeDescriptionId} className="sc-sr-only">{WORKTREE_TOOLTIP}</span>
+              </label>
+            </SourceTooltip>
+          </div>
+        )}
+        {/* GV/YB (:21198-21220, :18891-18915): an added folder keeps the source's native title = its path. */}
+        {additionalFolders.map((path) => (
+          <span className="sc-context-chip sc-extra-folder" key={path} title={path}>
+            <Icon name="Folder" size={16} />
+            <span>{basename(path)}</span>
+            {onRemoveFolder && <button type="button" aria-label={t("Remove {name}", { name: basename(path) })}
+              disabled={running || sending} onClick={() => onRemoveFolder(path)}>
+              <Icon name="X" size={12} />
+            </button>}
+          </span>
+        ))}
+        {/* B29 jZ (cc43287c9 :23325-23343, AZ :23279-23323): the custom group a 'New session' from its header files the
+            session into: 'Added to {name}' (title: the willBeAdded sentence) with an X, 'Don’t add to {name}'. */}
+        {draftGroup && (() => {
+          const [before, after = ""] = t("Added to {name}").split("{name}");
+          return <span className="sc-context-chip sc-extra-folder sc-draft-group" title={t("This session will be added to {name} in the sidebar when you start it.", { name: draftGroup.name })}
+            data-draft-group={draftGroup.id}>
+            <Icon name="Folder" size={16} />
+            <span className="sc-draft-group-label">{before}<span className="sc-draft-group-name">{draftGroup.name}</span>{after}</span>
+            {onClearDraftGroup && <button type="button" aria-label={t("Don’t add to {name}", { name: draftGroup.name })} onClick={onClearDraftGroup}>
+              <Icon name="X" size={12} />
+            </button>}
+          </span>;
+        })()}
+        {/* :22076-22093: ko{content 'Add another folder', hoverable:false, collisionPadding}. */}
+        {workdir && onAddFolder && <ComposerButton className="sc-context-chip sc-add-folder" label={t("Add another folder")} icon="FolderPlus" iconSize={16}
+          tooltip={{ content: "Add another folder", ...ENV_TOOLTIP }} onClick={onAddFolder} />}
+      </div>}
+      {beforeComposer}
+      {!warning && blockedSubmit && connectingHint && (
+        <div className="sc-warning-row" role="status" data-tone="info" data-pet={showPet || undefined}>
+          <span className="sc-warning-text">{connectingHint}</span>
+        </div>
+      )}
+      {warning && (
+        // The Home pet (.sc-pet, 80px, right-anchored) rises over this row: data-pet reserves its width so the
+        // right-aligned Retry stays visible and clickable.
+        <div className="sc-warning-row" role="status" data-cds-composer-warning="" data-pet={showPet || undefined}>
+          <span className="sc-warning-text">{warning}</span>
+          {onReconnect && <button type="button" className="sc-warning-action" onClick={onReconnect}>{reconnectLabel || t("Retry")}</button>}
+        </div>
+      )}
+      {(workflowKeyword || ultracode) && !warning && (
+        // Claude Code's prompt-input notices: the keyword's (30s there, while it's in the draft here) and ultracode's status.
+        <div className="sc-warning-row sc-workflow-notice" role="status" data-tone="workflow" data-pet={showPet || undefined} data-workflow-notice={workflowKeyword ? (workflowKeyword.ignored ? "ignored" : "keyword") : "ultracode"}>
+          <span className="sc-warning-text">{workflowKeyword
+            ? (workflowKeyword.ignored ? t("Ultracode keyword ignored for this prompt · ⌥W to undo") : t("Dynamic workflow requested for this turn · ⌥W to ignore"))
+            : <><span className="sc-ultracode-word">{t("ultracode")}</span>{" · "}{t("xhigh effort + dynamic workflows for maximum thoroughness")}</>}</span>
+        </div>
+      )}
+      {/* B29 rY (cc43287c9 :33150-33157 Nt): with the worktree option on and no working git, the reason in danger footnote
+          text in place of the composer error. */}
+      {gitRequired && !warning && <div className="sc-git-required" role="status" data-git-required="">{gitRequired}</div>}
+      {composerNotice && (
+        // Qt.addError (c099c328d :10795): a send the composer refuses says why above the card until the next edit.
+        <div role="alert" className="inline-error sc-composer-notice" data-composer-notice="">
+          <span>{composerNotice}</span>
+          <ComposerButton icon="X" label={t("Dismiss error")} tooltip={{ content: "Dismiss error" }} onClick={() => setComposerNotice(null)} />
+        </div>
+      )}
+      {showPet && <SourcePet />}
+      <form ref={card} className={mode === "code" ? "composer sc-composer epitaxy-prompt" : "surface-form epitaxy-prompt"} data-cds-shell=""
+        data-cds={mode === "code" ? "ChatComposer" : undefined} data-busy={running || sending || undefined} data-disabled={disabled || undefined}
+        data-drag-over={dragOver || undefined} data-bash-mode={bashMode || undefined}
+        onDragOver={(event) => { if (acceptsFiles && (acceptsFileContextDrag(event,fileContextOwner)||event.dataTransfer?.types?.includes("Files"))) { event.preventDefault(); setDragOver(true); } }}
+        onDragLeave={() => setDragOver(false)} onDrop={drop}
+        onSubmit={(event) => { event.preventDefault(); submit(running ? "next" : undefined); }}>
+        {showCommands && <SourceSlashMenu commands={suggestions} selected={selected} onSelect={chooseCommand} onHover={setCommandIndex} id={commandId} query={query||''} caret={commandCaret} editorRef={editor} onDismiss={()=>setDismissed(true)} preSession={!commandContext.current} loading={commandsLoading} failed={commandsFailed}/>}
+        {showCommands&&query===''&&<SlashHint editorRef={editor} getCaret={caretViewportRect} caret={hintCaret} text={t("Type to filter")}/>}
+        {/* Em :8928-8966: sr-only live statuses next to the card — bash mode (while the core has it), then the history
+            search or the History strip. */}
+        {bashAvailable && <span className="sc-sr-only" role="status" data-bash-status="">{bashMode ? t("Bash mode. Press Escape to return to chat.") : t("Chat mode")}</span>}
+        <span className="sc-sr-only" role="status" data-history-status="">{search ? historySearchStatus(search, t) : promptHistoryStatus(historyNav)}</span>
+        {mode !== "code" ? <SourceChatComposer editorNode={editorElement}
+          attachments={attachments.length > 0 || contextPills.length > 0 ? <SourceComposerAttachments entries={attachments} contextPills={contextPills} onRemove={onRemoveAttachment} onOpenFile={onOpenAttachmentFile} disabled={sending} /> : null}
+          draft={draft} scope={commandScope} current={!!commandContext?.current} mode={mode} onMode={onMode}
+          previewPrompt={surfacePreviewPrompt} onClearPreview={onClearSurfacePreview}
+          disabled={disabled} busy={running || sending} sending={sending} canSend={canSend} showStop={showStop}
+          onStop={onStop} submit={submit} onMenu={onMenu} model={model} effort={effort} effortLabel={effortLabel}
+          modelsLoading={modelsLoading} permission={permission} workdir={surfaceFolder} folderLabel={surfaceFolderLabel} onFolder={onFolder}
+          onDrop={drop} canAttach={acceptsFiles} /> : (
+        <div className="sc-surface">
+          {/* Nn.Header (:9021-9025): the 'bash' pro badge, then the history hint (wm: search or History strip). */}
+          {(bashMode || search || historyNav) && <div className="sc-history-header-grid">
+            <div className="sc-history-header-clip">
+              <div className="sc-history-header" data-cds="ChatComposerHeader" aria-hidden="true">
+                {bashMode && <span className="sc-bash-badge" data-cds="Badge" data-variant="pro" data-size="sm" title={t("Run as a shell command")}>{t("bash")}</span>}
+                {search ? <>
+                  <span className="sc-history-search-label" data-failed={search.failed || undefined}>{t("Search history:")}</span>
+                  <span className="sc-history-search-query">{search.query}<span className="sc-history-search-caret">{"▎"}</span></span>
+                  <span className="sc-history-search-hints" aria-hidden="true" data-shown={search.showHints || undefined}>
+                    <kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↑</kbd>
+                    <kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↓</kbd>
+                    {t("cycle")}
+                    <span aria-hidden="true">·</span>
+                    <kbd data-cds="Kbd" className="scds-key sc-history-kbd">esc</kbd>
+                    {t("cancel")}
+                  </span>
+                </> : historyNav ? <>
+                  <span className="sc-history-count">{t("History {index}/{total}", { index: historyNav.index, total: historyNav.total })}</span>
+                  {historyNav.hasDraft && <>
+                    <span aria-hidden="true">·</span>
+                    <span className="sc-history-draft"><kbd data-cds="Kbd" className="scds-key scds-key-square sc-history-kbd">↓</kbd> {t("to restore your draft")}</span>
+                  </>}
+                </> : null}
+              </div>
+            </div>
+          </div>}
+          <SourceComposerAttachments entries={attachments} contextPills={contextPills} onRemove={onRemoveAttachment} onOpenFile={onOpenAttachmentFile} disabled={sending} />
+          <div className="sc-input-row">
+            {editorElement}
+            {/* Nn.Overlay (:9031-9039): the suggested prompt alone, 'truncate text-muted', aria-hidden. */}
+            {showSuggestion && <div className="sc-suggestion-ghost" aria-hidden="true" data-prompt-suggestion-ghost="">{suggestion}</div>}
+            {/* c099c328d A(sm,{showStop:Ki,stop,send}): both controls share one grid cell and crossfade. */}
+            <SubmitCrossfade showStop={showStop}
+              stop={
+                // c099c328d stop: hn{content 'Stop', shortcut Vt?void 0:'escape', hoverable:!1, lazy, open Ki?void 0:!1}
+                // around Ut{ghost iconOnly icon Ih, aria-keyshortcuts Vt?void 0:nn('escape') → 'Escape', className jh}.
+                // Vt (Escape claimed elsewhere) ↔ local menuKind or escapeClaimed. 2.31226.0 ca80fca8d vP (:13038-13160): the
+                // StopCircle glyph, aria-label 'Stop', data-testid 'code-prompt-stop' (shared-16 Lf).
+                <SourceTooltip content={t("Stop")} shortcut={menuKind || escapeClaimed ? undefined : "escape"} hoverable={false} open={menuKind || !showStop ? false : undefined}>
+                  <div className="sc-submit-slot">
+                    <ComposerButton className="sc-submit" label={t("Stop")} tooltip={false} icon="StopCircle" data-testid="code-prompt-stop"
+                      aria-keyshortcuts={menuKind || escapeClaimed ? undefined : "Escape"} onClick={() => onStop?.({ trigger: "button" })}
+                      onMouseDown={(event) => event.preventDefault()} />
+                  </div>
+                </SourceTooltip>
+              }
+              send={
+                // c099c328d ga: Ut{ghost iconOnly icon Nh (ArrowReturn sm text-secondary group-disabled/btn:text-disabled),
+                // aria-keyshortcuts nn('enter') → 'Enter', busy/busyLabel 'Sending', className `${jh} ${Fh}`};
+                // send tooltip open:!Ki&&void 0 → closed while Stop is the active control.
+                <SourceTooltip content={t("Send")} shortcut="enter" open={menuKind || showStop ? false : undefined}
+                  // c099c328d :8870-8895: the second row is 'Queue for later' while busy, else 'Send and stay here' (de) on the
+                  // Home draft. ca80fca8d vP :13164-13170: the third row is the ⌘⌥⏎ fork lane (v enableForkSubmit, label y
+                  // 'Send in a forked session') while the open, idle session's core can fork (forkAvailable).
+                  secondaryHint={stopAvailable && queueEnabled ? { label: t("Queue for later"), shortcut: "cmd+enter" }
+                    : stayOnDraft && !running ? { label: t("Send and stay here"), shortcut: "cmd+enter" } : undefined}
+                  // Not while a turn is still busy (sending, or interrupting until the core confirms): send({priority:'fork'}) refuses then.
+                  tertiaryHint={forkAvailable && !running && !sending && !stopping ? { label: t("Send in a forked session"), shortcut: "cmd+alt+enter" } : undefined}>
+                  <div className="sc-submit-slot">
+                    <button className="sc-button sc-icon-button sc-submit" data-cds="Button" type="submit"
+                      aria-label={t("Send")} data-testid="code-prompt-send" aria-keyshortcuts="Enter" disabled={!canSend} aria-busy={sending || undefined}
+                      onMouseDown={(event) => event.preventDefault()}>
+                      {sending ? <><span className="sc-spinner" aria-hidden="true" /><span className="sc-sr-only">{t("Sending")}</span></> : <Icon name={mode === "code" ? "ArrowReturn" : "ArrowUp"} size={16} />}
+                    </button>
+                  </div>
+                </SourceTooltip>
+              } />
+          </div>
+        </div>
+        )}
+      </form>
+      {/* B29 j0 (cc43287c9 :33440): the chosen folder's suggested-task chips sit under the draft's card. */}
+      {afterComposer}
+      {mentionOpen && <SourceMentionDropdown options={mention.options} highlighted={mention.highlighted} caret={mention.caret}
+        onSelect={acceptMention}
+        onClose={closeMention} />}
+      {emojiOpen && !mentionOpen && <SourceEmojiDropdown options={emoji.options} highlighted={emoji.highlighted} caret={emoji.caret}
+        onSelect={acceptEmoji} onHover={(index) => setEmoji((current) => (current ? { ...current, highlighted: index } : current))}
+        onClose={() => setEmoji(null)} />}
+      {mode === "code" && chin}
     </div>
   );
 }
@@ -926,7 +1038,7 @@ export function SourceUsagePanel({ usage, fresh = false, plan = null, onViewUsag
           {panel.contextPct !== null && <div className="sc-usage-bar-fill" style={{ width: `${panel.contextPct}%`, background: contextRingStroke(panel.contextPct) }} />}
         </div>
       </div>
-      {compact.kind !== "hidden" && <UsageCompactRow onCompact={onCompact} disabledReason={compact.reason} autoPct={compactState?.autoCompactPct ?? null} />}
+      {compact.kind !== "hidden" && <UsageCompactRow onCompact={onCompact} disabledReason={compact.reason} hint={autoCompactHintText(compactState?.autoCompact)} />}
       {/* A core that records this session's spend (thread/tokenUsage codeDesktop.costUsd: OpenCode, MiMo). */}
       {Number.isFinite(usage?.codeDesktop?.costUsd) && <div className="sc-usage-row sc-usage-cost" data-session-cost="">
         <span className="sc-usage-muted">{t("Spent this session")}</span>
@@ -978,16 +1090,19 @@ function UsagePlanSection({ plan, onViewUsage }) {
 }
 
 // c2d611398 H: 'px-lg pb-xs flex items-center gap-sm min-h-[20px] text-footnote' holding the hint span ('flex-1
-// min-w-0 truncate text-secondary'; the 'Compacts automatically at {pct}%' copy needs the core's threshold, unknown
-// here, so it stays empty) and, inside the eo disabled-reason tooltip, the CDS TextLink (xo, 'shrink-0
-// whitespace-nowrap') 'Compact session' (ce660512f compactSession), disabled with the Ow reason.
-function UsageCompactRow({ onCompact, disabledReason, autoPct = null }) {
-  const disabled = disabledReason !== undefined;
+// min-w-0 truncate text-secondary': ca80fca8d dH/oH '{tokens} until auto-compact' or 'Auto-compacts soon', from the
+// core's auto-compact limit — context-usage-model autoCompactHint — and empty when the core reports none) and, inside
+// the eo disabled-reason tooltip, the CDS TextLink (xo, 'shrink-0 whitespace-nowrap') 'Compact session'
+// (ce660512f compactSession), disabled with the Ow reason.
+// The hint span (hintId) describes the link while there is a hint (c2d611398 Ne aria-describedby).
+function UsageCompactRow({ onCompact, disabledReason, hint }) {
+  const disabled = disabledReason !== undefined, hintId = useId();
   return (
     <div className="sc-usage-compact-row">
-      <span className="sc-usage-compact-hint">{Number.isFinite(autoPct) ? t("Compacts automatically at {pct}%", { pct: autoPct }) : null}</span>
+      <span className="sc-usage-compact-hint" id={hintId}>{hint ?? null}</span>
       <SourceTooltip disabledReason={disabledReason}>
         <button type="button" data-cds="TextLink" className="sc-usage-compact" disabled={disabled} data-disabled={disabled || undefined}
+          aria-describedby={hint === undefined ? undefined : hintId}
           onClick={() => { if (!disabled) onCompact?.(); }}>{t("Compact session")}</button>
       </SourceTooltip>
     </div>
@@ -1063,6 +1178,12 @@ export function EffortControl({ levels = [], value, onChange, disabled = false, 
   const accent = isTopTierEffort(selected?.id);
   const showLit = !unavailable && hasTopTierEffort(options);
   const atMax = showLit && index === maximum;
+  // c8e04f916 C q/J/ve + slider c2d9b9a76 b A/j/M: the first non-warning badge (locally the model's 'Default' level,
+  // markDefaultEffort) marks its stop and labels it under the track; the value text names it '{name} ({badge})'.
+  const mark = maximum > 0 ? effortMark(options) : null;
+  const markAt = mark ? mark.index / maximum : 0, markFar = markAt > 0.5;
+  // Q: the committed level's warning note (a warning badge), under the slider in place of the description.
+  const warning = effortWarning(options[committed.current.length ? index : active]);
   const commit = (nextIndex) => {
     setDragging(false);
     const next = options[Number(nextIndex)]?.id;
@@ -1100,11 +1221,11 @@ export function EffortControl({ levels = [], value, onChange, disabled = false, 
             {showLit && <span className="sc-slider-overlay" data-slider-overlay="" aria-hidden="true"><EffortLitOverlay lit={atMax} /></span>}
           </div></div>
           <div className="sc-slider-stops" aria-hidden="true">
-            {options.map((option, stop) => <span key={option.id} data-slider-stop={stop} title={option.name} />)}
+            {options.map((option, stop) => <span key={option.id} data-slider-stop={stop} data-marked={mark?.index === stop ? "" : undefined} title={unavailable ? undefined : effortValueText(options, stop, mark)} />)}
           </div>
           <div className="sc-slider-carriage" aria-hidden="true"><span className="sc-slider-handle" /></div>
           <input type="range" min={0} max={maximum} step={1} value={index} disabled={unavailable}
-            aria-label={t("Effort")} aria-valuetext={selected?.name || t("Unavailable")}
+            aria-label={t("Effort")} aria-valuetext={selected ? effortValueText(options, index, mark) : t("Unavailable")}
             onChange={(event) => setPreview(Number(event.target.value))}
             onPointerDown={() => setDragging(true)} onPointerUp={(event) => commit(event.currentTarget.value)}
             onPointerCancel={() => { setPreview(null); setDragging(false); }}
@@ -1113,6 +1234,12 @@ export function EffortControl({ levels = [], value, onChange, disabled = false, 
             }}
             onBlur={(event) => { if (preview !== null) commit(event.currentTarget.value); }} />
         </div>
+        {/* c2d9b9a76 :424-440: the mark label row, centred under its stop (a 2x-wide span from the near edge), text-secondary
+            while the slider sits on it. */}
+        {mark && <span className="sc-slider-mark-row" aria-hidden="true" data-far={markFar ? "" : undefined} data-current={index === mark.index ? "" : undefined}>
+          <span className="sc-slider-mark-span" style={{ width: `${(markFar ? 1 - markAt : markAt) * 200}%` }}><span className="sc-slider-mark-label">{mark.label}</span></span>
+        </span>}
+        {warning && <div className="sc-effort-warning" data-effort-warning=""><Icon name="Warning" size={12} aria-hidden="true" /><span>{warning}</span></div>}
       </div>
     </section>
   );

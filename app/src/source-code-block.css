@@ -4,13 +4,17 @@
 .scb-block {
   position: relative; width: fit-content; min-width: min(100%, 318px); max-width: 100%;
   --scb-control: var(--cds-h-control, 24px);
-  --scb-padding-end: calc(var(--scb-control) + var(--cds-pad-xs, 4px) * 3 + 2px);
+  /* c19e90103 Bg Ae = _g(1 + run + secrets): one 24px control per action (Run/Cancel, the secret toggle, Copy) with
+     3px between them; --scb-controls is set by the block. */
+  --scb-padding-end: calc(var(--scb-control) * var(--scb-controls, 1) + 3px * (var(--scb-controls, 1) - 1) + var(--cds-pad-xs, 4px) * 3 + 2px);
   --scb-background: var(--code-theme-light-bg, #fff);
 }
 [data-mode="dark"] .scb-block { --scb-background: var(--code-theme-dark-bg, #1a1a19); }
 /* code-block-current.js:1325 Kr(n): the inline-end reserve grows by one 24px
-   control and the 3px gap for the secret toggle (Ee = Kr(1 + !!R)). */
-.scb-block[data-secrets] { --scb-padding-end: calc(var(--scb-control) * 2 + 3px + var(--cds-pad-xs, 4px) * 3 + 2px); }
+   control and the 3px gap for the secret toggle (Ee = Kr(1 + !!R)) — and for Run (B20), via --scb-controls. */
+/* Bg: a block showing run output takes the full width ("w-full" instead of "w-fit"). */
+.scb-block[data-output] { width: 100%; }
+.scb-fence { position: relative; }
 .scb-body { position: relative; border-radius: 8px; overflow: clip; }
 .scb-body::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
@@ -55,3 +59,36 @@
 .scb-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .scb-copy { transition: none; } }
 html[data-reduce-motion="true"] .scb-copy { transition: none; }
+
+/* B20 Ng (c19e90103 6862-6877): while a run is going, Run is Cancel: the spinner, swapped for an X on hover/focus. */
+.scb-cancel-icon { display: grid; place-items: center; }
+.scb-cancel-icon > span { grid-area: 1 / 1; display: flex; transition: opacity var(--cds-dur-fast, 120ms); }
+.scb-cancel-x { opacity: 0; }
+.scb-cancel:hover .scb-cancel-spin, .scb-cancel:focus-visible .scb-cancel-spin { opacity: 0; }
+.scb-cancel:hover .scb-cancel-x, .scb-cancel:focus-visible .scb-cancel-x { opacity: 1; }
+/* Lg (6919-6977): "relative mt-1.25"; the box "rounded-lg epitaxy-card-outline-overlay text-code max-h-[160px]
+   overflow-y-auto px-[calc(10px+1ch)] py-1.25", its end padding one control wide while Open in terminal shows. */
+.scb-output-wrap { position: relative; margin-top: 5px; }
+.scb-output {
+  border-radius: 8px; outline: 1px solid var(--cds-border); outline-offset: -1px;
+  font-size: var(--cds-font-size-code, 12px); line-height: var(--cds-leading-code, 17px); font-family: var(--cds-font-mono, monospace);
+  max-height: 160px; overflow-y: auto; padding: 5px calc(10px + 1ch);
+}
+/* epitaxy-card-outline-overlay:focus-visible (the scrollable box can take keyboard focus). */
+.scb-output:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: var(--cds-focus-shadow); }
+.scb-output[data-openable] { padding-inline-end: calc(var(--scb-control) + var(--cds-pad-xs, 4px) * 3 + 2px); }
+.source-markdown .scb-output-pre, .scb-output-pre {
+  margin: 0; padding: 0; border: 0; border-radius: 0; background: none; overflow: visible;
+  font: inherit; color: var(--cds-text-secondary); white-space: pre-wrap; word-break: break-all;
+}
+.scb-output-error { color: var(--cds-text-danger); }
+.scb-output-diff { display: block; }
+.scb-output-diff[data-kind="added"] { background: var(--cds-bg-git-added); }
+.scb-output-diff[data-kind="removed"] { background: var(--cds-bg-git-removed); }
+/* "absolute right-1.75 top-1.25 flex h-[1lh] items-center text-code" */
+.scb-output-open {
+  position: absolute; right: 7px; top: 5px; display: flex; align-items: center; height: 1lh;
+  font-size: var(--cds-font-size-code, 12px); line-height: var(--cds-leading-code, 17px);
+}
+@media (prefers-reduced-motion: reduce) { .scb-cancel-icon > span { transition: none; } }
+html[data-reduce-motion="true"] .scb-cancel-icon > span { transition: none; }

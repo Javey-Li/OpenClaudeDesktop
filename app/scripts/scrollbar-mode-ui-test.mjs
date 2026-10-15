@@ -88,7 +88,7 @@ async function shot(name) { const file = path.join(directory, `${name}.png`); aw
 const panel = () => page.getByRole("complementary", { name: "Files panel", exact: true });
 async function openFiles() {
   if (await panel().isVisible()) return;
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click();
   await panel().waitFor(); await frames();
 }

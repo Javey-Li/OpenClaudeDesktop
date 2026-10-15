@@ -134,7 +134,7 @@ async function open(id, lastItem) {
 }
 async function send(text) {
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
 }
 try {
   build = JSON.parse(await fs.readFile(path.join(root, "dist/build-info.json"), "utf8"));
@@ -236,8 +236,8 @@ try {
   assert.equal(metrics.patch.meta, 0);
   assert.equal(metrics.patch.label, "Editing 3 files");
   assert.equal(metrics.patch.state, "busy", "the patch update does not settle the item");
-  await page.getByRole("button", { name: "Stop response", exact: true }).click();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   checks.push("item/fileChange/patchUpdated replaces the whole change set on the running fileChange row (one path -> grouped 'Editing 3 files') while it stays data-state=busy");
 
   // 8. item/mcpToolCall/progress is consumed without disturbing the row.

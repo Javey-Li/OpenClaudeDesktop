@@ -17,8 +17,9 @@ test('settings opener is captured in a layout effect and used by the restore eff
   const restore = text.indexOf('const previous=opener.current, frame=requestAnimationFrame(initialFocus);');
   assert.ok(restore > capture, 'restore effect reads the captured opener');
   assert.equal(text.includes('const previous=document.activeElement'), false, 'no passive-effect activeElement capture');
-  // The usage-tab focus stays a passive effect; the fallback target is unchanged.
-  assert.match(text, /useEffect\(\(\)=>\{if\(tab==='usage'\)presence\.popup\.current\?\.focus\(\{preventScroll:true\}\);\},\[tab\]\);/);
+  // The usage-tab focus stays a passive effect, only for the stacked Usage dialog (opened straight on Usage; B23: Usage
+  // picked in the nav keeps focus on the nav); the fallback target is unchanged.
+  assert.match(text, /useEffect\(\(\)=>\{if\(tab==='usage'&&usageFocused\)presence\.popup\.current\?\.focus\(\{preventScroll:true\}\);\},\[tab\]\);/);
   assert.match(text.slice(restore, restore + 600), /document\.querySelector\('\[aria-label="Account menu"\]'\)\?\.focus\(\{preventScroll:true\}\)/);
 });
 

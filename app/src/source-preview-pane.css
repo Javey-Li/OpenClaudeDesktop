@@ -1,5 +1,4 @@
-/* Preview pane (source-preview-pane.jsx; 2.2553.1 legacy Preview header vr and URL field Vv,
-   panes-tile-current.js:11293-11494 / :12590). The page is a native view laid over .spv-viewport. */
+/* Current source navigation/address utilities sit above the native WebContentsView viewport. */
 .spv-pane {
   display: flex;
   flex-direction: column;
@@ -9,10 +8,6 @@
   container-type: inline-size;
   container-name: spv;
 }
-.spv-pane > .spv-header {
-  flex: none;
-  gap: 2px;
-}
 .spv-icon {
   color: var(--cds-text-secondary);
   flex: none;
@@ -20,63 +15,11 @@
 .spv-icon:disabled {
   color: var(--cds-text-disabled);
 }
-.spv-nav {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  flex: none;
-}
-/* Under 360px the less used buttons fold into the Servers & settings menu (official hidden @[320px]:inline-flex). */
-@container spv (max-width: 360px) {
-  .spv-narrow-hide { display: none; }
-}
-
-/* Vv: h-6 text-body, rounded 5px, hover alpha-1, focus-within alpha-2 with an inset alpha-3 ring. */
-.spv-url {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  height: calc(1.5rem * var(--cds-rem-scale, 1));
-  margin-right: 4px;
-  border-radius: 5px;
-}
-.spv-url:hover { background: var(--cds-alpha-1); }
-.spv-url:focus-within { background: var(--cds-alpha-2); box-shadow: inset 0 0 0 1px var(--cds-alpha-3); }
-.spv-url[data-editing] { background: var(--cds-alpha-2); box-shadow: var(--cds-focus-shadow); }
-.spv-url-display,
-.spv-url-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  padding: 0 var(--cds-pad-sm);
-  border: 0;
-  background: transparent;
-  color: var(--cds-text-secondary);
-  font: inherit;
-  font-size: var(--cds-font-size-body);
-  line-height: var(--cds-leading-body);
-  text-align: left;
-}
-.spv-url-display {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  white-space: nowrap;
-  border-radius: 5px;
-}
-.spv-url-display:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); }
-.spv-url-input { outline: none; color: var(--cds-text-primary); caret-color: var(--cds-fill-accent); }
-.spv-url-input::placeholder,
-.spv-url-placeholder { color: var(--cds-text-muted); }
-.spv-url-host { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--cds-text-secondary); }
-.spv-url-rest { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--cds-text-muted); }
-.spv-url-spinner { display: inline-flex; flex: none; }
-@container spv (max-width: 280px) {
-  .spv-url-rest { display: none; }
-}
-@container spv (max-width: 196px) {
-  .spv-url { display: none; }
+/* Source ie hides secondary navigation below its 320px container breakpoint.
+   CDS Button's local display rule otherwise wins over the imported .hidden utility. */
+.spv-pane .source-settings-button.hidden { display: none; }
+@container (min-width: 320px) {
+  .spv-pane .source-settings-button.\@\[320px\]\:inline-flex { display: inline-flex; }
 }
 
 .spv-body {
@@ -93,7 +36,6 @@
   min-height: 0;
   overflow: hidden;
   background: #f5f5f5;
-  border-top: 1px solid var(--cds-border);
 }
 [data-mode="dark"] .spv-viewport { background: #131312; }
 .spv-capture {
@@ -145,32 +87,13 @@
 }
 .spv-center-text { color: var(--cds-text-secondary); font-size: var(--cds-font-size-body); }
 .spv-error-icon { color: var(--cds-text-warning); }
-.spv-stopped-icon { color: var(--cds-text-secondary); }
 .spv-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .spv-error-title { color: var(--cds-text-primary); font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); }
 .spv-error-body { max-width: 420px; color: var(--cds-text-secondary); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); overflow-wrap: anywhere; }
 
-/* Start page (A_ / bv): the server list, or the empty state. */
-.spv-start {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--cds-gap-sm, 8px);
-  padding: var(--cds-pad-lg, 16px);
-  text-align: center;
-}
-.spv-start-icon { color: var(--cds-text-disabled); }
-.spv-start-title { margin: 4px 0 0; color: var(--cds-text-primary); font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); }
-.spv-start-body,
+/* Start page (A_ / bv): the server list. Without a launch.json the start page is cf580efe9 gr / fr / dr in the
+   reference utility classes (source-preview-pane.jsx PreviewStartPrompt), positioned over the viewport. */
 .spv-start-caption { max-width: 360px; margin: 0; color: var(--cds-text-secondary); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); }
-.spv-start-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--cds-gap-sm, 8px); }
-.spv-start-caption[role=status] { display: inline-flex; align-items: center; gap: 6px; }
-/* A detected server's command (not a button): the row's font in the code face. */
-.spv-candidate .spv-server-name { font-family: var(--cds-font-code, ui-monospace, monospace); font-size: var(--cds-font-size-footnote); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spv-start-problem { max-width: 420px; margin: 0; color: var(--cds-text-danger); font-size: var(--cds-font-size-footnote); overflow-wrap: anywhere; }
 /* bv: the list column is min(400px, 75%) wide; the ul is a bordered rounded box that scrolls past min(60vh, 480px). */
 .spv-start-servers {
@@ -250,8 +173,6 @@ button.spv-server-main { outline: none; }
 .spv-server-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cds-text-secondary); font-size: var(--cds-font-size-body); line-height: var(--cds-leading-body); }
 .spv-server-port { flex: none; color: var(--cds-text-muted); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); font-variant-numeric: tabular-nums; }
 .spv-server-action { min-width: 2rem; flex: none; }
-/* A detected server (no launch.json yet): the same row in a plain list, with its command in the code face. */
-.spv-pane [data-preview-start="empty"] .spv-servers { width: min(100%, 420px); }
 .spv-see-all { width: 100%; color: var(--cds-text-muted); }
 .spv-see-all:hover { color: var(--cds-text-primary); }
 
@@ -289,38 +210,8 @@ button.spv-server-main { outline: none; }
 .spv-link:hover { color: var(--cds-text-secondary); }
 .spv-link:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow); border-radius: 3px; }
 
-/* Start failure (N_): Warning, title, meta, the output tail, Copy error log and Try again. */
-.spv-failure {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: var(--cds-pad-lg, 16px);
-}
-.spv-failure-head { display: flex; align-items: flex-start; gap: 8px; }
-.spv-failure-icon { color: var(--cds-text-warning); margin-top: 2px; flex: none; }
-.spv-failure-copy { flex: 1 1 auto; min-width: 0; }
-.spv-failure-title { color: var(--cds-text-primary); font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); }
-.spv-failure-meta { color: var(--cds-text-secondary); font-size: var(--cds-font-size-footnote); line-height: var(--cds-leading-footnote); overflow-wrap: anywhere; }
-.spv-failure-log {
-  margin: 0;
-  padding: 8px 10px;
-  max-height: 260px;
-  overflow: auto;
-  border-radius: 6px;
-  background: var(--cds-alpha-1);
-  color: var(--cds-text-secondary);
-  font-family: var(--cds-font-mono, ui-monospace, monospace);
-  font-size: var(--cds-font-size-code);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  user-select: text;
-}
-.spv-failure-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.spv-pane :is(.spv-log-line, .spv-failure-log > div)[data-tone="danger"] { color: var(--cds-text-danger); }
-.spv-pane :is(.spv-log-line, .spv-failure-log > div)[data-tone="warning"] { color: var(--cds-text-warning); }
+.spv-pane .spv-log-line[data-tone="danger"] { color: var(--cds-text-danger); }
+.spv-pane .spv-log-line[data-tone="warning"] { color: var(--cds-text-warning); }
 
 /* Logs drawer (Jv): 200px bottom drawer, 80px minimum, at most 60% of the pane, resized from its top edge. */
 .spv-logs {
@@ -343,8 +234,6 @@ button.spv-server-main { outline: none; }
   z-index: 1;
 }
 .spv-logs-handle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--cds-fill-accent); }
-.spv-logs-head { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 4px 0 12px; flex: none; }
-.spv-logs-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cds-text-secondary); font-size: var(--cds-font-size-footnote); }
 .spv-logs-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -368,3 +257,20 @@ button.spv-server-main { outline: none; }
 .spv-download-icon { flex-shrink: 0; color: var(--cds-text-secondary); }
 .spv-download[data-preview-download="failed"] .spv-download-icon, .spv-download[data-preview-download="cancelled"] .spv-download-icon { color: var(--cds-text-warning); }
 .spv-download-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* Current native Preview: shared 32px view-tab row above navigation. */
+.spv-tabs-header { flex:none;gap:4px; }
+.spv-tabs { overflow-x:hidden; }
+.spv-tab { min-width:calc(1.25rem * var(--cds-rem-scale,1) + 4px); }
+.spv-tab [role="tab"] { gap:2px; }
+.spv-tab[data-has-icon] [role="tab"] { min-width:22px;padding-left:0; }
+.spv-tab[data-tight] [role="tab"] { min-width:0;padding-left:2px; }
+.spv-tabs .source-file-tabs-spacer { width:calc(1.25rem * var(--cds-rem-scale,1) + 8px); }
+.spv-tab-icon { display:flex;align-items:center;justify-content:center;flex:none;width:calc(1.25rem * var(--cds-rem-scale,1));height:calc(1.25rem * var(--cds-rem-scale,1)); }
+.spv-tab-icon img { object-fit:contain; }
+
+.spv-close-tabs-dialog{max-width:28rem;overflow-wrap:break-word}
+.spv-close-tabs-dialog .sdlg-footer>button:first-child{margin-inline-end:auto}
+
+/* Original shared overflow row uses gap-sm over the host menu default. */
+.spv-overflow-menu .smenu-item { gap: var(--cds-gap-sm); }

@@ -6,6 +6,12 @@ import {SourceSettingsButton} from './source-settings-button.jsx';
 import {SourceStorageMeter} from './source-storage-meter.jsx';
 import {SourceTimestamp} from './source-timestamp.jsx';
 import {SourceTooltip} from './source-tooltip.jsx';
+import {SourceDialog} from './source-dialog.jsx';
+import {SourceSegments} from './source-segments.jsx';
+import {SourceSettingsCheckbox} from './source-settings-checkbox.jsx';
+import {useSourceToasts} from './source-toast.jsx';
+import {CLEANUP_WINDOWS,DEFAULT_CLEANUP_CHOICES,announcedProgress,cleanupAcknowledgeLabel,cleanupActionCount,cleanupCanConfirm,cleanupConfirmLabel,cleanupConfirmVariant,
+  cleanupDeleteLabel,cleanupEmptyText,cleanupErrorText,cleanupHasAnything,cleanupOutcome,cleanupProgressLabel,cleanupSummary,cleanupUncommittedLabel,cleanupVerb} from './storage-cleanup-model.mjs';
 import {storageKinds} from './storage-meter-model.mjs';
 import mcpEmpty from './generated/mcp-empty.json';
 import { joinArguments } from './customize-model.mjs';
@@ -158,6 +164,8 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
   const [revision, setRevision] = useState(0);
   // Remove worktrees (official Storage '{count} Remove # worktrees'): the ones no session works in and without changes.
   const [cleaning, setCleaning] = useState(false), [cleaned, setCleaned] = useState('');
+  // c71860c77-C_7Gqn1u Kt: the nested Clean up inactive sessions dialog.
+  const [cleanup, setCleanup] = useState(false);
   const root = useRef(null), title = useId(), description = useId(), callRef = useRef(call);
   callRef.current = call;
   useEffect(() => {
@@ -180,7 +188,7 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
   // The running core's name from main's report (settings-pages.cjs storageReport coreName); none until it loads.
   const runtimeName = value?.areas?.find(item => item?.id === 'runtime')?.name || '';
   const keyboard = event => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || cleanup) return;
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
     if (event.key !== 'Tab') return;
     const controls = [...root.current.querySelectorAll('button:not(:disabled), summary, [tabindex="0"]')].filter(element => element.getClientRects().length);
@@ -188,28 +196,142 @@ export function StorageDialog({ call, settingsRoot, onClose }) {
     if (event.shiftKey && (active === first || active === root.current)) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && (active === last || active === root.current)) { event.preventDefault(); first?.focus(); }
   };
-  return createPortal(<div className="ss-backdrop ss-storage-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+  const removeUnused = () => {
+    setCleaning(true); setCleaned('');
+    Promise.resolve().then(() => callRef.current('worktrees-clean')).then(result => {
+      setCleaned(result?.removed > 0 ? tn(result.removed, 'Removed {count} unused worktree.', 'Removed {count} unused worktrees.') + (result.kept > 0 ? ` ${tn(result.kept, '{count} worktree with uncommitted changes was kept.', '{count} worktrees with uncommitted changes were kept.')}` : '')
+        : result?.kept > 0 ? tn(result.kept, '{count} worktree with uncommitted changes was kept.', '{count} worktrees with uncommitted changes were kept.') : t('No unused worktrees to remove.'));
+      setRevision(current => current + 1);
+    }, error => setState(current => ({ ...current, error: error.message }))).finally(() => setCleaning(false));
+  };
+  const code = value?.areas?.find(item => item?.id === 'code');
+  // bn codeActions (flex gap-xs under the Code session details kinds): 'Clean up inactive sessions…' with any session,
+  // and the local 'Remove unused worktrees' (worktrees no session works in any more) with any worktree.
+  const codeActions = code && (code.sessionCount > 0 || code.worktreeCount > 0) ? <>
+    {code.sessionCount > 0 && <SourceSettingsButton className="ssp-button" size="sm" onClick={() => setCleanup(true)}>{t('Clean up inactive sessions…')}</SourceSettingsButton>}
+    {code.worktreeCount > 0 && <SourceSettingsButton className="ssp-button" size="sm" busy={cleaning} disabled={state.loading || cleaning} onClick={removeUnused}>{t('Remove unused worktrees')}</SourceSettingsButton>}
+  </> : null;
+  const clearCache = () => { Promise.resolve().then(() => callRef.current('clear-cache-restart')).catch(error => setState(current => ({ ...current, error: error.message }))); };
+  return <>{createPortal(<div className="ss-backdrop ss-storage-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !cleanup) onClose(); }}>
     <section className="ss-storage-dialog" ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title} aria-describedby={description} onKeyDown={keyboard}>
       <header className="ss-storage-header"><h2 id={title}>{t('Storage')}</h2><p id={description}>{runtimeName ? t('Space OpenClaude Desktop and local {name} data use on this computer.', { name: runtimeName }) : t('Space OpenClaude Desktop and its agent core use on this computer.')}</p><button className="ss-close" aria-label={t('Close')} onClick={onClose}><Icon name="X" size={16}/></button></header>
       <div className="ss-storage-content" aria-busy={state.loading || undefined}>
         {state.error && <p role="alert" className="ss-error">{t('Couldn’t calculate storage. Try again.')} {state.error}</p>}
-        {!value && state.loading ? <div className="ss-storage-skeleton" aria-label={t('Calculating storage')}><i/><i/><i/><i/></div> : value && <StorageRows value={value}/>}
+        {!value && state.loading ? <div className="ss-storage-skeleton" aria-label={t('Calculating storage')}><i/><i/><i/><i/></div> : value && <StorageRows value={value} codeActions={codeActions} onClearCache={clearCache}/>}
         {cleaned && <p role="status" className="ss-storage-cleaned">{cleaned}</p>}
       </div>
-      <footer><SourceSettingsButton className="ssp-button" variant="ghost" icon="Folder" onClick={() => { Promise.resolve().then(() => callRef.current('reveal-settings')).catch(error => setState(current => ({ ...current, error: error.message }))); }}>{t('Open folder')}</SourceSettingsButton>{value?.areas?.find(item => item?.id === 'code')?.worktreeCount > 0 && <SourceSettingsButton className="ssp-button" busy={cleaning} disabled={state.loading || cleaning} onClick={() => {
-        setCleaning(true); setCleaned('');
-        Promise.resolve().then(() => callRef.current('worktrees-clean')).then(result => {
-          setCleaned(result?.removed > 0 ? tn(result.removed, 'Removed {count} unused worktree.', 'Removed {count} unused worktrees.') + (result.kept > 0 ? ` ${tn(result.kept, '{count} worktree with uncommitted changes was kept.', '{count} worktrees with uncommitted changes were kept.')}` : '')
-            : result?.kept > 0 ? tn(result.kept, '{count} worktree with uncommitted changes was kept.', '{count} worktrees with uncommitted changes were kept.') : t('No unused worktrees to remove.'));
-          setRevision(current => current + 1);
-        }, error => setState(current => ({ ...current, error: error.message }))).finally(() => setCleaning(false));
-      }}>{t('Remove unused worktrees')}</SourceSettingsButton>}<SourceSettingsButton className="ssp-button" icon="ArrowClockwise" disabled={state.loading} onClick={() => { root.current?.focus({ preventScroll: true }); setRevision(value => value + 1); }}>{t('Refresh')}</SourceSettingsButton></footer>
+      <footer><SourceSettingsButton className="ssp-button" variant="ghost" icon="Folder" onClick={() => { Promise.resolve().then(() => callRef.current('reveal-settings')).catch(error => setState(current => ({ ...current, error: error.message }))); }}>{t('Open folder')}</SourceSettingsButton><SourceSettingsButton className="ssp-button" icon="ArrowClockwise" disabled={state.loading} onClick={() => { root.current?.focus({ preventScroll: true }); setRevision(value => value + 1); }}>{t('Refresh')}</SourceSettingsButton></footer>
     </section>
-  </div>, document.body);
+  </div>, document.body)}
+  <StorageCleanupDialog open={cleanup} call={call} onClose={() => setCleanup(false)} onDone={() => setRevision(current => current + 1)}/></>;
+}
+
+// c71860c77-C_7Gqn1u Nt/Lt/Jt/Kt: Clean up inactive sessions, nested over Storage (V.Popup md, no close button). The
+// 30/60/90-day segmented control re-runs the preview (main code-cleanup-preview); the summary names the worktrees and
+// their size ('at least' when a folder couldn't be measured) with up to five examples; checkboxes add the worktrees
+// with uncommitted changes and the sessions themselves, each asking for an acknowledgement. Confirm runs the preview's
+// token once, with 'Removing/Deleting N of M…' progress (main code-cleanup-progress) and Stop; while it runs the
+// dialog can't be dismissed. An expired preview is fetched again; the outcome goes to a toast (inline without one).
+const STORAGE_CLEANUP_LAYER = Object.freeze({ base: 540, z: 540 });
+export function StorageCleanupDialog({ open, call, onClose, onDone }) {
+  const toasts = useSourceToasts();
+  const [days, setDays] = useState(CLEANUP_WINDOWS[0]);
+  const [state, setState] = useState({ status: 'loading' });
+  const [choices, setChoices] = useState({ ...DEFAULT_CLEANUP_CHOICES, token: null });
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [notice, setNotice] = useState('');
+  const request = useRef(0), callRef = useRef(call), running = useRef(false), cancel = useRef(null);
+  callRef.current = call;
+  const preview = state.status === 'ready' ? state.preview : null;
+  // Choices belong to the preview they were made on (Kt l(e)): a new preview starts from none.
+  const current = preview && choices.token === preview.token ? choices : DEFAULT_CLEANUP_CHOICES;
+  const load = windowDays => {
+    const mine = ++request.current;
+    Promise.resolve().then(() => callRef.current('code-cleanup-preview', { window: windowDays })).then(value => {
+      if (mine !== request.current) return;
+      if (value?.preview) { setState({ status: 'ready', preview: value.preview }); setAcknowledged(false); }
+      else setState({ status: 'error', errorCode: value?.errorCode });
+    }, () => { if (mine === request.current) setState({ status: 'error' }); });
+  };
+  const reset = () => { request.current++; setDays(CLEANUP_WINDOWS[0]); setState({ status: 'loading' }); setAcknowledged(false); setProgress(null); setChoices({ ...DEFAULT_CLEANUP_CHOICES, token: null }); };
+  useEffect(() => { if (!open) return undefined; reset(); setNotice(''); load(CLEANUP_WINDOWS[0]); return () => { request.current++; }; }, [open]);
+  // A run still going when this unmounts (Settings closed) is stopped (Nt O/w.current.cancel).
+  useEffect(() => () => { if (running.current) Promise.resolve().then(() => callRef.current('code-cleanup-cancel')).catch(() => {}); }, []);
+  const report = (message, variant) => { if (!message) return; if (toasts) toasts.add(message, { variant }); else setNotice(message); };
+  const close = () => { if (!running.current) onClose(); };
+  const changeDays = value => { const next = Number(value); setDays(next); setState({ status: 'loading' }); setAcknowledged(false); load(next); };
+  const confirm = () => {
+    if (!preview || running.current || !cleanupCanConfirm(preview, current, acknowledged)) return;
+    const used = { includeUncommitted: current.includeUncommitted, deleteSessions: current.deleteSessions };
+    running.current = true;
+    setProgress({ done: 0, total: cleanupActionCount(preview, used) });
+    cancel.current = window.desktop?.onEvent?.(event => {
+      if (event?.kind === 'code-cleanup-progress' && Number.isFinite(event.done) && Number.isFinite(event.total)) setProgress({ done: event.done, total: event.total });
+    }) ?? null;
+    const finish = () => { running.current = false; cancel.current?.(); cancel.current = null; };
+    Promise.resolve().then(() => callRef.current('code-cleanup-run', { token: preview.token, ...used })).then(result => {
+      finish();
+      const outcome = cleanupOutcome(result || {}, used);
+      if (outcome.retry) { setProgress(null); setAcknowledged(false); setState({ status: 'loading' }); load(days); return; }
+      if (outcome.keepOpen) { setProgress(null); report(outcome.error, 'danger'); return; }
+      report(outcome.success, 'neutral'); report(outcome.error, 'danger');
+      setProgress(null); onClose(); onDone();
+    }, () => {
+      finish();
+      report(t('Cleanup didn’t finish. Try again.'), 'danger');
+      setProgress(null); onDone();
+    });
+  };
+  const stop = () => { Promise.resolve().then(() => callRef.current('code-cleanup-cancel')).catch(() => {}); };
+  const pending = progress !== null, verb = cleanupVerb(current);
+  const acknowledgement = cleanupAcknowledgeLabel(current);
+  const size = preview ? (preview.incomplete ? t('at least {size}', { size: formatStorage(preview.bytes) }) : formatStorage(preview.bytes)) : '';
+  const summary = preview && cleanupHasAnything(preview) ? cleanupSummary(preview, current, size) : null;
+  const example = entry => t('{title} · {size}', { title: entry.title || t('Untitled'), size: formatStorage(entry.bytes) });
+  const choose = patch => { setChoices({ ...current, ...patch, token: preview?.token ?? null }); setAcknowledged(false); };
+  const cancelButton = useRef(null), summaryId = useId();
+  // Lt: the summary is the popup's V.Description.
+  return <SourceDialog open={open} size="md" showClose={false} title={t('Clean up inactive sessions')} layer={STORAGE_CLEANUP_LAYER} className="ss-cleanup-dialog"
+    aria-describedby={summary ? summaryId : undefined}
+    initialFocusRef={cancelButton} onClose={close}
+    footer={<>
+      {pending ? <SourceSettingsButton variant="secondary" onClick={stop}>{t('Stop')}</SourceSettingsButton>
+        : <SourceSettingsButton ref={cancelButton} variant="secondary" data-autofocus="" onClick={close}>{t('Cancel')}</SourceSettingsButton>}
+      <SourceSettingsButton variant={cleanupConfirmVariant(current)} busy={pending} aria-label={pending ? (verb === 'remove' ? t('Removing…') : t('Deleting…')) : undefined}
+        disabled={!pending && !cleanupCanConfirm(preview, current, acknowledged)} onClick={confirm}>{cleanupConfirmLabel(preview, current)}</SourceSettingsButton>
+    </>}>
+    <div className="ss-cleanup-body" aria-busy={state.status === 'loading' || undefined}>
+      <SourceSegments size="sm" label={t('Inactive for at least')} value={days} onChange={changeDays}
+        options={CLEANUP_WINDOWS.map(value => ({ value, label: t('{days} days', { days: value }), disabled: pending }))}/>
+      {state.status === 'loading' && <div className="ss-cleanup-loading"><p className="ss-cleanup-loading-label">{t('Checking inactive sessions…')}</p><div className="ss-cleanup-skeleton" aria-hidden="true"><i/><i/></div></div>}
+      {/* Lt error → Jt Xt: only 'not-loaded' has copy of its own; any other code reads as the generic failure. */}
+      {state.status === 'error' && <p className="ss-cleanup-text">{state.errorCode === 'not-loaded' ? cleanupErrorText(state.errorCode) : t('Couldn’t work out what to clean up. Try again.')}</p>}
+      {preview && !summary && <p className="ss-cleanup-text">{cleanupEmptyText(days)}</p>}
+      {preview && summary && <>
+        <p id={summaryId} className="ss-cleanup-summary">{summary.headline}{summary.note && <span>{summary.note}</span>}</p>
+        {preview.examples.length > 0 && <ul role="list" className="ss-cleanup-examples">
+          {preview.examples.map((entry, index) => <li key={index}>{example(entry)}</li>)}
+          {preview.count > preview.examples.length && <li>{t('and {count} more', { count: preview.count - preview.examples.length })}</li>}
+        </ul>}
+        <div className="ss-cleanup-choices">
+          {preview.uncommittedCount > 0 && <>
+            <label className="ss-cleanup-check"><SourceSettingsCheckbox checked={current.includeUncommitted} disabled={pending} onChange={checked => choose({ includeUncommitted: checked === true })}/><span>{cleanupUncommittedLabel(preview, formatStorage(preview.uncommittedBytes))}</span></label>
+            <ul role="list" className="ss-cleanup-uncommitted">{preview.uncommitted.map((entry, index) => <li key={index}>{example(entry)}</li>)}</ul>
+          </>}
+          <label className="ss-cleanup-check"><SourceSettingsCheckbox checked={current.deleteSessions} disabled={pending} onChange={checked => choose({ deleteSessions: checked === true })}/><span>{cleanupDeleteLabel(preview, current)}</span></label>
+        </div>
+        {acknowledgement !== null && <label className="ss-cleanup-check"><SourceSettingsCheckbox checked={acknowledged} disabled={pending} onChange={checked => setAcknowledged(checked === true)}/><span>{acknowledgement}</span></label>}
+      </>}
+    </div>
+    {progress && <><p aria-hidden="true" className="ss-cleanup-progress">{cleanupProgressLabel(progress, verb)}</p>
+      <p role="status" className="ss-sr-only">{cleanupProgressLabel({ done: announcedProgress(progress), total: progress.total }, verb)}</p></>}
+    {notice && <p role="status" className="ss-cleanup-notice">{notice}</p>}
+  </SourceDialog>;
 }
 
 // The report body: Disk space used with the area meter, then one row per area with its Details kind bar.
-export function StorageRows({ value }) {
+export function StorageRows({ value, codeActions = null, onClearCache }) {
   // Area and kind labels are main's English copy; shown translated.
   const areas = (value.areas || []).map(item => ({ ...item, label: t(item.label), kinds: (item.kinds || []).map(kind => ({ ...kind, label: kind.template ? t(kind.template, kind.values) : t(kind.label) })) })), area = id => areas.find(item => item.id === id);
   const code = area('code'), runtime = area('runtime'), app = area('app');
@@ -230,13 +352,16 @@ export function StorageRows({ value }) {
       description={code.worktreeCount > 0 ? t('{sessions} and {worktrees}.', { sessions: tn(code.sessionCount, '{count} session', '{count} sessions'), worktrees: tn(code.worktreeCount, '{count} worktree', '{count} worktrees') }) : t('{sessions}.', { sessions: tn(code.sessionCount, '{count} session', '{count} sessions') })}
       // A core whose sessions share one database (historyUnmeasured: ZCode, MiniMax, OpenCode, MiMo) can't size them.
       control={code.historyUnmeasured && !(code.bytes > 0) ? <span className="ss-storage-size">{t('Not measured')}</span> : size(code.bytes)}
-      below={(code.bytes > 0 || outside > 0 || code.historyUnmeasured) && <StorageDetails label={t('Code session details')}><StorageKinds label={t('Code storage by kind')} color={AREA_COLORS.code}
-        items={kindsOf(code, { tip: runtime?.name ? t('History from {name} outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime.name }) : t('History kept outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.') })}/></StorageDetails>}/>}
+      below={(code.bytes > 0 || outside > 0 || code.historyUnmeasured || codeActions) && <StorageDetails label={t('Code session details')}><StorageKinds label={t('Code storage by kind')} color={AREA_COLORS.code}
+        items={kindsOf(code, { tip: runtime?.name ? t('History from {name} outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.', { name: runtime.name }) : t('History kept outside OpenClaude Desktop. Shown for completeness; not counted above and never removed from here.') })}/>
+        {codeActions && <div className="ss-storage-actions">{codeActions}</div>}</StorageDetails>}/>}
     {runtime && <StorageRow label={runtime.label}
       description={runtime.versionCount === 0 ? t('{name} downloads.', { name: runtime.name }) : tn(runtime.versionCount, '{count} installed {name} version.', '{count} installed {name} versions.', { name: runtime.name })}
       control={size(runtime.bytes)}
       below={runtime.bytes > 0 && <StorageDetails label={t('Runtime details')}><StorageKinds label={t('Runtime storage by kind')} color={AREA_COLORS.runtime} items={runtime.kinds}/></StorageDetails>}/>}
     {app && <StorageRow label={app.label} description={t('Web cache, browser panes and logs.')} control={size(app.bytes)}
-      below={app.bytes > 0 && <StorageDetails label={t('App cache details')}><StorageKinds label={t('App storage by kind')} color={AREA_COLORS.app} items={app.kinds}/></StorageDetails>}/>}
+      below={(app.bytes > 0 || onClearCache) && <StorageDetails label={t('App cache details')}><StorageKinds label={t('App storage by kind')} color={AREA_COLORS.app} items={app.kinds}/>
+        {/* bn :2321-2333: a secondary sm 'Clear cache and restart…' under the kinds; main confirms natively first. */}
+        {onClearCache && <div><SourceSettingsButton className="ssp-button" size="sm" onClick={onClearCache}>{t('Clear cache and restart…')}</SourceSettingsButton></div>}</StorageDetails>}/>}
   </div>;
 }

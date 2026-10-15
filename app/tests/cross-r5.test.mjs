@@ -223,10 +223,11 @@ test('approval card: a connector’s model request reads as one, with the model,
 
 test('@ menu: an agent target stays text, another session becomes ZCode’s [#title](#id), files stay mentions', async () => {
   const { mentionOptions, agentMentionText, mentionInputs } = await import('../src/mention-model.mjs');
-  const [mcp, session] = mentionOptions([{ literal: true, kind: 'mcp', name: 'github', text: '@mcp:github', description: 'Connector' }, { session: { id: 'ses_1', title: 'Debug login' }, description: 'Session' }]);
+  const [mcp, session] = mentionOptions([{ literal: true, kind: 'mcp', name: 'github', text: '@mcp:github', description: 'Connector' }, { session: { id: 'ses_1', title: 'Debug login', native: true }, description: 'Session' }]);
   assert.deepEqual([mcp.path, mcp.label, mcp.literal, mcp.icon], ['mcp:github', 'github', true, 'Connectors']);
-  assert.deepEqual([session.path, session.label, session.icon], ['session:ses_1', 'Debug login', 'Chat']);
-  const mentions = [{ path: 'mcp:github', literal: true }, { path: 'session:ses_1', session: { id: 'ses_1', title: 'Debug [login]' } }, { path: 'src/a.js' }];
+  // B31: a session row leads with ChatSimple (ca80fca8d TN); ZCode's own sessions (native) keep '#title'.
+  assert.deepEqual([session.path, session.label, session.icon, session.renderedText], ['session:ses_1', 'Debug login', 'ChatSimple', '#Debug login']);
+  const mentions = [{ path: 'mcp:github', literal: true }, { path: 'session:ses_1', session: { id: 'ses_1', title: 'Debug [login]', native: true } }, { path: 'src/a.js' }];
   const text = agentMentionText('Use @mcp:github and @session:ses_1 on @src/a.js', mentions);
   assert.equal(text, 'Use @mcp:github and [#Debug login](#ses_1) on @src/a.js');
   const files = mentionInputs(text, mentions.filter((entry) => !entry.literal && !entry.session));

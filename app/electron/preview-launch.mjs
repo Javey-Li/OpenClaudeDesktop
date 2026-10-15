@@ -277,43 +277,158 @@ export function parseUserUrl(text, root, home = "") {
 }
 
 // ------------------------------------------------------------------ dev server detection
-// The Preview pane's "Detect dev server" (2.2553.1 legacy preview detectServerCandidates): the project's own scripts,
-// read locally (no model turn). `files`: { read(relative) → text | null, exists(relative) → boolean }.
-const SCRIPT_NAMES = ["dev", "start", "serve", "preview", "develop"];
-// A script's tool → its default port, when the script doesn't name one.
-const TOOL_PORTS = [
-  [/\bnext\b/, 3000], [/\bnuxi?\b/, 3000], [/\bastro\b/, 4321], [/\bremix\b/, 3000], [/\bgatsby\b/, 8000], [/\breact-scripts\b/, 3000],
-  [/\bvue-cli-service\b/, 8080], [/\bng\s+serve\b/, 4200], [/\bwebpack(?:-dev-server|\s+serve)\b/, 8080], [/\bparcel\b/, 1234],
-  [/\beleventy\b|@11ty/, 8080], [/\bdocusaurus\b/, 3000], [/\bvite\b|svelte-kit|\bvitepress\b/, 5173], [/\bhttp-server\b/, 8080], [/\bserve\b/, 3000],
+// The Preview start page's static dev-server detection, as 2.31226.0 main reads it (asar index.chunk-CiiI592G.js
+// rUi detectServerCandidates, eUi framework, tUi runner, nUi validation, gatherProjectInfo packageManager): the
+// package.json scripts dev / start / serve / develop, run through the lockfile's package manager, on the framework's
+// default port. Pure: `files` is { read(relative) → text | null, exists(relative) → boolean }.
+export const DETECT_SCRIPT_NAMES = ["dev", "start", "serve", "develop"];
+// QHi: the frameworks a candidate may name (the start page captions all but "unknown").
+export const DETECT_FRAMEWORKS = ["next", "vite", "nuxt", "astro", "svelte", "angular", "remix", "gatsby", "unknown"];
+// $Hi: the first framework whose config file exists sets the framework and its port.
+const FRAMEWORK_FILES = [
+  { files: ["next.config.js", "next.config.ts", "next.config.mjs"], framework: "next", port: 3000 },
+  { files: ["vite.config.js", "vite.config.ts", "vite.config.mjs"], framework: "vite", port: 5173 },
+  { files: ["nuxt.config.js", "nuxt.config.ts"], framework: "nuxt", port: 3000 },
+  { files: ["astro.config.js", "astro.config.ts", "astro.config.mjs"], framework: "astro", port: 4321 },
+  { files: ["svelte.config.js", "svelte.config.ts"], framework: "svelte", port: 5173 },
+  { files: ["angular.json"], framework: "angular", port: 4200 },
+  { files: ["remix.config.js", "remix.config.ts"], framework: "remix", port: 3000 },
+  { files: ["gatsby-config.js", "gatsby-config.ts"], framework: "gatsby", port: 8000 },
 ];
-function scriptPort(command) {
-  const text = String(command ?? "");
-  const named = /(?:--port[ =]|-p\s+|PORT=)(\d{2,5})\b/.exec(text);
-  if (named) return Number(named[1]);
-  for (const [pattern, port] of TOOL_PORTS) if (pattern.test(text)) return port;
-  return null;
+// YHi / XHi: the runners a candidate may use and the script (and entry) names it may run.
+const CANDIDATE_RUNNERS = new Set(["npm", "yarn", "pnpm"]);
+const CANDIDATE_SCRIPT = /^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,63}$/;
+
+/** nUi: {status: "ok"} or {status: "blocked", reason: "runner-not-allowed" | "shell-metachar" | "port-out-of-range"}. */
+export function validateServerCandidate(candidate) {
+  if (!CANDIDATE_RUNNERS.has(candidate?.runtimeExecutable)) return { status: "blocked", reason: "runner-not-allowed" };
+  const args = Array.isArray(candidate.runtimeArgs) ? candidate.runtimeArgs : [];
+  const script = args.length === 2 && args[0] === "run" ? args[1] : null;
+  if (script === null || typeof script !== "string" || !CANDIDATE_SCRIPT.test(script) || (candidate.name !== undefined && !CANDIDATE_SCRIPT.test(candidate.name)))
+    return { status: "blocked", reason: "shell-metachar" };
+  if (!Number.isInteger(candidate.port) || candidate.port < 1 || candidate.port > 65535) return { status: "blocked", reason: "port-out-of-range" };
+  return { status: "ok" };
 }
-export function detectServerCandidates(files) {
+
+function projectScripts(files) {
   const read = (name) => { try { return files.read(name); } catch { return null; } };
   const exists = (name) => { try { return files.exists(name) === true; } catch { return false; } };
-  const candidates = [];
-  let pkg = null;
-  try { pkg = JSON.parse(read("package.json") ?? "null"); } catch { pkg = null; }
-  const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts ? pkg.scripts : {};
-  const manager = exists("pnpm-lock.yaml") ? "pnpm" : exists("yarn.lock") ? "yarn" : exists("bun.lockb") || exists("bun.lock") ? "bun" : "npm";
-  for (const name of SCRIPT_NAMES) {
-    const command = scripts[name];
-    if (typeof command !== "string" || !command.trim()) continue;
-    // A start script that only runs a built server ("node dist/…") is still a server; tests and builds never are.
-    if (/^\s*(?:jest|vitest|mocha|tsc|eslint)\b/.test(command)) continue;
-    candidates.push({ name, runtimeExecutable: manager, runtimeArgs: manager === "yarn" ? [name] : ["run", name], port: scriptPort(command) ?? 3000, detail: command.trim().slice(0, 200) });
+  // gatherProjectInfo: yarn.lock → yarn, pnpm-lock.yaml → pnpm, else npm.
+  const packageManager = exists("yarn.lock") ? "yarn" : exists("pnpm-lock.yaml") ? "pnpm" : "npm";
+  let scripts = null;
+  if (exists("package.json")) {
+    try { const pkg = JSON.parse(read("package.json") ?? "null"); if (pkg?.scripts && typeof pkg.scripts === "object") scripts = pkg.scripts; } catch { scripts = null; }
   }
-  if (!candidates.length && exists("manage.py")) candidates.push({ name: "django", runtimeExecutable: "python3", runtimeArgs: ["manage.py", "runserver", "8000"], port: 8000, detail: "python3 manage.py runserver 8000" });
-  const htmlEntry = ["index.html", "public/index.html", "docs/index.html"].find((name) => exists(name)) ?? null;
-  return { candidates: candidates.slice(0, 5), htmlEntry };
+  return { packageManager, scripts, exists };
 }
-/** The launch.json text for a detected server (the pane's Use). */
+
+/** rUi: the candidates {name, runtimeExecutable, runtimeArgs, port, framework, validation} the start page lists. */
+export function detectServerCandidates(files) {
+  const { packageManager, scripts, exists } = projectScripts(files);
+  if (!scripts) return [];
+  const found = FRAMEWORK_FILES.find((entry) => entry.files.some((file) => exists(file)));
+  const framework = found?.framework ?? "unknown", port = found?.port ?? 3000;
+  const candidates = [];
+  for (const name of DETECT_SCRIPT_NAMES) {
+    if (!Object.prototype.hasOwnProperty.call(scripts, name)) continue;
+    // tUi: every runner runs the script as `<runner> run <script>`.
+    const runtimeExecutable = packageManager, runtimeArgs = ["run", name];
+    candidates.push({ name, runtimeExecutable, runtimeArgs, port, framework, validation: validateServerCandidate({ runtimeExecutable, runtimeArgs, port }) });
+  }
+  return candidates;
+}
+
+/** addServerFromCandidate's checks before it writes: a valid candidate whose script package.json still has. */
+export function serverCandidateProblem(candidate, files) {
+  const validation = validateServerCandidate(candidate);
+  if (validation.status !== "ok") return validation.reason;
+  const { scripts } = projectScripts(files);
+  return scripts && Object.prototype.hasOwnProperty.call(scripts, candidate.runtimeArgs[1]) ? null : "script-not-found";
+}
+
+/** The launch.json entry addServerFromCandidate writes (named after the script). */
+export function candidateConfiguration(candidate) {
+  return { name: String(candidate.runtimeArgs[1]), runtimeExecutable: String(candidate.runtimeExecutable), runtimeArgs: candidate.runtimeArgs.map(String), port: Number(candidate.port) };
+}
+
+/** The launch.json text for a project that has none yet. */
 export function launchConfigText(candidate) {
-  const entry = { name: String(candidate.name), runtimeExecutable: String(candidate.runtimeExecutable), runtimeArgs: (candidate.runtimeArgs ?? []).map(String), port: Number(candidate.port) || 3000 };
-  return `${JSON.stringify({ version: "0.0.1", configurations: [entry] }, null, 2)}\n`;
+  return `${JSON.stringify({ version: "0.0.1", configurations: [candidateConfiguration(candidate)] }, null, 2)}\n`;
+}
+
+// Index just past the string, comment or single character at `index` (JSONC lexing for the in-place edits).
+function skipToken(source, index) {
+  const char = source[index];
+  if (char === "/" && source[index + 1] === "/") { const end = source.indexOf("\n", index); return end < 0 ? source.length : end; }
+  if (char === "/" && source[index + 1] === "*") { const end = source.indexOf("*/", index + 2); return end < 0 ? source.length : end + 2; }
+  if (char === '"') {
+    let end = index + 1;
+    while (end < source.length && source[end] !== '"') end += source[end] === "\\" ? 2 : 1;
+    return end + 1;
+  }
+  return index + 1;
+}
+
+/**
+ * p2.addServerConfiguration: the entry appended to an existing launch.json's top-level "configurations" in place (its
+ * comments and layout kept, as jsonc-parser modify with isArrayInsertion does). {status: "ok", text} |
+ * {status: "name-exists"} when a configuration already has the name (ignoring case) | {status: "error"} when the file
+ * isn't a JSON object or its "configurations" isn't an array.
+ */
+export function withServerConfiguration(text, entry) {
+  const source = String(text ?? "");
+  let parsed;
+  try { parsed = parseJsonc(source); } catch { return { status: "error" }; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { status: "error" };
+  if (parsed.configurations !== undefined && !Array.isArray(parsed.configurations)) return { status: "error" };
+  const name = entry.name.toLowerCase();
+  if ((parsed.configurations ?? []).some((config) => typeof config?.name === "string" && config.name.toLowerCase() === name)) return { status: "name-exists" };
+  const lineIndent = (at) => /^[ \t]*/.exec(source.slice(source.lastIndexOf("\n", at - 1) + 1))[0];
+  const block = (indent, unit) => JSON.stringify(entry, null, unit).split("\n").map((line) => indent + line).join("\n");
+  // The top-level "configurations" key and its array's brackets.
+  let depth = 0, keyAt = -1, open = -1, close = -1, root = -1;
+  for (let index = 0; index < source.length;) {
+    const char = source[index];
+    if (char === '"') {
+      const end = skipToken(source, index);
+      if (depth === 1 && keyAt < 0 && source.slice(index, end) === '"configurations"' && /^\s*:/.test(source.slice(end))) keyAt = index;
+      index = end;
+      continue;
+    }
+    if (char === "/" && (source[index + 1] === "/" || source[index + 1] === "*")) { index = skipToken(source, index); continue; }
+    if (char === "{" || char === "[") {
+      if (depth === 0 && char === "{" && root < 0) root = index;
+      if (depth === 1 && char === "[" && keyAt >= 0 && open < 0) open = index;
+      depth++;
+    } else if (char === "}" || char === "]") {
+      depth--;
+      if (depth === 1 && char === "]" && open >= 0 && close < 0) close = index;
+    }
+    index++;
+  }
+  if (open >= 0 && close > open) {
+    const outer = lineIndent(keyAt);
+    // The array's last value (comments skipped) decides whether a comma goes before the new entry.
+    let last = -1;
+    for (let index = open + 1; index < close;) {
+      const char = source[index];
+      if (char === "/" && (source[index + 1] === "/" || source[index + 1] === "*")) { index = skipToken(source, index); continue; }
+      if (char === '"') { index = skipToken(source, index); last = index - 1; continue; }
+      if (!/\s/.test(char)) last = index;
+      index++;
+    }
+    const unit = outer.length ? outer : "  ";
+    const inner = outer + unit;
+    if (last < 0) return { status: "ok", text: `${source.slice(0, open + 1)}\n${block(inner, unit)}\n${outer}${source.slice(close)}` };
+    const comma = source[last] === "," ? "" : ",";
+    return { status: "ok", text: `${source.slice(0, last + 1)}${comma}\n${block(inner, unit)}${source.slice(last + 1)}` };
+  }
+  // No "configurations" yet: added as the object's last key.
+  const end = source.lastIndexOf("}");
+  if (root < 0 || end < root) return { status: "error" };
+  const body = source.slice(root + 1, end);
+  const bare = !body.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "").trim();
+  const trimmed = source.slice(0, end).replace(/\s*$/, "");
+  const needsComma = !bare && !trimmed.endsWith(",") && !trimmed.endsWith("{");
+  return { status: "ok", text: `${trimmed}${needsComma ? "," : ""}\n  "configurations": [\n${block("    ", "  ")}\n  ]\n${source.slice(end)}` };
 }

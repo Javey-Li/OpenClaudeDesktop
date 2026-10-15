@@ -23,7 +23,7 @@ const poll=async(fn,label)=>{const end=Date.now()+10000;while(Date.now()<end){if
 const settings=()=>page.getByRole('dialog',{name:'Settings',exact:true});const button=name=>settings().getByRole('button',{name,exact:true});
 const snapshot=()=>page.evaluate(()=>window.desktop.call('init'));
 const authPhase=async expected=>poll(async()=>(await snapshot()).auth.phase===expected,'auth '+expected);
-async function open(){await page.keyboard.press('Meta+,');await settings().waitFor();await settings().getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'Preferences',exact:true}).click();}
+async function open(){await page.keyboard.press('Meta+,');await settings().waitFor();await settings().getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'General',exact:true}).click();}
 async function close(){await page.keyboard.press('Escape');await settings().waitFor({state:'detached'});}
 async function release(id){await fs.writeFile(path.join(profile,'fixture-account-'+id+'-release'),'');await poll(()=>exists('fixture-account-'+id+'-sent.json'),id+' sent');}
 const held=id=>poll(()=>exists('fixture-account-'+id+'-held.json'),id+' held');

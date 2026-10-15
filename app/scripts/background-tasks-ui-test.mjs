@@ -63,7 +63,7 @@ try {
   app=await electron.launch({executablePath,args:[root],env});page=await app.firstWindow();page.setDefaultTimeout(12000);page.on('pageerror',e=>rendererErrors.push(e.message));
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(1324,768));await page.waitForFunction(()=>innerWidth===1324&&innerHeight===768);
   await page.locator(`[data-source-session-id="${RC}"] .source-session-open`).click();await page.getByText('ORIGINAL_RESPONSE',{exact:true}).waitFor();
-  const editor=page.getByRole('textbox',{name:'Message DeepSeek'});await editor.fill('fixture:background-command');await page.getByRole('button',{name:'Send message',exact:true}).click();
+  const editor=page.getByRole('textbox',{name:'Message DeepSeek'});await editor.fill('fixture:background-command');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   const command=page.locator('.source-step').filter({hasText:'sleep 30'}),commandTrigger=command.locator('.source-step-trigger');
   // Product correction (0.2.116): approval-current.js:17279 renders XM "View live output" in the row
   // heading (`ne ? GM{toolUseId}`), not in the KE running footer (:2894-2925); it opens the pane
@@ -137,7 +137,7 @@ try {
 
   // 0.2.35 race contract: release an inventory captured before a live start.
   // All state still arrives through actual app-server notifications and IPC.
-  await page.getByRole('button',{name:'Stop response',exact:true}).click();await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'detached'});
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({state:'detached'});
   const marker=name=>path.join(profile,'fixture-background-'+name);
   const exists=async file=>fs.access(file).then(()=>true,()=>false);
   const rpcStart=async text=>page.evaluate(({threadId,text})=>window.desktop.call('rpc',{method:'turn/start',params:{threadId,input:[{type:'text',text}]}}),{threadId:RC,text});
@@ -164,7 +164,7 @@ try {
   await raceTask.waitFor();await poll(async()=>await raceTask.getAttribute('data-status')==='completed','authoritative completion');
   checks.push('A deliberately delayed empty inventory cannot negate a later live start; early Stop refreshes real membership, sends one terminate, stays running/busy until item/completed');
 
-  await page.getByRole('button',{name:'Stop response',exact:true}).click();await page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'detached'});
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({state:'detached'});
   const dropped=await rpcStart('fixture:background-command-disconnect'),dropId='bash:background-'+dropped.turn.id;
   const dropTask=pane.locator(`[data-task-id="${dropId}"]`);await dropTask.waitFor();assert.equal(await dropTask.getAttribute('data-status'),'running');
   await fs.writeFile(marker('disconnect'),'isolated');

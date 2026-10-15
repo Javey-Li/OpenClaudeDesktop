@@ -24,7 +24,7 @@ test('findInText: case-insensitive literal matches with 1-based lines and in-lin
   assert.deepEqual(findInText('abc', ''), []);
   assert.deepEqual(findInText('a\nb', 'a\nb'), [], 'a match never spans lines');
   assert.equal(findInText('x'.repeat(50), 'x', 7).length, 7);
-  assert.equal(FIND_LIMIT, 10000);
+  assert.equal(FIND_LIMIT, 1000000);
 });
 
 test('find stepping wraps, the status reads current/total and caps', () => {

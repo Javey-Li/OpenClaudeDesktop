@@ -4,6 +4,8 @@ import { SourceTooltip } from "./source-tooltip";
 import { SourcePopover } from "./source-popover";
 import { attachmentOpenAction, attachmentViewerState, extensionOf } from "./composer-attachments-model.mjs";
 import { SourceImageViewer } from "./source-image-viewer.jsx";
+import { SourceSelectedElementPill } from "./source-selected-element.jsx";
+import { createSelectedElementChipBody } from "./generated/code-editor/preview-element-chip.mjs";
 import "./source-composer-attachments.css";
 import { t } from "../electron/i18n/index.mjs";
 
@@ -56,7 +58,7 @@ function AttachmentPill({ entry, onRemove, onOpen, disabled }) {
 // 40px quiet pill with the Quote glyph, its tooltip the label with 'Click to preview'; a press pins the preview popover
 // (top-start, 8px, Uc: 320px wide, at most 280px tall, the body as wrapped text) and Escape or a press outside closes it.
 // Delete/Backspace on the pill removes it (Al xe), as the × does.
-function SnippetPill({ entry, onRemove, disabled }) {
+function SnippetPill({ entry, onRemove, disabled, previewLayerBase }) {
   const [preview, setPreview] = useState(false), body = useRef(null);
   return (
     <div data-cds-attachment="" className="sca-pill" data-kind="snippet" data-status={entry.status}>
@@ -64,17 +66,17 @@ function SnippetPill({ entry, onRemove, disabled }) {
         <button ref={body} type="button" aria-label={entry.label} aria-haspopup="dialog" aria-expanded={preview}
           className="epitaxy-pill-body epitaxy-pill-body--flat sca-body sca-body--flat"
           onMouseDown={(event) => event.preventDefault()} onClick={() => setPreview((open) => !open)}
-          onKeyDown={(event) => { if ((event.key === "Delete" || event.key === "Backspace") && !disabled) { event.preventDefault(); onRemove(entry.id); } }}>
+          onKeyDown={(event) => { if ((event.key === "Delete" || event.key === "Backspace") && !disabled && onRemove) { event.preventDefault(); onRemove(entry.id); } }}>
           <span className="sca-glyph" aria-hidden="true"><Icon name="Quote" size={16} /></span>
         </button>
       </SourceTooltip>
-      <button type="button" tabIndex={-1} aria-label={t("Remove {name}", { name: entry.label })} className="epitaxy-pill-remove sca-remove"
+      {onRemove && <button type="button" tabIndex={-1} aria-label={t("Remove {name}", { name: entry.label })} className="epitaxy-pill-remove sca-remove"
         disabled={disabled} onMouseDown={(event) => event.preventDefault()}
         onClick={(event) => { event.stopPropagation(); event.preventDefault(); onRemove(entry.id); }}>
         <Icon name="X" size={12} />
-      </button>
+      </button>}
       {preview && body.current && <SourcePopover anchor={body.current} side="top" align="start" sideOffset={8} padding="none" label={entry.label}
-        dataCds="AttachmentPreview" className="sca-preview" onClose={() => setPreview(false)}>
+        dataCds="AttachmentPreview" layerBase={previewLayerBase} className="sca-preview" onClose={() => setPreview(false)}>
         <div className="sca-preview-body" tabIndex={0} role="group" aria-label={entry.label} data-epitaxy-pill-preview="">
           <span className="sca-preview-text">{entry.text}</span>
         </div>
@@ -83,17 +85,42 @@ function SnippetPill({ entry, onRemove, disabled }) {
   );
 }
 
+// ca80fca8d pk for the draft's agent and issue (:7744-7775): {value:'agent', thumbnail Agent xs, label} and
+// {value:'issue', thumbnail a spinner while the body loads else Placeholder xs, label '#n title', a press opens its URL};
+// each with the hover × and Delete/Backspace that remove it.
+function ChipButton({ onKeyUp, ...props }) {
+  return <button type="button" {...props} onKeyUp={(event) => { event.preventBaseUIHandler = () => {}; onKeyUp?.(event); }} />;
+}
+const ChipBody = createSelectedElementChipBody({ Button: ChipButton });
+function ContextPill({ pill, disabled }) {
+  const remove = () => { if (!disabled) pill.onRemove?.(); };
+  const thumbnail = pill.loading
+    ? <span role="status" className="sc-context-pill-loading"><span className="sc-spinner" aria-hidden="true" /><span className="sca-sr-only">{t("Loading")}</span></span>
+    : <Icon name={pill.icon} size={12} />;
+  return (
+    <div data-cds-attachment="" data-kind={pill.kind} className="sca-pill sc-context-pill">
+      <ChipBody value={pill.kind} label={pill.label} thumbnail={thumbnail} onClick={pill.onOpen}
+        onKeyDown={(event) => { if ((event.key === "Delete" || event.key === "Backspace") && !event.nativeEvent.isComposing) { event.preventDefault(); remove(); } }} />
+      {pill.onRemove && <button type="button" tabIndex={-1} aria-label={t("Remove {name}", { name: pill.label })} className="epitaxy-pill-remove sca-remove"
+        disabled={disabled} onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => { event.stopPropagation(); event.preventDefault(); remove(); }}>
+        <Icon name="X" size={12} />
+      </button>}
+    </div>
+  );
+}
+
 // Ue/Za (c099c328d :3143-3150, :3518-3526): an image pill opens the image viewer on its
 // preview, named by the image, zooming from the pill; the viewer state stays here. A file or
 // directory pill goes to onOpenFile(entry, 'file' | 'reveal') (Gl :3542-3550, adapted).
-export function SourceComposerAttachments({ entries = [], onRemove, onOpenFile, disabled = false }) {
+export function SourceComposerAttachments({ entries = [], contextPills = [], onRemove, onOpenFile, disabled = false, previewLayerBase = 0 }) {
   const [viewer, setViewer] = useState(null);
   // The viewer lives only as long as its entry: a removed or swapped-out attachment (a draft swap,
   // a send, the last pill removed) closes it, and the state is cleared before the empty early
   // return so a later attachment never reopens a stale (possibly revoked) preview.
   const shown = attachmentViewerState(viewer, entries);
   if (viewer && !shown) setViewer(null);
-  if (!entries.length) return null;
+  if (!entries.length && !contextPills.length) return null;
   const open = (entry, origin) => {
     const action = attachmentOpenAction(entry);
     if (action === "view") setViewer({ id: entry.id, src: entry.previewUrl, alt: entry.name, origin });
@@ -103,8 +130,11 @@ export function SourceComposerAttachments({ entries = [], onRemove, onOpenFile, 
     <div className="sca-wrap">
       <div data-cds-composer-attachments="" className="sca-slot">
         <div className="sca-strip">
-          {entries.map((entry) => entry.kind === "snippet"
-            ? <SnippetPill key={entry.id} entry={entry} onRemove={onRemove} disabled={disabled} />
+          {contextPills.map((pill) => <ContextPill key={pill.kind} pill={pill} disabled={disabled} />)}
+          {entries.map((entry) => entry.kind === "elementContext"
+            ? <SourceSelectedElementPill previewLayerBase={previewLayerBase} key={entry.id} entry={entry} onRemove={onRemove} disabled={disabled} />
+            : entry.kind === "snippet"
+            ? <SnippetPill previewLayerBase={previewLayerBase} key={entry.id} entry={entry} onRemove={onRemove} disabled={disabled} />
             : <AttachmentPill key={entry.id} entry={entry} onRemove={onRemove} onOpen={open} disabled={disabled} />)}
         </div>
       </div>

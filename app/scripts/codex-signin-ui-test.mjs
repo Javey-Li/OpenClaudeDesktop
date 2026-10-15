@@ -82,7 +82,7 @@ try{
  assert.equal(await setup().count(),0,'setup never opens');
  assert.equal(await page.getByText('Sign in to Codex',{exact:true}).count(),0,'no Sign in step or card');
  await page.keyboard.press('Meta+,');const settings=page.getByRole('dialog',{name:'Settings',exact:true});await settings.waitFor();
- await settings.getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'Preferences',exact:true}).click();
+ await settings.getByRole('navigation',{name:'Settings',exact:true}).getByRole('button',{name:'General',exact:true}).click();
  const accountRow=settings.locator('[data-setting-id=account]');await accountRow.waitFor();
  report.metrics.customAccount=await accountRow.innerText();
  assert.match(report.metrics.customAccount,/Using a custom endpoint \(Settings › Models\)/);

@@ -97,8 +97,8 @@ test("blur/pointer intent cancels pending Enter, including empty successful resu
 test("current errors do not open retained rows and explicit retry can recover", async () => {
   const h = harness();
   h.controller.setQuery("file"); h.advance(120); await flush(); h.resolve(0, ["file.txt"]); await flush();
-  h.controller.setQuery("?contents"); h.controller.requestEnter(); h.advance(120); await flush();
-  h.resolve(1, [], { error: { code: "CONTENT_SEARCH_UNSUPPORTED", message: "This API searches filenames only." } }); await flush();
+  h.controller.setQuery("bad"); h.controller.requestEnter(); h.advance(120); await flush();
+  h.resolve(1, [], { error: { code: "SEARCH_FAILED", message: "Search failed." } }); await flush();
   assert.equal(h.controller.getState().phase, "error"); assert.equal(h.controller.requestEnter(), false); assert.deepEqual(h.opened, []);
   h.controller.refresh(); h.advance(120); await flush(); h.resolve(2, []); await flush();
   assert.equal(h.controller.getState().phase, "success"); h.controller.dispose();
@@ -140,6 +140,23 @@ test("rejects wrong request/workspace/query envelopes, unsafe paths and director
     h.resolve(0, ["file.txt"], bad); await flush();
     assert.equal(h.controller.getState().phase, "error"); assert.deepEqual(h.opened, []); h.controller.dispose();
   }
+});
+
+// B33 (cccc2cf0a Fv): a filter ending in '/' asks main for folder rows and accepts them; Enter on a folder
+// result activates it like a click (the pane reveals the folder in the tree).
+test("a trailing-slash filter carries folders and accepts folder rows; other filters still reject them", async () => {
+  const h = harness();
+  h.controller.setQuery("src/"); h.controller.requestEnter(); h.advance(120); await flush();
+  assert.equal(h.calls[0].request.folders, true);
+  h.resolve(0, [], { matches: [{ path: "src/main", name: "main", directory: true, positions: [0] },
+    { path: "src/a.js", name: "a.js", directory: false, positions: [0] }] }); await flush();
+  assert.equal(h.controller.getState().phase, "success");
+  assert.deepEqual(h.controller.getState().matches.map(match => match.directory), [true, false]);
+  assert.deepEqual(h.opened, ["src/main"]);
+  h.controller.dispose();
+  const content = harness(); content.controller.setQuery("?src/"); content.advance(250); await flush();
+  assert.equal(content.calls[0].request.folders, undefined);
+  content.controller.dispose();
 });
 
 test("UI cap is 50 and reports truncation without claiming a complete search", async () => {
@@ -201,4 +218,29 @@ test("limit messages distinguish result count, incomplete enumeration and output
   }
   assert.equal(searchLimitMessage({ truncationReasons: ["result-output-limit"] }), "Some matching files could not be shown.");
   assert.equal(searchLimitMessage({ truncationReasons: ["future-limit"] }), "Search results are incomplete.");
+});
+
+test('content mode uses 250ms debounce, carries options, invalidates stale requests and opens line context',async()=>{
+ const h=harness();h.controller.setQuery('?');h.advance(500);await flush();assert.equal(h.calls.length,0);
+ h.controller.setQuery('?needle');h.advance(249);await flush();assert.equal(h.calls.length,0);h.advance(1);await flush();assert.equal(h.calls[0].request.mode,'content');
+ h.controller.setOptions({matchCase:true,wholeWord:true,regexp:false});h.advance(250);await flush();assert.equal(h.calls[1].request.options.matchCase,true);
+ const matches=[{path:'a.txt',name:'a.txt',directory:false,line:3,column:2,preview:' needle',ranges:[[1,7]]},{path:'a.txt',name:'a.txt',directory:false,line:8,column:1,preview:'needle',ranges:[[0,6]]}];
+ h.resolve(1,[],{matches});await flush();assert.equal(h.controller.getState().matches.length,2);assert.equal(h.controller.getState().matches[0].findQuery,'needle');assert.equal(h.controller.getState().matches[0].findOptions.wholeWord,true);
+ h.resolve(0,[],{error:{code:'INVALID_PATTERN',message:'old'}});await flush();assert.equal(h.controller.getState().phase,'success');
+ h.controller.requestEnter();assert.deepEqual(h.opened,['a.txt']);h.controller.setQuery('a');assert.deepEqual(h.controller.getState().matches,[]);h.controller.dispose();
+});
+
+// B32 ko "Reveal in file tree" on a breadcrumb folder: revealInFilesTree(`${dir}/`).
+test('B32 a folder reveal targets that folder row and expands only its ancestors', () => {
+  assert.equal(revealRelation({ path: 'src/deep', directory: true }, 'src/deep/'), 'target');
+  assert.equal(revealRelation({ path: 'src', directory: true }, 'src/deep/'), 'ancestor');
+  assert.equal(revealRelation({ path: 'src/deep/x', directory: true }, 'src/deep/'), null);
+  assert.equal(revealRelation({ path: 'src/deep', directory: false }, 'src/deep/'), null);
+  assert.equal(revealRelation({ path: 'src', directory: true }, '../x/'), null);
+});
+test('B32 a folder reveal asks each listing for the next folder on its way', async () => {
+  const { revealChild } = await import('../src/files-search-model.mjs');
+  assert.equal(revealChild('', 'src/deep/'), 'src');
+  assert.equal(revealChild('src', 'src/deep/'), 'deep');
+  assert.equal(revealChild('src/deep', 'src/deep/'), undefined);
 });

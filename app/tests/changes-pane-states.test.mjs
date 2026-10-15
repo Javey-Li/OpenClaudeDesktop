@@ -32,11 +32,35 @@ test('loading: centered rh wrapper, status named "Loading changes", no visible t
   assert.match(html, /aria-busy="true"/);
 });
 
-test('failed: role=alert EmptyState with the Warning icon and the exact copy, raw error absent', () => {
-  const html = panel({ diffError: 'Could not load repository diff: fatal: secret-detail', diffScope: 'uncommitted' });
-  assert.match(html, /<div data-diff-pane-body="" tabindex="-1" class="h-full w-full outline-none source-pane-state"><div role="alert" class="flex h-full flex-col items-center justify-center gap-md px-lg py-lg text-center source-empty-state"><span aria-hidden="true" data-cds="Icon" class="!size-7 text-muted" style="font-size:24px;font-weight:[\d.]+">.<\/span><div class="flex flex-col items-center gap-1"><p class="max-w-\[36ch\] break-words text-body text-primary">Couldn’t load the changes\. Close and reopen this pane to try again\.<\/p><\/div><\/div><\/div>/);
-  assert.doesNotMatch(html, /secret-detail|fatal:|Could not load repository diff/);
-  assert.equal(P.CHANGES_FAILED_TITLE, 'Couldn’t load the changes. Close and reopen this pane to try again.');
+test('failed: role=alert EmptyState with the Warning icon, "Couldn’t load the changes" and a secondary "Try again" (cb61be3a2 ze/W)', () => {
+  const html = panel({ diffError: 'Could not load repository diff: fatal: secret-detail', diffScope: 'uncommitted', onRefresh: () => {} });
+  assert.match(html, /<div data-diff-pane-body="" tabindex="-1" class="h-full w-full outline-none source-pane-state"><div role="alert" class="flex h-full flex-col items-center justify-center gap-md px-lg py-lg text-center source-empty-state"><span aria-hidden="true" data-cds="Icon" class="!size-7 text-muted" style="font-size:24px;font-weight:[\d.]+">.<\/span><div class="flex flex-col items-center gap-1"><p class="max-w-\[36ch\] break-words text-body text-primary">Couldn’t load the changes<\/p><\/div><div class="flex flex-wrap items-center justify-center gap-1"><button type="button" data-cds="Button" data-variant="secondary"[^>]*>(?:<[^>]+>)*Try again/);
+  assert.doesNotMatch(html, /aria-busy="true"/);
+  assert.doesNotMatch(html, /secret-detail|fatal:|Could not load repository diff|Close and reopen/);
+  assert.equal(P.CHANGES_FAILED_TITLE, 'Couldn’t load the changes');
+  // While the refetch it started runs, the button is busy and named "Loading changes".
+  const busy = panel({ diffError: 'boom', onRefresh: () => {}, diffRetrying: true });
+  assert.match(busy, /<button aria-label="Loading changes" type="button" data-cds="Button" data-variant="secondary" aria-busy="true"/);
+  // Without a refetch handler there is no button (never a dead control).
+  assert.doesNotMatch(panel({ diffError: 'boom' }), /Try again/);
+});
+
+test('Try again runs the pane Refresh', () => {
+  let refreshed = 0, onClick = null;
+  const element = React.createElement(P.SourceChangesState, { state: 'failed', onRetry: () => { refreshed += 1; } });
+  // Walk the rendered element tree to the button's onClick (SSR has no events).
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    if (node.props?.onClick && node.props.children === P.CHANGES_RETRY_LABEL) onClick = node.props.onClick;
+    const rendered = typeof node.type === 'function' ? node.type(node.props) : null;
+    visit(rendered ?? node.props?.children);
+    if (node.props?.actions) visit(node.props.actions);
+  };
+  visit(element);
+  assert.equal(typeof onClick, 'function');
+  onClick();
+  assert.equal(refreshed, 1);
 });
 
 test('empty: data-diff-pane-body with "No uncommitted changes" (uncommitted scope) or "No changes to show"', () => {
@@ -181,4 +205,77 @@ test('large diff: 5001 changed lines start every file collapsed under the banner
   assert.deepEqual(toggles(small).map(tag => tag.match(/aria-expanded="(\w+)"/)?.[1]), ['true', 'true']);
   assert.doesNotMatch(small, /Files are collapsed for large diffs/);
   assert.equal((small.match(/class="sdiff-file-body"/g) || []).length, 2);
+});
+
+// B15 (2.31226.0 c44d00c7f Wr/Kr/qr/Zr :808-1057, mount ~7210; Xc/al stale carry-over).
+const shownTree = { diffShowTree: true, diffTreeWidth: 240, diffFileTree: true, diffGroupByKind: false };
+const sha = (n) => n.toString(16).padStart(40, 'c');
+const commitRow = (n, extra = {}) => ({ sha: sha(n), shortSha: sha(n).slice(0, 7), subject: `Commit ${n}`, authorName: 'Ada', date: 0, ...extra });
+
+test('Commits section: under the tree (border-t, max-height 40%), header "Commits {n}", All changes / Uncommitted / commit rows', () => {
+  const selected = [];
+  const commits = { list: [commitRow(1), commitRow(2, { subject: '' })], total: 2, selectedSha: sha(2), uncommittedSelected: false,
+    onSelect: (value) => selected.push(value), onSelectUncommitted: () => {} };
+  const html = body(panel({ diff: twoFiles, diffTree: { ...shownTree, diffCommitsCollapsed: false }, onDiffTreeChange: () => {}, diffCommits: commits }));
+  const column = html.slice(html.indexOf('sdiff-file-list '), html.indexOf('sdiff-changes-main'));
+  assert.ok(column.indexOf('role="tree"') < column.indexOf('sdiff-commits-section'), 'the section follows the tree');
+  assert.match(column, /<div class="sdiff-commits-section flex shrink-0 flex-col border-t" data-pane-line="" style="max-height:40%">/);
+  assert.match(column, /<div class="shrink-0 px-xs py-1\.25"><div class="rounded hover:bg-fill-ghost-hover"><button type="button" aria-expanded="true" aria-controls="[^"]+" style="padding-left:8px" class="sdiff-commits-trigger flex items-center gap-1 h-control pr-md rounded text-body text-left w-full select-none focus-visible:outline-hidden hide-focus-ring focus-visible:shadow-focus text-secondary">/);
+  assert.match(column, /<span class="min-w-0 flex-1 truncate">Commits<\/span><span class="shrink-0 text-footnote tabular-nums text-muted">2<\/span>/);
+  assert.match(column, /class="[^"]*rotate-90"/, 'expanded caret');
+  assert.match(column, /<div role="toolbar" aria-orientation="vertical" aria-label="Commits" tabindex="0" class="sdiff-commits-list flex flex-col gap-0\.5 pb-md outline-none hide-focus-ring pt-0\.5">/);
+  const rows = [...column.matchAll(/<button[^>]*data-commit-row="([^"]*)"[^>]*>/g)].map((match) => [match[1], /aria-pressed="true"/.test(match[0])]);
+  assert.deepEqual(rows, [['', false], ['', false], ['commit', false], ['commit', true]], 'All changes, Uncommitted changes, then commits; the picked commit is pressed');
+  assert.match(column, />All changes<\/button>/);
+  assert.match(column, />Uncommitted changes<\/button>/);
+  assert.match(column, /class="sdiff-commit-row group flex w-full flex-col items-start gap-\[2px\] rounded px-xs py-\[6px\] text-left text-body[^"]*bg-fill-control hover:bg-fill-control text-primary"/);
+  assert.match(column, /<span class="w-full truncate" data-cds="OverflowTooltip">\(no message\)<\/span>/);
+  assert.match(column, /<span class="flex w-full items-center gap-1 text-footnote text-muted"><span class="text-code">ccccccc<\/span><span aria-hidden="true">·<\/span><span class="truncate">Ada<\/span><\/span>/);
+  // Collapsed: header only, caret not rotated.
+  const collapsed = body(panel({ diff: twoFiles, diffTree: { ...shownTree, diffCommitsCollapsed: true }, onDiffTreeChange: () => {}, diffCommits: commits }));
+  assert.match(collapsed, /aria-expanded="false"/);
+  assert.doesNotMatch(collapsed, /role="toolbar"/);
+  // No commits, or a hidden column: no section.
+  assert.doesNotMatch(body(panel({ diff: twoFiles, diffTree: shownTree, onDiffTreeChange: () => {}, diffCommits: { ...commits, list: [] } })), /sdiff-commits-section/);
+  assert.doesNotMatch(body(panel({ diff: twoFiles, diffCommits: commits })), /sdiff-commits-section/);
+  // Without uncommitted changes there is no Uncommitted row; a dated commit shows a relative time.
+  const plain = body(panel({ diff: twoFiles, diffTree: shownTree, onDiffTreeChange: () => {},
+    diffCommits: { ...commits, onSelectUncommitted: undefined, selectedSha: null, list: [commitRow(3, { date: Math.floor(Date.now() / 1000) - 7200 })] } }));
+  assert.doesNotMatch(plain, />Uncommitted changes</);
+  assert.match(plain, /<button[^>]*data-commit-row=""[^>]*aria-pressed="true"[^>]*>All changes</);
+  assert.match(plain, /<time data-cds="RelativeTime" dateTime="[^"]+" class="shrink-0">[^<]+<\/time>/);
+});
+
+test('Commits section: 100 rows, a picked older commit appended, "{n} older commits not shown" from the total', () => {
+  const list = Array.from({ length: 101 }, (_, index) => commitRow(index + 1));
+  const html = body(panel({ diff: twoFiles, diffTree: shownTree, onDiffTreeChange: () => {},
+    diffCommits: { list, total: 140, selectedSha: sha(101), onSelect: () => {} } }));
+  assert.equal((html.match(/data-commit-row="commit"/g) || []).length, 101, '100 newest plus the selected 101st');
+  assert.match(html, /<span class="px-xs py-\[6px\] text-footnote text-muted select-none">39 older commits not shown<\/span>/);
+  assert.match(html, /<span class="shrink-0 text-footnote tabular-nums text-muted">140<\/span>/);
+});
+
+test('stale comparison: the previous scope stays with aria-busy, data-stale and the delayed 60% dim; no spinner', () => {
+  const html = body(panel({ diff: twoFiles, diffScope: 'uncommitted', diffStale: { scope: 'branch' }, diffTree: shownTree, onDiffTreeChange: () => {} }));
+  assert.match(html, /<div aria-busy="true" class="min-h-0 flex-1 overflow-y-auto opacity-60 transition-opacity delay-200 duration-100"><div role="tree"/);
+  assert.match(html, /<div class="sdiff-changes-main opacity-60 transition-opacity delay-200 duration-100" data-stale="true" aria-busy="true">/);
+  assert.doesNotMatch(html, /Loading changes/);
+  assert.match(html, /data-file-path="src\/app\.js"/);
+  const fresh = body(panel({ diff: twoFiles, diffTree: shownTree, onDiffTreeChange: () => {} }));
+  assert.doesNotMatch(fresh, /data-stale|aria-busy|opacity-60/);
+});
+
+test('empty comparison with commits: the column keeps the Commits section beside the empty state (c44d00c7f cl Ne, cccc2cf0a Ie)', () => {
+  const commits = { list: [commitRow(1)], total: 1, selectedSha: null, uncommittedSelected: true, onSelect: () => {}, onSelectUncommitted: () => {} };
+  const html = body(panel({ diff: '', diffScope: 'uncommitted', diffTree: shownTree, onDiffTreeChange: () => {}, diffCommits: commits }));
+  const column = html.slice(html.indexOf('sdiff-file-list '), html.indexOf('sdiff-changes-main'));
+  assert.match(column, /sdiff-commits-section/);
+  assert.doesNotMatch(column, /role="tree"/, 'no file tree without files (Ht)');
+  const main = html.slice(html.indexOf('sdiff-changes-main'));
+  assert.match(main, /No uncommitted changes/);
+  assert.doesNotMatch(main, /data-source-component="FileDiff"/);
+  // The uncommitted case stays toggleable (Ie): the header keeps "Hide files".
+  assert.match(panel({ diff: '', diffScope: 'uncommitted', diffTree: shownTree, onDiffTreeChange: () => {}, diffCommits: commits }), /Hide files/);
+  // Without commits the plain empty state is unchanged.
+  assert.doesNotMatch(body(panel({ diff: '', diffScope: 'uncommitted', diffTree: shownTree, onDiffTreeChange: () => {} })), /sdiff-changes-layout/);
 });

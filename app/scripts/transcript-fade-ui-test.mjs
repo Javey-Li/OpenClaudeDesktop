@@ -186,12 +186,12 @@ async function tail(requireRunning = false) {
     const viewport = document.querySelector(".transcript");
     return viewport?.closest(".source-transcript-frame")?.dataset.following === "true"
       && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2
-      && (!requireRunning || !!document.querySelector('[aria-label="Stop response"]:not([inert] *)'));
+      && (!requireRunning || !!document.querySelector('[data-testid="code-prompt-stop"]:not([inert] *)'));
   }, requireRunning);
   await frames(2);
 }
 async function openFiles() {
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click();
   await page.getByRole("complementary", { name: "Files panel" }).waitFor();
   await frames();
@@ -345,7 +345,7 @@ try {
         metrics.accessibility.push({ id, ignored: ax.ignored, ignoredReasons: ax.ignoredReasons });
       }
     } finally { await within(cdp.detach(), "Detach accessibility session", 5000); }
-    await page.locator(".sc-input").focus();
+    await page.locator("form.sc-composer .sc-input").focus();
     assert.equal(await page.evaluate(() => {
       const before = document.activeElement;
       for (const node of document.querySelectorAll('[data-testid^="transcript-fade-"]')) node.focus();
@@ -457,14 +457,14 @@ try {
       if (attempt === 1 || await jumpChip.count()) await jumpChip.click();
       await tail();
       const seen = await chunk03.count();
-      await page.locator(".sc-input").fill("fixture:scroll"); await page.locator(".sc-input").press("Enter");
-      await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+      await page.locator("form.sc-composer .sc-input").fill("fixture:scroll"); await page.locator("form.sc-composer .sc-input").press("Enter");
+      await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor();
       await chunk03.nth(seen).waitFor();
       // tail(true), unless the stream already completed before following was seen at the tail while running: that
       // is the same missed precondition, so it also re-sends (a following regression never reaches 'tail' and fails).
       const live = await (await page.waitForFunction(() => {
         const viewport = document.querySelector(".transcript");
-        if (!document.querySelector('[aria-label="Stop response"]:not([inert] *)')) return "done";
+        if (!document.querySelector('[data-testid="code-prompt-stop"]:not([inert] *)')) return "done";
         return viewport?.closest(".source-transcript-frame")?.dataset.following === "true"
           && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2 && "tail";
       })).jsonValue();
@@ -477,7 +477,7 @@ try {
       await frames(2);
       metrics.liveFollowing = await scrollState();
       await wheelUp(); const reading = await scrollState();
-      await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+      await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
       await frames();
       metrics.liveReading = { before: reading, after: await sameAnchor(reading, "Live deltas and tail completion") };
       metrics.liveAttempts.push({ attempt, growth: metrics.liveReading.after.extent - reading.extent });

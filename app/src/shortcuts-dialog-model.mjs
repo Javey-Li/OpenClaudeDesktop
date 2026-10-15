@@ -8,102 +8,130 @@
 // isMetaJumpChord/jumpDigit, archiveChord) or the menus' 1-9 digit keys (source-menu.jsx
 // data-number-key, chin-shortcuts.mjs modeMenuDigit).
 import { MODE_MENU_KEYS } from "./chin-shortcuts.mjs";
+import { diffChangeShortcuts } from "./diff-change-nav-model.mjs";
 import { t } from "../electron/i18n/index.mjs";
 
 // shortcuts_modal binding {key:"/", modifiers:["cmd"], platform:"mac"} (ion-dist shared-7).
 export const SHORTCUTS_DIALOG_KEYS = "cmd+/";
 
 // command: what the chord does here; keys: one Shortcut per alternative ("or" between them).
+// Rows follow 2.31226 c518a31cc Ce (:560-1066, the Code route body of ShortcutsModalBody ve) with
+// ccd_palette_session_actions on (this app binds the ⌥⌘ session chords), filtered to what this app binds.
 const GENERAL = [
-  // ⌘K: zR's command_palette row "Search or start a session" toggles the command palette
+  // ⌘K: Ce command_palette row "Search or start a session" toggles the command palette
   // (source-sidebar-palette.jsx); its 'New session' row starts one from the typed text.
   { command: "search", label: t("Search or start a session"), keys: ["cmd+k"] },
-  // zR search_palette row: ⇧⌘K opens (never toggles) the palette in search mode (Go > Search…).
+  // Ce search_palette row: ⇧⌘K opens (never toggles) the palette in search mode (Go > Search…).
   { command: "search-palette", label: t("Search"), keys: ["cmd+shift+k"] },
-  // zR toggles with kR ["cmd+b", "cmd+."] (main.jsx, View > Hide Sidebar): ⌘. works from a text field too.
-  { command: "toggle-sidebar", label: t("Toggle sidebar"), keys: ["cmd+b", "cmd+."] },
+  // Ce J = "cmd+b" (main.jsx, View > Hide Sidebar). The older kR ⌘. alternative is gone in 2.31226 (⌘. is the chat
+  // route's cai_rosy_feather_toggle), so this app no longer binds it either.
+  { command: "toggle-sidebar", label: t("Toggle sidebar"), keys: ["cmd+b"] },
   { command: "shortcuts", label: t("Keyboard shortcuts"), keys: [SHORTCUTS_DIALOG_KEYS] },
-  // AR: the Claude app's Settings row is "cmd+,".
+  // Ce X: the Claude app's Settings row is "cmd+,".
   { command: "settings", label: t("Settings"), keys: ["cmd+,"] },
   { command: "new-session", label: t("New session"), keys: ["cmd+n"] },
-  // File › New Window (app-menu.cjs, CmdOrCtrl+Shift+N): a menu accelerator, not a renderer chord.
+  // Ce new_code_session_from_current (File › New Session with Current Settings, app-menu.cjs CmdOrCtrl+Shift+N).
   { command: "new-session-current", label: t("New session with current settings"), keys: ["cmd+shift+n"] },
-  // zR isClaudeApp block (shared-21-D098Wd--.js:15017-15060): pR "cmd+w" closes the focused pane, else
-  // the session view (File > Close Session); hR("reopenClosed") "cmd+shift+t" (:14261-14266).
+  // Ce isClaudeApp block: "cmd+w" closes the focused pane, else the session view (File > Close Session);
+  // U = reopenClosed "cmd+shift+t".
   { command: "close-session", label: t("Close tab, pane, or session"), keys: ["cmd+w"] },
   { command: "reopen-closed", label: t("Reopen closed session"), keys: ["cmd+shift+t"] },
   // Session rows bound by the sidebar cycle (session-cycle-model.mjs, Go menu).
   { command: "next-session", label: t("Next session"), keys: ["cmd+shift+]", "ctrl+tab"] },
   { command: "previous-session", label: t("Previous session"), keys: ["cmd+shift+[", "ctrl+shift+tab"] },
-  // ⌘1–9 (sidebar-jump-model.mjs bL) and, without ccd_palette_session_actions, ⌘⇧⌫ (shared-19 rg).
+  // ⌘1–9 (sidebar-jump-model.mjs bL).
   { command: "jump-session", label: t("Jump to session"), keys: ["cmd+1…9"] },
-  { command: "archive-session", label: t("Archive session"), keys: ["cmd+shift+backspace", "cmd+alt+a"] },
-  // :15173-15178 mR("cycleTranscriptMode") = "ctrl+o" (:14189).
-  { command: "transcript-view", label: t("Transcript view"), keys: ["ctrl+o"] },
-  // zR session rows (shared-21-D098Wd--.js:15060-15140): ⌥⌘P/R/A/U/O on the open session.
-  { command: "pin-session", label: t("Pin / unpin session"), keys: ["cmd+alt+p"] },
-  { command: "rename-session", label: t("Rename session"), keys: ["cmd+alt+r"] },
-  { command: "unread-session", label: t("Mark session as read/unread"), keys: ["cmd+alt+u"] },
-  { command: "fork-session", label: t("Fork session"), keys: ["cmd+alt+o"] },
-  // :15157-15170 jumpPrevPrompt / jumpNextPrompt (promptJump gate) "cmd+alt+up" / "cmd+alt+down".
-  { command: "jump-prev-prompt", label: t("Jump to previous prompt"), keys: ["cmd+alt+up"] },
-  { command: "jump-next-prompt", label: t("Jump to next prompt"), keys: ["cmd+alt+down"] },
-  { command: "stop", label: t("Stop DeepSeek’s response"), keys: ["esc"] },
-];
-const PANES = [
-  { command: "changes", label: t("Toggle changes"), keys: ["cmd+shift+d"] },
-  // :15200-15206 mR("toggleDiffFileList") = "cmd+shift+y" (pane-shortcuts.mjs 'file-list').
-  { command: "file-list", label: t("Toggle file list in changes or files"), keys: ["cmd+shift+y"] },
-  // :15208-15214 mR("goToDiffFile") = "cmd+p": the Changes pane's Go to file (diff-go-to-file-model.mjs isGoToFileShortcut).
-  { command: "go-to-file", label: t("Go to file in changes"), keys: ["cmd+p"] },
-  { command: "files", label: t("Toggle Files"), keys: ["cmd+shift+f"] },
-  // togglePreview "cmd+shift+p" (shared-21-D098Wd--.js:14146-14207).
-  { command: "preview", label: t("Toggle preview"), keys: ["cmd+shift+p"] },
-  // zR mR("toggleSketchMode") "Annotate page in preview" (titlebar-shared-21.js:15236-15245): the Preview pane's
-  // Annotate button (source-preview-pane.jsx SKETCH_SHORTCUT), also from inside the previewed page (preview-service.cjs).
-  { command: "annotate", label: t("Annotate page in preview"), keys: ["cmd+shift+x"] },
-  // toggleTerminal ctrl+` / cmd+j (shared-21 aR; terminal-pane-model.mjs isTerminalToggle, View › Show Terminal ⌘J).
-  { command: "terminal", label: t("Toggle terminal"), keys: ["ctrl+`", "cmd+j"] },
-  { command: "close-pane", label: t("Close pane"), keys: ["cmd+\\"] },
-  // mR("toggleExpandPane") = aR "cmd+shift+\\" (sidebar-rows.js:14187).
-  { command: "expand-pane", label: t("Expand or collapse pane"), keys: ["cmd+shift+\\"] },
-  // backgroundTasks "ctrl+b" (matchBy key): the Tasks pane's background list; left to a focused text field.
-  { command: "background-tasks", label: t("Background tasks"), keys: ["ctrl+b"] },
-];
-// View › Split View's chords (split-view-model.mjs splitShortcut, official vNr accelerators).
-const SPLIT = [
-  { command: "split-new-right", label: t("New session on the right"), keys: ["ctrl+cmd+\\"] },
-  // zR {shortcut:"alt+click"} (titlebar-shared-21.js:15062-15067): ⌥-click a sidebar row (source-sidebar.jsx onOpenSplit).
+  // Ce {shortcut:"alt+click"}: ⌥-click a sidebar row (source-sidebar.jsx onOpenSplit), then he
+  // (new_session_pane_right and new_session_pane_below, View › Split View's chords: split-view-model.mjs splitShortcut) and the
+  // focus_next_pane / focus_previous_pane / close rows.
   { command: "split-open", label: t("Open session in split view"), keys: ["alt+click"] },
+  { command: "split-new-right", label: t("New session on the right"), keys: ["ctrl+cmd+\\"] },
+  { command: "split-new-below", label: t("New session below"), keys: ["ctrl+cmd+-"] },
   { command: "split-focus-next", label: t("Focus next split view"), keys: ["ctrl+]"] },
   { command: "split-focus-previous", label: t("Focus previous split view"), keys: ["ctrl+["] },
   { command: "split-close", label: t("Close split view"), keys: ["ctrl+cmd+w"] },
+  // Ce h block (ccd_palette_session_actions): ⌥⌘P/R/A/U/G/O on the open session. Archive keeps the sidebar's
+  // ⌘⇧⌫ (shared-19 rg) as a second chord since this app still binds it.
+  { command: "pin-session", label: t("Pin / unpin session"), keys: ["cmd+alt+p"] },
+  { command: "rename-session", label: t("Rename session"), keys: ["cmd+alt+r"] },
+  { command: "archive-session", label: t("Archive session"), keys: ["cmd+alt+a", "cmd+shift+backspace"] },
+  { command: "unread-session", label: t("Mark session as read/unread"), keys: ["cmd+alt+u"] },
+  // open_code_session_pr "cmd+alt+g" (cf74bc599 wO it(t) && xe: the session's PR, else nothing).
+  { command: "open-session-pr", label: t("Open session PR"), keys: ["cmd+alt+g"] },
+  { command: "fork-session", label: t("Fork session"), keys: ["cmd+alt+o"] },
+  // Ce p (ccd_prompt_jump): jumpPrevPrompt / jumpNextPrompt "cmd+alt+up" / "cmd+alt+down".
+  { command: "jump-prev-prompt", label: t("Jump to previous prompt"), keys: ["cmd+alt+up"] },
+  { command: "jump-next-prompt", label: t("Jump to next prompt"), keys: ["cmd+alt+down"] },
+  // cycleTranscriptMode = "ctrl+o".
+  { command: "transcript-view", label: t("Transcript view"), keys: ["ctrl+o"] },
+  { command: "stop", label: t("Stop DeepSeek’s response"), keys: ["esc"] },
+  // Ce !L "esc esc": the composer's createDoubleEscape opens Rewind (composer-keys-model.mjs); listed where the core
+  // can rewind (thread/revert).
+  { command: "rewind", label: t("Rewind the session to an earlier message"), keys: ["esc esc"], rewindOnly: true },
+];
+const PANES = [
+  { command: "changes", label: t("Toggle changes"), keys: ["cmd+shift+d"] },
+  // toggleDiffFileList = "cmd+shift+y" (pane-shortcuts.mjs 'file-list').
+  { command: "file-list", label: t("Toggle file list in changes or files"), keys: ["cmd+shift+y"] },
+  // B34 c518a31cc Ce d (c8e302838 gate, on): nextDiffChange / prevDiffChange as shared-19 w6 lists them on a Mac
+  // (⌥F5 then F7; diff-change-nav-model.mjs diffChangeShortcuts), handled by the Changes pane (source-diff.jsx).
+  { command: "next-change", label: t("Next change in changes"), keys: diffChangeShortcuts().next },
+  { command: "previous-change", label: t("Previous change in changes"), keys: diffChangeShortcuts().prev },
+  // goToDiffFile = "cmd+p": the Changes pane's Go to file (diff-go-to-file-model.mjs isGoToFileShortcut).
+  { command: "go-to-file", label: t("Go to file in changes or files"), keys: ["cmd+p"] },
+  // togglePreview "cmd+shift+p".
+  { command: "preview", label: t("Toggle preview"), keys: ["cmd+shift+p"] },
+  // Ce "cmd+shift+s" Select element in preview: the Preview pane's toggleSelectionMode (source-preview-pane.jsx
+  // PICK_SHORTCUT through matchSketchCommand, and from inside the page via preview-service.cjs).
+  { command: "select-element", label: t("Select element in preview"), keys: ["cmd+shift+s"] },
+  // Ce toggleSketchMode "Annotate page in preview": the Preview pane's Annotate button (SKETCH_SHORTCUT).
+  { command: "annotate", label: t("Annotate page in preview"), keys: ["cmd+shift+x"] },
+  // Ce E && j: the Browser tab strip's chords, which the Preview pane's tab strip binds (source-preview-pane.jsx
+  // onKeyDown, electron/preview-tab-shortcuts.mjs): ⌘T, U, ⌃⇥ / ⌃⇧⇥, W = selectBrowserTab1 as "cmd+1…9", ⌘L.
+  { command: "preview-new-tab", label: t("New Browser tab"), keys: ["cmd+t"] },
+  { command: "preview-reopen-tab", label: t("Reopen closed Browser tab"), keys: ["cmd+shift+t"] },
+  { command: "preview-next-tab", label: t("Next Browser tab"), keys: ["ctrl+tab"] },
+  { command: "preview-previous-tab", label: t("Previous Browser tab"), keys: ["ctrl+shift+tab"] },
+  { command: "preview-jump-tab", label: t("Jump to Browser tab"), keys: ["cmd+1…9"] },
+  { command: "preview-address", label: t("Focus address bar in Browser"), keys: ["cmd+l"] },
+  { command: "files", label: t("Toggle Files"), keys: ["cmd+shift+f"] },
+  // attachTerminalOutput "cmd+shift+l": the transcript selection as composer context (source-transcript.jsx).
+  { command: "attach-selection", label: t("Attach selection as context"), keys: ["cmd+shift+l"] },
+  // toggleTerminal ctrl+` / cmd+j (terminal-pane-model.mjs isTerminalToggle, View › Show Terminal ⌘J).
+  { command: "terminal", label: t("Toggle terminal"), keys: ["ctrl+`", "cmd+j"] },
+  { command: "close-pane", label: t("Close pane"), keys: ["cmd+\\"] },
+  // toggleExpandPane = "cmd+shift+\\".
+  { command: "expand-pane", label: t("Expand or collapse pane"), keys: ["cmd+shift+\\"] },
+  // Ce "cmd+;" Toggle side chat, bound in main.jsx; listed only where the core serves side questions
+  // (session-command-model.mjs sideQuestionsSupported).
+  { command: "side-chat", label: t("Toggle side chat"), keys: ["cmd+;"], sideChatOnly: true },
+  // backgroundTasks "ctrl+b" (matchBy key): the Tasks pane's background list; left to a focused text field.
+  { command: "background-tasks", label: t("Background tasks"), keys: ["ctrl+b"] },
 ];
 const COMPOSER = [
   { command: "mode", label: t("Open mode menu"), keys: [MODE_MENU_KEYS] },
   { command: "model", label: t("Open model menu"), keys: ["cmd+shift+i"] },
   { command: "effort", label: t("Open effort selector"), keys: ["cmd+shift+e"] },
-  // Shown only when a model offers a Fast tier (zR: setFastMode && some model has fast mode).
+  // Shown only when a model offers a Fast tier (Ce: setFastMode && some model has fast mode).
   { command: "fast", label: t("Toggle fast mode"), keys: ["cmd+alt+f"], fastOnly: true },
   { command: "menu-item", label: t("Select menu item"), keys: ["1…9"] },
-  // shared-7 file_upload {key:"u", modifiers:["cmd"]}: Add › Add files or photos (:15364).
+  // file_upload {key:"u", modifiers:["cmd"]}: Add › Add files or photos.
   { command: "file-upload", label: t("Add files or photos"), keys: ["cmd+u"] },
-  // :15284 attachTerminalOutput "cmd+shift+l": the transcript selection as composer context (source-transcript.jsx).
-  { command: "attach-selection", label: t("Attach selection as context"), keys: ["cmd+shift+l"] },
-  // zR :15370-15382 'Send in a forked session' cmd+alt+enter.
-  { command: "send-fork", label: t("Send in a forked session"), keys: ["cmd+alt+enter"] },
-  // zR toggleSideChat "cmd+;" (shared-21-D098Wd--.js:15060-15140), bound in main.jsx; listed only where the core
-  // serves side questions (session-command-model.mjs sideQuestionsSupported).
-  { command: "side-chat", label: t("Toggle side chat"), keys: ["cmd+;"], sideChatOnly: true },
+  // Ce !L "cmd+enter" (named for the local agent, like Stop): queued while a turn runs (composer-keys-model.mjs submitPriority "later"), and ne: on the Home
+  // draft it sends and stays there (submitPriority "stay", main.jsx stayOnDraft).
+  { command: "queue", label: t("Queue for later (while DeepSeek is working)"), keys: ["cmd+enter"] },
+  { command: "send-stay", label: t("Send and stay on the new session page"), keys: ["cmd+enter"] },
+  // Ce N (forkSession on the bridge): 'Send in a forked session (local sessions)' cmd+alt+enter.
+  { command: "send-fork", label: t("Send in a forked session (local sessions)"), keys: ["cmd+alt+enter"] },
 ];
 
-/** OR sections of zR, filtered to this app's bindings, plus the split view chords. */
-export function shortcutsDialogSections({ fastMode = false, sideChat = false } = {}) {
-  const rows = (list) => list.filter((row) => (!row.fastOnly || fastMode) && (!row.sideChatOnly || sideChat)).map(({ fastOnly, sideChatOnly, ...row }) => row);
+/** Ce's General / Panes / Composer sections, filtered to this app's bindings. */
+export function shortcutsDialogSections({ fastMode = false, sideChat = false, rewind = true } = {}) {
+  const rows = (list) => list.filter((row) => (!row.fastOnly || fastMode) && (!row.sideChatOnly || sideChat) && (!row.rewindOnly || rewind))
+    .map(({ fastOnly, sideChatOnly, rewindOnly, ...row }) => row);
   return [
     { title: t("General"), rows: rows(GENERAL) },
     { title: t("Panes"), rows: rows(PANES) },
-    { title: t("Split view"), rows: rows(SPLIT) },
     { title: t("Composer"), rows: rows(COMPOSER) },
   ];
 }
@@ -121,10 +149,11 @@ export function globalShortcutCommand(event) {
   const meta = !!event.metaKey, ctrl = !!event.ctrlKey, alt = !!event.altKey, shift = !!event.shiftKey;
   if ((meta || ctrl) && event.key === ",") return "settings";
   const plainMeta = meta && !ctrl && !alt && !shift && !event.isComposing;
-  // toggle_sidebar: ⌘B, and kR's ⌘. (shared-7 {key:"."}).
-  if (plainMeta && (event.code === "KeyB" || event.code === "Period")) return "toggle-sidebar";
+  // toggle_sidebar: ⌘B (Ce J; ⌘. is no longer a sidebar chord).
+  if (plainMeta && event.code === "KeyB") return "toggle-sidebar";
   if (plainMeta && event.code === "BracketLeft") return "back";
   if (plainMeta && event.code === "BracketRight") return "forward";
+  if (plainMeta && typedChar(event,"p","KeyP")) return "go-to-file";
   if (plainMeta && event.code === "Slash") return "shortcuts";
   if (meta && shift && !ctrl && !alt && !event.isComposing && event.code === "KeyK") return "search-palette";
   if ((meta || ctrl) && event.key === "n") return "new-session";
@@ -143,7 +172,7 @@ export function globalShortcutCommand(event) {
   if ((meta || ctrl) && !shift && event.key?.toLowerCase() === "k") return "search";
   // ⌥⌘ session chords: matched by code (⌥ turns event.key into another character on a Mac).
   if (meta && alt && !ctrl && !shift && !event.isComposing) {
-    const chord = { KeyP: "pin-session", KeyR: "rename-session", KeyA: "archive-session", KeyU: "unread-session", KeyO: "fork-session" }[event.code];
+    const chord = { KeyP: "pin-session", KeyR: "rename-session", KeyA: "archive-session", KeyU: "unread-session", KeyO: "fork-session", KeyG: "open-session-pr" }[event.code];
     if (chord) return chord;
   }
   return null;

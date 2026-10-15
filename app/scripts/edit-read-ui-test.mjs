@@ -106,7 +106,7 @@ async function collapse(id) {
 }
 async function send(text) {
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
 }
 // Resolve a CDS token to the colour the renderer actually paints.
 async function tokenColor(name) {
@@ -197,8 +197,10 @@ async function assertSettledCaret(id, colors) {
   assert.equal(states.hover.labelColor, colors.secondary, `${id} verb group-hover secondary`);
   await page.mouse.move(2, 2);
   await trigger.focus();
+  // The trusted Shift+Tab records keyboard modality; Tab itself cannot come back here, since a Tab inside the
+  // transcript moves to the composer (cc43287c9 :45157-45164, main.jsx paneKey).
   await page.keyboard.press("Shift+Tab");
-  await page.keyboard.press("Tab");
+  await trigger.focus();
   states.focus = await classicStyle(id);
   assert.equal(states.focus.focusVisible, true, "keyboard focus is focus-visible");
   assert.equal(states.focus.caretColor, colors.secondary, `${id} caret group-focus-visible secondary`);
@@ -505,7 +507,7 @@ try {
   await expand(patchId); await poll(async()=>await body(patchId).count()===3,'patchUpdated replaces cards');
   assert.equal(await row(patchId).locator('.source-step-label').textContent(),'Editing 3 files');
   assert.equal(await row(patchId).locator('.sft-counts').count(),0);
-  await page.getByRole('button',{name:'Stop response',exact:true}).click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
   await poll(async()=>await row(patchId).getAttribute('data-state')==='stopped','patch stops');
   checks.push('Real patchUpdated replaces three cards while busy with no counts; interrupt waits for terminal status');
   await expand('long');

@@ -4,6 +4,7 @@
 // the Pu type tabs and the date filter) and "actions" (Tab: Settings → / Customize → rows and app commands).
 import { folderName, sessionArchived, sessionName, sessionUpdatedAt } from "./sidebar-model.js";
 import { t } from "../electron/i18n/index.mjs";
+import { shortcutLabels } from "./shortcut-model.mjs";
 
 export const PALETTE_MODES = Object.freeze(["default", "search", "actions"]);
 // wu: type options (the code list's Sessions and Projects; this app has no searchable chats, tasks or
@@ -91,41 +92,144 @@ export function paletteProjects({ folders = [], sessions = [], query = "", filte
 }
 
 // c2771e1f6 :9634-10079 'Settings → {section}' / 'Customize → {section}' rows for the local Settings sections
-// (source-settings.jsx tabs; Usage is nav-hidden there but listed here, as Settings search lists it).
+// (source-settings.jsx tabs: General first, This computer › System; B23 shared-19 ZC).
 export const PALETTE_SETTINGS_SECTIONS = Object.freeze([
-  ["preferences", "Preferences", "Settings"], ["theme", "Theme", "Palette"], ["usage", "Usage", "UsageGaugeMiddle"], ["code", "Code", "Code"],
+  ["preferences", "General", "Settings"], ["usage", "Usage", "UsageGaugeMiddle"], ["theme", "Theme", "Palette"], ["code", "Code", "Code"],
   ["instructions", "Instructions", "BookText"], ["commands", "Commands", "SlashShortcutCommand"], ["profiles", "Profiles", "Tool"],
-  ["models", "Models", "Lightning"], ["general", "General", "Computer"], ["developer", "Developer", "Wrench"], ["cores", "Cores", "Box"],
+  ["models", "Models", "Lightning"], ["general", "System", "Computer"], ["developer", "Developer", "Wrench"], ["cores", "Cores", "Box"],
   ["harness", "Harness", "CommandLine"],
 ]);
+// The Settings nav's own copy for a page name ('System' is the page there, not the theme choice: settings-model
+// settingsHeading's 'settings heading: …' entries).
+const settingsSectionLabel = (label) => { const key = `settings heading: ${label}`, shown = t(key); return shown === key ? t(label) : shown; };
 export const PALETTE_CUSTOMIZE_SECTIONS = Object.freeze([
   ["customize-skills", "Skills", "Scroll"], ["customize-connectors", "Connectors", "Connectors"], ["customize-plugins", "Plugins", "Plugin"],
   ["customize-hooks", "Hooks", "CommandLine"],
 ]);
 
+// gn's jump_to_* palette commands (focus-region-model.mjs JUMP_COMMANDS; shared-1-BPVqFfwb.js :10700-10760 aj/oj/cj/
+// fj/pj/mj descriptions).
+const JUMP_LABELS = {
+  jump_to_navigation: () => t("Jump to navigation"),
+  jump_to_main_content: () => t("Jump to main content"),
+  jump_to_input: () => t("Jump to input"),
+  jump_to_preview: () => t("Jump to preview"),
+  jump_to_terminal: () => t("Jump to terminal"),
+  jump_to_pane: () => t("Jump to pane"),
+};
+
+// 2.31226 shared-1 _R (:14360-15260): the command registry's groups, in the order Actions mode lists them
+// (c2771e1f6 :3557-3566 'other', Navigation, Chat, create, Project, Task, Session, Settings, General).
+export const PALETTE_ACTION_GROUPS = Object.freeze([
+  ["other", null], ["navigation", "Navigation"], ["chat", "Chat"], ["session", "Session"], ["settings", "Settings"], ["general", "General"],
+]);
+const capsOf = (spec) => spec ? shortcutLabels(spec, true).join("") : undefined;
+
+/** cf74bc599 wO prUrl (q(): the bound PR, else the repo's lookup) for a session row: its core's PR link, else the
+ * git band's branch PR (git-rail-model.mjs branchPullRequest); only https links open. */
+export function sessionPullRequestUrl(session, branchPr = null) {
+  const https = (value) => typeof value === "string" && /^https:\/\//i.test(value);
+  return [session?.prInfo?.url, session?.prLink, session?.codeDesktop?.pr?.url, branchPr?.url].find(https) ?? null;
+}
+
+/** cfb613cf0 t (cf74bc599 wO l = wd(title)): the open session's palette rows name it — 'Archive “{name}”' and so on,
+ * the title cut to 39 characters and an ellipsis past 40; an untitled session keeps the registry descriptions. */
+export function sessionCommandLabels(title) {
+  const trimmed = typeof title === "string" ? title.trim() : "";
+  if (!trimmed) return {};
+  const chars = [...trimmed], name = chars.length > 40 ? `${chars.slice(0, 39).join("")}\u2026` : trimmed;
+  return {
+    archive: t("Archive “{name}”", { name }), delete: t("Delete “{name}”", { name }), unarchive: t("Unarchive “{name}”", { name }),
+    rename: t("Rename “{name}”", { name }), pin: t("Pin “{name}”", { name }), unpin: t("Unpin “{name}”", { name }),
+    fork: t("Fork “{name}”", { name }),
+  };
+}
+
 /**
- * Action rows ({id, label, icon, shortcut?, run}) from what the host can do: new session, the sidebar
- * sections, the sidebar toggle and the Settings / Customize sections.
+ * Action rows ({id, label, icon, group, hints, shortcut?, run}) from what the host can do, in shared-1 _R order.
+ * - new session, the sidebar sections, the sidebar toggle and Settings (local rows), the Settings / Customize
+ *   sections (c2771e1f6 :9634-10079) and the page-area jumps (`jumps`: the JUMP_COMMANDS whose regions have a stop
+ *   now, `onJump(regions)` lands there — gn's f(): unavailable ones are disabled, so they are not listed);
+ * - `session`: the open session's commands (cf74bc599 wO :15226-15409 B(id, G && … ? fn : undefined)): archive,
+ *   delete, unarchive, rename, pin / unpin, fork and New session with current settings, each only when it applies
+ *   ({ title, archived, pinned, unarchiving, canArchive, canDelete, canFork, canRename, onAction(command) }; a titled
+ *   session names itself in the labels, sessionCommandLabels);
+ * - `panes`: c11959232 Ud (:2340-2390) toggle_terminal_pane / toggle_diff_pane / toggle_preview_pane /
+ *   toggle_files_pane / toggle_side_chat ({enabled, shown} each, 'Show …' / 'Hide …') and close_side_pane;
+ * - `prompts`: cf74bc599 :3600-3626 jump_prev_prompt / jump_next_prompt (left out while there are none);
+ * - onShortcuts (shortcuts_modal) and onFileUpload (file_upload), shared-21 wj :5641-5643.
+ * hiddenFromCommandPalette commands (search_palette, settings, btw_side_chat, toggle_read_code_session,
+ * open_code_session_pr, archive_code_session_chord …) are left out; copy_code_session_link needs a claude.ai URL.
  */
-export function paletteActions({ onNew, setSection, onToggleSidebar, onOpenSettings } = {}) {
+export function paletteActions({ onNew, setSection, onToggleSidebar, onOpenSettings, jumps = [], onJump,
+  session = null, panes = null, onTogglePane, onClosePane, prompts = null, onShortcuts, onFileUpload } = {}) {
   const rows = [];
-  if (onNew) rows.push({ id: "new-session", label: t("New session"), icon: "Add", shortcut: "⌘N", run: onNew });
+  const push = (row) => rows.push({ hints: [], ...row });
+  if (onNew) push({ id: "new-session", group: "navigation", label: t("New session"), icon: "Add", shortcut: "⌘N", run: onNew });
   if (setSection) {
-    rows.push({ id: "artifacts", label: t("Artifacts"), icon: "Artifacts", run: () => setSection("artifacts") });
-    rows.push({ id: "routines", label: t("Routines"), icon: "Clock", run: () => setSection("routines") });
+    push({ id: "artifacts", group: "navigation", label: t("Artifacts"), icon: "Artifacts", run: () => setSection("artifacts") });
+    push({ id: "routines", group: "navigation", label: t("Routines"), icon: "Clock", run: () => setSection("routines") });
   }
-  if (onToggleSidebar) rows.push({ id: "toggle-sidebar", label: t("Toggle sidebar"), icon: "Sidebar", shortcut: "⌘B", run: onToggleSidebar });
+  // file_upload (group chat, icon hR Attachment, searchHints upload).
+  if (onFileUpload) push({ id: "file_upload", group: "chat", label: t("Add files or photos"), icon: "Attachment", shortcut: capsOf("cmd+u"), hints: [t("upload")], run: onFileUpload });
+  if (session?.onAction) {
+    const act = (command) => () => session.onAction(command);
+    const hide = t("hide"), remove = t("remove"), trash = t("trash"), named = sessionCommandLabels(session.title);
+    if (session.canArchive && !session.archived) push({ id: "archive_code_session", group: "session", label: named.archive ?? t("Archive session"), icon: "Archive", hints: [hide], run: act("archive") });
+    if (session.canDelete) push({ id: "delete_code_session", group: "session", label: named.delete ?? t("Delete session"), icon: "Trash", hints: [remove, trash], run: act("delete") });
+    if (session.canArchive && session.archived && !session.unarchiving) push({ id: "unarchive_code_session", group: "session", label: named.unarchive ?? t("Unarchive session"), icon: "Archive", hints: [t("restore")], run: act("unarchive") });
+    if (session.canRename !== false) push({ id: "rename_code_session", group: "session", label: named.rename ?? t("Rename session"), icon: "Edit", shortcut: capsOf("cmd+alt+r"), run: act("rename") });
+    push(session.pinned
+      ? { id: "unpin_code_session", group: "session", label: named.unpin ?? t("Unpin session"), icon: "PinSlash", shortcut: capsOf("cmd+alt+p"), hints: [t("star"), t("favorite")], run: act("pin") }
+      : { id: "pin_code_session", group: "session", label: named.pin ?? t("Pin session"), icon: "Pin", shortcut: capsOf("cmd+alt+p"), hints: [t("star"), t("favorite")], run: act("pin") });
+    if (session.canFork) push({ id: "fork_code_session", group: "session", label: named.fork ?? t("Fork session"), icon: "ArrowSplitRight", shortcut: capsOf("cmd+alt+o"), hints: [t("duplicate"), t("clone")], run: act("fork") });
+    push({ id: "new_code_session_from_current", group: "session", label: t("New session with current settings"), icon: "ChatAdd", shortcut: capsOf("cmd+shift+n"),
+      hints: [t("same settings"), t("carry over"), t("duplicate")], run: act("new-from-current") });
+  }
+  if (panes && onTogglePane) {
+    const pane = (kind, id, show, hideLabel, icon, spec, hints) => {
+      const entry = panes[kind];
+      if (entry?.enabled) push({ id, group: "session", label: entry.shown ? hideLabel : show, icon, shortcut: capsOf(spec), hints, run: () => onTogglePane(kind) });
+    };
+    pane("terminal", "toggle_terminal_pane", t("Show terminal"), t("Hide terminal"), "CommandLinePrompt", "cmd+j", [t("shell"), t("console")]);
+    pane("changes", "toggle_diff_pane", t("Show changes"), t("Hide changes"), "ChangesPlusMinus", "cmd+shift+d", [t("diff")]);
+    pane("preview", "toggle_preview_pane", t("Show preview"), t("Hide preview"), "Play", "cmd+shift+p", [t("preview"), t("web")]);
+    pane("files", "toggle_files_pane", t("Show files"), t("Hide files"), "Folder", "cmd+shift+f", [t("tree"), t("explorer")]);
+    pane("sideChat", "toggle_side_chat", t("Show side chat"), t("Hide side chat"), "Chats", "cmd+;", [t("btw"), t("question")]);
+  }
+  if (onClosePane) push({ id: "close_side_pane", group: "session", label: t("Close pane"), icon: "X", shortcut: capsOf("cmd+\\"), hints: [t("panel")], run: onClosePane });
+  if (prompts?.onJump && prompts.available) {
+    const scroll = [t("scroll back message history")];
+    push({ id: "jump_prev_prompt", group: "session", label: t("Jump to previous prompt"), icon: "CaretUpDown", shortcut: capsOf("cmd+alt+up"), hints: scroll, run: () => prompts.onJump(-1) });
+    push({ id: "jump_next_prompt", group: "session", label: t("Jump to next prompt"), icon: "CaretUpDown", shortcut: capsOf("cmd+alt+down"), hints: scroll, run: () => prompts.onJump(1) });
+  }
+  if (onToggleSidebar) push({ id: "toggle-sidebar", group: "general", label: t("Toggle sidebar"), icon: "Sidebar", shortcut: "⌘B", run: onToggleSidebar });
+  if (onShortcuts) push({ id: "shortcuts_modal", group: "general", label: t("Keyboard shortcuts"), icon: "Keyboard", shortcut: capsOf("cmd+/"), run: onShortcuts });
   if (onOpenSettings) {
-    rows.push({ id: "settings", label: t("Settings"), icon: "Settings", shortcut: "⌘,", run: () => onOpenSettings(true) });
-    for (const [id, label, icon] of PALETTE_SETTINGS_SECTIONS) rows.push({ id: `settings:${id}`, label: t("Settings → {section}", { section: t(label) }), icon, run: () => onOpenSettings(id) });
-    for (const [id, label, icon] of PALETTE_CUSTOMIZE_SECTIONS) rows.push({ id: `settings:${id}`, label: t("Customize → {section}", { section: t(label) }), icon, run: () => onOpenSettings(id) });
+    push({ id: "settings", group: "settings", label: t("Settings"), icon: "Settings", shortcut: "⌘,", run: () => onOpenSettings(true) });
+    for (const [id, label, icon] of PALETTE_SETTINGS_SECTIONS) push({ id: `settings:${id}`, group: "settings", label: t("Settings → {section}", { section: settingsSectionLabel(label) }), icon, run: () => onOpenSettings(id) });
+    for (const [id, label, icon] of PALETTE_CUSTOMIZE_SECTIONS) push({ id: `settings:${id}`, group: "settings", label: t("Customize → {section}", { section: t(label) }), icon, run: () => onOpenSettings(id) });
   }
+  if (onJump) for (const command of jumps) if (JUMP_LABELS[command.id])
+    push({ id: command.id, group: "general", label: JUMP_LABELS[command.id](), icon: command.icon, run: () => onJump(command.regions) });
   return rows;
 }
 
+/** iu over the description and searchHints (lowercased substring, as `hs` indexes descriptionLower / hintsLower). */
 export function filterPaletteActions(actions, query = "") {
   const needle = query.trim().toLowerCase();
-  return needle ? actions.filter((action) => action.label.toLowerCase().includes(needle)) : actions;
+  if (!needle) return actions;
+  return actions.filter((action) => action.label.toLowerCase().includes(needle) || (action.hints ?? []).some((hint) => String(hint).toLowerCase().includes(needle)));
+}
+
+/** c2771e1f6 :3592-3598: Actions mode groups the rows by registry group, in PALETTE_ACTION_GROUPS order, titled. */
+export function paletteActionGroups(actions) {
+  const groups = [];
+  for (const [group, title] of PALETTE_ACTION_GROUPS) {
+    const items = actions.filter((action) => (action.group ?? "other") === group);
+    if (items.length) groups.push({ id: `actions:${group}`, title: title ? t(title) : null, items });
+  }
+  return groups;
 }
 
 /** Selection movement over a flat list (wraps; -1 enters at the first or last row). */

@@ -30,7 +30,7 @@ const composer=()=>page.getByRole('textbox',{name:'Message DeepSeek',exact:true}
 async function launch(){app=await electron.launch({args:[root],executablePath:path.join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),env,timeout:20000});page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',e=>report.rendererErrors.push({phase,message:e.message}));
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setContentSize(1324,768));await page.waitForFunction(()=>innerWidth===1324);
  await composer().waitFor();await page.locator(`[data-source-session-id="${RC}"] .source-session-open`).click();await page.getByText('SEEDED_OLD_ANSWER',{exact:true}).waitFor();await page.locator('.loading-state').waitFor({state:'detached'});}
-async function send(text){await composer().fill(text);await page.getByRole('button',{name:'Send message',exact:true}).click();}
+async function send(text){await composer().fill(text);await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();}
 const footer=turnId=>page.locator(`.stf-footer[data-turn-copy-id="${turnId}"]`);
 const userRow=itemId=>page.locator(`.sua-row[data-user-actions-id="${itemId}"]`);
 const park=()=>page.mouse.move(2,760);
@@ -60,7 +60,7 @@ try{
  await integrity();await launch();
  step('history');
  const oldFooter=await revealFooter('seed-old','seed-old-answer');
- assert.deepEqual(await order(oldFooter.locator('.stf-toolbar')),['Copy','Fork from here','time'],'Z0: Copy, Fork from here (approval-current.js:43120-43128), then the timestamp last');
+ assert.deepEqual(await order(oldFooter.locator('.stf-toolbar')),['Copy','Fork from here','Pin as chapter','time'],'Z0: Copy, Fork from here (approval-current.js:43120-43128), Pin as chapter (B11, cd5a31703 H6e), then the timestamp last');
  const oldView=await timeView(oldFooter);report.metrics.historyFooter=oldView;assertGeometry(oldView,{first:false});
  assert.equal(oldView.dateTime,new Date(OLD.completed*1000).toISOString());assert.equal(oldView.text,'3 days ago');
  const oldTip=await tooltipText(oldFooter.locator('time'));report.metrics.historyTooltip=oldTip;assert.equal(oldTip.text,await absolute(OLD.completed*1000));assert.equal(oldTip.side,'top');
@@ -71,7 +71,7 @@ try{
  const oldUserView=await timeView(oldUser);report.metrics.historyUser=oldUserView;assertGeometry(oldUserView,{first:true});
  assert.equal(oldUserView.dateTime,new Date(OLD.started*1000).toISOString());assert.equal(oldUserView.text,'3 days ago');
  await shot('history-user-row-light');
- const nullFooter=await revealFooter('seed-null','seed-null-answer');assert.equal(await nullFooter.locator('time').count(),0,'completedAt null: no time');assert.deepEqual(await order(nullFooter.locator('.stf-toolbar')),['Copy','Fork from here']);
+ const nullFooter=await revealFooter('seed-null','seed-null-answer');assert.equal(await nullFooter.locator('time').count(),0,'completedAt null: no time');assert.deepEqual(await order(nullFooter.locator('.stf-toolbar')),['Copy','Fork from here','Pin as chapter']);
  report.metrics.nullFooterHeight=await nullFooter.evaluate(n=>n.getBoundingClientRect().height);assert.equal(report.metrics.nullFooterHeight,24);
  const nullUser=await revealUser('seed-null-user');assert.equal(await nullUser.locator('time').count(),0,'startedAt null: no time');
  await revealFooter('seed-old','seed-old-answer');await shot('history-light');
@@ -88,7 +88,7 @@ try{
  await poll(async()=>typeof (await read('fixture-threads.json')).threads[RC].turns.at(-1).completedAt==='number','completedAt persisted');
  const done=(await read('fixture-threads.json')).threads[RC].turns.at(-1);report.metrics.completedTurn={id:done.id,startedAt:done.startedAt,completedAt:done.completedAt};
  const answer=done.items.at(-1).id;const doneFooter=await revealFooter(done.id,answer);
- assert.deepEqual(await order(doneFooter.locator('.stf-toolbar')),['Copy','Fork from here','time']);
+ assert.deepEqual(await order(doneFooter.locator('.stf-toolbar')),['Copy','Fork from here','Pin as chapter','time']);
  const doneView=await timeView(doneFooter);report.metrics.completedFooter=doneView;assertGeometry(doneView,{first:false});
  assert.equal(doneView.dateTime,new Date(done.completedAt*1000).toISOString(),'dateTime = Turn.completedAt');assert.equal(doneView.text,'2 minutes ago');
  const doneTip=await tooltipText(doneFooter.locator('time'));report.metrics.completedTooltip=doneTip;assert.equal(doneTip.text,await absolute(done.completedAt*1000));

@@ -1,8 +1,8 @@
 // Window registry: every main (session) window of this process, the layout each one shows (its primary
-// session and, in split view, the session on its second side), where desktop events go, and which windows to
-// restore on the next launch. Claude Desktop 2.2553.1 keeps one main window whose "dframe-pane-host"
-// (desktop-sidebar.js WR/GR) shows a primary pane and extra session panes side by side; OpenClaude Desktop allows
-// several main windows (File › New Window, a session's "Open in new window"), each with at most two sides.
+// session and, in split view, the sessions of its extra panes), where desktop events go, and which windows to
+// restore on the next launch. Claude Desktop 2.31226.0 keeps one main window whose "dframe-pane-host" (shared-23 a1)
+// shows a primary pane and up to nine extra session panes in a grid; OpenClaude Desktop allows several main windows
+// (File › New Window, a session's "Open in new window"), each with its own grid.
 // Pure apart from the injected fs / timers / BrowserWindow, so it is unit-testable (tests/window-registry.test.mjs).
 //
 // FOR OTHER MAIN-PROCESS SERVICES (terminal pane, preview pane, anything keyed per session):
@@ -31,6 +31,16 @@ const { randomUUID } = require("node:crypto");
 const MAIN_WINDOW_KEY = "main";
 const OPEN_WINDOWS_FILE = "open-windows.json";
 const MAX_WINDOWS = 8;
+// B27 (cd377abb5 xi / shared-11 Zo "code-session" and "code-draft" popouts): a session in a window of its own is a
+// sidebar-less session popout — one session, no split — registered here beside the full main windows so it gets the
+// same IPC and event routing. Popouts are not written to open-windows.json (popout-restore.cjs brings them back) and
+// do not count toward MAX_WINDOWS; they have their own cap.
+// A pane window (B27: the Tasks, Terminal and Side chat panes popped out, cd377abb5 Ci/_i) runs the session's App with
+// that one pane: registered as WINDOW_KINDS.PANE for the same IPC and events, it holds its session (the shared
+// connection keeps it subscribed) but never counts as showing it for routing, unread marks or notifications.
+const WINDOW_KINDS = Object.freeze({ MAIN: "main", SESSION: "session", PANE: "pane" });
+const singleSession = (kind) => kind === WINDOW_KINDS.SESSION || kind === WINDOW_KINDS.PANE;
+const MAX_SESSION_POPOUTS = 16;
 const SAVE_DELAY_MS = 400;
 const EVENT_CHANNEL = "desktop:event";
 const WINDOW_KEY = /^[a-z0-9-]{1,40}$/;
@@ -43,25 +53,54 @@ const validSessionId = (value) => typeof value === "string" && value.length > 0 
 const validWindowKey = (value) => typeof value === "string" && WINDOW_KEY.test(value) ? value : null;
 const clampRatio = (value) => Number.isFinite(value) ? Math.min(RATIO_MAX, Math.max(RATIO_MIN, value)) : RATIO_DEFAULT;
 
-// A renderer's "window-layout" report (src/split-view-model.mjs splitLayout): the primary side's session and, while
-// split, the second side's session, the primary side's share of the width and the focused side. Anything else drops
-// out; one session never shows on both sides of a window.
+// A renderer's "window-layout" report (src/split-view-model.mjs splitLayout): the primary pane's session and, while
+// split, the extra panes as grid cells ({ sessionId, col 0..4, row 0|1 }, the reference pane store's extraPanes),
+// the column weights, the row split and the focused pane (0 the primary). The earlier two-sided shape
+// ({ sessionId, ratio, active }) still reads, as one pane in column 1 with [ratio, 1 - ratio] weights. Anything else
+// drops out; one session never shows twice in a window and two panes never share a cell.
+const MAX_COLUMNS = 5;
+function sanitizePanes(value, current) {
+  let panes = Array.isArray(value.panes) ? value.panes : null, weights = value.colWeights;
+  if (panes === null && "sessionId" in value) {
+    panes = [{ sessionId: value.sessionId, col: 1, row: 0 }];
+    weights = Number.isFinite(value.ratio) ? [clampRatio(value.ratio), 1 - clampRatio(value.ratio)] : null;
+  }
+  const seen = new Set(current ? [current] : []), cells = new Set(["0:0"]), list = [];
+  for (const pane of (panes ?? []).slice(0, MAX_COLUMNS * 2)) {
+    const sessionId = validSessionId(pane?.sessionId), col = pane?.col, row = pane?.row;
+    if (!sessionId || seen.has(sessionId) || !Number.isInteger(col) || col < 0 || col >= MAX_COLUMNS || (row !== 0 && row !== 1) || cells.has(`${col}:${row}`)) continue;
+    seen.add(sessionId); cells.add(`${col}:${row}`);
+    list.push({ sessionId, col, row });
+  }
+  const columns = list.reduce((max, pane) => Math.max(max, pane.col + 1), 1);
+  const colWeights = Array.isArray(weights) && weights.length === columns && weights.every((entry) => Number.isFinite(entry) && entry > 0)
+    ? weights.map((entry) => Math.max(0.01, entry)) : null;
+  return { panes: list, colWeights };
+}
 function sanitizeLayout(raw) {
   if (!raw || typeof raw !== "object") return { current: null, split: null };
   const current = validSessionId(raw.current);
   const value = raw.split;
   if (!value || typeof value !== "object") return { current, split: null };
-  const sessionId = validSessionId(value.sessionId);
-  return { current, split: { sessionId: sessionId && sessionId !== current ? sessionId : null, ratio: clampRatio(value.ratio), active: value.active === 1 ? 1 : 0 } };
+  const { panes, colWeights } = sanitizePanes(value, current);
+  if (!panes.length) return { current, split: null };
+  const active = Number.isInteger(value.active) && value.active >= 0 && value.active <= panes.length ? value.active : 0;
+  return { current, split: { panes, colWeights, rowSplit: clampRatio(value.rowSplit), active } };
 }
 function layoutSessions(layout) {
   const { current, split } = sanitizeLayout(layout);
-  return [current, split?.sessionId].filter(Boolean);
+  return [current, ...(split?.panes ?? []).map((pane) => pane.sessionId)].filter(Boolean);
 }
 // Where one desktop event goes: "all" main windows, the window showing a session, or one window by id.
 function routeEvent(event) {
   if (!event || typeof event !== "object") return { target: "none" };
   if (event.kind === "desktop-navigate") return { target: "session", sessionId: validSessionId(event.threadId) };
+  // 'Add to prompt' from a pane window (a line comment in a popped-out Changes pane, plan comments in a popped-out
+  // Plan pane): the window showing that session, else the window that popped the pane out, which then opens it.
+  if (event.kind === "add-to-prompt") return { target: "session", sessionId: validSessionId(event.sessionId), windowId: Number.isInteger(event.windowId) ? event.windowId : null };
+  // A file reference opened in a pane window (B27: the Tasks or Terminal pane popped out) opens in the window showing
+  // that session, else the window that popped the pane out.
+  if (event.kind === "open-file-ref") return { target: "session", sessionId: validSessionId(event.sessionId), windowId: Number.isInteger(event.windowId) ? event.windowId : null };
   if (WINDOW_SCOPED.has(event.kind) && Number.isInteger(event.windowId)) return { target: "window", windowId: event.windowId };
   return { target: "all" };
 }
@@ -83,8 +122,10 @@ function restorableWindows(raw) {
 // What a window's renderer restores when it loads (main.cjs init → windowLayout). The first main window keeps
 // today's start on the new-session page unless it was split (then both sides come back); any other window — a
 // relaunched one, or one just opened for a session — reopens what it showed.
-function launchLayout(key, layout) {
+function launchLayout(key, layout, kind = WINDOW_KINDS.MAIN) {
   const value = sanitizeLayout(layout);
+  // A session popout shows its one session (none: a new-session draft) and is never split.
+  if (singleSession(kind)) return { current: value.current, split: null };
   return key === MAIN_WINDOW_KEY && !value.split ? { current: null, split: null } : value;
 }
 function newWindowKey(random = randomUUID) {
@@ -99,9 +140,11 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
   const live = (window) => !!window && !(window.isDestroyed?.()) && !(window.webContents?.isDestroyed?.());
   const target = () => (typeof file === "function" ? file() : file);
   const liveEntries = () => [...entries.values()].filter((entry) => live(entry.window));
+  const fullEntries = () => liveEntries().filter((entry) => entry.kind === WINDOW_KINDS.MAIN);
 
   function snapshot() {
-    const list = liveEntries(), focused = lastFocusedEntry();
+    // Session popouts come back through popout-restore.cjs, not as main windows.
+    const list = fullEntries(), focused = lastFocusedEntry(fullEntries());
     return { version: 1, focused: focused?.key ?? null, windows: list.map((entry) => ({ key: entry.key, layout: entry.layout })) };
   }
   function write() {
@@ -131,9 +174,11 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
     catch { return restorableWindows(null); }
   }
 
-  function register(window, { key = MAIN_WINDOW_KEY, layout = null } = {}) {
-    const entry = { window, key: validWindowKey(key) ?? newWindowKey(), layout: sanitizeLayout(layout), focusedAt: ++focusSeq, state: new Map(), launch: null };
-    entry.launch = launchLayout(entry.key, entry.layout);
+  function register(window, { key = MAIN_WINDOW_KEY, layout = null, kind = WINDOW_KINDS.MAIN } = {}) {
+    const entryKind = kind === WINDOW_KINDS.SESSION || kind === WINDOW_KINDS.PANE ? kind : WINDOW_KINDS.MAIN;
+    const entry = { window, key: validWindowKey(key) ?? newWindowKey(), kind: entryKind,
+      layout: singleSession(entryKind) ? launchLayout(null, layout, entryKind) : sanitizeLayout(layout), focusedAt: ++focusSeq, state: new Map(), launch: null };
+    entry.launch = launchLayout(entry.key, entry.layout, entry.kind);
     entries.set(window, entry);
     schedule();
     return entry;
@@ -152,15 +197,15 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
     for (const entry of entries.values()) if (entry.window.webContents === value || entry.window.id === value) return entry;
     return null;
   }
-  function lastFocusedEntry() {
+  function lastFocusedEntry(list = liveEntries()) {
     let best = null;
-    for (const entry of liveEntries()) if (!best || entry.focusedAt > best.focusedAt) best = entry;
+    for (const entry of list) if (!best || entry.focusedAt > best.focusedAt) best = entry;
     return best;
   }
-  function windowsShowing(sessionId) {
+  function windowsShowing(sessionId, { panes = false } = {}) {
     const id = validSessionId(sessionId);
     if (!id) return [];
-    return liveEntries().filter((entry) => layoutSessions(entry.layout).includes(id)).map((entry) => entry.window);
+    return liveEntries().filter((entry) => (panes || entry.kind !== WINDOW_KINDS.PANE) && layoutSessions(entry.layout).includes(id)).map((entry) => entry.window);
   }
   function send(window, event) {
     if (!live(window)) return false;
@@ -183,10 +228,13 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
     }
     // A session event for one window: the focused window when it shows the session, else the newest-focused window
     // showing it, else the newest-focused window (which then opens it).
+    // A route that names a fallback window (add-to-prompt: the pane window's owner) uses it in place of the newest-focused.
     const showing = windowsShowing(route.sessionId);
     const focused = lastFocusedEntry()?.window ?? null;
+    // A session popout shows its own session only (B27): a session no window shows opens in a full window.
+    const fallback = (route.windowId != null && liveEntries().find((entry) => entry.window.id === route.windowId)?.window) || lastFocusedEntry(fullEntries())?.window || focused;
     const chosen = showing.includes(focused) ? focused
-      : showing.sort((a, b) => entries.get(b).focusedAt - entries.get(a).focusedAt)[0] ?? focused;
+      : showing.sort((a, b) => entries.get(b).focusedAt - entries.get(a).focusedAt)[0] ?? fallback;
     return chosen && send(chosen, event) ? [chosen] : [];
   }
 
@@ -206,7 +254,22 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
       return found && !found.isDestroyed() ? found : null;
     },
     mainWindows: () => liveEntries().map((entry) => entry.window),
+    // Full windows (sidebar, split view) apart from the session popouts.
+    fullWindows: () => fullEntries().map((entry) => entry.window),
     lastFocused: () => lastFocusedEntry()?.window ?? null,
+    lastFocusedFull: () => lastFocusedEntry(fullEntries())?.window ?? null,
+    kindOf: (window) => entries.get(window)?.kind ?? null,
+    isSessionPopout: (window) => entries.get(window)?.kind === WINDOW_KINDS.SESSION && live(window),
+    isPaneWindow: (window) => entries.get(window)?.kind === WINDOW_KINDS.PANE && live(window),
+    // Every window holding the session, pane windows included (the shared connection keeps it subscribed for them).
+    windowsHolding: (sessionId) => windowsShowing(sessionId, { panes: true }),
+    // shared-11 Xo: a code-session popout is keyed by its session — the popout showing it (a draft popout that started
+    // it included), if any.
+    sessionPopouts: () => liveEntries().filter((entry) => entry.kind === WINDOW_KINDS.SESSION).map((entry) => ({ window: entry.window, sessionId: entry.layout.current })),
+    popoutFor: (sessionId) => {
+      const id = validSessionId(sessionId);
+      return id ? liveEntries().find((entry) => entry.kind === WINDOW_KINDS.SESSION && entry.layout.current === id)?.window ?? null : null;
+    },
     byKey: (key) => liveEntries().find((entry) => entry.key === key)?.window ?? null,
     keyOf: (window) => entries.get(window)?.key ?? null,
     noteFocus: (window) => { const entry = entries.get(window); if (!entry) return; entry.focusedAt = ++focusSeq; schedule(); },
@@ -218,7 +281,7 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
     captureLaunch: (window) => {
       const entry = entries.get(window);
       if (!entry) return null;
-      entry.launch = entry.loaded ? sanitizeLayout(entry.layout) : launchLayout(entry.key, entry.layout);
+      entry.launch = entry.loaded ? sanitizeLayout(entry.layout) : launchLayout(entry.key, entry.layout, entry.kind);
       entry.loaded = true;
       return entry.launch;
     },
@@ -226,8 +289,8 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
     setLayout: (window, layout) => {
       const entry = entries.get(window);
       if (!entry) return sanitizeLayout(null);
-      const next = sanitizeLayout(layout);
-      if (JSON.stringify(next) !== JSON.stringify(entry.layout)) { entry.layout = next; schedule(); }
+      const next = singleSession(entry.kind) ? launchLayout(null, layout, entry.kind) : sanitizeLayout(layout);
+      if (JSON.stringify(next) !== JSON.stringify(entry.layout)) { entry.layout = next; if (entry.kind === WINDOW_KINDS.MAIN) schedule(); }
       return entry.layout;
     },
     // Per-window slots main.cjs keeps beside the window (menu reports, the hidden-by-close flag).
@@ -238,5 +301,5 @@ function createWindowRegistry({ file = null, fs = nodeFs, timers = { setTimeout,
   };
 }
 
-module.exports = { MAIN_WINDOW_KEY, OPEN_WINDOWS_FILE, MAX_WINDOWS, SAVE_DELAY_MS, EVENT_CHANNEL, WINDOW_SCOPED,
+module.exports = { MAIN_WINDOW_KEY, OPEN_WINDOWS_FILE, MAX_WINDOWS, MAX_SESSION_POPOUTS, WINDOW_KINDS, SAVE_DELAY_MS, EVENT_CHANNEL, WINDOW_SCOPED,
   sanitizeLayout, layoutSessions, routeEvent, restorableWindows, launchLayout, newWindowKey, createWindowRegistry };

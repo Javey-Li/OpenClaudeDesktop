@@ -3013,7 +3013,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
         defaultReasoningEffort: efforts.length ? (efforts.some((effort) => effort.id === info.defaultEffort) ? info.defaultEffort : efforts[0].id) : null,
         inputModalities: modalities,
         supportsPersonality: false, multiAgentVersion: null, additionalSpeedTiers: [], serviceTiers: [], defaultServiceTier: null,
-        isDefault, ...(isDefault ? { badge: { message: 'Default' } } : {}),
+        isDefault,
         provider: adapter.id, contextWindow: model.contextWindow ?? listed.contextWindow ?? adapter.contextWindow?.(model.id) ?? null,
       }
     })
@@ -3434,6 +3434,8 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       structuredOutput: false,
       // The agent's own dynamic workflows (Qwen's workflow tool) as item.workflowRun, stopped by codeDesktop/workflow/stop.
       modelWorkflows: Boolean(adapter?.workflowRun),
+      // codeDesktop/promptSuggestion: an adapter whose agent suggests a next prompt (Qwen's follow-up suggestions).
+      ...(adapter?.promptSuggestions ? { promptSuggestion: true } : {}),
       skillToggle: Boolean(adapter?.setSkillEnabled),
       mcpConfigWrite: Boolean(adapter?.writeMcpServer),
       pluginManage: Boolean(adapter?.pluginCommand),

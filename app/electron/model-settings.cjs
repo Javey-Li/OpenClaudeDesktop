@@ -524,7 +524,14 @@ function createModelSettings({ getConfig, getClient, app, getHarnessProfile = ()
 
   // {ids, template} while the Codex launch runs a custom endpoint without a model catalog (model/list then shows the bundled one), else null.
   const codexCustomModels = () => codexLaunchState.custom ? { ids: [...codexLaunchState.custom.ids], template: codexLaunchState.custom.template } : null;
-  return { decorate, decorateThread, run, codexLaunch, codexCustomModels, ready, dispose: () => relayProxy.stop() };
+  async function coworkConnection(model) {
+    await ready();
+    const { coworkProvider } = await import('./cowork-runtime/provider.mjs');
+    return coworkProvider({ model: model || getConfig()?.model, providers: readProviders().map(provider => ({ ...provider, keyEnv: prefs().providerKeyEnv(provider.route) })),
+      connection: readConnection(), keys: readKeys(), inherited: { ...inherited },
+      officialKeySlot: prefs().CONNECTION_KEY_OFFICIAL, relayKeySlot: prefs().CONNECTION_KEY_RELAY, officialBaseURL: prefs().OFFICIAL_BASE_URL });
+  }
+  return { decorate, decorateThread, run, codexLaunch, codexCustomModels, coworkConnection, ready, dispose: () => relayProxy.stop() };
 }
 
 module.exports = { createModelSettings };

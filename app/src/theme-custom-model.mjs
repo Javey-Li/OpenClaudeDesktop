@@ -116,7 +116,7 @@ export function fontStack(family) {
     .map(name => GENERIC.has(name) ? name : cssString(name)).join(', ');
 }
 
-// Base radii in rem, read from public/assets/v1/c6a992d55-Vcbdv79k.css:
+// Base radii in rem, read from public/assets/v1/c6a992d55-C0zTICcS.css:
 //   .cds-root { --cds-radius--xs:.3125rem; --cds-radius--sm:.3125rem; --cds-radius--lg:.4375rem;
 //               --cds-radius:.375rem; --cds-radius-composer:.75rem }            (each × var(--cds-rem-scale,1))
 //   .cds-root[data-density=comfortable] { --cds-radius--xs:.375rem; --cds-radius--sm:.4375rem;

@@ -25,46 +25,47 @@ const storeWith = (setup = () => {}) => { const store = Store.createSplitViewSto
 const host = (store, side = 0) => renderToStaticMarkup(React.createElement(Split.SourceSplitHost, { side, store },
   React.createElement('main', { className: 'workspace', 'data-side-content': side })));
 
-test('closed: the workspace sits in the primary pane alone, no regions, divider or slot', () => {
+test('closed: the workspace sits in the primary grid cell alone (dframe-pane-host, one column), the Primary pane region alone, no resizers or slots', () => {
   const html = host(storeWith());
-  assert.match(html, /^<div class="split-host" data-pane-count="1"><div class="split-row"><div class="split-pane split-pane-primary" id="split-pane-0"><main class="workspace" data-side-content="0"><\/main><\/div><\/div><\/div>$/);
-  assert.doesNotMatch(html, /role="separator"|role="region"|split-pane-secondary/);
+  assert.match(html, /^<div class="split-host dframe-pane-host" data-focus-region="main" data-pane-count="1" style="--df-col-tracks:1fr;--df-pane-row:0.5"><div class="split-pane split-pane-primary dframe-pane dframe-pane-primary" id="split-pane-0" role="region" aria-label="Primary pane" data-row="0" data-pos="0:0" data-col-last="true" data-pane-index="0" style="--pane-col:1" data-pane-immovable="true"><main class="workspace" data-side-content="0"><\/main><\/div><div class="dframe-pane-col" style="grid-column:1" data-col="0"><\/div><\/div>$/);
+  assert.doesNotMatch(html, /role="separator"|aria-current|split-pane-secondary|dframe-pane-grip/);
 });
 
-test('open: Primary and Secondary pane regions, the focused one current, the other inactive, and a keyboard divider without a close button', () => {
-  const store = storeWith((s) => { s.reportSide(0, { current: 'a', title: 'Alpha' }); s.open('b'); s.setRatio(0.6, 1400); });
+test('open (a1 / o1): Primary and Secondary pane regions in grid cells, the focused one current, the others inactive; column resizers named Resize pane columns; grips', () => {
+  const store = storeWith((s) => { s.reportSide(0, { current: 'a', title: 'Alpha' }); s.setMaxColumns(3); s.open('b'); s.open('c'); s.setColWeights([2, 1, 1]); });
   const html = host(store);
-  assert.match(html, /class="split-host" data-split="true" data-pane-count="2"/);
-  assert.match(html, /<div class="split-pane split-pane-primary" id="split-pane-0" role="region" aria-label="Primary pane" data-split-inactive="" style="flex-grow:0.6">/);
-  assert.match(html, /<div class="split-pane split-pane-secondary" id="split-pane-1" role="region" aria-label="Secondary pane" aria-current="true" data-focused="" style="flex-grow:0.4/);
-  assert.match(html, /role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize split view" aria-valuenow="60"/);
-  assert.match(html, /aria-valuetext="60% left, 40% right"/);
-  // Each side closes itself from its own titlebar (SourceTitlebar onCloseSplit): the divider carries no close button.
-  assert.doesNotMatch(html, /split-close|Close split view/);
+  assert.match(html, /class="split-host dframe-pane-host" data-focus-region="main" data-split="true" data-pane-count="3" style="--df-col-tracks:2fr 1fr 1fr;--df-pane-row:0.5"/);
+  assert.match(html, /<div class="split-pane split-pane-primary dframe-pane dframe-pane-primary" id="split-pane-0" role="region" aria-label="Primary pane" data-row="0" data-pos="0:0" data-split-inactive="" data-pane-index="0" style="--pane-col:1">/);
+  assert.match(html, /<div class="split-pane split-pane-secondary dframe-pane dframe-pane-extra" id="split-pane-2" role="region" aria-label="Secondary pane" aria-current="true" data-row="0" data-pos="2:0" data-col-last="true" data-focused="" data-pane-index="2" style="--pane-col:3"><div class="split-pane-slot"><\/div><button type="button" aria-hidden="true" tabindex="-1" class="dframe-pane-grip draggable-none"><\/button><\/div>/);
+  assert.equal((html.match(/aria-label="Resize pane columns"/g) || []).length, 2, 'one boundary per column pair');
+  assert.match(html, /<div class="dframe-pane-resize-col"><div aria-label="Resize pane columns" aria-valuenow="67" data-cds="ResizeHandle" role="separator" aria-orientation="vertical" tabindex="0"/);
+  assert.match(html, /data-cds-part="resize-pill"/);
+  // Each extra pane closes itself from its own titlebar (SourceTitlebar onCloseSplit "Close pane"): no close here.
+  assert.doesNotMatch(html, /Close split view|Close pane|Resize split view/);
   store.focus(0);
-  const focusedPrimary = host(store);
-  assert.match(focusedPrimary, /id="split-pane-0" role="region" aria-label="Primary pane" aria-current="true" data-focused=""/);
-  assert.match(focusedPrimary, /id="split-pane-1" role="region" aria-label="Secondary pane" data-split-inactive=""/);
+  assert.match(host(store), /id="split-pane-0" role="region" aria-label="Primary pane" aria-current="true" data-row="0" data-pos="0:0" data-focused=""/);
 });
 
-test('narrow: the sides become tabs named by their sessions; only the focused side shows', () => {
-  const store = storeWith((s) => { s.reportSide(0, { current: 'a', title: 'Alpha' }); s.open('b'); s.reportSide(1, { current: 'b', title: '' }); s.setTabs(true); });
+test('rows (h$ / g$): a column with a bottom pane gets the row resizer and the corners beside it', () => {
+  const store = storeWith((s) => { s.reportSide(0, { current: 'a' }); s.setMaxColumns(2); s.open('b'); s.open('c'); s.setRowSplit(0.6); });
   const html = host(store);
-  assert.match(html, /data-tabs="true"/);
-  assert.match(html, /<div class="split-tabs" role="tablist" aria-label="Split view">/);
-  assert.match(html, /role="tab" id="split-tab-0" aria-controls="split-pane-0" aria-selected="false" tabindex="-1" class="split-tab"><span class="split-tab-label">Alpha<\/span>/);
-  assert.match(html, /role="tab" id="split-tab-1" aria-controls="split-pane-1" aria-selected="true" tabindex="0" class="split-tab" data-active="true"><span class="split-tab-label">Untitled session<\/span>/);
-  assert.match(html, /id="split-pane-0" role="tabpanel" aria-labelledby="split-tab-0" data-split-inactive="" hidden=""/);
-  assert.match(html, /id="split-pane-1" role="tabpanel" aria-labelledby="split-tab-1" data-focused=""/);
-  assert.doesNotMatch(html, /role="separator"/, 'no divider while tabbed');
-  // The strip's close has a CDS tooltip (with ⌃⌘W), not a native title.
-  assert.match(html, /<button type="button" class="split-tabs-close code-icon-button" aria-label="Close split view"/);
-  assert.doesNotMatch(html, /title="Close split view"/);
-  const blank = storeWith((s) => { s.open(null); s.setTabs(true); });
-  assert.match(host(blank), /<span class="split-tab-label">New session<\/span>/);
+  assert.match(html, /style="--df-col-tracks:1fr 1fr;--df-pane-row:0.6"/);
+  assert.match(html, /id="split-pane-0" role="region" aria-label="Primary pane" data-row="0" data-pos="0:0" data-split="true"/);
+  assert.match(html, /id="split-pane-2" role="region" aria-label="Secondary pane" aria-current="true" data-row="1" data-pos="0:1" data-split="true"/);
+  assert.match(html, /<div class="dframe-pane-col" style="grid-column:1" data-col="0" data-split="true"><div class="dframe-pane-resize-row"><div aria-label="Resize pane rows" aria-valuenow="60" data-cds="ResizeHandle" role="separator" aria-orientation="horizontal"/);
+  assert.match(html, /<div class="dframe-pane-resize-corner" aria-hidden="true"><\/div>/);
 });
 
-test('the secondary side renders its workspace unchanged; the root renders only the primary side until the slot exists', () => {
+test('narrow (u1): a parked window shows the primary pane alone; no tab strip', () => {
+  const store = storeWith((s) => { s.reportSide(0, { current: 'a', title: 'Alpha' }); s.open('b'); s.setConstrained(true); });
+  const html = host(store);
+  assert.match(html, /data-pane-count="1"/);
+  assert.doesNotMatch(html, /split-pane-secondary|role="tablist"|split-tabs/);
+  store.setConstrained(false);
+  assert.match(host(store), /data-pane-count="2"/);
+});
+
+test('the secondary pane renders its workspace unchanged; the root renders only the primary pane until a slot exists', () => {
   const store = storeWith((s) => s.open('b'));
   assert.equal(host(store, 1), '<main class="workspace" data-side-content="1"></main>');
   const html = renderToStaticMarkup(React.createElement(Split.SourceSplitRoot, { store, renderSide: (side, secondary) => React.createElement('section', { 'data-side': side, 'data-secondary': secondary?.sessionId ?? '' }) }));
@@ -74,20 +75,21 @@ test('the secondary side renders its workspace unchanged; the root renders only 
 test('zh-CN: the split chrome speaks the UI language', (context) => {
   context.after(() => I18n.setLocale('en-US'));
   I18n.setLocale('zh-CN');
-  const html = host(storeWith((s) => s.open('b')));
+  const html = host(storeWith((s) => { s.open('b'); s.open('c'); }));
   assert.match(html, /aria-label="主面板"/);
   assert.match(html, /aria-label="副面板"/);
-  assert.match(html, /aria-label="调整分屏大小"/);
-  const tabbed = host(storeWith((s) => { s.open('b'); s.setTabs(true); }));
-  assert.match(tabbed, /aria-label="关闭分屏"/);
+  assert.match(html, /aria-label="调整面板列宽"/);
+  assert.match(html, /aria-label="调整面板行高"/);
 });
 
-test('split shortcuts follow the official chords: ⌃] ⌃[ focus, ⌃⌘\\ new session on the right, ⌃⌘W close', () => {
+test('split shortcuts follow the official chords: ⌃] ⌃[ focus, ⌃⌘\\ / ⌃⌘- new session on the right / below, ⌃⌘W close, ⌃⌘Arrow focus', () => {
   const key = (code, mods = {}) => Split.splitShortcut({ code, ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false, defaultPrevented: false, ...mods });
   assert.equal(key('BracketRight'), 'focus-next');
   assert.equal(key('BracketLeft'), 'focus-previous');
   assert.equal(key('Backslash', { metaKey: true }), 'new-right');
+  assert.equal(key('Minus', { metaKey: true }), 'new-below');
   assert.equal(key('KeyW', { metaKey: true }), 'close');
+  assert.equal(key('ArrowRight', { metaKey: true }), 'focus-right');
   assert.equal(key('KeyW'), null, '⌃W alone stays a text binding');
   assert.equal(key('BracketRight', { shiftKey: true }), null);
   assert.equal(key('BracketRight', { repeat: true }), null);
@@ -112,7 +114,10 @@ test('session row menu: Split view and New window live in the Open in submenu (c
   assert.match(body, /shortcut=\{digitFor\(index\)\} digit=\{digitFor\(index\)\}/, 'rows are numbered 1-9');
   assert.doesNotMatch(body, /icon=|Close split view"\)/, 'no icons and no Close split view row');
   const sidebar = (props) => renderToStaticMarkup(React.createElement(Sidebar.SourceSidebar, { sessions: [thread('s1')], knownFolders: ['/fixture/work'], ...props }));
-  assert.match(sidebar({ windowActions: actions({ kind: 'open' }) }), /data-source-session-id="s1"[^>]*>.*?<button type="button" class="source-session-open"[^>]*draggable="true"/s);
+  // B10 (shared-19 DY): rows are pointer drags (data-drag-key; source-sidebar-drag.jsx), never native drags.
+  const draggableRow = sidebar({ windowActions: actions({ kind: 'open' }), onSessionAction() {} });
+  assert.match(draggableRow, /data-source-session-id="s1"[^>]*data-drag-key="s1"[^>]*>.*?<button type="button" class="source-session-open"[^>]*draggable="false"/s);
+  assert.doesNotMatch(draggableRow, /draggable="true"/);
   assert.doesNotMatch(sidebar({}), /draggable="true"/);
 });
 
@@ -120,7 +125,12 @@ test('the split CSS never sets cursor:pointer, keeps reduced motion, and the sto
   const css = readFileSync(path.resolve(import.meta.dirname, '../src/source-split-view.css'), 'utf8');
   assert.doesNotMatch(css, /cursor\s*:\s*pointer/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(css, /html\[data-reduce-motion="true"\] \.split-pane-secondary/);
+  assert.match(css, /html\[data-reduce-motion="true"\] \.split-host \.dframe-pane-extra/);
+  // The grid rules are the reference's own (the loaded shared-styles sheet), not copies.
+  const sheet = readFileSync(path.resolve(import.meta.dirname, '../public/assets/v1/shared-styles-CTu5t_TM.css'), 'utf8');
+  assert.match(readFileSync(path.resolve(import.meta.dirname, '../index.html'), 'utf8'), /href="\/assets\/v1\/shared-styles-CTu5t_TM\.css"/);
+  for (const rule of ['.dframe-pane-host{', '.dframe-pane-col{', '.dframe-pane-resize-col{', '.dframe-pane-resize-row{', '.dframe-pane-resize-corner{', '.dframe-pane-grip{', '.dframe-drop-overlay-badge{', '.dframe-drop-overlay-label{'])
+    assert.ok(sheet.includes(rule), rule);
   assert.equal(Split.SESSION_DRAG_TYPE, 'application/x-code-desktop-session');
   assert.equal(Split.inInactiveSplitSide({ closest: (selector) => (selector === '[data-split-inactive]' ? {} : null) }), true);
   assert.equal(Split.inInactiveSplitSide(null), false);

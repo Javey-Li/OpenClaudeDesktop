@@ -33,14 +33,33 @@ export const permissionLabel = value => PERMISSION_OPTIONS.find(option => option
  * GroupLabel "Mode") → cfca6870a item mapper, on the shared SourceMenu.
  * Selection closes the menu and hands focus to the composer editor through
  * finalFocus; Escape returns to the trigger (retained verified behavior).
- * defaultValue is Settings' default permission mode: wy() (ion-dist cf6ae6197)
- * gives that item a trailing neutral xxs Badge "Default" (pointer-events-none).
+ * Badges (ca80fca8d Mn :20490-20497, `dz(uz(t, n === r ? -1 : n, e, void 0, "inline"), r, e)`): defaultValue
+ * (Settings' default permission mode) gets 'Default' and, while the current mode is not Auto (An = Ie && St !==
+ * 'auto'; every local core offers Auto), the Auto row gets 'Recommended', which takes the place of 'Default' when
+ * both fall on Auto. fz "inline": the badge (pz: neutral xxs truncate pointer-events-none) sits in the label,
+ * 'flex min-w-0 items-center gap-sm' after the truncated name; the composer menu passes no settings source, so
+ * the badge has no source tooltip. The row's accessible name stays the mode name (aria-labelledby).
  */
+export function permissionBadges({ value, defaultValue, values = PERMISSION_OPTIONS.map((option) => option.value) } = {}) {
+  const recommended = values.includes("auto") && value !== "auto" ? "auto" : null;
+  const badges = {};
+  if (defaultValue && values.includes(defaultValue) && defaultValue !== recommended) badges[defaultValue] = "default";
+  if (recommended) badges[recommended] = "recommended";
+  return badges;
+}
+const BADGE_TEXT = { default: () => t("Default"), recommended: () => t("Recommended") };
+const InlineBadge = ({ kind }) => <>{" "}<span className="sp-permission-badge" data-cds="Badge" data-variant="neutral" data-step="1" data-permission-badge={kind}>
+  <span className="sp-permission-badge-text">{BADGE_TEXT[kind]()}</span></span></>;
+const badgedLabel = (label, labelId, kind) => kind
+  ? <span className="sp-permission-label-row"><span className="sp-permission-label-text" id={labelId}>{label}</span><InlineBadge kind={kind} /></span>
+  : label;
 // agents / agentValue / defaultAgent / onAgentChange: a core whose sessions can run as one of its own primary agents
 // (OpenCode's and MiMo's build, docs, compose…) adds an 'Agent' group; Plan still runs the core's plan agent.
 export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, onClose, onSelectComplete, initialHighlight, bypassEnabled = false, bypassOffer = null, onEnableBypass,
   agents = null, agentValue = null, defaultAgent = null, onAgentChange }) {
   const prefix = useId(), headingId = `${prefix}-heading`, agentHeadingId = `${prefix}-agent-heading`;
+  const modeOptions = PERMISSION_OPTIONS.filter(option => option.value !== "bypass" || bypassEnabled);
+  const badges = permissionBadges({ value, defaultValue, values: modeOptions.map((option) => option.value) });
   return (
     <SourceMenu.Popup anchor={anchor} side="top" align="start" collisionPadding={{ top: 48, right: 8, bottom: 8, left: 8 }}
       labelledBy={headingId} className="sp-permission-menu" onClose={onClose}
@@ -48,18 +67,14 @@ export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, on
       initialHighlight={initialHighlight}>
       <SourceMenu.Group aria-labelledby={headingId}>
         <SourceMenu.GroupLabel id={headingId} className="sp-permission-heading">{t("Mode")}</SourceMenu.GroupLabel>
-        {PERMISSION_OPTIONS.filter(option => option.value !== "bypass" || bypassEnabled).map((option, index) => {
+        {modeOptions.map((option, index) => {
           const selected = option.value === value, labelId = `${prefix}-${option.value}-label`;
-          const descriptionId = `${prefix}-${option.value}-description`, digit = index + 1;
+          const descriptionId = `${prefix}-${option.value}-description`, digit = index + 1, badge = badges[option.value];
           return <SourceMenu.Item key={option.value} className="sp-permission-item" checked={selected} checkedRole="radio"
-            label={option.label} description={option.description} labelId={labelId} descriptionId={descriptionId}
+            label={option.label} description={option.description} labelId={badge ? undefined : labelId} descriptionId={descriptionId}
             aria-labelledby={labelId} aria-describedby={descriptionId} shortcut={String(digit)} digit={digit}
-            trailing={option.value === defaultValue
-              ? <span className="sp-permission-badge-slot"><span className="sp-permission-badge" data-cds="Badge" data-variant="neutral" data-step="1">
-                  <span className="sp-permission-badge-text">{t("Default")}</span></span></span>
-              : undefined}
             data-permission-value={option.value} onClick={() => { if (option.value !== value) onChange?.(option.value); }}>
-            {option.label}
+            {badgedLabel(option.label, labelId, badge)}
           </SourceMenu.Item>;
         })}
         {!bypassEnabled && bypassOffer === "enable" && onEnableBypass && <SourceMenu.Item className="sp-permission-item sp-permission-enable" label={BYPASS_LABEL}
@@ -73,11 +88,8 @@ export function SourcePermissionMenu({ anchor, value, defaultValue, onChange, on
         <SourceMenu.GroupLabel id={agentHeadingId} className="sp-permission-heading">{t("Agent")}</SourceMenu.GroupLabel>
         {agents.map((agent) => <SourceMenu.Item key={agent.name} className="sp-permission-item" checked={agent.name === agentValue} checkedRole="radio"
           label={agent.name} description={agent.description || (value === "plan" ? t("Used when you leave Plan") : undefined)}
-          trailing={agent.name === defaultAgent
-            ? <span className="sp-permission-badge-slot"><span className="sp-permission-badge" data-cds="Badge" data-variant="neutral" data-step="1">
-                <span className="sp-permission-badge-text">{t("Default")}</span></span></span>
-            : undefined}
-          data-agent-value={agent.name} onClick={() => { if (agent.name !== agentValue) onAgentChange(agent.name); }}>{agent.name}</SourceMenu.Item>)}
+          data-agent-value={agent.name} onClick={() => { if (agent.name !== agentValue) onAgentChange(agent.name); }}>
+          {badgedLabel(agent.name, undefined, agent.name === defaultAgent ? "default" : null)}</SourceMenu.Item>)}
       </SourceMenu.Group>}
     </SourceMenu.Popup>
   );

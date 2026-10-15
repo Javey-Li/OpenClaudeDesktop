@@ -70,7 +70,7 @@ test("sanitizers reject malformed persisted state and an inconsistent expanded t
   assert.equal(state.diffShowTree, false);
   assert.deepEqual(state.order, ["A"]);
   assert.equal(state.sessions.A.tileLayout, null);
-  assert.deepEqual(state.sessions.A.fileTabs, [{ path: "x", preview: false }]);
+  assert.deepEqual(state.sessions.A.fileTabs, [{ path: "x", preview: false, restored: true }], "tabs read back from storage are marked restored (B07)");
   assert.equal(state.sessions.A.activePath, null);
   const expanded = sanitizeSessionEntry({ tileLayout: fromSpec({ direction: "row", children: ["files"] }), baseLayout: filesLayout(), expandedTile: "files" });
   assert.equal(expanded.expandedTile, "files");
@@ -84,4 +84,19 @@ test("sanitizers reject malformed persisted state and an inconsistent expanded t
   const tooNew = memoryStorage({ [TILE_STORE_KEY]: JSON.stringify({ version: 99, sessions: { A: {} }, order: ["A"] }) });
   assert.equal(createTileLayoutStore({ storage: tooNew }).getSession("A"), null, "a newer version is not read");
   assert.equal(partialize(emptyStoreState()).version, 1);
+});
+
+test('disabling preview tabs fixes all saved sessions without losing active paths or file contents',()=>{
+ const storage=memoryStorage();const store=createTileLayoutStore({storage});
+ const pinned={path:'kept',preview:false,text:'keep'};
+ store.setSession('active',{fileTabs:[pinned,{path:'preview',preview:true,text:'unsent file bytes'}],activePath:'preview'});
+ store.setSession('inactive',{fileTabs:[{path:'other',preview:true}],activePath:'other'});
+ const order=store.getState().order;store.keepAllFileTabs();
+ assert.equal(store.getSession('active').fileTabs[0],pinned);
+ assert.equal(store.getSession('active').fileTabs[1].text,'unsent file bytes');
+ assert.equal(store.getSession('active').activePath,'preview');assert.equal(store.getSession('inactive').activePath,'other');
+ assert.equal(store.getState().order,order);
+ const state=store.getState();store.keepAllFileTabs();assert.equal(store.getState(),state,'idempotent');
+ const restarted=createTileLayoutStore({storage});
+ assert.ok(Object.values(restarted.getState().sessions).every(entry=>entry.fileTabs.every(tab=>!tab.preview)));
 });

@@ -6,6 +6,8 @@
 /* WR: text-code-regular text-primary. */
 .sbs-branch { font-family: var(--font-code, var(--cds-font-mono)); font-size: var(--cds-font-size-code); line-height: var(--cds-leading-code);
   font-weight: var(--cds-font-weight-regular); color: var(--cds-text-primary); }
+/* B34 :17066-17078: the other-sessions note, a text-body text-secondary <p> in the same gap-sm column. */
+.sbs-shared { margin: var(--cds-gap-sm) 0 0; color: var(--cds-text-secondary); font-size: var(--cds-font-size-body); line-height: var(--cds-leading-body); }
 /* '{n} files changed': flex flex-wrap items-center gap-1.25 text-body text-secondary; KR font-mono-ui text-caption. */
 .sbs-files { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: var(--cds-gap-sm) 0 0; color: var(--cds-text-secondary);
   font-size: var(--cds-font-size-body); line-height: var(--cds-leading-body); }

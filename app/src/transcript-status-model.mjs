@@ -32,6 +32,21 @@ export function retryingStatus(entry, { now = Date.now(), locale } = {}) {
 }
 
 const HOME = presentation("home", "", false);
+// _3 (cc43287c9 :36403-36425): the spawn step labels (worktree_ff is declared but no step announces it).
+const SPAWN_PHASE_LABELS = Object.freeze({
+  plugins: "Setting up plugins…",
+  worktree_hook: "Running your WorktreeCreate hook…",
+  worktree_fetch: "Refreshing origin…",
+  worktree_ff: "Fast-forwarding branch…",
+  worktree_add: "Adding worktree…",
+  worktree_checkout: "Checking out worktree files… (large repositories may take a while)",
+  worktree: "Creating worktree…",
+  worktree_deferred: "Starting session…",
+});
+/** Kv/_3: a spawn step's label; an unknown step reads 'Starting session…'. */
+export function spawnPhaseLabel(phase) {
+  return t(Object.hasOwn(SPAWN_PHASE_LABELS, phase) ? SPAWN_PHASE_LABELS[phase] : "Starting session…");
+}
 const LOADING = presentation("loading", "", false);
 const IDLE = presentation("idle");
 const RUNNING = presentation("running", t("Working…"));
@@ -54,8 +69,10 @@ export function transcriptStatusPresentation({
   approvalVisible = false,
   retrying = null,
   sending = false,
+  spawnLabel = null,
 } = {}) {
-  if (!sessionKey) return HOME;
+  // B29 (cc43287c9 dy → e5 spawnLabel): while a new session's worktree is prepared from Home, the row names the step.
+  if (!sessionKey) return typeof spawnLabel === "string" && spawnLabel ? presentation("running", spawnLabel) : HOME;
   if (!ready) return LOADING;
   // Suppress stale work/approval flags after a lost connection. The actual
   // connection/error UI remains visible elsewhere; the idle mark says nothing.

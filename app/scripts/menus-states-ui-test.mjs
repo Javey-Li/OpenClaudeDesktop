@@ -227,7 +227,9 @@ try {
   // source-sidebar.jsx:408-413, sidebar-groups.js:7761-7830 AO) reuses the CDS .smenu-skeleton inside an aria-busy
   // list; r1 matched exactly its 3 rows x (dot + bar) = 6. The check is about a model popup skeleton, so that
   // unrelated sidebar placeholder is excluded; any menu or other busy skeleton still fails. Diagnostic names matches.
-  const loadingPopupSelector = '[role="menu"], [aria-busy="true"] .smenu-skeleton:not([data-testid="sidebar-rows-skeleton"] *)';
+  // B30: the chin Mode trigger's own loading bar (ca80fca8d W$ :29115-29129, .sc-permission-skeleton over the
+  // invisible 'Mode' label) is a trigger state, not a popup skeleton, so it is excluded the same way.
+  const loadingPopupSelector = '[role="menu"], [aria-busy="true"] .smenu-skeleton:not([data-testid="sidebar-rows-skeleton"] *):not(.sc-permission-skeleton)';
   metrics.loadingPopups = await page.locator(loadingPopupSelector).evaluateAll((nodes) => nodes.map((node) => ({ role: node.getAttribute("role"), label: node.getAttribute("aria-label"), className: String(node.className).slice(0, 80), rendered: node.getClientRects().length > 0, host: node.parentElement?.closest("[class]")?.className?.slice?.(0, 80) })));
   assert.equal(await page.locator(loadingPopupSelector).count(), 0, "no popup and no skeleton list while the catalog loads");
   await button("Model").filter({ hasText: "Test model" }).waitFor();
@@ -448,38 +450,34 @@ try {
   await closeMenus();
   checks.push("More models submenu: trigger row aria-haspopup/aria-expanded/data-popup-open with ghost fill, child 2px beside the parent at layer 220 without descriptions, opens ~100ms after pointerenter and not on a 30ms pass, ArrowRight opens and focuses, ArrowLeft/Escape return to the row");
 
-  // 8b. Fast row with a real tier (Test model 2 is selected since step 6 and carries a Fast service tier):
-  // shared-14 wS copy block with the option name and the tier description on the next line, no tooltip
-  // without tooltip content, keepOpen checkbox toggle.
+  // 8b. Fast row with a real tier (Test model 2 is selected since step 6 and carries a Fast service tier): every core
+  // reads like Code's Claude catalog (2.31226.0 shared-8 Rk/Ik): "Fast mode" header and a one-line switch row; the
+  // Codex tier description moves to the right-side multiline tooltip and aria-description; keepOpen toggle.
   await openModel();
   const fastLive = menu("Models").getByRole("menuitemcheckbox", { name: /^Enable fast mode/ });
-  metrics.fastLive = await fastLive.evaluate((node) => {
-    const description = node.querySelector("[data-fast-description]"), name = node.querySelector(".sm-fast-label");
-    const color = (property) => { const span = document.createElement("span"); span.style.color = `var(${property})`; node.appendChild(span); const value = getComputedStyle(span).color; span.remove(); return value; };
-    const style = description && getComputedStyle(description);
-    return { disabled: node.hasAttribute("data-disabled"), checked: node.getAttribute("aria-checked"), height: node.getBoundingClientRect().height, name: name?.textContent ?? null,
-      description: description?.textContent ?? null, describedBy: node.getAttribute("aria-describedby"), wrap: getComputedStyle(node.querySelector(".smenu-label")).whiteSpace,
-      descriptionStyle: style ? { fontSize: style.fontSize, lineHeight: style.lineHeight, marginTop: style.marginTop, display: style.display, color: style.color, muted: color("--cds-text-muted") } : null };
-  });
+  metrics.fastLive = await fastLive.evaluate((node) => ({
+    disabled: node.hasAttribute("data-disabled"), checked: node.getAttribute("aria-checked"), height: node.getBoundingClientRect().height,
+    name: node.querySelector(".sm-fast-label")?.textContent ?? null, inline: node.querySelector("[data-fast-description], .smenu-description")?.textContent ?? null,
+    ariaDescription: node.getAttribute("aria-description"), describedBy: node.getAttribute("aria-describedby"),
+    header: [...node.closest('[role="menu"]').querySelectorAll(".sm-model-header")].map((h) => h.textContent),
+  }));
   assert.equal(metrics.fastLive.disabled, false, "a model with a Fast tier enables the row");
   assert.equal(metrics.fastLive.checked, "false");
   assert.equal(metrics.fastLive.name, "Enable fast mode");
-  assert.equal(metrics.fastLive.description, "2x speed, increased usage", "ModelServiceTier.description is rendered inside the row");
-  assert.deepEqual([metrics.fastLive.descriptionStyle.fontSize, metrics.fastLive.descriptionStyle.lineHeight, metrics.fastLive.descriptionStyle.marginTop, metrics.fastLive.descriptionStyle.display], ["12px", "15px", "4px", "block"], "mt-1 block text-footnote");
-  assert.equal(metrics.fastLive.descriptionStyle.color, metrics.fastLive.descriptionStyle.muted, "description uses text-muted");
-  assert.equal(metrics.fastLive.wrap, "normal", "wS copy block is whitespace-normal");
-  near(metrics.fastLive.height, 43, "two-line Fast row height (2.5 + 19 + 4 + 15 + 2.5)", 1);
+  assert.deepEqual(metrics.fastLive.header, ["Fast mode"]);
+  assert.equal(metrics.fastLive.inline, null, "no second description line");
+  assert.equal(metrics.fastLive.ariaDescription, "2x speed, increased usage", "ModelServiceTier.description is the row's aria-description");
+  assert.ok(metrics.fastLive.height < 40, `one-line Fast row (${metrics.fastLive.height}px)`);
   assert.equal(metrics.fastLive.describedBy, null, "no disabled reason on an enabled row");
   await fastLive.hover();
-  await page.waitForTimeout(450);
-  assert.equal(await page.locator(".source-tooltip-popup").count(), 0, "no tooltip: Codex tiers carry no tooltip content");
+  await page.locator(".source-tooltip-popup").filter({ hasText: "2x speed, increased usage" }).waitFor();
   await fastLive.click();
   await page.waitForFunction(() => document.querySelector('[data-label="Enable fast mode"]')?.getAttribute("aria-checked") === "true");
   assert.equal(await menu("Models").count(), 1, "keepOpen: the popup stays open after toggling");
   await fastLive.click();
   await page.waitForFunction(() => document.querySelector('[data-label="Enable fast mode"]')?.getAttribute("aria-checked") === "false");
   await closeMenus();
-  checks.push("Fast row with a real Codex tier: enabled menuitemcheckbox with the tier description as a 12/15 muted block 4px under the name (43px row, whitespace-normal), no tooltip without tooltip content, keepOpen toggle on/off");
+  checks.push("Fast row with a real Codex tier: 'Fast mode' header and a one-line enabled menuitemcheckbox, tier description in the right-side tooltip and aria-description (no second line), keepOpen toggle on/off");
 
   // 9. Account menu.
   await button("Account menu").click();
@@ -699,11 +697,12 @@ try {
   checks.push("Escape layering: the header Search opens the ⌘K palette in search mode over an inert app (no sidebar filter); Escape closes only the palette and clears the query, so ⌘K reopens it empty");
   await page.locator(`[data-source-session-id="${B}"] .source-session-open`).click();
   await page.locator(".loading-state").waitFor({ state: "detached" }).catch(() => {});
-  await button("Session options").waitFor();
-  await button("Session options").click();
+  // B09 (cf74bc599 ZT): the ⋮ is 'View options' — view items and Keep computer awake, no session commands.
+  await button("View options").waitFor();
+  await button("View options").click();
   await menu("Session menu").waitFor(); await waitFocusIn("Session menu");
   await noSheet();
-  metrics.titlebar = await measurePopup("Session menu", '[aria-label="Session options"]');
+  metrics.titlebar = await measurePopup("Session menu", '[aria-label="View options"]');
   assertPopup(metrics.titlebar, { gap: 6, gapSide: "below", label: "Titlebar session" });
   const filesRow = menu("Session menu").getByRole("menuitemcheckbox", { name: "Files", exact: true });
   metrics.filesRow = await measureRow(filesRow);
@@ -716,52 +715,44 @@ try {
   assert.deepEqual([metrics.filesRow.check.width, metrics.filesRow.check.height, metrics.filesRow.check.marginRight], [16, 16, "0px"], "Files check slot with ⌘⇧F: 16x16, no -4px pull-in");
   assert.equal(metrics.filesRow.check.color, metrics.filesRow.check.accent);
   assert.equal(metrics.filesRow.height, 24);
-  const compactRow = menu("Session menu").locator('[role="menuitem"][data-label="Compact conversation"]');
-  metrics.compactRow = await compactRow.evaluate((node) => ({
-    disabled: node.hasAttribute("data-disabled"), opacity: getComputedStyle(node).opacity, pointerEvents: getComputedStyle(node).pointerEvents,
-    reason: document.getElementById(node.getAttribute("aria-describedby") || "")?.textContent ?? null, label: node.dataset.label, highlighted: node.hasAttribute("data-highlighted"),
-  }));
-  assert.equal(metrics.compactRow.disabled, true); assert.equal(metrics.compactRow.opacity, "0.4"); assert.equal(metrics.compactRow.pointerEvents, "none");
-  assert.equal(metrics.compactRow.reason, "Send a message first", "real commandUnavailable reason for a session without history");
+  // The View options menu holds no command rows (zt clears them), so the walk only proves ArrowDown stays on enabled rows.
+  assert.equal(await menu("Session menu").locator('[role="menuitem"][data-label="Compact conversation"]').count(), 0, "no session commands in View options");
+  metrics.viewOptionsRows = await menu("Session menu").evaluate((node) => [...node.querySelectorAll('[role^="menuitem"]')].map((row) => row.dataset.label ?? row.textContent));
   const visited = [];
-  for (let step = 0; step < 12; step++) {
+  for (let step = 0; step < 6; step++) {
     await page.keyboard.press("ArrowDown");
     await frames(1);
     visited.push(await page.evaluate(() => ({ label: document.activeElement?.dataset?.label ?? null, disabled: document.activeElement?.hasAttribute("data-disabled") ?? null })));
   }
   metrics.titlebarWalk = visited;
   assert.ok(visited.every((entry) => entry.disabled === false), "ArrowDown never lands on a disabled row");
-  assert.ok(!visited.some((entry) => entry.label === metrics.compactRow.label), "the disabled Compact row is skipped");
-  await compactRow.hover({ force: true });
-  await page.locator(".source-tooltip-popup").filter({ hasText: "Send a message first" }).waitFor();
-  // Nu asks for side "right"; the titlebar popup is docked at the window's right
-  // edge, so the positioner may mirror to the left only when clipping forces it.
-  metrics.compactTooltip = await page.evaluate(() => {
-    const positioner = document.querySelector(".source-tooltip-positioner"), popup = positioner.querySelector(".source-tooltip-popup");
-    const row = document.querySelector('[data-label="Compact conversation"]').getBoundingClientRect();
-    return { side: positioner.getAttribute("data-side"), roomRight: innerWidth - 8 - row.right, width: popup.getBoundingClientRect().width };
-  });
-  assert.ok(metrics.compactTooltip.side === "right" || (metrics.compactTooltip.side === "left" && metrics.compactTooltip.roomRight < metrics.compactTooltip.width + 4),
-    `disabled reason tooltip prefers the right side (${JSON.stringify(metrics.compactTooltip)})`);
-  // Re-target race (titlebar): right-clicking the session title while the Session options menu is open opens the
-  // title-anchored session menu in the same task; it must stay open and sit 6px under the title button.
-  await page.locator("button.st-title").click({ button: "right" });
+  // Re-target race (titlebar): right-clicking the session title while the View options menu is open opens the
+  // header session menu in the same task; it must stay open. shared-21 IV contextMenuTrigger: it is a ContextMenu at
+  // the pointer (as the sidebar rows' context menu above), and the CaretDown stays collapsed.
+  const titleBox = await page.locator("button.st-title").boundingBox();
+  const titleCursor = { x: Math.round(titleBox.x + Math.min(20, titleBox.width / 2)), y: Math.round(titleBox.y + titleBox.height / 2) };
+  await page.mouse.click(titleCursor.x, titleCursor.y, { button: "right" });
   await page.waitForTimeout(350);
   metrics.titleRace = await page.evaluate(() => {
-    const popup = document.querySelector('[role="menu"][aria-label="Session menu"]'), title = document.querySelector("button.st-title");
-    return popup && title ? { gap: popup.getBoundingClientRect().top - title.getBoundingClientRect().bottom, dataCds: popup.getAttribute("data-cds"), rows: popup.querySelectorAll('[role^="menuitem"]').length } : null;
+    const popup = document.querySelector('[role="menu"][aria-label="Session menu"]'), caret = document.querySelector(".st-session-caret");
+    return popup ? { left: popup.getBoundingClientRect().left, top: popup.getBoundingClientRect().top, dataCds: popup.getAttribute("data-cds"),
+      rows: popup.querySelectorAll('[role^="menuitem"]').length, caretExpanded: caret?.getAttribute("aria-expanded") ?? null } : null;
   });
-  assert.ok(metrics.titleRace, "the title-anchored session menu stays open after re-targeting");
-  near(metrics.titleRace.gap, 6, "title-anchored session menu uses the root sideOffset", .5);
-  assert.equal(metrics.titleRace.dataCds, "Menu");
+  assert.ok(metrics.titleRace, "the title's context menu stays open after re-targeting");
+  near(metrics.titleRace.left - titleCursor.x, 2, "title context menu: alignOffset 2 right of the pointer", .5);
+  near(metrics.titleRace.top - titleCursor.y, -5, "title context menu: sideOffset -5 above the pointer", .5);
+  assert.equal(metrics.titleRace.dataCds, "ContextMenu");
+  assert.equal(metrics.titleRace.caretExpanded, "false", "the CaretDown is not the context menu's trigger");
   await closeMenus();
-  checks.push("Session menus: sidebar row popup 6px below/align end with data-popup-open trigger and 'p' shortcut caps; right-click context menu at pointer + (2, -5) with data-cds ContextMenu on layer 130 and it survives re-targeting from an open context/More options/titlebar menu; titlebar Session menu with bare 16px accent check slot, disabled command rows (opacity .4, pointer-events none, 'Send a message first' hidden reason + right tooltip) skipped by ArrowDown");
+  checks.push("Session menus: sidebar row popup 6px below/align end with data-popup-open trigger and 'p' shortcut caps; right-click context menu at pointer + (2, -5) with data-cds ContextMenu on layer 130 and it survives re-targeting from an open context/More options/titlebar menu (the title's right-click is a ContextMenu at the pointer); titlebar View options menu (Session menu popup) with bare 16px accent check slot and no session command rows; ArrowDown stays on enabled rows");
 
-  // 12. Scroll body (sg: scroll-fade-y mask over a scroll timeline): a 300px viewport makes the titlebar Session menu
+  // 12. Scroll body (sg: scroll-fade-y mask over a scroll timeline): a 220px viewport makes the titlebar Session menu
   // exceed --available-height, so the body scrolls with the official edge fade (bottom at the top, top at the bottom).
-  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 300, deviceScaleFactor: 0, mobile: false });
-  await page.waitForFunction(() => innerHeight === 300);
-  await button("Session options").click();
+  // B09: the View options menu is short now; the header session menu (CaretDown beside the title, c593f7513 Om) is the
+  // longer titlebar menu, so a 220px viewport makes it overflow.
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 220, deviceScaleFactor: 0, mobile: false });
+  await page.waitForFunction(() => innerHeight === 220);
+  await page.locator(".st-toolbar").getByRole("button", { name: /^More options for / }).click();
   await menu("Session menu").waitFor(); await waitFocusIn("Session menu");
   const readScrollBody = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
     const popup = document.querySelector('[role="menu"][aria-label="Session menu"]'), body = popup.querySelector(":scope > .smenu-body"), style = getComputedStyle(body);
@@ -790,7 +781,7 @@ try {
   assert.equal(metrics.scrollFadeBottom.bottomRaw, "0px", "no bottom fade at the end of the scroll range");
   await closeMenus();
   await cdp.send("Emulation.clearDeviceMetricsOverride");
-  await page.waitForFunction(() => innerHeight !== 300);
+  await page.waitForFunction(() => innerHeight !== 220);
   checks.push("Scroll body: .smenu-body is sg's scroll-fade-y (official mask-image + scroll(self) timeline, 28px size); when the popup hits --available-height the body scrolls with the bottom fade at the top of the range and the top fade at the end");
 
   // 13. Sheet branch via CDP touch emulation ((pointer: coarse) → eh() sheet mode).

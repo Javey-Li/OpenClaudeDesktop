@@ -184,7 +184,7 @@ button.cz-plugin-item:hover { background:var(--cds-surface-0); }
 .cz-broken-more { align-self:flex-start; }
 @media(max-width:767px) { .cz-header,.cz-drill-header { padding-right:var(--cds-pad-lg,16px); } }
 /* shared-22 jC kC "box-content flex h-7 … py-sm": the row cell is content-box (28px + 2 × pad-sm
-   + the alpha-1 rule). The loaded .box-content sits in @layer utilities (c6a992d55-Vcbdv79k.css)
+   + the alpha-1 rule). The loaded .box-content sits in @layer utilities (c6a992d55-C0zTICcS.css)
    and loses to the unlayered `* { box-sizing:border-box }` (style.css:17), as noted for the
    transcript skeleton (source-transcript-states.css); restate it for the catalog skeleton only. */
 [data-cz-skeleton] .box-content { box-sizing:content-box; }
@@ -344,3 +344,10 @@ html[data-reduce-motion="true"] .cz-dialog-field > :is(input[data-cds=TextInput]
 .cz-agent-permissions legend { padding:0; margin-bottom:4px; color:var(--cds-text-secondary); font-size:13px; }
 .cz-agent-permissions label { flex-direction:row; align-items:center; gap:6px; color:var(--cds-text-primary); }
 .cz-agents .cz-builtin-action { gap:4px; }
+
+/* 2.31226.0 tabbed list (source-customize-list.jsx; class strings are the source's, utilities from the loaded
+   c6a992d55 CSS). ccefd43d9 b inDialog: the title keeps its width and the list toolbar (c3c330885 D) follows it. */
+.cz-title-row > .cz-title { flex:0 1 auto; }
+.cz-list-tabs[data-size=sm] button { height:var(--cds-h-control--sm, var(--cds-h-control,32px)); }
+/* The New / Disabled badges and the plugin chip are the CDS Badge (ListBadge: shared-frame Xo classes). */
+[data-cz-plugin-chip] { pointer-events:auto; }

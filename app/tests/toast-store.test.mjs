@@ -48,3 +48,27 @@ test('only neutral, warning and danger exist; any other variant name is neutral 
  store.add('w',{variant:'warning'});store.add('d',{variant:'danger'});
  assert.deepEqual(store.getSnapshot().map(entry=>entry.variant),['danger','warning','neutral','neutral','neutral','neutral']);
 });
+
+// B37: shared-19 mV add({title, description, action}) and aV (description under the title, action slot, d ? 0).
+test('a toast carries a description and an action; one with an action never expires', () => {
+ const {store,tick}=harness();let undone=0;const action={label:'Undo',onClick:()=>undone++};
+ const a=store.add({title:'Unpinned notes',description:'It moved back to Recents.',action});store.settle(a);
+ const [entry]=store.getSnapshot();
+ assert.deepEqual([entry.message,entry.description,entry.action.label],['Unpinned notes','It moved back to Recents.','Undo']);
+ entry.action.onClick();assert.equal(undone,1);
+ tick(60000);assert.equal(store.getSnapshot()[0].phase,'open','an action toast stays until dismissed');
+ const b=store.add('Saved',{description:'  ',action:{label:'Undo'}});
+ assert.equal('description' in store.getSnapshot()[0],false,'a blank description is dropped');assert.equal('action' in store.getSnapshot()[0],false,'an action without onClick is dropped');
+ tick(6500);assert.equal(store.getSnapshot().find(x=>x.id===b).phase,'ending','without a usable action the normal deadline applies');
+ assert.equal(store.add({description:'no title'}),null);
+});
+test('dedupe matches title and description; a repeated toast keeps or takes an action and stays non-expiring', () => {
+ const {store,tick}=harness();
+ const a=store.add('Plugin turned off',{action:{label:'Undo',onClick(){}}});
+ assert.equal(store.add('Plugin turned off'),a,'same title merges');
+ assert.equal(store.getSnapshot()[0].count,2);assert.equal(store.getSnapshot()[0].action.label,'Undo');
+ tick(60000);assert.equal(store.getSnapshot()[0].phase,'starting');
+ const b=store.add('Plugin turned off',{description:'Other detail'});assert.notEqual(b,a,'a different description is a different toast');
+ const keyed=store.add('One',{key:'k'});assert.equal(store.add({title:'Two',description:'More',key:'k'}),keyed);
+ assert.deepEqual((({message,description})=>[message,description])(store.getSnapshot().find(x=>x.id===keyed)),['Two','More']);
+});

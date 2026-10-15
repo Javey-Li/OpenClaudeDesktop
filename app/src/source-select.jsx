@@ -9,15 +9,17 @@ import './source-select.css';
 // Independent CDS Combobox single/select branch (shared-frame xb → Tb → Eb).
 // Options are the caller's actual data; selection never changes on mere focus.
 // triggerProps: extra attributes for the combobox button (a form's id, aria-describedby/-invalid/-required, data-*).
-export function SourceSelect({ label, value, items, onChange, disabled = false, align = 'start', className = '', title, style, triggerProps = null }) {
+export function SourceSelect({ label, value, items, onChange, disabled = false, align = 'start', className = '', title, style, triggerProps = null,
+  searchable: searchableOverride, renderTriggerValue, fullWidth = true, variant }) {
   const [open, setOpen] = useState(false), trigger = useRef(null);
   const id = useId(), selected = items.find(item => String(item.value) === String(value));
-  const searchable = items.length > 5;
+  const searchable = searchableOverride ?? items.length > 5;
   const [initial, setInitial] = useState('selected');
   const show = direction => { if (!disabled) { setInitial(direction); setOpen(true); } };
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const close = restore => { setOpen(false); if (restore) trigger.current?.focus({ preventScroll: true }); };
-  return <div className={`sselect ${className}`} data-cds="Combobox" data-disabled={disabled || undefined} style={style}>
+  return <div className={`sselect ${className}`} data-cds="Combobox" data-disabled={disabled || undefined} data-variant={variant}
+    style={{ ...(!fullWidth && { width: 'auto' }), ...style }}>
     <button {...triggerProps} ref={trigger} type="button" role="combobox" aria-label={label} title={title}
       aria-haspopup="listbox" aria-expanded={open && !disabled} aria-controls={open && !disabled ? id : undefined}
       data-value={value ?? ''} disabled={disabled} className="sselect-trigger"
@@ -26,7 +28,7 @@ export function SourceSelect({ label, value, items, onChange, disabled = false, 
         if (event.nativeEvent.isComposing || event.altKey || event.metaKey || event.ctrlKey) return;
         if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); event.stopPropagation(); show(event.key); }
       }}>
-      <span className="sselect-value">{selected?.label ?? '\u00a0'}</span><Icon name="CaretDown" size={16} className="sselect-caret"/>
+      <span className="sselect-value">{renderTriggerValue ? renderTriggerValue(selected) : selected?.label ?? '\u00a0'}</span><Icon name="CaretDown" size={16} className="sselect-caret"/>
     </button>
     {open && !disabled && <SelectPopup key={id} id={id} label={label} items={items} value={value} searchable={searchable}
       trigger={trigger} initial={initial} align={align} onClose={close} onChoose={next => { close(true); if (String(next) !== String(value)) onChange(next); }}/>} 
@@ -47,12 +49,12 @@ function SelectPopup({ id, label, items, value, searchable, trigger, initial, al
   const context = useMemo(() => {
     const owner = trigger.current, root = document.documentElement;
     const attrs = {};
-    for (const attr of ['data-density', 'data-mode', 'data-theme', 'data-cds-theme', 'data-font', 'data-color-version']) {
+    for (const attr of ['data-density', 'data-mode', 'data-theme', 'data-chat-source-version', 'data-cds-theme', 'data-font', 'data-color-version']) {
       const source = owner?.closest(`[${attr}]`) || root;
       const text = source.getAttribute(attr); if (text != null) attrs[attr] = text;
     }
     // Settings is a local modal portal, outside the shared Menu provider.
-    const modal = owner?.closest('[role=dialog]')?.parentElement;
+    const modal = owner?.closest('[role=dialog],[role=alertdialog]')?.parentElement;
     const base = modal ? Number.parseInt(getComputedStyle(modal).zIndex, 10) || 0 : 0;
     return { attrs, layer: base + 100 + 20 };
   }, [trigger]);
@@ -100,7 +102,7 @@ function SelectPopup({ id, label, items, value, searchable, trigger, initial, al
     if (event.key === 'Escape') { event.preventDefault(); onClose(true); return; }
     if (event.key === 'Tab') {
       event.preventDefault();
-      const owner = trigger.current, scope = owner?.closest('[role=dialog]') || document.body;
+      const owner = trigger.current, scope = owner?.closest('[role=dialog],[role=alertdialog]') || document.body;
       const controls = [...scope.querySelectorAll('button,input,select,textarea,a[href],[tabindex]')].filter(node => node.tabIndex >= 0 && !node.disabled && node.getClientRects().length && !node.closest('[inert]') && !popup.current?.contains(node));
       const at = controls.indexOf(owner), next = controls[(at + (event.shiftKey ? -1 : 1) + controls.length) % controls.length];
       onClose(false); next?.focus({ preventScroll: true }); return;

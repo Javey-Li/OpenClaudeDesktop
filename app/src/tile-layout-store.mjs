@@ -32,7 +32,8 @@ function sanitizeTabs(tabs) {
   for (const tab of tabs) {
     if (!tab || typeof tab.path !== "string" || !tab.path || seen.has(tab.path)) continue;
     seen.add(tab.path);
-    out.push({ path: tab.path, preview: tab.preview === true, ...(typeof tab.text === "string" ? { text: tab.text } : {}) });
+    // restored: read back from storage (Fu restored, cccc2cf0a :6574); a first read that finds the file gone drops the tab.
+    out.push({ path: tab.path, preview: tab.preview === true, restored: true, ...(typeof tab.text === "string" ? { text: tab.text } : {}) });
   }
   return out.slice(0, 8);
 }
@@ -84,9 +85,10 @@ export function migrateLegacyRatios(raw) {
 // "epitaxy-diff-tree-width" value (cf3dc7910 u/b: default 240, rounded, 160..640);
 // diffFileTree / diffGroupByKind are "epitaxy-diff-file-tree" (Group files by folder,
 // default on) and "epitaxy-diff-group-by-kind" (Separate test, build, and generated
-// files, default off). All four are global, like the source keys.
+// files, default off). All four are global, like the source keys. diffCommitsCollapsed (B15) is
+// ca80fca8d Rw "epitaxy-diff-commits-collapsed" (the Commits section header, default expanded).
 export function emptyStoreState() {
-  return { version: TILE_STORE_VERSION, lastPaneFlexByKind: {}, filesTreeShown: false, diffShowTree: false, diffTreeWidth: 240, diffFileTree: true, diffGroupByKind: false, sessions: {}, order: [] };
+  return { version: TILE_STORE_VERSION, lastPaneFlexByKind: {}, filesTreeShown: false, diffShowTree: false, diffTreeWidth: 240, diffFileTree: true, diffGroupByKind: false, diffCommitsCollapsed: false, sessions: {}, order: [] };
 }
 export function sanitizeStoreState(value) {
   const state = emptyStoreState();
@@ -97,6 +99,7 @@ export function sanitizeStoreState(value) {
   state.diffTreeWidth = Number.isFinite(value.diffTreeWidth) ? Math.min(640, Math.max(160, Math.round(value.diffTreeWidth))) : 240;
   state.diffFileTree = value.diffFileTree !== false;
   state.diffGroupByKind = value.diffGroupByKind === true;
+  state.diffCommitsCollapsed = value.diffCommitsCollapsed === true;
   const order = Array.isArray(value.order) ? value.order.filter((id) => typeof id === "string") : [];
   const sessions = value.sessions && typeof value.sessions === "object" ? value.sessions : {};
   for (const id of [...new Set([...order, ...Object.keys(sessions)])]) {
@@ -123,7 +126,8 @@ export function partialize(state) {
     sessions[id] = { ...entry, fileTabs: entry.fileTabs.map(({ path, preview }) => ({ path, preview })) };
   }
   return { version: TILE_STORE_VERSION, lastPaneFlexByKind: state.lastPaneFlexByKind, filesTreeShown: state.filesTreeShown, diffShowTree: state.diffShowTree,
-    diffTreeWidth: state.diffTreeWidth, diffFileTree: state.diffFileTree, diffGroupByKind: state.diffGroupByKind, sessions, order: [...state.order] };
+    diffTreeWidth: state.diffTreeWidth, diffFileTree: state.diffFileTree, diffGroupByKind: state.diffGroupByKind,
+    diffCommitsCollapsed: state.diffCommitsCollapsed, sessions, order: [...state.order] };
 }
 
 export function createTileLayoutStore({ storage = null, key = TILE_STORE_KEY, legacyKey = LEGACY_RATIO_KEY } = {}) {
@@ -163,6 +167,16 @@ export function createTileLayoutStore({ storage = null, key = TILE_STORE_KEY, le
       const entry = { ...previous, ...patch };
       const order = [...state.order.filter((value) => value !== id), id];
       commit(capSessions({ ...state, sessions: { ...state.sessions, [id]: entry }, order }));
+    },
+    // c03935b01 keepAllFileTabs: also fix previews in inactive sessions.
+    keepAllFileTabs() {
+      let sessions = state.sessions;
+      for (const [id, entry] of Object.entries(state.sessions)) {
+        if (!entry.fileTabs?.some(tab => tab.preview === true)) continue;
+        if (sessions === state.sessions) sessions = { ...sessions };
+        sessions[id] = { ...entry, fileTabs: entry.fileTabs.map(tab => tab.preview === true ? { ...tab, preview: false } : tab) };
+      }
+      if (sessions !== state.sessions) commit({ ...state, sessions });
     },
     setGlobal(patch) {
       commit({ ...state, ...patch });

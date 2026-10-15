@@ -8,6 +8,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 
+const { editorLocationURI } = require("./generated/editor-location.cjs");
+const EDITOR_URL_SCHEMES = Object.freeze({vscode:"vscode://",vscodeInsiders:"vscode-insiders://",cursor:"cursor://",windsurf:"windsurf://",zed:"zed://"});
+
 const EDITORS = Object.freeze([
   { type: "vscode", name: "VS Code", apps: ["Visual Studio Code.app"] },
   { type: "vscodeInsiders", name: "VS Code Insiders", apps: ["Visual Studio Code - Insiders.app"] },
@@ -47,15 +50,21 @@ function installedEditors(options = {}) {
 }
 
 /** Opens a file or folder in one installed editor; refuses an unknown editor or a path that doesn't exist. */
-async function openInEditor(target, type, { home = os.homedir(), exists = fs.existsSync, run = execFile } = {}) {
+async function openInEditor(target, type, { home = os.homedir(), exists = fs.existsSync, run = execFile, line, column, openExternal } = {}) {
   const editor = EDITORS.find((entry) => entry.type === type);
   if (!editor) throw new Error("Unknown editor.");
   if (typeof target !== "string" || !path.isAbsolute(target) || target.includes("\0")) throw new Error("Invalid file path.");
-  try { await fs.promises.stat(target); } catch { throw new Error("The file or folder no longer exists."); }
+  let info;
+  try { info = await fs.promises.stat(target); } catch { throw new Error("The file or folder no longer exists."); }
   const app = editorApp(editor, { home, exists });
   if (!app) throw new Error("That editor is no longer installed.");
+  if (info.isFile() && Number.isInteger(line) && line > 0 && EDITOR_URL_SCHEMES[type]) {
+    const uri = editorLocationURI(EDITOR_URL_SCHEMES[type], target, line, column);
+    await (openExternal ?? require("electron").shell.openExternal)(uri);
+    return true;
+  }
   await new Promise((resolve, reject) => run("/usr/bin/open", ["-a", app, target], { timeout: 15000 }, (error) => error ? reject(error) : resolve()));
   return true;
 }
 
-module.exports = { EDITORS, editorApp, installedEditors, openInEditor };
+module.exports = { EDITORS, EDITOR_URL_SCHEMES, editorApp, installedEditors, openInEditor };

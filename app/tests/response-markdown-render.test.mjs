@@ -48,7 +48,8 @@ test('actual transcript and background command output share ANSI colors and neve
 test('background output applies the real 8000-character tail before painting and falls back without repeating description', () => {
   const task = { id: 'cmd', description: 'test', output: 'discard-me'+ '\x1b[32m' + 'x'.repeat(8000), status: 'running' };
   const html = renderToStaticMarkup(React.createElement(SourceTaskOutput, { task, sessionId: 'test-session' }));
-  assert.match(html, /… \(15 chars truncated\)/); assert.doesNotMatch(html, /discard-me|color:/);
+  // B21: lC/sC (cccc2cf0a :11074-11128) label the 8000-character tail "(Earlier output not shown)".
+  assert.match(html, /\(Earlier output not shown\)/); assert.doesNotMatch(html, /discard-me|color:/);
   const empty = renderToStaticMarkup(React.createElement(SourceTaskOutput, { task: { ...task, output: '', summary: 'test' }, sessionId: 'test-session' }));
   assert.match(empty, /No output yet/);
 });

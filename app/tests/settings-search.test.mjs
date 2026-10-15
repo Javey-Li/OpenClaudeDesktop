@@ -33,9 +33,10 @@ test('literal first-match highlight preserves original Unicode and does not pret
  assert.deepEqual(settingsMatchRange('İx😀 Code','code'),{start:5,end:9});assert.deepEqual(settingsMatchRange('İx','i'),{start:0,end:1});assert.deepEqual(settingsMatchRange('x😀y','😀'),{start:1,end:3});
 });
 
-// Fidelity F14: shared-22:2274-2285 / :3915-3918 zC — Usage is navHidden (claudified_usage_page_pace treatment):
-// left out of the nav and the narrow tabs, still a search destination.
-test('nav-hidden sections leave the nav and the narrow tabs but stay searchable',async()=>{
+// Fidelity F14: shared-22:2274-2285 / :3915-3918 zC — a navHidden section leaves the nav and the narrow tabs and stays a
+// search destination. B23: 2.31226.0 shared-19 ZC (:2468-2482) lists Usage again (oC only swaps its icon), so no
+// local section is nav-hidden.
+test('nav-hidden sections leave the nav and the narrow tabs but stay searchable; Usage is listed',async()=>{
  const {settingsNavSections}=await import('../src/settings-shell-model.mjs');
  const shell=[{id:'preferences',label:'Preferences'},{id:'usage',label:'Usage',navHidden:true},{id:'code',label:'Code'}];
  assert.deepEqual(settingsNavSections(shell).map(s=>s.id),['preferences','code']);
@@ -43,7 +44,8 @@ test('nav-hidden sections leave the nav and the narrow tabs but stay searchable'
  assert.deepEqual(settingsSearch(shell,[],'usage').map(hit=>[hit.kind,hit.tab]),[['hit','usage']]);
  const fs=await import('node:fs'),path=await import('node:path');
  const text=fs.readFileSync(path.resolve(import.meta.dirname,'../src/source-settings.jsx'),'utf8');
- assert.match(text,/\{id:'usage',label:'Usage',icon:'UsageGaugeMiddle',group:'Settings',navHidden:true\}/);
+ assert.match(text,/\{id:'usage',label:'Usage',icon:'UsageGaugeMiddle',group:'Settings'\}/);
+ assert.equal(/navHidden:true/.test(text),false);
  assert.match(text,/const baseNavTabs = settingsNavSections\(tabs\);/);
  // Harness is listed only on a core with harnessProfile (or while its page is open).
  // Hooks only on a core with hooksList (or while its page is open).
@@ -60,14 +62,39 @@ test('nav-hidden sections leave the nav and the narrow tabs but stay searchable'
 // Fidelity F14: c71860c77-B72Ova_w It — General lists version, Run on startup, Menu bar and Storage; keep-awake is a Code row only.
 test("searching 'keep awake' finds a single Code section hit; General no longer repeats the keep-awake rows",async()=>{
  const sections=[{id:'code',label:'Code'},{id:'general',label:'General'}];
- const groups=[{tab:'code',title:'Local sessions',rows:[{id:'keepAwake',label:'Keep computer awake while DeepSeek works'},{id:'keepAwakeOnBattery',label:'Keep awake on battery power'}]},
-  {tab:'general',title:'General desktop settings',rows:[{id:'version',label:'Desktop app version'},{id:'startup',label:'Run on startup'},{id:'menuBarEnabled',label:'Menu bar'},{id:'storage',label:'Storage'}]}];
+ const groups=[{tab:'code',title:'Sessions',rows:[{id:'keepAwake',label:'Keep computer awake while DeepSeek works'},{id:'keepAwakeOnBattery',label:'Keep awake on battery power'}]},
+  {tab:'general',title:'System',rows:[{id:'version',label:'Desktop app version'},{id:'startup',label:'Run on startup'},{id:'menuBarEnabled',label:'Menu bar'},{id:'storage',label:'Storage'}]}];
  const hits=settingsSearch(sections,groups,'keep awake');
  assert.ok(hits.length>0);assert.deepEqual([...new Set(hits.map(hit=>hit.tab))],['code']);assert.equal(hits.filter(hit=>hit.kind==='hit').length,1);
  const fs=await import('node:fs'),path=await import('node:path');
  const text=fs.readFileSync(path.resolve(import.meta.dirname,'../src/source-settings.jsx'),'utf8');
- const general=text.slice(text.indexOf("{tab:'general',title:'General desktop settings'"),text.indexOf("{tab:'developer',title:'Local MCP servers'"));
+ const general=text.slice(text.indexOf("{tab:'general',title:'System'"),text.indexOf("{tab:'developer',title:'Local MCP servers'"));
  assert.ok(general.length>0);assert.equal(general.includes('keepAwake'),false);assert.equal(general.includes('Loading version'),false);
  assert.match(general,/skeleton:desktop===null/);assert.match(general,/\.\.\.\(build\?\.version\?\[row\('version'/);
  assert.equal(text.split('...keepAwake').length,2,'the keep-awake rows render once, on the Code page');
+});
+
+// B23: shared-19 ZC/BC — General first, This computer › System (c71860c77-C_7Gqn1u Qn heads the page 'System'); ids stay.
+test("the nav reads General / This computer › System; 'System' has its own heading entry; 'preferences' and 'desktop' still find the pages",async()=>{
+ const {settingsHeading}=await import('../src/settings-model.mjs');
+ const {setLocale,DEFAULT_LOCALE,t}=await import('../electron/i18n/index.mjs');
+ const fs=await import('node:fs'),path=await import('node:path');
+ const text=fs.readFileSync(path.resolve(import.meta.dirname,'../src/source-settings.jsx'),'utf8');
+ assert.match(text,/\{id:'preferences',label:'General',icon:'Settings',group:'Settings',keywords:\['preferences',/);
+ assert.match(text,/\{id:'general',label:'System',icon:'Computer',group:'This computer',keywords:\['desktop','general'\]\}/);
+ assert.match(text,/const navGroups = \['Settings','This computer','Customize'\];/);
+ assert.equal(text.includes("'Desktop app'"),false);
+ const shell=[{id:'preferences',label:'General',keywords:['preferences']},{id:'general',label:'System',keywords:['desktop','general']},{id:'developer',label:'Developer',keywords:['desktop']}];
+ assert.deepEqual(settingsSearch(shell,[],'preferences').map(hit=>hit.tab),['preferences']);
+ assert.deepEqual(settingsSearch(shell,[],'desktop').map(hit=>hit.tab),['general','developer']);
+ assert.equal(settingsSearch(shell,[],'system')[0].tab,'general');
+ assert.equal(settingsHeading('System'),'System');
+ try{
+  setLocale('zh-CN');
+  assert.equal(settingsHeading('System'),'系统','the page, not the theme choice');
+  assert.equal(t('System'),'跟随系统','the theme choice keeps its own copy');
+  assert.equal(settingsHeading('General'),t('General'),'no heading entry: the plain one');
+  assert.equal(settingsSearch(shell,[],'系统')[0].tab,'general');
+  assert.equal(settingsSearch(shell,[],'系统')[0].section,'系统');
+ }finally{setLocale(DEFAULT_LOCALE);}
 });

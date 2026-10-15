@@ -210,7 +210,7 @@ try {
   // 1b. Single menu order with children present, Open in submenu, pinned Move up/down.
   await openDotsMenu(P);
   metrics.singleMenuParent = await menuShape(sessionMenu());
-  assert.deepEqual(afterWindowItems(metrics.singleMenuParent), ["Open in", "—", "Pin", "Mark as unread", "Rename", "Export", "Fork", "Hide nested sessions", "—", "Move to group", "Keep computer awake", "—", "Archive", "Delete"]);
+  assert.deepEqual(afterWindowItems(metrics.singleMenuParent), ["Open in", "—", "Pin", "Mark as unread", "Rename", "Export", "Fork", "Hide nested sessions", "—", "Move to group", "—", "Keep computer awake", "—", "Archive", "Delete"]);
   assert.equal(await sessionMenu().getByRole("menuitem", { name: "Delete", exact: true }).getAttribute("data-variant"), "danger");
   await sessionMenu().getByRole("menuitem", { name: "Open in", exact: true }).click();
   // c80a67939 g/_/b: the layout section (Split view for a session this window does not show, New window), a separator,
@@ -226,9 +226,9 @@ try {
   await sessionMenu().waitFor({ state: "detached" });
   await openDotsMenu(R);
   metrics.singleMenuPinned = await menuShape(sessionMenu());
-  assert.deepEqual(afterWindowItems(metrics.singleMenuPinned), ["Open in", "—", "Unpin", "Mark as unread", "Rename", "Export", "Fork", "—", "Move to group", "Keep computer awake", "—", "Archive", "Delete"], "the only pinned row has neither Move up nor Move down (sidebar-session.js:16113-16114)");
+  assert.deepEqual(afterWindowItems(metrics.singleMenuPinned), ["Open in", "—", "Unpin", "Mark as unread", "Rename", "Export", "Fork", "—", "Move to group", "—", "Keep computer awake", "—", "Archive", "Delete"], "the only pinned row has neither Move up nor Move down (sidebar-session.js:16113-16114)");
   await closeMenus();
-  checks.push("Single menu order: Open in(installed editors, Finder, Terminal) → sep → [Move up / Move down only when the pinned row can move] → Pin → Mark → Rename → Export → Fork → [Hide nested] → sep → Move to group → Keep computer awake → sep → Archive → Delete(danger); Terminal reaches the validated open-terminal IPC");
+  checks.push("Single menu order: Open in(installed editors, Finder, Terminal) → sep → [Move up / Move down only when the pinned row can move] → Pin → Mark → Rename → Export → Fork → [Hide nested] → sep → Move to group → sep (ce4f4374c Yt && an) → Keep computer awake → sep → Archive → Delete(danger); Terminal reaches the validated open-terminal IPC");
 
   // 1c. Fold handle collapses to a 26px stub; the fold persists across restart.
   await page.locator(`.source-nested[data-nested-parent="${P}"] .df-family-handle`).click();
@@ -263,12 +263,12 @@ try {
   await mainButton(F2).click();
   await poll(async () => (await currentIds()).join() === F2, "F2 opened");
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("fixture:hold");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor();
   await mainButton(F1).click();
   await poll(async () => (await currentIds()).join() === F1, "F1 opened");
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("Nested approval fixture");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   const approvalCard = page.locator('[data-approval-presentation="card"][data-approval-method="item/commandExecution/requestApproval"]');
   await approvalCard.waitFor();
   await page.waitForFunction(id => document.querySelector(`[data-source-session-id="${id}"] [role="status"][aria-label="Awaiting input"]`) !== null, F1);
@@ -296,8 +296,8 @@ try {
   await row(F2).waitFor(); await row(F1).waitFor();
   await mainButton(F2).click();
   await poll(async () => (await currentIds()).join() === F2, "F2 opened to stop it");
-  await page.getByRole("button", { name: "Stop response", exact: true }).click();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   await poll(async () => !(await readConfig()).sidebarPreferences.collapsedNested.includes(P), "unfolded again");
   checks.push("While folded, an awaiting child stays listed and the stub reads '1 more nested session · 1 working' (aria 'Show 1 more nested session'; working count plain, no dot/accent); after Deny the child folds away and the stub returns to '2 nested sessions'");
 
@@ -357,7 +357,8 @@ try {
   await selectRange(P, lastFork);
   await contextMenu(F1);
   metrics.multiMenu = await menuShape(sessionMenu());
-  assert.deepEqual(metrics.multiMenu, ["Mark 3 as unread", "Move 3 to group", "—", "Archive 3", "Delete 3"]);
+  // B10 (ce4f4374c Me): Pin {count} while some selected row is unpinned, Set model for {count} over the core's catalog.
+  assert.deepEqual(metrics.multiMenu, ["Pin 3", "Mark 3 as unread", "Move 3 to group", "Set model for 3", "—", "Archive 3", "Delete 3"]);
   assert.equal(await sessionMenu().getByRole("menuitem", { name: "Delete 3", exact: true }).getAttribute("data-variant"), "danger");
   await page.keyboard.press("u");
   await sessionMenu().waitFor({ state: "detached" });
@@ -385,7 +386,7 @@ try {
   await setFilter("Group by", "Custom groups");
   assert.equal(await page.locator('[data-group-key="custom:g1"] .source-session-row').count(), 3, "the group's row count increased by 3");
   await setFilter("Group by", "Folder");
-  checks.push("Multi menu = Mark 3 as unread / Move 3 to group / sep / Archive 3 / Delete 3(danger); 'u' marks all three unread and clears; digit 1 in the move submenu assigns the first group");
+  checks.push("Multi menu = Pin 3 / Mark 3 as unread / Move 3 to group / Set model for 3 / sep / Archive 3 / Delete 3(danger); 'u' marks all three unread and clears; digit 1 in the move submenu assigns the first group");
 
   // 5. Bulk archive skips the open session, reports 'Archived 2 sessions' and clears the selection.
   // Fidelity F08: the report is a neutral CDS toast (sidebar-groups.js:6219-6240 Ro addSuccess, key
@@ -463,7 +464,7 @@ try {
   assert.equal(await olderMenu.getByRole("menuitem", { name: "Delete all (1)", exact: true }).getAttribute("data-variant"), "danger");
   await poll(async () => await olderButton.evaluate(node => getComputedStyle(node).opacity) === "1", "100% while expanded (after the 120ms opacity transition)");
   await olderMenu.getByRole("menuitem", { name: "Archive all (1)", exact: true }).click();
-  const olderDialog = page.getByRole("dialog", { name: "Archive older sessions?", exact: true });
+  const olderDialog = page.getByRole("alertdialog", { name: "Archive older sessions?", exact: true });
   await olderDialog.waitFor();
   assert.equal(await olderDialog.locator(".source-confirm-body").textContent(), "This will archive 1 session older than a week. Pinned sessions aren’t affected.");
   const olderArchivesBefore = (await requests("thread/archive")).length;
@@ -518,10 +519,40 @@ try {
   await closeMenus();
   checks.push("Move down on the first pinned row (its menu offers Move down only) swaps it with the second; config.pinnedOrder survives restart and the now-last row offers Move up only");
 
+  // 8b. B10 row drag (shared-19 DY/QJ/LY): reorder inside Pinned, Release to unpin below it, drag back in to pin.
+  const pinnedIdsNow = () => page.locator('[data-group-key="pinned"] .source-session-row').evaluateAll(n => n.map(x => x.dataset.sourceSessionId));
+  const dragRowTo = async (id, toY, check) => {
+    const box = await page.locator(`[data-source-session-id="${id}"]`).boundingBox();
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await page.mouse.move(x, y); await page.mouse.down();
+    for (let index = 1; index <= 8; index++) await page.mouse.move(x, y + (toY - y) * index / 8);
+    if (check) await check();
+    await page.mouse.up();
+  };
+  let reference = await page.locator(`[data-source-session-id="${R}"]`).boundingBox();
+  await dragRowTo(P, reference.y + 3, async () => {
+    await page.locator(`[data-source-session-id="${P}"][style*="visibility: hidden"]`).waitFor({ state: "attached" });
+    metrics.dragShift = await page.locator(`[data-source-session-id="${R}"]`).evaluate((node) => node.style.transform);
+  });
+  // One row step = --df-row-h 26 + --df-row-stack-gap; 2.31226.0 shared-styles-CTu5t_TM sets
+  // `.dframe-sidebar[data-code-list]{--df-row-stack-gap:2px}` (rows carry that margin-bottom), so 28px (was 26 + 1).
+  assert.equal(metrics.dragShift, "translateY(28px)", "the row above opens a one-row gap");
+  await poll(async () => (await pinnedIdsNow()).join() === [P, R].join(), "dragging P above R reorders Pinned");
+  await poll(async () => JSON.stringify((await readConfig()).pinnedOrder) === JSON.stringify([P, R]), "drag reorder persisted");
+  const pinnedBottom = (await page.locator('[data-group-key="pinned"]').boundingBox());
+  await dragRowTo(P, pinnedBottom.y + pinnedBottom.height + 12, () => page.locator(".source-drag-ghost [data-drag-label]").filter({ hasText: "Release to unpin" }).first().waitFor());
+  await poll(async () => (await pinnedIdsNow()).join() === R, "Release to unpin unpins P");
+  assert.equal((await readConfig()).sessionMetadata[P]?.pinned, false);
+  reference = await page.locator(`[data-source-session-id="${R}"]`).boundingBox();
+  await dragRowTo(P, reference.y + reference.height - 3);
+  await poll(async () => (await pinnedIdsNow()).join() === [R, P].join(), "dragging P into Pinned below R pins it last");
+  await poll(async () => JSON.stringify((await readConfig()).pinnedOrder) === JSON.stringify([R, P]), "drag pin order persisted");
+  checks.push("Row drag: a pinned row lifted over the first slot hides in place and opens a 28px gap, dropping reorders Pinned (pinnedOrder saved); below the list the ghost says Release to unpin and dropping unpins; an unpinned row dropped under the last pinned row pins it there");
+
   // 9. Delete: single confirm, bulk confirm with count, restart proof, running-thread Delete disabled.
   await openDotsMenu(M);
   await sessionMenu().getByRole("menuitem", { name: "Delete", exact: true }).click();
-  const deleteDialog = page.getByRole("dialog", { name: "Delete session?", exact: true });
+  const deleteDialog = page.getByRole("alertdialog", { name: "Delete session?", exact: true });
   await deleteDialog.waitFor();
   assert.equal(await deleteDialog.locator(".source-confirm-body").textContent(), "“Middle task” will be permanently deleted. This can’t be undone.");
   await deleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
@@ -537,9 +568,9 @@ try {
   await selectRange(F1, F2);
   assert.deepEqual((await selectedIds()).sort(), [F1, F2].sort());
   await contextMenu(F2);
-  assert.deepEqual(await menuShape(sessionMenu()), ["Mark 2 as unread", "Move 2 to group", "—", "Unarchive 2", "Delete 2"], "all-archived selection offers Unarchive");
+  assert.deepEqual(await menuShape(sessionMenu()), ["Pin 2", "Mark 2 as unread", "Move 2 to group", "Set model for 2", "—", "Unarchive 2", "Delete 2"], "all-archived selection offers Unarchive");
   await sessionMenu().getByRole("menuitem", { name: "Delete 2", exact: true }).click();
-  const bulkDialog = page.getByRole("dialog", { name: "Delete 2 sessions?", exact: true });
+  const bulkDialog = page.getByRole("alertdialog", { name: "Delete 2 sessions?", exact: true });
   await bulkDialog.waitFor();
   assert.equal(await bulkDialog.locator(".source-confirm-body").textContent(), "These 2 sessions will be permanently deleted. This can’t be undone.");
   await bulkDialog.getByRole("button", { name: "Delete", exact: true }).click();
@@ -558,17 +589,17 @@ try {
   assert.equal(await row(M).count(), 0);
   await mainButton(P).click();
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("fixture:hold");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor();
   await contextMenu(P);
   assert.equal(await sessionMenu().getByRole("menuitem", { name: "Delete", exact: true }).getAttribute("aria-disabled"), "true", "a running thread cannot be deleted");
   assert.equal(await sessionMenu().getByRole("menuitem", { name: "Fork", exact: true }).getAttribute("aria-disabled"), "true");
   await page.keyboard.press("d");
   await sleep(200);
-  assert.equal(await page.getByRole("dialog").count(), 0, "the disabled hotkey does nothing");
+  assert.equal(await page.getByRole("dialog").or(page.getByRole("alertdialog")).count(), 0, "the disabled hotkey does nothing");
   await closeMenus();
-  await page.getByRole("button", { name: "Stop response", exact: true }).click();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   const deletesBefore = (await requests("thread/delete")).length;
   assert.equal(deletesBefore, 3, "no thread/delete was issued for the running thread");
   checks.push("Single Delete and bulk Delete N confirm in a role=dialog with the count, send thread/delete per id, remove rows and every config record across restart; a running thread's Delete/Fork are disabled");
@@ -594,7 +625,7 @@ try {
   assert.deepEqual(metrics.whitespace.shape, ["Select all", "—", `Archive selected (${expected})`, `Delete selected (${expected})`]);
   assert.equal(await listMenu.getByRole("menuitem", { name: `Delete selected (${expected})`, exact: true }).getAttribute("data-variant"), "danger");
   await listMenu.getByRole("menuitem", { name: `Delete selected (${expected})`, exact: true }).click();
-  const wsDialog = page.getByRole("dialog", { name: expected === 1 ? "Delete session?" : `Delete ${expected} sessions?`, exact: true });
+  const wsDialog = page.getByRole("alertdialog", { name: expected === 1 ? "Delete session?" : `Delete ${expected} sessions?`, exact: true });
   await wsDialog.waitFor();
   await wsDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await wsDialog.waitFor({ state: "detached" });

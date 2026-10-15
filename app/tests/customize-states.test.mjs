@@ -310,7 +310,7 @@ test('DeepSeek Skills: ObjectBulb empty state with the Harness roots, and the c9
   // ccb4abbdf facts: Added by / Last updated (font-small muted labels, font-base primary values, a time element).
   assert.match(detail, /<div class="cz-skill-facts flex flex-wrap gap-x-8 gap-y-3"><div class="flex min-w-0 max-w-full flex-col gap-1"><span class="font-small text-muted whitespace-nowrap">Added by<\/span><span class="font-base text-primary \[overflow-wrap:anywhere\]">You<\/span><\/div><div class="flex flex-col gap-1"><span class="font-small text-muted whitespace-nowrap">Last updated<\/span><span class="font-base text-primary whitespace-nowrap"><time dateTime="2025-10-09T08:53:20.000Z">[^<]+<\/time><\/span><\/div><\/div>/);
   // c6f9b6c10: h3 Description + InfoTip, then the pre-wrap secondary text.
-  assert.match(detail, /<div class="cz-skill-description flex flex-col gap-1"><div class="flex items-center justify-between"><div class="flex items-center gap-0\.5"><h3 class="font-small text-muted">Description<\/h3><button type="button" data-cds="InfoTip" aria-label="More info" class="cz-infotip">/);
+  assert.match(detail, /<div class="cz-skill-description flex flex-col gap-1"><div class="flex items-center justify-between"><div class="flex items-center gap-0\.5"><h3 class="font-small text-muted">Description<\/h3><button type="button" data-cds="InfoTip" aria-label="More info" class="cz-infotip" aria-haspopup="dialog" aria-expanded="false">/);
   assert.match(detail, /<p class="font-base text-secondary whitespace-pre-wrap \[overflow-wrap:anywhere\]">Design files\nand frames<\/p><\/div><div class="cz-skill-files flex-1 min-h-0 flex flex-col gap-3 mt-2">/);
   assert.doesNotMatch(detail, /connector|~\/\.codex/i);
   // Codex keeps a working switch; there is no notice paragraph on either core.
@@ -321,22 +321,30 @@ test('DeepSeek Skills: ObjectBulb empty state with the Harness roots, and the c9
   assert.match(corePage('skills', readyStore()), /<li class="cz-root-row"><code>~\/\.codex\/skills<\/code>/);
   // Skill rows are named "View {name}" (page shell G :555); a search with no match is the plain p.
   const list = corePage('skills', readyStore({ skills }), { core: deepseekCore });
-  assert.match(list, /<tr data-hoverable="" data-clickable="" tabindex="0" data-row-id="\/x\/\.agents\/skills\/figma\/SKILL\.md" aria-label="View figma"/);
+  // B24: ccea1f474 Ws / c27f32a39 je row — the drill button is named "View {name}".
+  assert.match(list, /<div data-testid="skills-tabbed-list-row" class="group\/yours-row [^"]*" data-row-id="\/x\/\.agents\/skills\/figma\/SKILL\.md"[^>]*><button type="button" aria-label="View figma"/);
   assert.doesNotMatch(list, /cz-notice|cz-layout|cz-main/);
-  assert.match(list, /<\/header><div class="cz-page-body scroll-fade-y scroll-fade-size-6"><div class="cz-scroller"><table class="cz-table" data-cds="Table" aria-label="Skills">/, 'the q table (mt-sm) follows the header directly');
+  assert.match(list, /<\/header><div class="cz-page-body scroll-fade-y scroll-fade-size-6"><div class="flex w-full flex-col gap-lg" data-testid="skills-tabbed-list-mine">/, 'the "Your skills" list follows the header directly');
   const nomatch = corePage('skills', readyStore({ skills }), { core: deepseekCore, focus: { searchSeed: 'zzz' } });
   assert.match(nomatch, /<p class="cz-empty-search py-lg text-center text-body text-secondary">No skills match your search<\/p>/);
   assert.doesNotMatch(nomatch, /data-pictogram|role="status"/);
 });
 
-test('owner segments are the uncontained sm SourceSegments (shared-7 SR) right above the table', () => {
+test('B24 Skills toolbar: "Your skills" tab, the K Filter and dn Sort controls, and the grouped sections with counts', () => {
   const skills = [{ id: 'a', name: 'a', skillName: 'a', path: '/a/SKILL.md', scope: 'user', enabled: true, group: 'personal' },
     { id: 'b', name: 'b', skillName: 'b', path: '/b/SKILL.md', scope: 'repo', enabled: true, group: 'repository' }];
   const html = corePage('skills', readyStore({ skills }));
-  assert.match(html, /<div class="cz-page-body scroll-fade-y scroll-fade-size-6"><div class="ss-segments self-start" data-cds="SegmentedControl" role="radiogroup" aria-label="Filter by owner" data-variant="uncontained" data-size="sm"><span class="ss-segment-track" aria-hidden="true"><span class="ss-segment-thumb"><\/span><\/span>/);
-  assert.deepEqual([...html.matchAll(/role="radio" aria-label="([^"]+)" aria-checked="(true|false)"/g)].map(match => `${match[1]}:${match[2]}`), ['All:true', 'Personal:false', 'Repository:false']);
-  assert.match(html, /<\/div><div class="cz-scroller"><table class="cz-table" data-cds="Table" aria-label="Skills">/);
-  assert.doesNotMatch(html, /cz-segments/);
+  // ccefd43d9 b inDialog: the toolbar (c3c330885 D) sits beside the title.
+  assert.match(html, /<header class="cz-header"><div class="cz-title-row flex min-w-0 flex-1 items-center gap-md"><h2 class="cz-title text-heading-medium">Skills<\/h2><div class="shrink-0"><div class="flex flex-wrap items-center justify-between gap-sm" data-cz-list-toolbar=""><div data-cds="Tabs" data-orientation="horizontal"><div role="tablist" aria-label="Skills"[^>]*><button type="button" role="tab" aria-selected="true" tabindex="0" data-testid="skills-tabbed-list-tab-mine">Your skills<\/button>/);
+  assert.match(html, /<div class="ml-auto flex items-center gap-xs"><button data-cz-filter="" aria-label="Filter" aria-haspopup="menu"[^>]*data-variant="secondary" data-size="sm"/);
+  assert.match(html, /<button data-cz-sort="" aria-label="Sort by Last edited" aria-haspopup="menu"[^>]*>.*?<span class="text-muted">Sort ·<\/span> Last edited<\/span><\/button><\/div>/);
+  assert.doesNotMatch(html, /data-cz-reset|role="radiogroup"|<table/, 'nothing held: no reset button, no owner segments or table');
+  // c6a2a31c4 Nc order: "In this project" before "Created by you", each with its "· {count}".
+  assert.deepEqual([...html.matchAll(/<span class="text-body-medium text-primary">([^<]+)<\/span><span class="text-footnote text-muted">· (\d+)<\/span>/g)].map(match => `${match[1]}:${match[2]}`), ['In this project:1', 'Created by you:1']);
+  assert.deepEqual([...html.matchAll(/data-row-id="([^"]+)"/g)].map(match => match[1]), ['b', 'a']);
+  // ccea1f474 Ws credit and the c27f32a39 Xe menu.
+  assert.match(html, /<span class="truncate text-secondary text-footnote"><span>by you<\/span><\/span>/);
+  assert.match(html, /aria-label="More actions for a" aria-haspopup="menu"/);
 });
 
 test('DeepSeek Plugins: no notice, the "(marketplace)" suffix only on name collisions, and the ObjectPuzzle empty state', () => {
@@ -349,7 +357,7 @@ test('DeepSeek Plugins: no notice, the "(marketplace)" suffix only on name colli
   assert.match(ready, /aria-label="View @deepseek-ai\/dsh-base"/);
   assert.doesNotMatch(ready, /DeepSeek Harness profile|data-plugin-suffix/, 'a unique name has no marketplace suffix');
   const twins = corePage('plugins', readyStore({ plugins: [plugin('foo-a', 'Foo', 'Alpha'), plugin('foo-b', 'Foo', 'Beta')] }));
-  assert.deepEqual([...twins.matchAll(/<span class="cz-truncate">(Foo)<\/span><span class="cz-muted cz-truncate" data-plugin-suffix="">([^<]+)<\/span>/g)].map(match => match[2]), ['(Alpha)', '(Beta)']);
+  assert.deepEqual([...twins.matchAll(/<span class="truncate text-body-medium text-primary">(Foo)<\/span><span class="truncate text-footnote text-muted" data-plugin-suffix="">([^<]+)<\/span>/g)].map(match => match[2]), ['(Alpha)', '(Beta)']);
   assert.match(empty, /<div class="cz-empty flex flex-1 flex-col items-center justify-center gap-lg py-lg text-center" data-cz-empty=""><svg data-cds="Pictogram" data-pictogram="ObjectPuzzle"[^>]*>.*<\/svg><p class="max-w-xs text-pretty text-body text-secondary">Give DeepSeek role-level expertise with plugins<\/p><\/div>/);
   assert.doesNotMatch(corePage('plugins', readyStore({ plugins })), /needs the ChatGPT plugin service|cz-notice/, 'Codex has no notice either');
   const nomatch = corePage('plugins', readyStore({ plugins }), { focus: { searchSeed: 'zzz' } });
@@ -363,7 +371,7 @@ test('R04 DeepSeek invocation policy: no Disabled badge or switch, Try in chat f
   const both = { ...base, id: '/u/both/SKILL.md', name: 'both', skillName: 'both', path: '/u/both/SKILL.md', enabled: true, userInvocable: true, modelInvocable: true, version: null };
   const store = readyStore({ skills: [auto, both, slash] });
   // customize-skills :3130-3131: the Disabled badge needs the toggle capability.
-  assert.doesNotMatch(corePage('skills', store, { core: deepseekCore }), /cz-badge|>Disabled</);
+  assert.doesNotMatch(corePage('skills', store, { core: deepseekCore }), /cz-badge|data-cds="Badge" data-variant="neutral"|>Disabled</);
   const detail = path => corePage('skills', store, { core: deepseekCore, focus: { skillPath: path }, onUseSkill() {} });
   const tryButton = html => html.match(/<button [^>]*data-variant="primary"[^>]*>(?:(?!<\/button>).)*Try in chat<\/span><\/button>/)[0];
   const trigger = html => html.match(/<div class="flex flex-col gap-1" data-cz-skill-trigger=""><span class="font-small text-muted whitespace-nowrap">Trigger<\/span><span class="font-base text-primary whitespace-nowrap cursor-help underline decoration-dotted decoration-alpha-2 underline-offset-4" tabindex="0">([^<]+)<\/span><\/div>/)?.[1];
@@ -383,7 +391,7 @@ test('R04 DeepSeek invocation policy: no Disabled badge or switch, Try in chat f
   // A Codex core: no invocation policy, so the switch, the badge and the Enable-skill gate are unchanged and no Trigger.
   const codexSkill = { ...base, id: '/c/off/SKILL.md', name: 'off', skillName: 'off', path: '/c/off/SKILL.md', enabled: false };
   const codexStore = readyStore({ skills: [codexSkill] });
-  assert.match(corePage('skills', codexStore), /<span class="cz-badge" data-variant="default" data-size="xs">Disabled<\/span>/);
+  assert.match(corePage('skills', codexStore), /<span data-cds="Badge" data-variant="neutral" data-size="xs" class="[^"]*bg-neutral text-secondary"><span class="pb-\[0\.05em\]">Disabled<\/span><\/span>/);
   const codexDetail = corePage('skills', codexStore, { focus: { skillPath: codexSkill.path }, onUseSkill() {} });
   assert.equal(switches(codexDetail).length, 1); assert.doesNotMatch(switches(codexDetail)[0], /disabled/);
   assert.match(codexDetail, /data-cds-disabled-reason="">Enable skill to try in chat<\/span>/);

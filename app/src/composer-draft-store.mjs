@@ -73,7 +73,8 @@ export function mapDraftAttachments(map, update) {
 // shape check and treats a missing or unparsable entry as none; ax = 20 caps the drafts and Rx evicts the oldest
 // one together with its stored entry (cc43287c9-BMbiZYzF.js:6428-6457 draftPersistKey, :7300-7330 restored_draft).
 // Locally an entry holds the text, the '@' mentions and the ready attachment refs {path, name, kind, isDirectory};
-// pasted images already live in userData/attachments, so a path is enough to stage them again. Storage is
+// pasted images already live in userData/attachments, so a path is enough to stage them again.
+// Snippets keep their text, label and source range; they do not need filesystem inspection. Storage is
 // injected (localStorage in the renderer); every access is guarded, so a null or throwing storage is a no-op.
 export const DRAFT_STORAGE_PREFIX = "composer-draft:";
 export const PERSISTED_DRAFT_LIMIT = 20;
@@ -89,10 +90,20 @@ function storedMentions(mentions) {
 }
 
 function storedAttachments(attachments) {
-  return (Array.isArray(attachments) ? attachments : [])
-    .filter((entry) => entry?.status === "ready" && typeof entry.path === "string" && entry.path)
-    .map((entry) => ({ path: entry.path, name: typeof entry.name === "string" ? entry.name : "", kind: entry.kind === "image" ? "image" : "file",
-      ...(entry.isDirectory === true ? { isDirectory: true } : {}) }));
+  return (Array.isArray(attachments) ? attachments : []).flatMap(entry => {
+    // The source element-context store is session memory, not a persisted file
+    // attachment. Keep it in live/stashed drafts without restoring a bare PNG.
+    if (entry?.kind === "elementContext") return [];
+    if (entry?.status !== "ready") return [];
+    if (entry.kind === "snippet") {
+      if (typeof entry.text !== "string" || !entry.text.trim()) return [];
+      return [{ kind: "snippet", text: entry.text,
+        ...(typeof entry.label === "string" ? { label: entry.label } : {}),
+        ...Object.fromEntries(["key", "terminalTabId", "sourceFile"].filter(key => typeof entry[key] === "string" && entry[key]).map(key => [key, entry[key]])) }];
+    }
+    return typeof entry.path === "string" && entry.path ? [{ path: entry.path, name: typeof entry.name === "string" ? entry.name : "", kind: entry.kind === "image" ? "image" : "file",
+      ...(entry.isDirectory === true ? { isDirectory: true } : {}) }] : [];
+  });
 }
 
 function parseStored(raw) {

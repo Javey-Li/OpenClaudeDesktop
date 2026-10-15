@@ -247,7 +247,7 @@ const RUNTIME_STATUS = { connected: 'connected', connecting: 'starting', disable
 // ZCode reports the enumerated reason; the connector row says what to do about it.
 const OFFICIAL_AUTH_HINTS = [
   [/official_auth_plan_required/, 'This Z.ai service needs an active GLM Coding Plan on the signed-in account.'],
-  [/official_auth_(unavailable|rejected|forbidden)/, 'This Z.ai service needs the GLM Coding Plan browser sign-in (Settings › Preferences › Account › Sign in).'],
+  [/official_auth_(unavailable|rejected|forbidden)/, 'This Z.ai service needs the GLM Coding Plan browser sign-in (Settings › General › Account › Sign in).'],
 ]
 export function officialAuthHint(status) {
   const text = `${status?.failureKind ?? ''} ${status?.error ?? ''}`

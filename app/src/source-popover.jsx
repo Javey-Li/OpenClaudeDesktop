@@ -27,7 +27,7 @@ import "./source-popover.css";
  *   is its own toggle, not an outside press.
  */
 
-const PORTAL_ATTRIBUTES = ["data-density", "data-mode", "data-cds-theme", "data-platform", "data-font", "data-page-bg"];
+const PORTAL_ATTRIBUTES = ["data-density", "data-mode", "data-chat-source-version", "data-cds-theme", "data-platform", "data-font", "data-page-bg"];
 export const POPOVER_LAYER_OFFSET = 20; // shared-frame tl.popover
 export const POPOVER_SIDE_OFFSET = 6; // mx/gx sideOffset default
 export const POPOVER_PADDINGS = Object.freeze(["none", "xs", "sm", "md", "lg"]); // ux
@@ -72,7 +72,7 @@ export function useSourcePopover() {
 
 export function SourcePopover({
   anchor, side = "bottom", align = "center", sideOffset = POPOVER_SIDE_OFFSET, alignOffset = 0, collisionPadding = 8,
-  padding = "lg", scrollFade = true, label, dataCds = "Popover", className = "", style, onClose, finalFocus, initialFocus, children,
+  padding = "lg", scrollFade = true, label, dataCds = "Popover", className = "", style, onClose, finalFocus, initialFocus, children, id, layerBase = 0,
 }) {
   const positionerRef = useRef(null), popupRef = useRef(null), bodyRef = useRef(null);
   const titleId = useId();
@@ -80,9 +80,9 @@ export function SourcePopover({
   const closing = useRef(false), alive = useRef(true), outsideTimer = useRef(null);
   const latest = useRef({});
   latest.current = { onClose, finalFocus, anchor };
-  const layer = menuLayer(0, POPOVER_LAYER_OFFSET);
+  const layer = menuLayer(layerBase, POPOVER_LAYER_OFFSET);
 
-  const requestClose = useCallback((reason) => {
+  const requestClose = useCallback((reason, event) => {
     if (closing.current || !alive.current) return;
     closing.current = true;
     const popup = popupRef.current, active = document.activeElement;
@@ -93,7 +93,7 @@ export function SourcePopover({
       finalFocus: latest.current.finalFocus,
     });
     const { anchor: owner, finalFocus: target } = latest.current;
-    latest.current.onClose?.(reason);
+    latest.current.onClose?.(reason, event);
     // Id/Ag: focus goes back only while it is lost (body) or still inside the popup.
     const now = document.activeElement;
     const lost = !now || now === document.body || now === popup || !!popup?.contains(now);
@@ -116,11 +116,16 @@ export function SourcePopover({
       const anchorRect = anchor?.getBoundingClientRect?.();
       if (!anchorRect) return;
       const size = popup.getBoundingClientRect();
-      const result = positionMenu({
+      const placement = {
         anchor: anchorRect, size: { width: size.width, height: size.height },
         viewport: { width: window.innerWidth, height: window.innerHeight },
-        side, align, sideOffset, alignOffset, collisionPadding,
-      });
+        side, align, sideOffset, collisionPadding,
+      };
+      let result = positionMenu({ ...placement, alignOffset });
+      if (typeof alignOffset === "function") {
+        const offset = alignOffset({ side: result.side, anchor: anchorRect, positioner: size });
+        result = positionMenu({ ...placement, alignOffset: offset });
+      }
       positioner.style.left = `${result.left}px`;
       positioner.style.top = `${result.top}px`;
       positioner.style.setProperty("--available-height", `${result.availableHeight}px`);
@@ -151,6 +156,7 @@ export function SourcePopover({
     const frame = requestAnimationFrame(() => {
       if (closing.current) return;
       const chosen = typeof initialFocus === "function" ? initialFocus(type) : initialFocus?.current ?? initialFocus;
+      if (chosen === false) return;
       // true = Base UI's default target, the first tabbable element inside.
       const node = chosen === true ? popupRef.current?.querySelector(TABBABLE)
         : chosen instanceof HTMLElement && chosen.isConnected ? chosen : null;
@@ -168,13 +174,13 @@ export function SourcePopover({
       // qg: a press on the trigger is the trigger's own toggle, not an outside press.
       if (popupRef.current?.contains(target) || latest.current.anchor?.contains?.(target)) return;
       clearTimeout(outsideTimer.current);
-      outsideTimer.current = setTimeout(() => requestClose("outside-press"), 0);
+      outsideTimer.current = setTimeout(() => requestClose("outside-press", event), 0);
     };
     const key = (event) => {
       if (event.defaultPrevented || event.isComposing || event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      requestClose("escape-key");
+      requestClose("escape-key", event);
     };
     document.addEventListener("pointerdown", pointer, true);
     document.addEventListener("keydown", key);
@@ -195,18 +201,28 @@ export function SourcePopover({
       <div className="sp-portal cds-root" data-cds-portal="" {...attributes}
         style={{ "--cds-portal-z": layer.z, "--cds-layer-base": layer.layerBase }}>
         <div ref={positionerRef} className="sp-positioner" style={{ visibility: "hidden" }}>
-          <div ref={popupRef} role="dialog" tabIndex={-1} aria-label={hasTitle ? undefined : label} aria-labelledby={hasTitle ? titleId : undefined}
+          <div ref={popupRef} id={id} role="dialog" tabIndex={-1} aria-label={hasTitle ? undefined : label} aria-labelledby={hasTitle ? titleId : undefined}
             data-cds={dataCds} data-cds-overlay="" data-open=""
             className={`sp-popup cds-reset rounded-card shadow-panel ${className}`.trim()} style={style}
             onFocus={(event) => {
               // gx onFocus: a focused popup forwards focus to its body.
               if (event.target === event.currentTarget && document.activeElement === event.currentTarget) bodyRef.current?.focus({ preventScroll: true });
             }}
+            onKeyDown={(event) => {
+              // The popup is portaled to <body>, but React bubbles its keys through the component tree, so an
+              // enclosing dialog's onKeyDown (Settings' Escape-to-close) would also take this Escape. Base UI's
+              // useDismiss is document-level and closes only the topmost popup, so stop the React bubbling here.
+              // Keys from a nested portal (a menu opened inside the popup) are left to that layer.
+              if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing || !event.currentTarget.contains(event.target)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              requestClose("escape-key", event.nativeEvent);
+            }}
             onBlur={(event) => {
               // A non-modal Base UI popover closes when focus moves to another element outside it
               // (focus-out: no restore); focus lost to the window or body is not a focus-out.
               const next = event.relatedTarget;
-              if (next instanceof Node && !event.currentTarget.contains(next) && !latest.current.anchor?.contains?.(next)) requestClose("focus-out");
+              if (next instanceof Node && !event.currentTarget.contains(next) && !latest.current.anchor?.contains?.(next)) requestClose("focus-out", event);
             }}>
             <div ref={bodyRef} tabIndex={-1} data-cds-popover-body="" data-cds-sheet-scroll="" data-padding={resolvedPadding}
               className={`sp-body ${scrollFade ? "scroll-fade-y" : ""}`.trim()}>{children}</div>

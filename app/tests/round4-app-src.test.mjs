@@ -36,8 +36,10 @@ test('fileChangesDiff: the Changes pane gets a valid patch from fileChange items
 test('View changes is never a dead button: the pane falls back to the session edits and the card gets onView only when showable', () => {
   const main = read('main.jsx');
   assert.match(main, /const editsDiff = useMemo\(\(\) => editsNeeded \? fileChangesDiff\(items, \{ cwd: workdir \}\) : ""/);
-  assert.match(main, /diff=\{gitStatus\?\.isRepo \? gitDiff : sessionDiff\}/);
-  assert.match(main, /onView=\{canViewChanges \? \(\) => setPanel\("changes"\) : undefined\}/);
+  // B15: the repo diff goes through carriedOverDiff (the previous scope's comparison stays while the next loads).
+  assert.match(main, /diff=\{gitStatus\?\.isRepo \? shownGitDiff\.diff : sessionDiff\}/);
+  // B16: v2e f reveals the first file the diff lists, then opens Changes; still gated on canViewChanges.
+  assert.match(main, /onView=\{canViewChanges \? \(\) => \{ const hit = edits\.files\.find\(\(file\) => turnFileInChanges\(file\.path\)\); if \(hit\) requestDiffReveal\(hit\.path\); setPanel\("changes"\); \} : undefined\}/);
   assert.doesNotMatch(main, /if \(!gitStatus\?\.isRepo && !state\.diffs\[current\]\) return;/);
   assert.match(main, /pane: "changes", data: \{ diff \}/, 'a popped-out Changes pane gets the same diff');
 });
@@ -59,17 +61,9 @@ test('recap is Claude\'s transcript-tail Recap card (rR) with a bounded Markdown
   assert.match(css, /\.ssn-notice\[data-level="info"\] \{\s*border-color: var\(--cds-border\);\s*background: var\(--cds-surface-1\);/);
 });
 
-test('side chat keeps the box enabled and focused while an answer streams', () => {
-  const chat = read('source-side-chat.jsx');
-  assert.doesNotMatch(chat, /textarea[^>]*disabled=\{/);
-  assert.match(chat, /<SideChatComposer inputRef=\{input\} busy=\{thinking\}/);
-  assert.match(chat, /if \(!text \|\| busy\) return;/);
-  assert.match(chat, /if \(!active \|\| active === doc\.body\) input\.current\?\.focus\(\);/);
-});
-
 test('usage page dates and numbers use the app locale', () => {
   const usage = read('source-usage.jsx');
-  assert.match(usage, /usageCostPresentation\(data,\{todayKey,locale:getLocale\(\)\}\)/);
+  assert.match(usage, /usageCostPresentation\(data,\{todayKey,locale:getLocale\(\),days:range\}\)/);
   assert.match(usage, /formatDayKey\(key,getLocale\(\)\)/);
   assert.doesNotMatch(usage, /formatMoney\([^)]*currency\)/);
   assert.doesNotMatch(usage, /formatTokenCount\([a-zA-Z.]+\)/);

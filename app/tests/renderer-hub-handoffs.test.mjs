@@ -20,7 +20,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const mainSource = await fs.readFile(path.join(root, "src/main.jsx"), "utf8");
 let server, session, React, renderToStaticMarkup;
 before(async () => {
-  globalThis.document ??= { body: { nodeType: 1 }, documentElement: { dataset: {} } };
+  globalThis.document ??= { body: { nodeType: 1, style: {} }, documentElement: { dataset: {}, style: {} } };
   const { createServer } = await import("vite"), react = (await import("@vitejs/plugin-react")).default;
   server = await createServer({ configFile: false, root, plugins: [react()], server: { middlewareMode: true, hmr: false, watch: null }, appType: "custom", logLevel: "error" });
   React = (await import("react")).default;

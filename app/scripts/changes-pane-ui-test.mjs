@@ -132,7 +132,7 @@ try{
  step('meta-shift-f');await page.keyboard.press('Meta+Shift+F');await filesTile().waitFor();assert.equal(await diffTile().count(),0);assert.equal(await button().getAttribute('aria-pressed'),'false');
  await page.keyboard.press('Meta+Shift+F');await filesTile().waitFor({state:'detached'});
  report.checks.push('Meta+Shift+F opens and closes the Files tile');
- step('view-menu');await page.getByRole('button',{name:'Session options',exact:true}).click();const files=page.getByRole('menuitemcheckbox',{name:'Files',exact:true});await files.waitFor();
+ step('view-menu');await page.getByRole('button',{name:'View options',exact:true}).click();const files=page.getByRole('menuitemcheckbox',{name:'Files',exact:true});await files.waitFor();
  const row=await files.evaluate(n=>({keys:n.getAttribute('aria-keyshortcuts'),caps:(c=>c&&[...c.querySelectorAll('kbd')].map(k=>(k.querySelector('[aria-hidden="true"]')??k).textContent).join(''))(n.querySelector('.smenu-shortcut'))}));report.metrics.filesRow=row;
  assert.equal(row.keys,'Meta+Shift+F');assert.equal(row.caps,'⇧⌘F');
  // Besides Files, only the Preview (⇧⌘P) and Terminal (⌘J) rows carry their pane chords.
@@ -157,6 +157,26 @@ try{
  step('expand-all');await openSettings();await choose('Expand all files');await poll(async()=>(await toggles()).every(v=>v==='true'),'all expanded');assert.equal(await diffTile().locator('.sdiff-file-body').count(),2);
  await openSettings();await choose('Collapse all files');await poll(async()=>(await toggles()).every(v=>v==='false'),'collapsed again');await openSettings();await choose('Expand all files');await poll(async()=>(await toggles()).every(v=>v==='true'),'expanded again');
  report.checks.push('Collapse all files sets every .sdiff-file-toggle aria-expanded=false (no bodies); a manual toggle still works afterwards; Expand all files sets them all true; repeated requests apply each time');
+ // B14 D4/D5 (c44d00c7f ha/ga :2732-2810, yo :3564-3860): the gutter '+' opens an inline 'Tell Claude what to change' card
+ // under its row; Save attaches a keyed composer snippet and Delete detaches it; a right-click on the diff body opens
+ // Attach as context / Add comment / Copy.
+ step('diff-comments');await neutral();{
+ const readme=diffTile().locator('.sdiff-file[data-file-path="README.md"]'),commentRow=readme.locator('.sdiff-row[data-commentable]').first();
+ await commentRow.scrollIntoViewIfNeeded();await commentRow.hover();
+ const gutterAdd=commentRow.locator('button[aria-label="Add comment on this line"]');await gutterAdd.click();
+ const draft=readme.getByPlaceholder('Tell Claude what to change',{exact:true});await draft.waitFor();
+ assert.equal(await draft.evaluate(n=>n===document.activeElement),true,'the new card takes focus');
+ await draft.fill('Rename this heading');await readme.getByRole('button',{name:'Save comment',exact:true}).click();
+ const snippetPill=page.locator('form.sc-composer .sca-pill[data-kind="snippet"]');await poll(async()=>await snippetPill.count()===1,'Save attaches one composer snippet');
+ assert.match(await snippetPill.locator('.sca-body').getAttribute('aria-label'),/^README\.md:L\d+$/,'snippet label (the quiet pill\'s name) names the file and line');
+ await readme.locator('.sfv-comment-body').filter({hasText:'Rename this heading'}).waitFor();
+ await readme.getByRole('button',{name:'Delete comment',exact:true}).click();
+ await poll(async()=>await snippetPill.count()===0,'Delete detaches the snippet');assert.equal(await readme.locator('[data-file-comment-card]').count(),0);
+ await neutral();await readme.locator('.sdiff-row .sdiff-code-cell').first().click({button:'right'});
+ const bodyMenu=page.getByRole('menu',{name:'README.md actions',exact:true});await bodyMenu.waitFor();
+ assert.deepEqual((await bodyMenu.getByRole('menuitem').allTextContents()).map(text=>text.replace(/[⇧⌘⌃⌥].*$/,'').trim()),['Attach as context','Add comment','Copy']);
+ await page.keyboard.press('Escape');await bodyMenu.waitFor({state:'detached'});
+ report.checks.push("Diff line comments: hovering a row shows the gutter 'Add comment on this line'; it opens a focused 'Tell Claude what to change' card under the row; Save attaches a README.md:L<n> composer snippet and leaves the saved card; Delete removes the card and the snippet; a right-click on a code row opens 'README.md actions' with Attach as context / Add comment / Copy");}
  step('file-header');await neutral();await saveClipboard();
  const appFile=()=>diffTile().locator('.sdiff-file[data-file-path="src/app.js"]'),appHeader=()=>appFile().locator('.sdiff-header'),openWrap=()=>appFile().locator('.sdiff-open-file');
  assert.equal(await diffTile().locator('.sdiff-header [title]').count(),0,'no native title in a modified-file header');
@@ -190,9 +210,11 @@ try{
  await appFile().locator('.sdiff-file-toggle').click();await poll(async()=>await chevron()==='-90deg','collapsed chevron');assert.equal(await appFile().locator('.sdiff-file-toggle').getAttribute('aria-expanded'),'false');
  await appFile().locator('.sdiff-file-toggle').click();await poll(async()=>await chevron()==='none','expanded chevron');assert.equal(await appFile().locator('.sdiff-file-toggle').getAttribute('aria-expanded'),'true');await neutral();
  report.checks.push('The header chevron svg computes rotate -90deg while the file is collapsed and none when expanded');
- // $e ContextMenu: Attach as context, Copy (c3e58cab4 submenu right/start/-4), separator, Open file.
+ // $e ContextMenu (c219730b0 Gt): Attach as context, Copy (c3e58cab4 submenu right/start/-4), separator, Open file, then
+ // B16 renderFileMenuItems (c856385e2 tn): Open in ▸ installed editors (only when this machine has any) and Show in Finder.
+ const fileMenuTail=items=>items.slice(items[4]==='Open in'?5:4);
  await appHeader().click({button:'right',position:{x:120,y:16}});await contextMenu().waitFor();
- assert.deepEqual(await itemsOf(contextMenu()),['Attach as context','Copy','|','Open file']);
+ {const items=await itemsOf(contextMenu());report.metrics.headerMenu=items;assert.deepEqual(items.slice(0,4),['Attach as context','Copy','|','Open file']);assert.deepEqual(fileMenuTail(items),['Show in Finder']);}
  const copyTrigger=contextMenu().getByRole('menuitem',{name:'Copy',exact:true});await copyTrigger.hover();const copyMenu=page.getByRole('menu',{name:'Copy',exact:true});await copyMenu.waitFor();await frames();
  assert.deepEqual(await itemsOf(copyMenu),['Absolute path','Relative path','Filename']);
  // A submenu is anchored horizontally to its parent popup's edge (menu-model nestedAnchor, Base UI), so side right
@@ -202,7 +224,7 @@ try{
  await copyMenu.getByRole('menuitem',{name:'Relative path',exact:true}).click();await contextMenu().waitFor({state:'detached'});
  await poll(async()=>(await toasts()).includes('Copied to clipboard.'),'copy toast');assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'src/app.js');
  await restoreClipboard();
- report.checks.push('Right-clicking the header opens [data-cds=ContextMenu] Attach as context, Copy, separator, Open file; Copy opens its submenu on the right (-4px) with Absolute path, Relative path, Filename; Relative path writes "src/app.js" to the in-memory clipboard with the toast "Copied to clipboard."');
+ report.checks.push('Right-clicking the header opens [data-cds=ContextMenu] Attach as context, Copy, separator, Open file (then Open in when editors are installed, and Show in Finder); Copy opens its submenu on the right (-4px) with Absolute path, Relative path, Filename; Relative path writes "src/app.js" to the in-memory clipboard with the toast "Copied to clipboard."');
  await appHeader().click({button:'right',position:{x:120,y:16}});await contextMenu().waitFor();await contextMenu().getByRole('menuitem',{name:'Attach as context',exact:true}).click();await contextMenu().waitFor({state:'detached'});
  const pill=page.locator('.sca-pill[data-kind="file"]').filter({has:page.getByRole('button',{name:'app.js',exact:true})});await pill.waitFor();await shot('changes-attach-context');
  await pill.hover();await page.getByRole('button',{name:'Remove app.js',exact:true}).click();await pill.waitFor({state:'detached'});await neutral();
@@ -236,7 +258,7 @@ try{
  await page.waitForFunction(s=>{const n=document.querySelector(s);return n?.dataset.state==='open'&&n.textContent.includes('run.sh (made executable)')&&getComputedStyle(n).opacity==='1';},tip);
  await shot('changes-no-body');await neutral();
  await runFile().locator('.sdiff-header').click({button:'right',position:{x:120,y:16}});await contextMenu().waitFor();
- assert.deepEqual(await itemsOf(contextMenu()),['Attach as context','Copy','|','Open file']);await page.keyboard.press('Escape');await contextMenu().waitFor({state:'detached'});await neutral();
+ {const items=await itemsOf(contextMenu());assert.deepEqual(items.slice(0,4),['Attach as context','Copy','|','Open file']);assert.deepEqual(fileMenuTail(items),['Show in Finder']);}await page.keyboard.press('Escape');await contextMenu().waitFor({state:'detached'});await neutral();
  report.checks.push('A mode-only change (run.sh 100644 -> 100755, no hunks) renders the aa no-body header: aria-disabled="true" without aria-expanded/aria-controls, cursor default, chevron span opacity 0.4 with the svg at -90deg; click, Enter and Expand all files add no body and no filler text; W "Made executable", counts +0/−0, tooltip "run.sh (made executable)"; right-click still opens the ContextMenu');
  // F12 zm diff scope (panes-tile-current.js:2949-3110): a ghost "Diff scope: main → working tree" trigger in place of the
  // title, popup side bottom / align start with All changes (vs main) | Compare against; Uncommitted changes refetches.
@@ -316,7 +338,7 @@ try{
  await page.keyboard.press('Meta+Shift+Y');await fileTree().waitFor();assert.equal(await listToggle().getAttribute('aria-pressed'),'true');
  await page.keyboard.press('Meta+Shift+F');await filesTile().waitFor();const filesTree=()=>filesTile().evaluate(n=>n.querySelector('.source-file-body')?.dataset.treeVisible);
  await poll(async()=>(await filesTree())!==undefined,'Files body');const filesBefore=await filesTree();
- await filesTile().getByRole('button',{name:'Search files',exact:true}).focus();await page.keyboard.press('Meta+Shift+Y');
+ await filesTile().getByRole('button',{name:'Go to file or search',exact:true}).focus();await page.keyboard.press('Meta+Shift+Y');
  await poll(async()=>await filesTree()!==filesBefore,'the focused Files pane takes ⇧⌘Y');assert.equal((await storedTiles()).shown,true,'the Changes list is untouched');
  await page.keyboard.press('Meta+Shift+Y');await poll(async()=>await filesTree()===filesBefore,'Files tree back');
  await page.keyboard.press('Meta+Shift+F');await filesTile().waitFor({state:'detached'});

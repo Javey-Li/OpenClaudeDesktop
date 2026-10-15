@@ -335,6 +335,10 @@ export function customizeCore(core) {
       hooks: t("Commands this plugin runs automatically — on session events, or when its skills are used."),
       // A plugin's own tools (OpenCode plugin/read detail.tools).
       tools: t("Tools this plugin adds. {assistant} can call them while it works.", { assistant }),
+      // c24c8737b Dc agents / Ns monitors helper lines; the Commands line is a server-provided message there (none locally).
+      agents: t("Specialized AI assistants that can be invoked to handle specific types of tasks."),
+      commands: "",
+      monitors: t("Background commands that run automatically during your session."),
     },
     // c5fb58ef0 personal removal dialog body (xonrKBdErN + GXIZPZXIvC); its
     // claude.ai "project files synced" sentence has no local counterpart.
@@ -629,6 +633,8 @@ export function pluginRows(response, skills = []) {
         enabled: plugin.enabled !== false,
         source: text(plugin.source?.type) || "local",
         marketplaceName,
+        // The marketplace's config name (marketplace/remove takes it; Manage marketplaces lists what removing it uninstalls).
+        marketplaceId: text(marketplace?.name),
         marketplacePath: typeof marketplace?.path === "string" ? marketplace.path : null,
         skillCount: skills.filter((skill) => skill.pluginId === plugin.id).length,
         updatedAt: null,

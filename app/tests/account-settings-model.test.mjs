@@ -112,15 +112,17 @@ test("no-key wiring: composer warning + account refresh, a one-line send guard, 
   const fs = await import("node:fs/promises");
   const main = await fs.readFile(path.join(import.meta.dirname, "..", "src/main.jsx"), "utf8");
   const missing = "boot?.connected && boot.account?.deepseek && !boot.account.account";
-  const warning = main.slice(main.indexOf("warning={boot !== null"), main.indexOf("onStop={stop}"));
+  // Compared with runs of whitespace collapsed, so re-indenting the composer props does not fail the check.
+  const flat = (text) => text.replace(/\s+/g, " ");
+  const warning = flat(main.slice(main.indexOf("warning={boot !== null"), main.indexOf("onStop={stop}")));
   // The core sign-in warning only when the core itself says it needs one (account/read requiresOpenaiAuth): a bridge
   // that merely reports no account (Gemini with a key in its own .env) keeps the Home card but gets no warning.
-  assert.ok(warning.includes(`${missing} ? t("Add a DeepSeek API key to start a session.")\n                    : signInRequired ? t("Sign in to {name} to start a session.", { name: signInPrompt.name }) : undefined}`));
+  assert.ok(warning.includes(flat(`${missing} ? t("Add a DeepSeek API key to start a session.")\n                    : signInRequired ? t("Sign in to {name} to start a session.", { name: signInPrompt.name }) : undefined}`)));
   assert.match(main, /const signInRequired = !!signInPrompt && boot\.account\?\.requiresOpenaiAuth === true;/);
   // A missing sign-in's action is the sign-in itself, labelled Sign in; the DeepSeek key case is Add key (setup's
   // Connect a model step, as on the home key card); another sign-in prompt re-reads account/read.
-  assert.ok(warning.includes(`onReconnect={signInRequired ? startCoreSignIn : ${missing} ? () => setOnboarding("connect")\n                    : boot?.connected && signInPrompt ? () => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message)) : reconnect}`));
-  assert.ok(warning.includes(`reconnectLabel={signInRequired ? t("Sign in") : ${missing} ? t("Add key") : undefined}`));
+  assert.ok(warning.includes(flat(`onReconnect={signInRequired ? startCoreSignIn : ${missing} ? () => setOnboarding("connect")\n                    : boot?.connected && signInPrompt ? () => call("account-auth", { operation: "refresh" }).catch((e) => setError(e.message)) : reconnect}`)));
+  assert.ok(warning.includes(flat(`reconnectLabel={signInRequired ? t("Sign in") : ${missing} ? t("Add key") : undefined}`)));
   // send() keeps the draft and starts the core's sign-in instead of a request that would fail with a 401.
   assert.match(main, /\n\s+if \(signInRequired\) \{ startCoreSignIn\(\); return; \}/);
   const send = main.slice(main.indexOf("async function send({ priority } = {}) {"), main.indexOf("const parsed = parseSessionCommand(draft, commandContext);", main.indexOf("async function send({ priority } = {}) {")));

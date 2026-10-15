@@ -73,3 +73,32 @@ test("attach quotes the text as Markdown after the existing draft, keeping order
   assert.equal(draftWithQuote(draftWithQuote("", "first"), "second"), "> first\n\n> second\n\n");
   assert.equal(draftWithQuote("keep", " "), "keep");
 });
+
+test("TI Pin as chapter / Unpin chapter: after Attach, before the Rewind / Fork section; only with message text", () => {
+  assert.deepEqual(shape(messageMenu({ messageText: "Answer", canAttach: true, canPin: true, canFork: true })),
+    ["Copy message", "Copy message as Markdown", "---", "Attach message as context", "Pin as chapter", "---", "Fork from here"]);
+  assert.deepEqual(shape(messageMenu({ messageText: "Answer", canPin: true, pinned: true })),
+    ["Copy message", "Copy message as Markdown", "---", "Unpin chapter"], "TI E = attach || pin: the separator heads a Pin offered without Attach");
+  const pin = messageMenu({ messageText: "Answer", canPin: true }).find((entry) => entry.id === "pin");
+  assert.equal(pin.label, "Pin as chapter");
+  assert.deepEqual(messageMenu({ canPin: true }), [], "no message text: no pin");
+  assert.ok(!shape(messageMenu({ messageText: "Answer", canAttach: true })).includes("Pin as chapter"), "canPin false: no pin");
+});
+
+test("B12 zNe: Rewind to here / Fork from here carry their EI.rewindMenu / EI.forkMenu descriptions", () => {
+  const entries = messageMenu({ messageText: "Prompt", canRewind: true, canFork: true });
+  assert.deepEqual(shape(entries), ["Copy message", "Copy message as Markdown", "---", "Rewind to here", "Fork from here"]);
+  assert.equal(entries.find((entry) => entry.id === "rewind").description, "Removes this message and what follows");
+  assert.equal(entries.find((entry) => entry.id === "fork").description, "Starts a new session, keeps this one");
+  assert.equal(entries.find((entry) => entry.id === "copy-message").description, undefined, "other items stay one line");
+});
+
+test("B12 TI w: over a message image, Copy image and Save image head the menu and count as items above", () => {
+  const image = { src: "data:image/png;base64,AA==", fileName: "chart.png" };
+  assert.deepEqual(shape(messageMenu({ imageTarget: image, messageText: "m", canAttach: true })),
+    ["Copy image", "Save image", "---", "Copy message", "Copy message as Markdown", "---", "Attach message as context"]);
+  assert.deepEqual(shape(messageMenu({ imageTarget: image, selectionText: "pick", messageText: "m" })),
+    ["Copy image", "Save image", "Copy [cmd+c]", "---", "Copy message", "Copy message as Markdown"], "no separator between the image and selection items");
+  assert.deepEqual(messageMenu({ imageTarget: image, messageText: "m" }).slice(0, 2).map((entry) => entry.id), ["copy-image", "save-image"]);
+  assert.deepEqual(shape(messageMenu({ imageTarget: { src: "" }, messageText: "m" })), ["Copy message", "Copy message as Markdown"], "no src: no image items");
+});

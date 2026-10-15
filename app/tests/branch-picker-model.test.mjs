@@ -65,3 +65,18 @@ test('branchSwitchPlan: same branch none, worktree base, clean checkout on send,
   assert.equal(WORKING_TREE_ERROR, 'Couldn’t update the working tree.');
   assert.deepEqual(BRANCH_SWITCH_LABELS, { stash: 'Stash changes', commit: 'Commit as WIP', discard: 'Discard changes' });
 });
+
+test('B34 RJ otherSessionCount / ETzdRE7DsE: unarchived sessions in the folder, without the current one', async () => {
+  const { otherSessionCount, otherSessionsNote } = await import('../src/branch-picker-model.mjs');
+  const sessions = [
+    { id: 'a', cwd: '/repo' }, { id: 'b', cwd: '/repo' }, { id: 'c', cwd: '/repo', archived: true },
+    { id: 'd', cwd: '/repo', isArchived: true }, { id: 'e', cwd: '/other' }, null,
+  ];
+  assert.equal(otherSessionCount(sessions, '/repo'), 2);
+  assert.equal(otherSessionCount(sessions, '/repo', { exclude: 'a' }), 1);
+  assert.equal(otherSessionCount(sessions, ''), 0);
+  assert.equal(otherSessionCount(undefined, '/repo'), 0);
+  assert.equal(otherSessionsNote(0), null);
+  assert.equal(otherSessionsNote(1), '1 other session is using this folder. Switching branches will affect it too.');
+  assert.equal(otherSessionsNote(3), '3 other sessions are using this folder. Switching branches will affect them too.');
+});

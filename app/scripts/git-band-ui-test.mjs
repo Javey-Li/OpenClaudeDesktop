@@ -125,11 +125,12 @@ try{
  assert.equal(await row.locator('.sg-repo').getAttribute('aria-expanded'),'true');await settle();assert.equal(await tipCount(),0,'no repo tooltip while its menu is open');
  const box=await row.locator('.sg-repo').boundingBox();await page.mouse.move(box.x+box.width/2+2,box.y+box.height/2);await settle();assert.equal(await tipCount(),0,'re-hovering the chip with its menu open shows no tooltip');
  const rows=await menu.evaluate(n=>[...n.querySelectorAll('[role=menuitem],[role=separator]')].map(e=>e.getAttribute('role')==='separator'?'---':e.textContent.trim()));report.metrics.repoMenu=rows;
- assert.deepEqual(rows,['Show in Finder','---','Copy path']);assert.deepEqual(await titles(),[]);await shot('repo-menu');
+ assert.deepEqual(rows,['Show in Finder','---','Copy path','---','Open in terminal']);assert.deepEqual(await titles(),[]);await shot('repo-menu');
  // F12 git-chips D/M: side bottom, align start, so the popup's left edge is the chip's left edge.
- report.metrics.repoMenuAlign=await page.evaluate(()=>({chip:document.querySelector('.sg-repo').getBoundingClientRect().left,menu:document.querySelector('[role=menu]').getBoundingClientRect().left,below:document.querySelector('[role=menu]').getBoundingClientRect().top>=document.querySelector('.sg-repo').getBoundingClientRect().bottom}));
- assert.ok(Math.abs(report.metrics.repoMenuAlign.chip-report.metrics.repoMenuAlign.menu)<=1,'repo menu start-aligned: '+JSON.stringify(report.metrics.repoMenuAlign));assert.equal(report.metrics.repoMenuAlign.below,true);
- report.checks.push('With the repo menu open no tooltip shows (open:false); the menu is Show in Finder | separator | Copy path (Ko/qo), start-aligned below the chip within 1px; Show in Finder is not clicked so no native shell call happens');
+ report.metrics.repoMenuAlign=await page.evaluate(()=>({chip:document.querySelector('.sg-repo').getBoundingClientRect().left,menu:document.querySelector('[role=menu]').getBoundingClientRect().left,below:document.querySelector('[role=menu]').getBoundingClientRect().top>=document.querySelector('.sg-repo').getBoundingClientRect().bottom,above:document.querySelector('[role=menu]').getBoundingClientRect().bottom<=document.querySelector('.sg-repo').getBoundingClientRect().top,roomBelow:innerHeight-document.querySelector('.sg-repo').getBoundingClientRect().bottom,menuHeight:document.querySelector('[role=menu]').getBoundingClientRect().height}));
+ assert.ok(Math.abs(report.metrics.repoMenuAlign.chip-report.metrics.repoMenuAlign.menu)<=1,'repo menu start-aligned: '+JSON.stringify(report.metrics.repoMenuAlign));// The B08 three-item menu no longer fits under a band at the window's bottom: side bottom flips to top on collision (Base UI flip), as in the reference.
+ const fitsBelow=report.metrics.repoMenuAlign.roomBelow>=report.metrics.repoMenuAlign.menuHeight;assert.equal(fitsBelow?report.metrics.repoMenuAlign.below:report.metrics.repoMenuAlign.above,true,'repo menu below the chip, or flipped above when it does not fit: '+JSON.stringify(report.metrics.repoMenuAlign));
+ report.checks.push('With the repo menu open no tooltip shows (open:false); the menu is Show in Finder | separator | Copy path | separator | Open in terminal (Ko/qo, B08 cd5a31703 Hle bt), start-aligned with the chip within 1px, below it or flipped above when it does not fit; Show in Finder is not clicked so no native shell call happens');
 
  step('copy-path');assert.deepEqual(await toasts(),[]);await menu.getByRole('menuitem',{name:'Copy path',exact:true}).click();await menu.waitFor({state:'detached'});
  await poll(async()=>(await toasts()).length>0,'copy path toast');await page.waitForTimeout(300);assert.deepEqual(await toasts(),['Path copied to clipboard.']);
@@ -152,7 +153,7 @@ try{
  assert.equal(await clipboardText(),LONG);await shot('copy-branch-toast');await neutral();
  report.checks.push("With the branch menu open no tooltip shows; Copy branch name writes the full branch and raises one toast 'Branch name copied to clipboard.'");
 
- step('running');await page.getByRole('textbox',{name:'Message DeepSeek',exact:true}).fill('fixture:hold');await page.getByRole('button',{name:'Send message',exact:true}).click();
+ step('running');await page.getByRole('textbox',{name:'Message DeepSeek',exact:true}).fill('fixture:hold');await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
  await poll(async()=>await row.locator('.sg-action').isDisabled(),'Commit disabled while responding');await neutral();
  const described=await row.locator('.sg-action').evaluate(el=>{const wrap=el.closest('.source-tooltip-disabled-trigger'),id=wrap?.getAttribute('aria-describedby'),reason=id&&document.getElementById(id);return {wrapped:!!wrap,tabIndex:wrap?.tabIndex,hidden:reason?.hidden,marker:reason?.hasAttribute('data-cds-disabled-reason'),text:reason?.textContent,title:el.getAttribute('title')};});
  report.metrics.disabledCommit=described;assert.deepEqual(described,{wrapped:true,tabIndex:0,hidden:true,marker:true,text:RESPONDING_REASON,title:null});assert.deepEqual(await titles(),[]);

@@ -91,7 +91,7 @@ test('LocalReleaseNotes is the bleed md SourceDialog with versioned entries', ()
   assert.deepEqual([...html.matchAll(/aria-label="([^"]+)"/g)].map((match) => match[1]), ['Close']);
   assert.match(html, /<p class="st-release-note">These release notes are included with this version of the app and may be one release behind\.<\/p>/);
   assert.match(html, /<div class="st-release-date"><h4>October 1, 2026<\/h4><span class="st-release-version" data-cds="Badge" data-variant="neutral">0\.2\.130<\/span><\/div>/);
-  assert.deepEqual([...html.matchAll(/<h5>([^<]+)<\/h5>/g)].map((match) => match[1]), ['New', 'Improved']);
+  assert.deepEqual([...html.matchAll(/<h5>([^<]+)<\/h5>/g)].map((match) => match[1]), RELEASE_NOTES.flatMap(() => ['New', 'Improved']));
   assert.match(html, /<code class="st-release-code">~\/\.dsh<\/code>/);
   // /fork, /review and /rewind ship (session-command-model.mjs): the limits only say they depend on the running core.
   assert.match(html, /<p class="st-release-limits">Known limits: Some commands, such as \/fork, \/review and \/rewind, depend on the running core; the slash menu says when one isn’t available\./);
@@ -100,23 +100,58 @@ test('LocalReleaseNotes is the bleed md SourceDialog with versioned entries', ()
   assert.match(html, /OpenClaude Desktop is now a frame for agent cores: choose one in Settings › Cores\./);
   assert.match(html, /DeepSeek Harness is built in; the others install on demand/);
   assert.doesNotMatch(html, /powered by DeepSeek|run on DeepSeek models/);
-  assert.equal([...html.matchAll(/<li[ >]/g)].length, RELEASE_NOTES[0].items.length, 'one list item per bundled note');
+  assert.equal([...html.matchAll(/<li[ >]/g)].length, RELEASE_NOTES.reduce((sum, entry) => sum + entry.items.length, 0), 'one list item per bundled note');
   assert.doesNotMatch(html, /Codex|modal-backdrop|st-release-header|Close release notes|title="/);
 });
 
-// Split view (c360a9e1c-GPs-MV9u.js Im): each side's titlebar ends with its own ghost X ('Close split view',
-// epitaxy-pane-close-control) with a CDS tooltip; there is none while the window isn't split.
-test('a split side closes itself from the end of its own titlebar', () => {
+// Split view (2.31226.0 shared-21 VT): an extra pane's titlebar ends with a ghost 'Close pane' X
+// (epitaxy-pane-close-control) whose CDS tooltip is the same label without a chord; main.jsx passes onCloseSplit to
+// secondary panes only, so the primary pane and an unsplit window have none.
+test('a secondary pane closes itself from the end of its own titlebar', () => {
   const plain = render({});
-  assert.doesNotMatch(plain, /data-split-close|Close split view/);
-  const html = render({ onCloseSplit() {}, closeSplitShortcut: 'ctrl+cmd+w' });
+  assert.doesNotMatch(plain, /data-split-close|Close split view|Close pane/);
+  const html = render({ onCloseSplit() {} });
   const trailing = html.slice(html.indexOf('st-trailing'));
   const close = trailing.match(/<button[^>]*data-split-close=""[^>]*>/)?.[0];
   assert.ok(close, 'close control renders in the trailing actions');
   assert.match(close, /class="code-icon-button epitaxy-pane-close-control"/);
-  assert.match(close, /aria-label="Close split view"/);
+  assert.match(close, /aria-label="Close pane"/);
   assert.doesNotMatch(close, /title=/);
-  assert.ok(trailing.lastIndexOf('data-split-close') > trailing.lastIndexOf('Session options'), 'after Session options');
-  // No session (a new-session side) still has its close.
+  assert.ok(trailing.lastIndexOf('data-split-close') > trailing.lastIndexOf('View options'), 'after View options');
+  // No session (a new-session pane) still has its close.
   assert.match(render({ session: null, onCloseSplit() {} }), /data-split-close=""/);
+  const source = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-titlebar.jsx'), 'utf8');
+  const control = source.slice(source.indexOf('{onCloseSplit && ('), source.indexOf('onClick={onCloseSplit}'));
+  assert.doesNotMatch(control, /shortcut:/, 'no chord in the tooltip');
+});
+
+// B09 (c593f7513 Om/wm, 7520-7540 and 8150-8210): the Code title is followed by the header session menu's CaretDown
+// trigger ('More options for {title}', CDS tooltip, opens 'session-title'), then the folder chip; the trailing ⋮ is
+// 'View options'. vm (7270-7300): the title tooltip resolves lazily (truncated title, else Rename).
+test('Code title bar: CaretDown session menu beside the title and the View options overflow', () => {
+  const opened = [];
+  const html = render({ onMenu: (...args) => opened.push(args) });
+  const leadHtml = lead(html);
+  const caret = leadHtml.match(/<button[^>]*class="code-icon-button st-session-caret"[^>]*>/)?.[0];
+  assert.ok(caret, 'caret renders in the lead');
+  assert.match(caret, /aria-label="More options for A title"/);
+  assert.match(caret, /aria-haspopup="menu"/);
+  assert.match(caret, /aria-expanded="false"/);
+  assert.doesNotMatch(caret, /title=/);
+  assert.ok(leadHtml.indexOf('st-session-caret') > leadHtml.indexOf('class="session-title st-title"'), 'after the title');
+  assert.ok(leadHtml.indexOf('st-session-caret') < leadHtml.indexOf('class="st-folder"'), 'before the folder chip');
+  assert.match(render({ menuKind: 'session-title' }), /class="code-icon-button st-session-caret"[^>]*aria-expanded="true" data-popup-open=""/);
+  // shared-21 IV contextMenuAt: the title's right-click is a ContextMenu at the cursor, not the caret's popup.
+  assert.match(render({ menuKind: 'session-title', menuAtPointer: true }), /class="code-icon-button st-session-caret"[^>]*aria-expanded="false"/);
+  const trailing = html.slice(html.indexOf('st-trailing'));
+  assert.match(trailing, /aria-label="View options"/);
+  assert.doesNotMatch(html, /Session options/);
+  // Other surfaces keep their own CaretDown 'Session options' and no Code caret.
+  const cowork = lead(render({ surface: 'cowork' }));
+  assert.doesNotMatch(cowork, /st-session-caret/);
+  assert.match(cowork, /aria-label="Session options"/);
+  const source = fs.readFileSync(path.resolve(import.meta.dirname, '../src/source-titlebar.jsx'), 'utf8');
+  assert.match(source, /<SourceTooltip content=\{\(\) => titleTooltipContent\(titleButton\.current, title\)\}>/);
+  assert.match(source, /onContextMenu=\{openSessionContextMenu\}/);
+  assert.match(source, /onMenu\?\.\(sessionMenuKind, event\.currentTarget, session, undefined, \{ x: event\.clientX, y: event\.clientY \}\)/);
 });

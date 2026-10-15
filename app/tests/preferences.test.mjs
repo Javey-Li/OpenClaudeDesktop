@@ -110,3 +110,10 @@ test('a model without reasoning levels clears the saved effort instead of failin
   assert.equal('effort' in next,false);
   assert.throws(()=>settingsPatch({}, {effort:5}),/Invalid effort setting/);
 });
+// c71860c77-DzP8HoeV cr: Settings › Code › Sessions › Prompt suggestions saves config.promptSuggestions (unset reads as on).
+test('promptSuggestions is a saved boolean; anything else is refused',()=>{
+  assert.equal(settingsPatch({},{promptSuggestions:false}).promptSuggestions,false);
+  assert.equal(settingsPatch({promptSuggestions:false},{promptSuggestions:true}).promptSuggestions,true);
+  assert.equal('promptSuggestions' in settingsPatch({},{theme:'dark'}),false,'untouched when not sent');
+  assert.throws(()=>settingsPatch({},{promptSuggestions:'off'}),/Invalid promptSuggestions setting/);
+});

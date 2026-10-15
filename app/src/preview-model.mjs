@@ -1,6 +1,9 @@
 // The Preview pane's pure logic (source-preview-pane.jsx; main-process side: electron/preview-service.cjs).
 // Copy follows the 2.2553.1 legacy Preview pane (panes-tile-current.js G_/bv/N_/Vv/Jv).
 import { t } from "../electron/i18n/index.mjs";
+import { stripAnsi } from "./ansi-model.mjs";
+import { commandRowLabel } from "./command-row-model.mjs";
+import { genericToolLabel, isGenericTool } from "./generic-tool-model.mjs";
 
 export const PREVIEW_PANE = "preview";
 export const VIEWPORT_PRESETS = Object.freeze([
@@ -54,6 +57,16 @@ export function serverRows(state) {
       running: status === "running", busy: status === "starting" || status === "stopping" };
   });
 }
+
+// Current cf580efe9 yt: configured rows first, followed by live processes
+// whose configuration was removed. Their Stop action must remain reachable.
+export function serverMenuRows(state) {
+  const configured = serverRows(state);
+  const names = new Set(configured.map(row => row.name.toLowerCase()));
+  return [...configured, ...(state?.servers ?? []).filter(server => !names.has(server.name.toLowerCase())).map(server => ({
+    ...server, running: server.status === 'running', busy: server.status === 'starting' || server.status === 'stopping',
+  }))];
+}
 export const anyServerRunning = (state) => (state?.servers ?? []).some((server) => server.status === "running" || server.status === "starting");
 
 /** The server whose problem the pane shows: the last one started that failed. */
@@ -67,6 +80,7 @@ export function serverErrorText(error, name) {
   switch (error?.code) {
     case "not-found": return t("The command for {name} wasn’t found. Check “runtimeExecutable” in .claude/launch.json.", { name });
     case "port-in-use": return t("Port {port} is already in use. Stop whatever is using it, or set “autoPort”: true in .claude/launch.json.", { port: /Port (\d+)/.exec(error.message ?? "")?.[1] ?? "" });
+    case "port-held": return t("Port {port} is already in use by a dev server in another session. Stop that server, then try again.", { port: heldPort(error) ?? "" });
     case "exited": return t("The dev server exited during startup. Check its output below.");
     case "timeout": return t("The dev server didn’t answer in time.");
     case "no-config": return t("This folder has no .claude/launch.json yet.");
@@ -75,10 +89,29 @@ export function serverErrorText(error, name) {
   }
 }
 
-/** The prompt "Ask {assistant} to fix it" sends after a failed start (the source's start-failure prompt). */
-export function fixServerPrompt(name, error, lines = []) {
-  const output = lines.slice(-40).join("\n");
-  return `The dev server "${name}" failed to start with the following error: ${error?.message ?? "unknown error"}${output ? `\n\n${output}` : ""}\n\nFix, then call preview_start to start the server.`;
+// ca80fca8d xq: the port another session's dev server holds (the start-failed card then says so instead of sending the
+// error to the agent). Locally main sets error.heldPort with code "port-held" (preview-service.cjs spawnServer).
+export function heldPort(error) {
+  if (Number.isInteger(error?.heldPort) && error.heldPort > 0) return error.heldPort;
+  const match = /^Port (\d+) is in use by another chat's dev server/.exec(String(error?.message ?? ""));
+  return match ? Number(match[1]) : undefined;
+}
+
+/** The start failure as one text (the reference's start error): the message, then the output tail without colors. */
+export function startFailureText(error, lines = []) {
+  const output = (lines ?? []).map((line) => stripAnsi(String(line))).filter((line, index) => !(index === 0 && line.startsWith("$ ")));
+  return [String(error?.message ?? "").trim(), output.slice(-40).join("\n").trim()].filter(Boolean).join("\n\n");
+}
+
+/** cf580efe9 Er: the failure card's chip, the last non-empty line of the error. */
+export function failureLogLine(text) {
+  const lines = String(text ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1];
+}
+
+/** ca80fca8d kq: what a start failure sends to the session's agent (submitToChat). */
+export function startFailurePrompt(text) {
+  return `The dev server failed to start with the following error:\n\n\`\`\`\n${text}\n\`\`\`\n\nFix, then call preview_start to start the server.`;
 }
 
 /** Log line tint (Jv): danger for errors, warning for warnings. */
@@ -126,18 +159,80 @@ export function stoppedServer(state) {
   return server && (server.status === "stopped" || server.status === "failed") ? server : null;
 }
 
+/** A dev server of this folder that is starting (the agent's preview_start, another pane's Run), or null. */
+export const startingServer = (state) => (state?.servers ?? []).find((server) => server.status === "starting") ?? null;
+
 /** What the viewport area shows over (or instead of) the page. A page another pane shows is still "page": like
- * 2.2553.1, this pane then paints its empty viewport (no notice) until it gets the page (pageRefused). */
-export function previewSurface(state, { starting = null, lastStarted = null } = {}) {
+ * 2.2553.1, this pane then paints its empty viewport (no notice) until it gets the page (pageRefused).
+ * hold: the card ("failed" | "stopped" | "restored") whose Restart / Try again is running stays up, busy (cf580efe9 Or /
+ * mr restartPending), instead of the spinner. settling: bi's spinner hold (serverStartHold). */
+export function previewSurface(state, { starting = null, lastStarted = null, hold = null, settling = false } = {}) {
   if (!state) return "loading";
+  if (hold) return hold;
   if (starting) return "starting";
   if (failedServer(state, lastStarted) && !state.hasPage) return "failed";
   // 2.2553.1 Xv pv: the page's dev server stopped (Stop, a crash): "Stopped" with Restart covers the old page.
   if (stoppedServer(state)) return "stopped";
   if (state.hasPage && pageError(state)) return "error";
   if (state.hasPage) return "page";
+  // cf580efe9 bi: a server starting replaces the start page with a spinner (and keeps it 1.5 s once it runs).
+  if (settling || startingServer(state)) return "starting";
+  // cf580efe9 Pi / ri: the page from before the app closed, over the start page, until restarted or dismissed.
+  if (state.lastFrame?.configName) return "restored";
   return "start";
 }
+
+// cf580efe9 bi (readable 2726-2790; vi = 1500): a Run pending from this pane, or any server starting, replaces the server
+// list with a spinner; the server it was for is held, and once it runs the spinner stays SERVER_SETTLE_MS more (so the
+// page it opens comes up first) before the list returns. prev: the held server name (or null).
+export const SERVER_SETTLE_MS = 1500;
+export function serverStartHold(prev, { servers = [], pending = null } = {}) {
+  const list = servers ?? [];
+  const starting = list.find((server) => server.status === "starting");
+  const pendingRun = !!pending && !list.some((server) => server.name === pending && server.status === "running");
+  const active = !!starting || pendingRun;
+  let held = prev ?? null;
+  const candidate = pendingRun ? pending : starting?.name;
+  if (active && held === null && candidate) held = candidate;
+  const heldServer = held === null ? null : list.find((server) => server.name === held);
+  if (held !== null && !active && heldServer?.status !== "running") held = null;
+  const running = held !== null && heldServer?.status === "running";
+  return { held, spinner: active || running, settle: running && !active };
+}
+
+/** cf580efe9 wr / Sr: the session's running tool as the "Setting up preview" line (the last running tool call). */
+export function previewRunningToolLabel(items = []) {
+  for (let index = (items?.length ?? 0) - 1; index >= 0; index--) {
+    const item = items[index];
+    if (!["inProgress", "running"].includes(item?.status)) continue;
+    let label = null;
+    if (isGenericTool(item)) label = genericToolLabel(item, "busy");
+    else if (item.type === "commandExecution") label = commandRowLabel(item.command, "busy", item.description, item.source);
+    if (label?.label) return label.meta ? `${label.label} ${label.meta}` : label.label;
+  }
+  return null;
+}
+
+// cf580efe9 fa bn (readable 4713-4731): whose output the logs drawer shows — the server at the open tab's port, else the
+// one started last. Only servers with a port and a process (an attach configuration has no output).
+export function logsServer(state) {
+  const live = (state?.servers ?? []).filter((server) => !server.attach && Number(server.port) > 0);
+  let port = 0;
+  try { const url = new URL(state?.url ?? ""); if (/^https?:$/.test(url.protocol) && LOOPBACK.has(url.hostname)) port = Number(url.port || (url.protocol === "https:" ? 443 : 80)); } catch { /* no page */ }
+  const atPort = port > 0 ? live.find((server) => Number(server.port) === port) : undefined;
+  return atPort ?? [...live].sort((a, b) => (Number(b.startedAt) || 0) - (Number(a.startedAt) || 0))[0] ?? null;
+}
+/** cf580efe9 ua: the drawer's title, "{name} · localhost:{port}". */
+export const logsSourceLabel = (server) => (server?.name && Number(server.port) > 0 ? t("{name} · {host}", { name: server.name, host: `localhost:${server.port}` }) : undefined);
+/** cf580efe9 fa Fe("epitaxy-preview-logs-expanded", !1): the drawer's open state, kept across panes and restarts. */
+export const PREVIEW_LOGS_EXPANDED_KEY = "epitaxy-preview-logs-expanded";
+export function readLogsExpanded(storage) {
+  try { return JSON.parse(storage?.getItem?.(PREVIEW_LOGS_EXPANDED_KEY) ?? "false") === true; } catch { return false; }
+}
+export function writeLogsExpanded(storage, value) {
+  try { storage?.setItem?.(PREVIEW_LOGS_EXPANDED_KEY, JSON.stringify(value === true)); } catch { /* private window, blocked storage */ }
+}
+
 export const showsPage = (surface) => surface === "page";
 /** 2.2553.1 native-view slot (c1dcad2f9 g): a refused show is asked again after these delays, then only when the
  * pane's layout changes. */

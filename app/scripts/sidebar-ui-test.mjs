@@ -106,9 +106,9 @@ async function rename(id, name, commit = true) {
 async function create(name) {
   await page.getByRole("button", { name: /^New(?:\s*⌘ N)?$/, exact: false }).first().click();
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill(`fixture:complete ${name}`);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator(".assistant-message").filter({ hasText: "Fixture response" }).waitFor();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   const id = await page.locator('.source-session-row[data-selected="focused"]').getAttribute("data-source-session-id");
   assert.ok(id);
   await rename(id, name);
@@ -245,7 +245,7 @@ try {
   // F08 automatic unread (kR / serverUnread && !paneSelected): beta's turn completes while zeta is open.
   await row(beta).locator(".source-session-open").click();
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("fixture:complete delayed-start background reply");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await row(zeta).locator(".source-session-open").click();
   const unreadGlyph = row(beta).locator('.source-leading-slot [role="status"][aria-label="Unread response"] .status-dot[data-kind="ready"]');
   await unreadGlyph.waitFor({ timeout: 10000 });
@@ -280,9 +280,9 @@ try {
   await page.locator('.source-sidebar-nav-row[aria-current="page"]').waitFor();
   await page.locator(".sc-folder-chip").filter({ hasText: "second-project" }).waitFor();
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("fixture:complete group plus");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator(".assistant-message").filter({ hasText: "Fixture response" }).waitFor();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   const researchId = (await readConfig()).customGroups.find((group) => group.name === "Research").id;
   const plusId = await page.locator('.source-session-row[data-selected="focused"]').getAttribute("data-source-session-id");
   assert.ok(plusId && ![zeta, alpha, beta].includes(plusId), "a new session is open");
@@ -290,7 +290,7 @@ try {
   await page.locator(`[data-group-key="custom:${researchId}"] [data-source-session-id="${plusId}"]`).waitFor();
   assert.equal((await readThreads()).threads[plusId].cwd, folderB);
   await rowAction(plusId, "Delete");
-  const plusDelete = page.getByRole("dialog", { name: "Delete session?", exact: true });
+  const plusDelete = page.getByRole("alertdialog", { name: "Delete session?", exact: true });
   await plusDelete.getByRole("button", { name: "Delete", exact: true }).click();
   await row(plusId).waitFor({ state: "detached" });
   await poll(async () => !(await readThreads()).threads[plusId], "the extra session is deleted again");
@@ -310,7 +310,7 @@ try {
   await poll(async () => (await readConfig()).customGroups[0]?.name === "Delivery", "inline group rename saved");
   groupMenu = await headingMenu("Delivery");
   await groupMenu.getByRole("menuitem", { name: "Delete group", exact: true }).click();
-  const deleteDialog = page.getByRole("dialog", { name: "Delete group?", exact: true });
+  const deleteDialog = page.getByRole("alertdialog", { name: "Delete group?", exact: true });
   await deleteDialog.waitFor();
   assert.equal(await deleteDialog.getByText("“Delivery” will be removed. The 1 item in it will no longer be grouped.", { exact: true }).count(), 1);
   await deleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
@@ -387,7 +387,7 @@ try {
   await page.getByRole("button", { name: "Restore session", exact: true }).click();
   await page.getByRole("button", { name: "Restore session", exact: true }).waitFor({ state: "detached" });
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("fixture:complete after archived read and restore");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await poll(async () => {
     const restored = (await readThreads()).threads[alpha];
     return restored.turns.length === 2 && restored.turns[1].status === "completed";

@@ -246,7 +246,7 @@ try {
   checks.push("Live reduced motion (media query and the Settings attribute/event) swaps the sprite for the static fallback without remounting the row, cancels the WAAPI animation, keeps the label readable, and restores the running sprite when switched back");
 
   enterPhase("sprite-stopping-and-completion");
-  await page.getByRole("button", { name: "Stop response", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
   await page.locator('.source-transcript-status[data-transcript-status="idle"]').waitFor({ state: "attached" });
   await frames(2);
   const done = await statusSnapshot();
@@ -280,7 +280,7 @@ try {
   assert.ok(metrics.spriteBlocked.blocked.length >= 1, "the sprite chunk request was actually intercepted");
   assert.equal(blockedState.rendering, "static-fallback"); assert.equal(blockedState.tag, "svg"); assert.equal(blockedState.labelText, "Working…"); assert.equal(blockedState.labelRole, "status");
   assert.equal(await page.locator('[role="alert"]').count(), 0, "no error UI for a missing sprite chunk");
-  await page.getByRole("button", { name: "Stop response", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').click();
   await page.locator('.source-transcript-status[data-transcript-status="idle"]').waitFor({ state: "attached" });
   await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.session.webRequest.onBeforeRequest(null); });
   await page.reload();

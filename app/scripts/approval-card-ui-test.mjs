@@ -51,7 +51,7 @@ async function screenshot(name) {
 }
 async function send(prompt, kind) {
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill(prompt);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator(`.sac-card[data-approval-kind="${kind}"]`).waitFor();
   await card().scrollIntoViewIfNeeded();
   assert.ok(await card().getAttribute("data-approval-instance"));
@@ -62,7 +62,7 @@ async function finish(action, expected) {
   if (action !== "decline" && action !== "deny") await page.waitForTimeout(450);
   await card().locator(`[data-approval-action="${action}"]`).click();
   await card().waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal((await records()).length, before + 1);
   assert.deepEqual((await records()).at(-1).result, expected);
 }
@@ -245,7 +245,7 @@ try {
       element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...fields }));
   });
   await frames(); assert.equal((await records()).length, 0);
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menu", { name: "Session menu", exact: true }).waitFor();
   await card().evaluate(element => element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, cancelable: true })));
   await frames(); assert.equal((await records()).length, 0);
@@ -327,7 +327,7 @@ try {
   const restored = await keycapProbe(); assert.equal(restored.coarse, false); assert.equal(restored.display, "flex");
   await screenshot("approval-card-keycap.png");
   checks.push("CDS Shortcut keycap: exactly one aria-hidden ⌘⏎ keycap inside [data-approval-primary] Allow once (Command/Enter sr text), kbd height/width round(font+6), 4px radius, 1px solid line, currentColor ink on primary, ms 4px after the gap-1 label, gs trailing end margin, none on Deny/session allow, hidden under pointer: coarse");
-  await page.getByRole("button", { name: "Session options", exact: true }).click();
+  await page.getByRole("button", { name: "View options", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click();
   await page.getByRole("complementary", { name: "Files panel", exact: true }).waitFor();
   metrics.widths = [];
@@ -383,7 +383,7 @@ try {
   await screenshot("approval-card-busy.png");
   await app.evaluate(() => globalThis.approvalCardUiGate.release?.());
   await card().waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.deepEqual((await records()).at(-1).result, { decision: "accept" });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   checks.push("real theme control changes tokens; delayed real respond shows one stable-size busy action, blocks other actions and honors reduced motion");
@@ -490,14 +490,14 @@ try {
   assert.equal(await card().locator('[data-context="scope"]').isVisible(), true);
   await page.waitForTimeout(450); await card().focus(); await page.keyboard.press("Meta+Shift+Enter");
   await card().waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.deepEqual((await records()).at(-1).result, { permissions: { network: { enabled: true } }, scope: "turn" });
   checks.push("real file request without raw diff has no fake disclosure; permission scope stays visible and shifted grant shortcut remains turn-only");
 
   // Question card primary (approval-current.js:8249-8256 `shortcut: a ? "cmd+enter"`) draws the same keycap,
   // and yk's ep({ allowOnce: K }) (:8011-8023) makes ⌘⏎ advance from the card, not only from the Other input.
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill("fixture:input card");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   const question = page.locator(".sq-card");
   await question.waitFor(); await question.scrollIntoViewIfNeeded();
   const questionProbe = () => question.evaluate(element => {
@@ -549,7 +549,7 @@ try {
   await question.locator(".sq-option").filter({ hasText: "First test choice" }).focus();
   await page.keyboard.press("Meta+Enter");
   await question.waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal((await records()).length, beforeQuestion + 1);
   assert.deepEqual((await records()).at(-1).result, { answers: { approach: { answers: ["First"] } } });
   checks.push("question card: first option preselected (_se) so Submit starts enabled; one aria-hidden ⌘⏎ keycap inside the Submit primary (round(font+6) cap, 4px radius, currentColor ink, ms 4px); secondary Skip left of Submit at gap-sm, same height, no keycap; card-scoped Cmd+Enter from a focused option submits the real answer");
@@ -557,7 +557,7 @@ try {
   // Skip q (approval-current.js:7997-8008) on the single (last) page: uk counts skipped, so it submits at once.
   // The real respond is held first: while busy Skip is disabled (br disabled: l) and nothing is dispatched.
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill("fixture:input skip");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await question.waitFor(); await question.scrollIntoViewIfNeeded();
   const beforeSkip = (await records()).length;
   await app.evaluate(() => { globalThis.approvalCardUiGate.holdNext = true; });
@@ -570,7 +570,7 @@ try {
   await screenshot("approval-card-question-skip-busy.png");
   await app.evaluate(() => globalThis.approvalCardUiGate.release?.());
   await question.waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal((await records()).length, beforeSkip + 1);
   assert.deepEqual((await records()).at(-1).result, { answers: {} });
   checks.push("question Skip on the last page submits immediately with the skipped key omitted (wire result {answers:{}}); Skip is disabled while the held real respond is busy");
@@ -578,7 +578,7 @@ try {
   // F07 multiSelect (approval-current.js:7789-7962, :8085-8088): checkbox marks (li) for every option
   // and Other, nothing preselected (_se), clicks toggle (V), Submit sends every chosen label in order.
   await page.getByRole("textbox", { name: "Message DeepSeek", exact: true }).fill("fixture:input-multi kinds");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await question.waitFor(); await question.scrollIntoViewIfNeeded();
   const multiProbe = () => question.evaluate(element => ({
     marks: [...element.querySelectorAll(".sq-option .sq-checkbox-mark, .sq-custom-label .sq-checkbox-mark")].length,
@@ -611,7 +611,7 @@ try {
   await screenshot("approval-card-question-multiselect.png");
   await question.locator(".sq-submit").click();
   await question.waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal((await records()).length, beforeMulti + 1);
   assert.deepEqual((await records()).at(-1).result, { answers: { kinds: { answers: ["Unit", "Live"] } } });
   checks.push("F07 multiSelect question: four square checkbox marks (options + Other), nothing preselected, clicks toggle (two aria-pressed=true), filled accent mark with a Check glyph, Submit sends both labels in option order");
@@ -625,20 +625,20 @@ try {
   await page.waitForTimeout(450);
   await card().focus(); await page.keyboard.press("Meta+Enter");
   await card().waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.equal((await records()).length, beforeReentry + 1);
   assert.deepEqual((await records()).at(-1).result, { decision: "accept" });
 
   await send("fixture:command-card-reenter-escape", "command");
   metrics.reentry.push(await reenterThenActivate("escape"));
   await card().waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.deepEqual((await records()).at(-1).result, { decision: "decline" });
 
   await send("fixture:command-card-reenter-click", "command");
   metrics.reentry.push(await reenterThenActivate("click"));
   await card().waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   assert.deepEqual((await records()).at(-1).result, { decision: "accept" });
   assert.equal((await records()).length, beforeReentry + 3);
   checks.push("observed scroll-out/frame/return re-arms only grant hotkeys: early Cmd+Enter is blocked then succeeds after400ms; Escape and an already-armed visible allow click remain immediate");
@@ -646,7 +646,7 @@ try {
   // ---- R07 (fidelity round 3): plan approval card, dismiss-on-send, empty Other, one card at a time ----
   const planCard = () => page.locator('.sac-card[data-approval-kind="plan"]');
   const composer = () => page.getByRole("textbox", { name: "Message DeepSeek", exact: true });
-  const settled = () => page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  const settled = () => page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   async function requestLog() {
     try { return (await fs.readFile(path.join(profile, "fixture-requests.jsonl"), "utf8")).trim().split("\n").filter(Boolean).map(JSON.parse); }
     catch (error) { if (error.code === "ENOENT") return []; throw error; }
@@ -755,7 +755,7 @@ try {
 
   // Dd: a composer send while a question waits answers it with lO before the steer.
   await composer().fill("fixture:input-steer card");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await question.waitFor(); await question.scrollIntoViewIfNeeded();
   const beforeDismiss = { requests: (await requestLog()).length, responses: (await records()).length };
   await composer().fill("free reply"); await page.keyboard.press("Enter");
@@ -771,7 +771,7 @@ try {
 
   // uk: Other with an empty field answers and enables Submit; R sends 'Something else'.
   await composer().fill("fixture:input other");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await question.waitFor(); await question.scrollIntoViewIfNeeded();
   // The source's transparent Other button lies behind the textarea, so its center is no pointer target; activate it
   // from the keyboard as approval-transport's chooseOther does.
@@ -786,7 +786,7 @@ try {
 
   // One card at a time: two simultaneous requests show only the head; B mounts after A with a fresh 400 ms clock.
   await composer().fill("fixture:approval-pair");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await card().waitFor();
   await page.waitForTimeout(250); // the fixture sends B 30 ms after A
   await frames();

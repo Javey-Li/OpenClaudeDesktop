@@ -68,16 +68,29 @@ async function pauseActiveGoals() {
   ]);
 }
 const { listFiles, readFile, scopedPath, openBlockReason } = require("./files.cjs");
+const sessionFileAccess = require("./session-file-access.cjs");
+// B13: the Files viewer's rendered HTML preview frame (file-preview-frame.cjs); the scheme is privileged before ready.
+const { SCHEME: FILE_PREVIEW_SCHEME, createFilePreviewFrames } = require("./file-preview-frame.cjs");
+const filePreviewFrames = createFilePreviewFrames();
+require("electron").protocol.registerSchemesAsPrivileged([{ scheme: FILE_PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
+const { createFilesWatch } = require("./files-watch.cjs");
+const { readEditableFile, writeFile: writeEditedFile } = require("./file-editor.cjs");
 const {createImageOperations}=require('./image-files.cjs');
 const imageOperations=createImageOperations({getRoot:workspaceQueryRoot,clipboard,nativeImage,showSaveDialog:options=>dialog.showSaveDialog(win,options)});
 const { createFileNameSearch } = require("./file-name-search.cjs");
 const fileSearch = createFileNameSearch();
+// Files pane tree: the root and expanded folders a pane shows (cccc2cf0a mv watchSessionDirectories).
+const filesWatch = createFilesWatch();
 // Main-owned folder choices survive home/session navigation for this process.
 // A renderer may select one of these values, never introduce a new root.
 const approvedWorkspaceRoots = new Set();
 // Working directories observed from the Codex thread list. Repository queries
 // are scoped to these, the chosen folder, approved roots and session metadata.
 const observedThreadCwds = new Set();
+// The Recent folders list's own rows (recent-folders.cjs: worktree origins and detected projects), which a Recent
+// pick may make the session folder (main 'folder' with a path).
+const recentFolderPaths = new Set();
+let detectedProjects = null;
 function workspaceQueryRoot(cwd) {
   const requested = typeof cwd === "string" && cwd ? cwd : config.cwd;
   const known = [config.cwd, ...approvedWorkspaceRoots, ...observedThreadCwds,
@@ -93,8 +106,44 @@ function sessionBaseBranch(sessionId, cwd) {
   const fromWorktree = config.worktreeBases?.[cwd];
   return typeof fromWorktree === "string" && fromWorktree ? fromWorktree : undefined;
 }
+// One `gh` lookup cache per app run. A Finder/Dock launch lacks the login shell's PATH (Homebrew's gh), its proxy
+// and any GH_TOKEN, so the lookup runs with those (proxy-env.cjs, the same single login-shell read the cores use).
+let pullRequestLookupInstance = null;
+function pullRequestLookup() {
+  if (pullRequestLookupInstance) return pullRequestLookupInstance;
+  const { createPullRequestLookup } = require("./git-pull-request.cjs");
+  const { loginShellVariables, loginShellProxy, proxyEnv } = require("./proxy-env.cjs");
+  pullRequestLookupInstance = createPullRequestLookup({ env: async () => {
+    const shell = process.env.CODEX_BINARY ? {} : await loginShellVariables(["PATH", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_CONFIG_DIR"]).catch(() => ({}));
+    const proxy = process.env.CODEX_BINARY ? {} : await loginShellProxy().catch(() => ({}));
+    const env = { ...process.env, ...proxyEnv(process.env, proxy) };
+    for (const key of ["GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_CONFIG_DIR"]) if (shell[key] && !env[key]) env[key] = shell[key];
+    env.PATH = [shell.PATH, "/opt/homebrew/bin", "/usr/local/bin", process.env.PATH].filter(Boolean).join(":");
+    return env;
+  } });
+  return pullRequestLookupInstance;
+}
+// Import GitHub issue (github-issues.cjs): the same gh env as the pull request lookup.
+let githubIssuesInstance = null;
+function githubIssues() {
+  if (githubIssuesInstance) return githubIssuesInstance;
+  const { createGithubIssues } = require("./github-issues.cjs");
+  const { loginShellVariables, loginShellProxy, proxyEnv } = require("./proxy-env.cjs");
+  githubIssuesInstance = createGithubIssues({
+    identity: (cwd) => require("./git-status.cjs").repoIdentity(cwd, { home: os.homedir() }),
+    env: async () => {
+      const shell = process.env.CODEX_BINARY ? {} : await loginShellVariables(["PATH", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_CONFIG_DIR"]).catch(() => ({}));
+      const proxy = process.env.CODEX_BINARY ? {} : await loginShellProxy().catch(() => ({}));
+      const env = { ...process.env, ...proxyEnv(process.env, proxy) };
+      for (const key of ["GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_CONFIG_DIR"]) if (shell[key] && !env[key]) env[key] = shell[key];
+      env.PATH = [shell.PATH, "/opt/homebrew/bin", "/usr/local/bin", process.env.PATH].filter(Boolean).join(":");
+      return env;
+    },
+  });
+  return githubIssuesInstance;
+}
 const { recordActivity, readableLedger, ledgerStats, statsShape, statsCoreKey, keptCodeStats } = require("./activity.cjs");
-const { workspaceGitStatus, workspaceGitDiff, workspaceGitComparison, workspaceGitCommits, workspaceGitBranches } = require("./git-status.cjs");
+const { workspaceGitStatus, workspaceGitDiff, workspaceGitComparison, workspaceGitCommits, workspaceGitBranches, workspaceGitImage } = require("./git-status.cjs");
 const { porcelainEntries, wouldBranchSwitchConflict } = require("./branch-switch.cjs");
 app.setName("OpenClaude Desktop");
 if (process.env.CODE_DESKTOP_DATA)
@@ -106,9 +155,98 @@ let win;
 // Popped-out side panes (2.2553.1 openPopout type "epitaxy-side-pane"): one
 // BrowserWindow per session+pane, same preload/sandbox, no approval routing.
 const popouts = new Map();
-const POPOUT_ACTIONS = new Set(["init", "files", "file", "files:search", "files:search:cancel", "workspace-git-status", "workspace-git-diff", "workspace-git-commits", "workspace-git-branches", "popout-dock", "popout-always-on-top", "home-shape"]);
-const POPOUT_KINDS = new Set(["files", "changes", "plan"]);
+// Confirm unsaved local edits before stopping processes or destroying a window.
+const dirtyFileWindows = new Map(), autoSaveWindows = new Set(), pendingFileFlushes = new Map();
+let fileFlushSequence = 0;
+ipcMain.on('desktop:file-autosave-flushed', (event, token) => {
+  const pending = pendingFileFlushes.get(token);
+  if (pending?.sender === event.sender.id) pending.finish();
+});
+function flushFileAutosaves() {
+  return Promise.all(BrowserWindow.getAllWindows().filter(window => !window.isDestroyed() && autoSaveWindows.has(window.webContents.id)).map(window => new Promise(resolve => {
+    const token = ++fileFlushSequence, sender = window.webContents.id;
+    const finish = () => { clearTimeout(timer); pendingFileFlushes.delete(token); resolve(); };
+    // An unresponsive renderer falls back to the existing explicit discard guard.
+    const timer = setTimeout(finish, 10000);
+    pendingFileFlushes.set(token, { sender, finish });
+    try { window.webContents.send('desktop:file-autosave-flush', token); } catch { finish(); }
+  })));
+}
+const fileAutosaveQuitGate = require('./file-autosave-quit.cjs').createFileAutosaveQuitGate({
+  needsFlush: () => autoSaveWindows.size > 0, flush: flushFileAutosaves, quit: () => app.quit(),
+});
+ipcMain.on("desktop:file-edit-dirty", (event, paths) => {
+  const automatic = !Array.isArray(paths) && paths?.autoSave === true;
+  if (!Array.isArray(paths)) paths = paths?.paths;
+  const names = Array.isArray(paths) ? paths.filter(p => typeof p === "string").slice(0, 100) : [];
+  if (names.length) dirtyFileWindows.set(event.sender.id, names); else dirtyFileWindows.delete(event.sender.id);
+  if (names.length && automatic) autoSaveWindows.add(event.sender.id); else autoSaveWindows.delete(event.sender.id);
+  event.returnValue = null;
+});
+function confirmFileEdits(window) {
+  const t = (source, values) => i18n ? i18n.t(source, values) : source;
+  const names = dirtyFileWindows.get(window.webContents.id);
+  if (!names?.length) return true;
+  return dialog.showMessageBoxSync(window, { type: "warning", message: t("Discard unsaved changes?"),
+    detail: t("Your edits to {name} have not been saved. Leaving this session discards them.", { name: names.map(p => path.basename(p)).join(", ") }),
+    buttons: [t("Keep editing"), t("Discard")], defaultId: 0, cancelId: 0, noLink: true }) === 1;
+}
+// Settings › Storage › App cache details › Clear cache and restart… (2.31226.0 index.chunk-CiiI592G.js Pfa/Mvi): a native
+// confirm, then the default session's caches go and the app relaunches (one at a time, N8). Sign-ins, sessions and
+// tasks stay. The relaunch goes through the normal quit, so the shutdown handler stops the core first.
+let clearingCache = null;
+async function clearCacheAndRestart(window) {
+  if (clearingCache) return clearingCache;
+  clearingCache = (async () => {
+    const t = (source, values) => i18n ? i18n.t(source, values) : source;
+    const options = { type: "question", message: t("Clear cached web content and restart OpenClaude Desktop?"),
+      detail: t("You stay signed in. Open conversations and tasks are kept; the app closes and reopens."),
+      buttons: [t("Cancel"), t("Clear and restart")], defaultId: 0, cancelId: 0, noLink: true };
+    const { response } = window && !window.isDestroyed() ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+    if (response !== 1) return false;
+    try {
+      const { session } = require("electron"), web = session.defaultSession;
+      await web.clearCache();
+      await web.clearCodeCaches({});
+      await web.clearStorageData({ storages: ["cachestorage", "shadercache", "serviceworkers"] });
+      await web.clearHostResolverCache();
+      await web.clearAuthCache();
+    } catch (error) {
+      dialog.showErrorBox(t("Error clearing cache"), error instanceof Error ? error.message : String(error));
+      return false;
+    }
+    app.relaunch();
+    app.quit();
+    return true;
+  })().finally(() => { clearingCache = null; });
+  return clearingCache;
+}
+function installFileEditWindowGuard(window) {
+  window.webContents.on("will-prevent-unload", event => { if (quitting || confirmFileEdits(window)) event.preventDefault(); });
+  const id = window.webContents.id;
+  window.once("closed", () => { dirtyFileWindows.delete(id); autoSaveWindows.delete(id); for (const pending of pendingFileFlushes.values()) if (pending.sender === id) pending.finish(); });
+}
+
+const POPOUT_ACTIONS = new Set(["init", "files", "file", "file:edit-read", "file:save", "file:preview-frame", "file:preview-frame-release", "files:search", "files:content-search", "files:search:cancel", "files:watch", "workspace-git-status", "workspace-git-diff", "workspace-git-image", "workspace-git-commits", "workspace-git-branches", "popout-dock", "popout-always-on-top", "popout-add-to-prompt", "popout-state", "home-shape"]);
+const POPOUT_KINDS = new Set(["files", "changes", "plan", "tasks", "terminal", "side-chat"]);
+// B27 (c03935b01 $a: diff, file, terminal, plan, tasks… pop out; cd377abb5 _i: the side chat): the Tasks, Terminal and
+// Side chat panes need the session's live state, so their window runs the session's App with that one pane
+// (main.jsx PANE_WINDOW) and is registered in windowRegistry as a pane window; Files, Changes and Plan keep the light
+// PopoutApp. The Preview pane stays in the main window: its popout is behind a flag in the reference (c03935b01 eo).
+const APP_POPOUT_KINDS = new Set(["tasks", "terminal", "side-chat"]);
+// cd377abb5 _i: the side chat window is smaller (280x160 minimum) and opens over the panel it replaced.
+const SIDE_CHAT_MIN_SIZE = { width: 280, height: 160 };
+const POPOUT_DEFAULT_SIZE = { width: 900, height: 700 }, POPOUT_MIN_SIZE = { width: 400, height: 320 };
+// The pane popouts and the session popouts (B27, popout-restore.cjs SESSION_PANE) saved at a quit. A side chat window is
+// transient (cd377abb5 wr saves code-session and side-pane popouts only).
+const RESTORABLE_POPOUT_KINDS = new Set([...[...POPOUT_KINDS].filter((kind) => kind !== "side-chat"), "session"]);
 let config;
+let localRoutines;
+let codeCleanup;
+let coworkSessions;
+// Cowork is still in development: builds keep it off (the renderer shows a placeholder and no Cowork session starts);
+// CODE_DESKTOP_COWORK=1 turns it on for local work.
+const COWORK_ENABLED = process.env.CODE_DESKTOP_COWORK === "1";
 let configPath;
 let client;
 let initial;
@@ -163,18 +301,20 @@ function currentWorkflowEngine(owner = client) {
 }
 const {createBackgroundTasks}=require("./background-tasks.cjs");
 const backgroundOperations=createBackgroundTasks({getClient:()=>client,getConfig:()=>config});
-const {desktopPatch,createDesktopSettings} = require("./desktop-settings.cjs");
+const {desktopPatch,createDesktopSettings,directoryUsage} = require("./desktop-settings.cjs");
+const { createCodeCleanup } = require("./code-cleanup.cjs");
 const {createMenuBar,showWindow} = require("./menu-bar.cjs");
 const {appMenuTemplate,sidebarCollapsedPatch,navigationState,menuState,sameMenuState,closeAction,activateAction,splitMenuState} = require("./app-menu.cjs");
-const {windowBackground,trafficLightPosition,scaleTrafficLights,zoomLevelAfter,clampZoomFactor} = require("./window-chrome.cjs");
+const {windowBackground,trafficLightPosition,scaleTrafficLights,zoomLevelAfter,clampZoomFactor,ZOOM_HINT_KEY,zoomFactorHint} = require("./window-chrome.cjs");
+const { preferredSystemLanguages } = require("./system-languages.cjs");
 const {contextMenuTemplate,externalLink} = require("./context-menu.cjs");
-const {DEFAULT_WINDOW_SIZE,WINDOW_STATE_FILE,loadWindowState,windowStateBounds,restoreWindowState,trackWindowState,windowStateFile,cascadeWindowState,forgetWindowState,placeOnDisplays} = require("./window-state.cjs");
+const {DEFAULT_WINDOW_SIZE,WINDOW_STATE_FILE,loadWindowState,windowStateBounds,restoreWindowState,trackWindowState,windowStateFile,cascadeWindowState,forgetWindowState,placeOnDisplays,positionWindowState} = require("./window-state.cjs");
 // The pane windows open at a quit come back at the next launch (popout-restore.cjs; Claude Desktop's popout restore).
 const popoutRestore = require("./popout-restore.cjs");
 // Every main window (File › New Window, a session's "Open in new window", split view inside each): event routing,
 // per-window menu state and the windows reopened at launch (window-registry.cjs; its header documents the helpers
 // pane services use to find the window a request came from).
-const {MAIN_WINDOW_KEY,OPEN_WINDOWS_FILE,MAX_WINDOWS,newWindowKey,createWindowRegistry} = require("./window-registry.cjs");
+const {MAIN_WINDOW_KEY,OPEN_WINDOWS_FILE,MAX_WINDOWS,MAX_SESSION_POPOUTS,WINDOW_KINDS,newWindowKey,createWindowRegistry} = require("./window-registry.cjs");
 const windowRegistry = createWindowRegistry({ file: () => path.join(app.getPath("userData"), OPEN_WINDOWS_FILE), BrowserWindow });
 let menuBar;
 // Set by the app "before-quit" listener (index.chunk-ChZ67Jhw.js kk()): only a
@@ -195,6 +335,8 @@ const { createCustomCommands } = require("./custom-commands.cjs");
 const { createAgentToolsHost } = require("./agent-tools-host.cjs");
 const { createAgentToolApproval } = require("./agent-tool-approval.cjs");
 const { createPreviewService } = require("./preview-service.cjs");
+const { createTaskBacklog, publicItem: publicBacklogItem, folderKey: taskBacklogFolderKey } = require("./task-backlog.cjs");
+const { sessionErrorPatch } = require("./session-attention.cjs");
 let previewService = null;
 const agentToolSession = (id) => {
   if (typeof id !== "string" || !config || ![...config.threadIds, ...config.archivedThreadIds].includes(id)) return null;
@@ -305,7 +447,7 @@ function agentToolCallOutlivesTurn(call, owner = client) {
 function agentToolsDeferred(owner = client) {
   let defer = false;
   try { defer = coreCapabilities(owner?.serverInfo ?? null).deferAppTools === true; } catch { defer = false; }
-  return defer ? ["workflow", "monitor", "schedule", "findings", "notebook"] : [];
+  return defer ? ["workflow", "monitor", "schedule", "findings", "notebook", "window"] : [];
 }
 /** Whether the running core gets an app tool: always, unless the tool stands in for one the core lists in nativeTools. */
 function agentToolServedToCore(tool, owner = client, session = null) {
@@ -439,6 +581,13 @@ function agentToolSessionView(id, running) {
 agentTools.provide("sessions", (session) => ({
   list: () => { const running = liveWork.sessions(); return [...(config?.threadIds ?? []), ...(config?.archivedThreadIds ?? [])].map((id) => agentToolSessionView(id, running)).filter(Boolean); },
   get: (id) => agentToolSessionView(id, liveWork.sessions()),
+  // list_events: the session's turns (the core's thread/read with its turns), for a session the user @-mentions.
+  turns: async (id) => {
+    const owner = client;
+    if (!owner || !agentToolSessionView(id, liveWork.sessions())) throw new Error(`No session ${id}.`);
+    const read = await owner.request("thread/read", { threadId: id, includeTurns: true });
+    return Array.isArray(read?.thread?.turns) ? read.thread.turns : [];
+  },
   rename: async (name) => {
     const owner = client;
     if (!owner || !config?.threadIds?.includes(session.id)) throw new Error("This session can’t be renamed right now.");
@@ -491,6 +640,30 @@ function agentToolFetch(url, { signal, headers = {} } = {}) {
   });
 }
 agentTools.provide("web", () => ({ fetch: agentToolFetch }));
+// B27 get_window_layout / open_session_in / close_split / set_sidebar_collapsed (agent-tools/window.mjs; c2189a16b
+// runLayoutCommand): the window holding the calling session (a full window first, else its popout, else the full window
+// focused last, which then reports the caller not visible) decides and applies the command (main.jsx
+// runLayoutCommandHere) and answers through layout-command-result; "window" opens a session popout here, shown
+// without taking focus. An answer that does not come in time is "expired".
+const LAYOUT_COMMAND_TIMEOUT_MS = 5000;
+const layoutRequests = new Map();
+let layoutRequestSeq = 0;
+function runAgentLayoutCommand(sessionId, command) {
+  const showing = windowRegistry.windowsShowing(sessionId), focused = windowRegistry.lastFocused();
+  const full = showing.filter((window) => !windowRegistry.isSessionPopout(window));
+  const window = (full.includes(focused) ? focused : full[0]) ?? showing[0] ?? windowRegistry.lastFocusedFull();
+  if (!liveContents(window)) return Promise.resolve({ outcome: "refused", reason: "caller_not_visible" });
+  const requestId = `layout-${++layoutRequestSeq}`;
+  const sessions = windowRegistry.sessionPopouts();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { layoutRequests.delete(requestId); resolve({ outcome: "failed", reason: "expired" }); }, LAYOUT_COMMAND_TIMEOUT_MS);
+    layoutRequests.set(requestId, { window, resolve: (value) => { clearTimeout(timer); layoutRequests.delete(requestId); resolve(value); } });
+    windowRegistry.send(window, { kind: "layout-command", requestId, command: { ...command, callerSessionId: sessionId },
+      windowHidden: !window.isVisible() || window.isMinimized() || windowRegistry.getState(window, "hidden") === true,
+      popoutSessionIds: sessions.map((entry) => entry.sessionId).filter(Boolean), otherPopoutCount: popouts.size + sessions.filter((entry) => !entry.sessionId).length });
+  });
+}
+agentTools.provide("layout", (session) => ({ run: (command) => runAgentLayoutCommand(session.id, command) }));
 const AGENT_SESSION_KEY = `mcp_servers.${agentTools.SERVER_NAME}.env.CODE_DESKTOP_AGENT_SESSION`;
 const AGENT_TOKEN_KEY = `mcp_servers.${agentTools.SERVER_NAME}.env.CODE_DESKTOP_AGENT_TOOLS_TOKEN`;
 // thread/start and thread/fork carry a start identity (bound to the new thread below), thread/resume the thread
@@ -541,6 +714,11 @@ const personaImage = createPersonaImage({ dialog, getWindow: () => win });
 // setCodexLaunch / codexCommand: the Codex endpoint's launch overrides and the binary whose bundled catalog they extend.
 const modelSettings = createModelSettings({ getConfig: () => config, getClient: () => client, app, getHarnessProfile: () => harnessProfile,
   setCodexLaunch, codexCommand: codexBinary });
+// Code › Local › "Edit local environment" (local-environment.cjs): the user's variables, encrypted, added to every
+// core spawn (codex.cjs setLocalEnvironment) except where the app sets the variable itself (provider keys, agent tools).
+const localEnvironment = require("./local-environment.cjs").createLocalEnvironment({ app,
+  managedKeys: () => { let tools = {}; try { tools = agentTools.launchEnv() ?? {}; } catch { tools = {}; } return [...coreSecretEnvKeys(), ...Object.keys(tools)]; } });
+require("./codex.cjs").setLocalEnvironment(() => localEnvironment.launchEnv());
 // Settings › Cores: which agent core runs, and the official releases this app downloads (core-manager.cjs).
 const coreManager = createCoreManager({ dataDir: () => app.getPath("userData"), getConfig: () => config, save: () => save(), emit, setCoreChoice, deepseekScript: deepseekCoreScript, bridgeScript, nodeBinary });
 // Extension Packs (extension-packs.cjs): imported agent cores, registered with core-registry.mjs. A change re-points
@@ -549,6 +727,8 @@ const extensionPacks = createExtensionPacks({ dataDir: () => app.getPath("userDa
   onChange: () => { coreManager.apply(); emit({ kind: "extensions", cores: extensionPacks.descriptors() }); } });
 const customCommands = createCustomCommands({ app, shell, dialog, getConfig: () => config, emit: (e) => emit(e), getWindow: () => win, knownCwd: (cwd) => workspaceQueryRoot(cwd) });
 // Sidebar metadata snapshot returned by every sidebar-state mutation.
+let taskBacklogStore = null;
+const taskBacklog = () => (taskBacklogStore ??= createTaskBacklog({ dataDir: () => app.getPath("userData") }));
 function sidebarSnapshot() {
   return { sessionMetadata: config.sessionMetadata, customGroups: config.customGroups, sidebarPreferences: config.sidebarPreferences,
     pinnedOrder: config.pinnedOrder || [], projectOrder: Array.isArray(config.projectOrder) ? config.projectOrder : [], revision: config.sidebarRevision,
@@ -747,7 +927,7 @@ let splitMenu = splitMenuState();
 function installAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate({ sidebarOpen: config?.sidebarCollapsed !== true, ...navState, zoomed: mainZoomLevel() !== 0,
     fullScreen: liveContents(win) && win.isFullScreen(), allowDevTools: !app.isPackaged, menuState: paneMenuState, splitState: splitMenu,
-    newWindow: windowRegistry.mainWindows().length < MAX_WINDOWS, emit: menuEmit })));
+    newWindow: windowRegistry.sessionPopouts().length < MAX_SESSION_POPOUTS, emit: menuEmit })));
 }
 // Each main window reports its own Go / pane / split state; the menu bar shows the focused window's (window kept
 // in windowRegistry, adopted on focus). A report from a background window is kept for when it is focused.
@@ -762,7 +942,8 @@ function setMenuState(payload, window) {
   return paneMenuState;
 }
 function setSplitMenuState(payload, window) {
-  const next = splitMenuState(payload);
+  // B27 (c2189a16b popout_has_no_panes): a session popout has no split view, so View › Split View stays disabled there.
+  const next = splitMenuState(windowRegistry.isSessionPopout(window) ? null : payload);
   if (window) windowRegistry.setState(window, "split", next);
   if (reportFromOtherWindow(window) || JSON.stringify(next) === JSON.stringify(splitMenu)) return next;
   splitMenu = next;
@@ -794,7 +975,10 @@ function revealMainWindow(target) {
 // KK (Window > Show Main Window, the Dock and the tray's Show App): show the
 // main window, recreating it when it no longer exists.
 function showMainWindow() {
-  if (liveContents(win)) showWindow(win);
+  // B27: a session popout is never "the main window"; the full window focused last is.
+  const full = windowRegistry.lastFocusedFull();
+  if (liveContents(full)) showWindow(full);
+  else if (liveContents(win) && !windowRegistry.isSessionPopout(win)) showWindow(win);
   else if (!quitting && desktopReady) openMainWindow().catch(() => {});
 }
 // Help > Troubleshooting > Show Logs in Finder (Ejr): the app's logs folder.
@@ -818,15 +1002,17 @@ function menuEmit(e, target) {
     if (window && window.isFullScreenable()) window.setFullScreen(!window.isFullScreen());
     return;
   }
-  // File › New Window: a fresh main window cascaded from the one the menu came from.
-  // The item is disabled at MAX_WINDOWS (installAppMenu); a refusal that still gets here (a race) is logged, not lost.
-  if (e?.kind === "new-window") return void openWindow({ from: windowRegistry.isMain(target) ? target : win }).catch((error) => console.warn("[window] New Window:", error?.message ?? error));
-  if ((e?.kind === "close-pane" || e?.kind === "close-session") && target && !windowRegistry.isMain(target) && !target.isDestroyed()) return target.close();
+  // File › New Window (cd377abb5 si → shared-11 Zo openPopout {type: "code-draft"}): a sidebar-less new-session popout
+  // that becomes that session's popout on its first send. Disabled at MAX_SESSION_POPOUTS (installAppMenu); a refusal
+  // that still gets here (a race) is logged, not lost.
+  if (e?.kind === "new-window") return void openSessionPopout({ from: windowRegistry.isMain(target) ? target : win }).catch((error) => console.warn("[window] New Window:", error?.message ?? error));
+  if ((e?.kind === "close-pane" || e?.kind === "close-session") && target && (!windowRegistry.isMain(target) || windowRegistry.isPaneWindow(target)) && !target.isDestroyed()) return target.close();
   // owr: in the main window the renderer's keydown owns ⌘W (pR); one that still reached File > Close
   // Session through the accelerator was declined there (a menu or dialog is open), so it is not re-sent.
   if (e?.kind === "close-session" && e.accelerator) return;
   // Menus act on the focused window only (its renderer routes the command to its focused split side).
-  const window = revealMainWindow(target);
+  // A pane window (B27) shows one pane: the session's other commands go to the main window.
+  const window = revealMainWindow(windowRegistry.isPaneWindow(target) ? null : target);
   if (window) windowRegistry.send(window, e);
 }
 // Pane windows keep their own traffic-light origin, scaled like the main one
@@ -838,7 +1024,7 @@ const zoomFactorOf = (window) => clampZoomFactor(liveContents(window) ? window.w
 function placeTrafficLights(window) {
   if (!liveContents(window) || typeof window.setWindowButtonPosition !== "function") return;
   const factor = zoomFactorOf(window);
-  window.setWindowButtonPosition(windowRegistry.isMain(window) ? trafficLightPosition(factor) : scaleTrafficLights(POPOUT_TRAFFIC_LIGHTS, factor));
+  window.setWindowButtonPosition(windowRegistry.isMain(window) && !windowRegistry.isPaneWindow(window) ? trafficLightPosition(factor) : scaleTrafficLights(POPOUT_TRAFFIC_LIGHTS, factor));
 }
 // ONr/SNr: step (lNr .5) or reset the main window's level; CNr copies it to
 // every window and repositions each window's lights (cun); DNr keeps Actual
@@ -862,8 +1048,20 @@ function zoomSettled() {
     const item = menu?.getMenuItemById(id);
     if (item) item.enabled = zoomed;
   }
-  emit({ kind: "zoom-factor", zoomFactor: zoomFactorOf(win) });
+  const zoomFactor = zoomFactorOf(win);
+  rememberZoomHint(zoomFactor);
+  emit({ kind: "zoom-factor", zoomFactor });
 }
+// qI pBn.remember (index.chunk-CiiI592G.js, 2.31226.0): once the main page has loaded, its settled zoom factor is
+// kept (preferences.json windowControlsZoomFactor) for the next launch's first frame and traffic lights.
+function rememberZoomHint(factor) {
+  if (!config || !configPath || !liveContents(win) || win.webContents.isLoading() || config[ZOOM_HINT_KEY] === factor) return;
+  const previous = config[ZOOM_HINT_KEY];
+  config[ZOOM_HINT_KEY] = factor;
+  try { save(); } catch { config[ZOOM_HINT_KEY] = previous; }
+}
+// mBn(): the remembered factor (1 without one), clamped like every zoom factor.
+const zoomHint = () => zoomFactorHint(config?.[ZOOM_HINT_KEY]);
 // Ctrl+wheel only requests a zoom ("zoom-changed" does not change the level
 // itself, and the source registers no handler); re-sync the chrome so the
 // lights always match whatever level the contents report.
@@ -881,7 +1079,10 @@ let themePreference = null;
 let i18n = null;
 ipcMain.on("desktop:appearance", (e) => {
   const theme = themePreference ? themePreference(config?.theme) : "system";
-  e.returnValue = { theme, mode: nativeTheme.shouldUseDarkColors ? "dark" : "light", locale: i18n ? i18n.localePreference(config?.locale) : "en-US", assistant: chosenAssistant() };
+  // preferredLanguages: the source's desktopPreferredLanguages (ZK preferredSystemLanguages: JDr over
+  // app.getPreferredSystemLanguages()), read by the renderer's html[data-cjk-order] (src/cjk-order.mjs).
+  e.returnValue = { theme, mode: nativeTheme.shouldUseDarkColors ? "dark" : "light", locale: i18n ? i18n.localePreference(config?.locale) : "en-US", assistant: chosenAssistant(),
+    preferredLanguages: preferredSystemLanguages(app.getPreferredSystemLanguages()) };
 });
 function setNavigationState(payload, window) {
   const next = navigationState(payload);
@@ -905,10 +1106,20 @@ function emit(e) {
 // archive or drop the row in their own lists (main.jsx "session-list").
 // Settings saved in one window reach the others and the other split side (appearance, language, sidebar width):
 // the config without the per-session ledgers, which no window reads from this event (main.jsx "config-updated").
-function emitConfig() {
+function sharedConfig() {
   const { activity, stats, threadMetadata, codeStats, sessionMetadata, ...shared } = config || {};
   void activity; void stats; void threadMetadata; void codeStats; void sessionMetadata;
+  return shared;
+}
+function emitConfig() {
+  const shared = sharedConfig();
   emit({ kind: "config-updated", config: shared });
+  // Pane windows are not main windows (windowRegistry.dispatch skips them): they take the appearance the same way, so a
+  // popped-out pane follows fonts, code themes, Reduce motion and the custom theme (cd377abb5 Yn mirroring).
+  for (const entry of popouts.values()) {
+    if (entry.window.isDestroyed() || entry.window.webContents.isDestroyed()) continue;
+    entry.window.webContents.send("desktop:event", { kind: "config-updated", config: shared });
+  }
 }
 function emitSessionList(op, value) {
   if (op === "added" || op === "updated") {
@@ -931,7 +1142,7 @@ let connectionNotices = [];
 // other), and offers only the tools that read the session's terminal and preview: a side question never runs a
 // command, opens a card in the main thread or changes the session (Codex /side: non-mutating inspection only).
 // A review (Codex review/start) reads too: the side chat's tools, plus the session list and ReportFindings.
-const REVIEW_APP_TOOLS = new Set(["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList", "ReportFindings", "list_sessions", "get_session", "load_tools"]);
+const REVIEW_APP_TOOLS = new Set(["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList", "ReportFindings", "list_sessions", "get_session", "list_events", "load_tools"]);
 const SIDE_CHAT_APP_TOOLS = ["list_terminal_tabs", "read_terminal", "preview_list", "preview_logs", "screenshot", "read_page", "get_page_text", "preview_inspect", "find", "read_console_messages", "read_network_requests", "CronList"];
 const nativeSideChat = createNativeSideChat({ getClient: () => client, emit: (event) => emit(event), customPrompt: () => instructionsService.customPromptActive(),
   settings: () => ({ model: config?.model ?? null, effort: config?.effort ?? null }),
@@ -964,6 +1175,8 @@ function withAppToolImages(e) {
   const text = content.map((part) => part?.type === "text" && typeof part.text === "string" ? { ...part, text: part.text.replace(IMAGE_PLACEHOLDER, "").trim() } : part).filter((part) => !(part?.type === "text" && !part.text));
   return { ...e, params: { ...e.params, item: { ...item, result: { ...item.result, content: [...text, ...images] } } } };
 }
+let artifactIndex, artifactRead;
+const artifactIndexed = new WeakMap();
 function receive(e) {
   e = withAppToolImages(e);
   // A side-chat fork's events stay in main: the panel gets its deltas, the sidebar never sees the fork.
@@ -980,10 +1193,12 @@ function receive(e) {
   if (e.method === "configWarning" && typeof e.params?.path === "string" && path.isAbsolute(e.params.path) && !e.params.path.includes("\0") && configWarningPaths.size < 200)
     configWarningPaths.add(e.params.path);
   sessionOperations.observe(e);
+  if (e.method === 'item/completed' && artifactIndex?.recordArtifactItem(config, e.params?.threadId, e.params?.item)) save();
   liveWork.observe(e);
   observeGoal(e);
   observeUsage(e);
   workflowToolService?.observe(e);
+  localRoutines?.observe(e);
   // A turn that ended, however it ended, cancels the OpenClaude Desktop tool calls it left waiting (Codex tells its MCP
   // servers neither about a stop nor about its own tool_timeout_sec giving up on a call): their approval cards close,
   // and Allow / Run can no longer start anything for a turn that is over and was told the call failed. Only the calls
@@ -1002,6 +1217,16 @@ function receive(e) {
   const p = e.params || {};
   const id = p.threadId;
   if (recordActivity(config, e)) save();
+  // B29: a session whose turn failed is 'Needs input' on Home until acknowledged (session-attention.cjs).
+  if (typeof id === "string" && config.threadIds.includes(id)) {
+    const marked = sessionErrorPatch(config.sessionMetadata[id], e);
+    if (marked) {
+      config.sessionMetadata[id] = marked;
+      config.sidebarRevision = (config.sidebarRevision || 0) + 1;
+      save();
+      emit({ kind: "sidebar-state", state: sidebarSnapshot() });
+    }
+  }
   if (id && config.threadIds.includes(id) && e.method === "turn/completed") pushCodeStats();
   // A card hidden by a failed read comes back once the core is reachable again.
   if (e.kind === "connection" && e.connected && statsFailed) pushCodeStats();
@@ -1247,7 +1472,7 @@ function popoutKey(sessionId, pane) {
 // after this resolves; closing the window docks the pane back.
 // restore: a pane window reopened at launch (restorePopouts): its saved frame, placed on today's displays, and its
 // Keep window on top; never from a renderer.
-async function openPopout({ sessionId, pane, position }, owner = win, restore = null) {
+async function openPopout({ sessionId, pane, position, bounds: requestedBounds = null, seed = null }, owner = win, restore = null) {
   if (typeof sessionId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(sessionId)) throw new Error("Unknown session.");
   if (!POPOUT_KINDS.has(pane)) throw new Error("Unknown pane.");
   const key = popoutKey(sessionId, pane);
@@ -1260,12 +1485,16 @@ async function openPopout({ sessionId, pane, position }, owner = win, restore = 
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("The session working directory is not available yet.");
   const wantsPosition = position && Number.isFinite(position.x) && Number.isFinite(position.y);
   const parentBounds = owner && !owner.isDestroyed() ? owner.getBounds() : { x: 0, y: 0, ...DEFAULT_WINDOW_SIZE };
-  const restored = restore?.bounds && Number.isFinite(restore.bounds.x) && Number.isFinite(restore.bounds.y) ? restore.bounds : null;
-  const size = restored ? { width: Math.max(320, Math.round(restored.width)), height: Math.max(240, Math.round(restored.height)) } : { width: 640, height: 640 };
+  // cd377abb5 _i: the side chat window opens at the floating panel's screen rect (initialBounds).
+  const opened = requestedBounds && [requestedBounds.x, requestedBounds.y, requestedBounds.width, requestedBounds.height].every(Number.isFinite) ? requestedBounds : null;
+  const restored = restore?.bounds && Number.isFinite(restore.bounds.x) && Number.isFinite(restore.bounds.y) ? restore.bounds : opened;
+  const minimum = pane === "side-chat" ? SIDE_CHAT_MIN_SIZE : POPOUT_MIN_SIZE;
+  // cd377abb5 Q/Vn: a popout opens at 900x700 (defaultWidth/defaultHeight) and keeps a 400x320 minimum.
+  const size = restored ? { width: Math.max(minimum.width, Math.round(restored.width)), height: Math.max(minimum.height, Math.round(restored.height)) } : { ...POPOUT_DEFAULT_SIZE };
   const window = new BrowserWindow({
     ...size,
-    minWidth: 320,
-    minHeight: 240,
+    minWidth: minimum.width,
+    minHeight: minimum.height,
     x: Math.round(restored ? restored.x : wantsPosition ? position.x : parentBounds.x + (parentBounds.width - size.width) / 2),
     y: Math.round(restored ? restored.y : wantsPosition ? position.y : parentBounds.y + (parentBounds.height - size.height) / 2),
     title: "OpenClaude Desktop",
@@ -1282,8 +1511,14 @@ async function openPopout({ sessionId, pane, position }, owner = win, restore = 
     },
   });
   // ownerId: the main window that popped it out, where the pane docks back (windowRegistry window-scoped event).
-  const entry = { window, sessionId, pane, docked: false, alwaysOnTop: false, ownerId: owner && !owner.isDestroyed() ? owner.id : null };
+  installFileEditWindowGuard(window);
+  const entry = { window, sessionId, pane, docked: false, alwaysOnTop: false, ownerId: owner && !owner.isDestroyed() ? owner.id : null,
+    // The side chat's conversation moves with it (main.jsx sideChatStore export/import); handback returns it on close.
+    seed: pane === "side-chat" && seed && typeof seed === "object" && JSON.stringify(seed).length <= 2_000_000 ? seed : null, handback: null };
   popouts.set(key, entry);
+  // B27: an App-hosted pane window gets the main windows' IPC and events (window-registry.cjs WINDOW_KINDS.PANE).
+  const appPane = APP_POPOUT_KINDS.has(pane);
+  if (appPane) windowRegistry.register(window, { key: newWindowKey(), layout: { current: sessionId, split: null }, kind: WINDOW_KINDS.PANE });
   if (restore?.alwaysOnTop === true) { entry.alwaysOnTop = true; window.setAlwaysOnTop(true); }
   watchZoom(window);
   attachContextMenu(window);
@@ -1294,10 +1529,13 @@ async function openPopout({ sessionId, pane, position }, owner = win, restore = 
   window.webContents.once("destroyed", () => void fileSearch.cancelAll());
   window.on("closed", () => {
     if (popouts.get(key) === entry) popouts.delete(key);
-    emit({ kind: "popout-docked", sessionId, pane, entryPoint: entry.docked ? "dock" : "window-close", ...(entry.ownerId !== null ? { windowId: entry.ownerId } : {}) });
+    if (appPane) windowRegistry.unregister(window);
+    // entryPoint "close": the side chat's own X closed the side chat with its window (cd377abb5 _i onClose), so the
+    // owner does not dock it back. handback: the side chat's conversation for the owner's store.
+    emit({ kind: "popout-docked", sessionId, pane, entryPoint: entry.closed ? "close" : entry.docked ? "dock" : "window-close", ...(entry.handback ? { data: entry.handback } : {}), ...(entry.ownerId !== null ? { windowId: entry.ownerId } : {}) });
     broadcastPopouts();
   });
-  const query = { popout: sessionId, pane, cwd };
+  const query = appPane ? { window: "pane", popout: sessionId, pane, cwd } : { popout: sessionId, pane, cwd };
   if (process.env.CODE_DESKTOP_DEV_URL) {
     const url = new URL(process.env.CODE_DESKTOP_DEV_URL);
     for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
@@ -1311,6 +1549,14 @@ const { exportFileName } = require("./export-file-name.cjs");
 // A quit starting (before any window closes): the open pane windows, their frames and pins, for the next launch.
 function savePopoutsForRelaunch() {
   const entries = [];
+  // B27: the session popouts showing a session (a draft popout has nothing to restore; cd377abb5 wr lists code-session only).
+  for (const { window, sessionId } of windowRegistry.sessionPopouts()) {
+    if (!sessionId || !liveContents(window)) continue;
+    let bounds = null, displayBounds = null;
+    try { bounds = window.isMaximized?.() || window.isFullScreen?.() ? window.getNormalBounds() : window.getBounds(); } catch { bounds = null; }
+    try { displayBounds = bounds ? (screen.getDisplayMatching(bounds) || screen.getPrimaryDisplay()).bounds : null; } catch { displayBounds = null; }
+    entries.push({ sessionId, pane: popoutRestore.SESSION_PANE, alwaysOnTop: windowRegistry.getState(window, "alwaysOnTop") === true, bounds, displayBounds });
+  }
   for (const entry of popouts.values()) {
     const window = entry.window;
     if (!window || window.isDestroyed() || entry.docked) continue;
@@ -1320,28 +1566,37 @@ function savePopoutsForRelaunch() {
     try { const owner = entry.ownerId !== null ? BrowserWindow.fromId(entry.ownerId) : null; ownerKey = owner ? windowRegistry.keyOf(owner) : null; } catch { ownerKey = null; }
     entries.push({ sessionId: entry.sessionId, pane: entry.pane, alwaysOnTop: entry.alwaysOnTop === true, bounds, displayBounds, ownerKey });
   }
-  popoutRestore.savePopouts(path.join(app.getPath("userData"), popoutRestore.POPOUTS_FILE), entries, { kinds: POPOUT_KINDS });
+  popoutRestore.savePopouts(path.join(app.getPath("userData"), popoutRestore.POPOUTS_FILE), entries, { kinds: RESTORABLE_POPOUT_KINDS });
 }
 // Launch: the pane windows of the last quit whose sessions still exist, on the main window that popped them out (else
 // the first), each frame clamped onto today's displays (window-state.cjs placeOnDisplays) and its pin as it was.
 async function restorePopouts() {
   const known = new Set([...(config?.threadIds ?? []), ...(config?.archivedThreadIds ?? [])]);
   const list = popoutRestore.takeRestorablePopouts(path.join(app.getPath("userData"), popoutRestore.POPOUTS_FILE),
-    { kinds: POPOUT_KINDS, exists: (id) => known.has(id) && typeof config.threadMetadata?.[id]?.cwd === "string" });
+    { kinds: RESTORABLE_POPOUT_KINDS, exists: (id) => known.has(id) && typeof config.threadMetadata?.[id]?.cwd === "string" });
   for (const item of list) {
     if (quitting) return;
     try {
       const placed = placeOnDisplays({ ...item.bounds, displayBounds: item.displayBounds }, screen);
+      if (item.pane === popoutRestore.SESSION_PANE) {
+        await openSessionPopout({ sessionId: item.sessionId, restore: { bounds: { x: placed.x, y: placed.y, width: placed.width, height: placed.height }, alwaysOnTop: item.alwaysOnTop } });
+        continue;
+      }
       const owner = (item.ownerKey && windowRegistry.byKey(item.ownerKey)) || win;
       await openPopout({ sessionId: item.sessionId, pane: item.pane }, owner, { bounds: { x: placed.x, y: placed.y, width: placed.width, height: placed.height }, alwaysOnTop: item.alwaysOnTop });
     } catch (error) { console.warn("Couldn’t reopen a pane window:", error?.message ?? error); }
   }
 }
 function fileSearchScope(sender, pane = "main") {
-  // "composer" is the @-mention lookup lane; it never supersedes a pane search.
-  if (pane !== "main" && pane !== "artifacts" && pane !== "composer")
+  // Main and side composers have separate @-mention lanes, independent of pane searches.
+  if (pane !== "main" && pane !== "artifacts" && pane !== "composer" && pane !== "side-composer")
     throw new Error("Unknown file browser.");
   return `${sender.id}:files:${pane}`;
+}
+/** B39: the New session page's Preview owner ("home:<folder>") as {id, cwd}, for a folder fileSearchRoot trusts; else null. */
+function previewHomeOwner(id) {
+  if (typeof id !== "string" || !id.startsWith("home:") || !config) return null;
+  try { return { id, cwd: fileSearchRoot(null, id.slice(5)) }; } catch { return null; }
 }
 function fileSearchRoot(sessionId, homeWorkspace) {
   let cwd;
@@ -1377,6 +1632,7 @@ function coreSecretEnvKeys() {
   return [...keys];
 }
 const terminalService = createTerminalService({
+  shellIntegrationDir: () => path.join(app.getPath("userData"), "terminal-shell-integration"),
   resolveOwner: ({ sessionId, homeWorkspace }) => fileSearchRoot(sessionId, homeWorkspace),
   ownerAlive: (_owner, sessionId) => !sessionId || [...(config?.threadIds ?? []), ...(config?.archivedThreadIds ?? [])].includes(sessionId),
   ...(process.env.CODE_DESKTOP_TERMINAL_SHELL ? { shell: process.env.CODE_DESKTOP_TERMINAL_SHELL, shellProxy: null } : {}),
@@ -1401,13 +1657,16 @@ let desktopReady = false;
 // Multi-window: `key` names the window's own frame file (window-state.cjs windowStateFile; the first window keeps
 // window-state.json) and its entry in open-windows.json; `layout` is what it shows (window-registry.cjs sanitizeLayout,
 // handed to its renderer by init); a new window without a frame cascades from `from`.
-function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } = {}) {
+function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null, position = null } = {}) {
   const stateFile = path.join(app.getPath("userData"), windowStateFile(key));
   const stored = loadWindowState(stateFile, screen);
-  const saved = from && !from.isDestroyed() && !fs.existsSync(stateFile) ? cascadeWindowState(stored, from.getBounds(), screen) : stored;
+  // position: a session torn off the sidebar opens at the cursor (window-open, positionWindowState).
+  const saved = position && !fs.existsSync(stateFile) ? positionWindowState(stored, position, screen)
+    : from && !from.isDestroyed() && !fs.existsSync(stateFile) ? cascadeWindowState(stored, from.getBounds(), screen) : stored;
   // A window after the first opens once its page has painted (no blank frame); an automated offscreen launch
   // (CODE_DESKTOP_OFFSCREEN_LAUNCH) keeps those extra windows hidden.
   const deferShow = windowRegistry.mainWindows().length > 0;
+  const startZoom = liveContents(win) ? zoomFactorOf(win) : zoomHint();
   const window = new BrowserWindow({
     ...windowStateBounds(saved),
     ...(deferShow ? { show: false } : {}),
@@ -1415,7 +1674,10 @@ function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } 
     minHeight: 400,
     title: "OpenClaude Desktop",
     titleBarStyle: "hidden",
-    trafficLightPosition: trafficLightPosition(1),
+    // SBn(): the lights start where the remembered zoom puts them; the page takes that zoom when its first load
+    // commits (below). A window opened beside a live main window takes that window's zoom instead (CNr: every
+    // window shares one level).
+    trafficLightPosition: trafficLightPosition(startZoom),
     backgroundColor: windowBackground(nativeTheme.shouldUseDarkColors),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -1423,6 +1685,17 @@ function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } 
       contextIsolation: true,
       sandbox: true,
     },
+  });
+  // The source's Chromium host zoom comes back on its own; this file:// page's does not, so the start zoom is set
+  // once the first load commits (setZoomLevel needs a committed entry). Not webPreferences.zoomFactor: Electron
+  // re-applies that default on every later navigation whenever the level is back at 0 (Chromium keeps no host
+  // entry for the default level), so Actual Size followed by a reload (⌘R, a language or core switch) would bring
+  // the launch zoom back.
+  if (startZoom !== 1) window.webContents.once("did-navigate", () => {
+    if (!liveContents(window)) return;
+    window.webContents.setZoomFactor(startZoom);
+    placeTrafficLights(window);
+    if (window === win) zoomSettled();
   });
   windowRegistry.register(window, { key, layout });
   if (!liveContents(win)) win = window;
@@ -1435,10 +1708,12 @@ function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } 
     emit({ kind: "window", fullScreen: window.isFullScreen(), windowId: window.id });
     if (window === win) installAppMenu();
   };
+  installFileEditWindowGuard(window);
   window.on("enter-full-screen", fullScreenState);
   window.on("leave-full-screen", fullScreenState);
   window.on("show", () => { mainHidden = false; windowRegistry.setState(window, "hidden", false); });
-  window.on("focus", () => { adoptMainWindow(window); desktopSettings?.clearNotices?.(); });
+  // T (focus) → iSi(0): the focused main window's level is re-applied, clamped, to every window with its lights.
+  window.on("focus", () => { adoptMainWindow(window); applyZoom({ delta: 0 }); desktopSettings?.clearNotices?.(); });
   // A reload (⌘R) restores what the window showed: taken before the new page reports its own (empty) layout.
   window.webContents.on("did-start-loading", () => windowRegistry.captureLaunch(window));
   // index.chunk-ChZ67Jhw.js m.on("close"): unless the app is quitting the
@@ -1449,7 +1724,8 @@ function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } 
   // first close writes the open windows and their layouts for the next launch (window-registry.cjs freeze).
   window.on("close", (event) => {
     if (quitting) windowRegistry.freeze();
-    else if (windowRegistry.mainWindows().some((other) => other !== window)) return;
+    // Session popouts (B27) do not keep the app's sidebar window: only another full window lets this one close.
+    else if (windowRegistry.fullWindows().some((other) => other !== window)) return;
     const action = closeAction({ quitting, fullScreen: window.isFullScreen() });
     if (action === "close") return;
     event.preventDefault();
@@ -1466,7 +1742,7 @@ function createMainWindow({ key = MAIN_WINDOW_KEY, layout = null, from = null } 
       const next = windowRegistry.lastFocused();
       if (next) return void adoptMainWindow(next);
     }
-    // File › New Window is enabled again below MAX_WINDOWS (adoptMainWindow above rebuilds the menu itself).
+    // File › New Window follows the open session popouts (adoptMainWindow above rebuilds the menu itself).
     if (!quitting) installAppMenu();
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -1490,19 +1766,105 @@ async function openMainWindow(options) {
   await loadMainWindow(window);
   return window;
 }
-// File › New Window and a session's "Open in new window": a new main window with its own sidebar selection and layout,
-// showing that session (or the new-session page). A session another window already shows brings that window forward.
-async function openWindow({ sessionId = null, from = win } = {}) {
+// B27 session popouts (cd377abb5 xi over Q: a "code-session" popout, or a "code-draft" one for File › New Window; shared-11
+// Zo keys a code-session popout by its session id). A sidebar-less window with one session, its own tile layout, Keep
+// window on top and Open in main window, and no split view: the renderer (?window=session, main.jsx SESSION_POPOUT)
+// leaves the sidebar and the split grid out. It is registered in windowRegistry like a main window (same IPC and event
+// routing) but as WINDOW_KINDS.SESSION, so it never counts as the app's main window, is not written to
+// open-windows.json, and comes back after a relaunch through popout-restore.cjs (pane "session") with its frame and pin.
+// Q: 900x700 by default (Vn), 400x320 minimum; opened at the cursor for a tear-off (initialPosition), at the saved frame
+// for a relaunch (restoreBounds, shown inactive like entryPoint "relaunch_restore"), else centred on the window it
+// came from. Opening a session that already has a popout focuses it (Zo openPopout: setBounds to a new initialPosition).
+async function openSessionPopout({ sessionId = null, from = win, position = null, restore = null, inactive = false } = {}) {
   if (quitting || !desktopReady) return null;
-  if (sessionId) {
-    const showing = windowRegistry.windowsShowing(sessionId).filter((window) => window !== from);
-    if (showing.length) { showWindow(showing[0]); return { windowId: showing[0].id, existing: true }; }
+  if (sessionId !== null) {
+    const existing = windowRegistry.popoutFor(sessionId);
+    if (existing) {
+      if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+        const [width, height] = existing.getSize();
+        const placed = placeOnDisplays({ x: Math.round(position.x), y: Math.round(position.y), width, height }, screen);
+        existing.setPosition(Math.round(placed.x), Math.round(placed.y));
+      }
+      showWindow(existing);
+      return { windowId: existing.id, existing: true };
+    }
   }
-  if (windowRegistry.mainWindows().length >= MAX_WINDOWS) throw new Error(i18n ? i18n.t("Close a window before opening another.") : "Close a window before opening another.");
-  const window = await openMainWindow({ key: newWindowKey(), layout: { current: sessionId, split: null }, from });
+  const say = (source) => (i18n ? i18n.t(source) : source);
+  if (windowRegistry.sessionPopouts().length >= MAX_SESSION_POPOUTS) throw new Error(say("Close a window before opening another."));
+  const restored = restore?.bounds && [restore.bounds.x, restore.bounds.y, restore.bounds.width, restore.bounds.height].every(Number.isFinite) ? restore.bounds : null;
+  const size = restored ? { width: Math.max(POPOUT_MIN_SIZE.width, Math.round(restored.width)), height: Math.max(POPOUT_MIN_SIZE.height, Math.round(restored.height)) } : { ...POPOUT_DEFAULT_SIZE };
+  let frame = null;
+  if (restored) frame = { x: Math.round(restored.x), y: Math.round(restored.y), ...size };
+  else if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) frame = placeOnDisplays({ x: Math.round(position.x), y: Math.round(position.y), ...size }, screen);
+  else if (from && !from.isDestroyed()) { const parent = from.getBounds(); frame = { x: Math.round(parent.x + (parent.width - size.width) / 2), y: Math.round(parent.y + (parent.height - size.height) / 2), ...size }; }
+  const window = new BrowserWindow({
+    ...size,
+    ...(frame ? { x: Math.round(frame.x), y: Math.round(frame.y) } : {}),
+    show: false,
+    minWidth: POPOUT_MIN_SIZE.width,
+    minHeight: POPOUT_MIN_SIZE.height,
+    title: "OpenClaude Desktop",
+    titleBarStyle: "hidden",
+    trafficLightPosition: trafficLightPosition(1),
+    backgroundColor: windowBackground(nativeTheme.shouldUseDarkColors),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  windowRegistry.register(window, { key: newWindowKey(), layout: { current: sessionId, split: null }, kind: WINDOW_KINDS.SESSION });
+  const pinned = restore?.alwaysOnTop === true;
+  windowRegistry.setState(window, "alwaysOnTop", pinned);
+  if (pinned) window.setAlwaysOnTop(true);
+  // Q showInactive: a popout restored at launch opens behind the window the user is in.
+  if (!process.env.CODE_DESKTOP_OFFSCREEN_LAUNCH) window.once("ready-to-show", () => { if (!window.isDestroyed()) { if (restore || inactive) window.showInactive(); else window.show(); } });
+  installFileEditWindowGuard(window);
+  const fullScreenState = () => {
+    emit({ kind: "window", fullScreen: window.isFullScreen(), windowId: window.id });
+    if (window === win) installAppMenu();
+  };
+  window.on("enter-full-screen", fullScreenState);
+  window.on("leave-full-screen", fullScreenState);
+  window.on("focus", () => { adoptMainWindow(window); desktopSettings?.clearNotices?.(); });
+  window.webContents.on("did-start-loading", () => windowRegistry.captureLaunch(window));
+  window.on("closed", () => {
+    windowRegistry.unregister(window);
+    if (win === window) {
+      win = null;
+      const next = windowRegistry.lastFocusedFull() ?? windowRegistry.lastFocused();
+      if (next) return void adoptMainWindow(next);
+    }
+    if (!quitting) installAppMenu();
+  });
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  watchZoom(window);
+  attachContextMenu(window);
+  window.webContents.on("render-process-gone", () => void fileSearch.cancelAll());
+  window.webContents.once("destroyed", () => void fileSearch.cancelAll());
+  window.webContents.on("will-navigate", (e, url) => {
+    if (url !== window.webContents.getURL()) e.preventDefault();
+  });
+  installAppMenu();
+  const query = { window: "session" };
+  if (process.env.CODE_DESKTOP_DEV_URL) {
+    const url = new URL(process.env.CODE_DESKTOP_DEV_URL);
+    for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
+    await window.loadURL(url.href);
+  } else await window.loadFile(path.join(__dirname, "../dist/index.html"), { query });
   return { windowId: window.id, existing: false };
 }
+// The full window a session popout docks into (Open in main window): the full window focused last, shown again when it
+// was closed (hidden) or minimized, else a new one.
+async function dockTargetWindow() {
+  const full = windowRegistry.lastFocusedFull();
+  if (liveContents(full)) return full;
+  if (quitting || !desktopReady) return null;
+  return openMainWindow();
+}
 app.whenReady().then(async () => {
+  require("electron").protocol.handle(FILE_PREVIEW_SCHEME, filePreviewFrames.handle);
   const preferences = await import("./preferences.mjs");
   const { settingsPatch, validateServiceTier, DEFAULT_THEME } = preferences;
   const { recordCoreModel, validateCoreModels } = await import("./prefs/core-model.mjs");
@@ -1570,6 +1932,7 @@ app.whenReady().then(async () => {
   };
   // Task complete offers only Off/Banners (c71860c77:2004-2029); an older saved 'badge' reads as Banners.
   if (config.completeNotifications === "badge") config.completeNotifications = "banner";
+  artifactIndex = await import('./artifact-index.mjs');
   syncPrivacyEnv({ pending: false });
   if (!config.worktreeBases || typeof config.worktreeBases !== "object") config.worktreeBases = {};
   if (!config.threadTools || typeof config.threadTools !== "object" || Array.isArray(config.threadTools)) config.threadTools = {};
@@ -1606,12 +1969,23 @@ app.whenReady().then(async () => {
   // then gets its variables, and a Codex child the -c overrides (codex.cjs setAgentToolsLaunch).
   previewService = createPreviewService({
     electron: { WebContentsView: require("electron").WebContentsView, BrowserWindow, session: require("electron").session, shell, nativeTheme, dialog },
-    getSession: agentToolSession,
+    // A session, or the New session page's folder ("home:<folder>", terminal-store ownerKeyOf; B39 landing preview).
+    getSession: (id) => agentToolSession(id) ?? previewHomeOwner(id),
+    // B39 Settings › Code › Browser › Allowed sites (2.31226.0 launchPreviewAllowedOrigins).
+    getAllowedOrigins: () => Array.isArray(config?.previewAllowedOrigins) ? config.previewAllowedOrigins : [],
+    setAllowedOrigins: (list) => { if (!config) return; if (list.length) config.previewAllowedOrigins = list; else delete config.previewAllowedOrigins; save(); },
     // The window a pane request came from (main windows and pane popouts; window-registry.cjs), and app-wide notices
     // (the agent revealing a session's preview) to every main window.
     hostWindow: (sender) => windowRegistry.hostWindow(sender),
     // Servers & settings › Keep cookies (config.previewKeepCookies; off: an in-memory session for this app run).
     keepCookies: () => config?.previewKeepCookies === true,
+    getStorageMode: () => config?.previewStorage,
+    getStoredPartitions: () => Array.isArray(config?.previewStoragePartitions) ? config.previewStoragePartitions : [],
+    setStoredPartitions: names => { if (config) { config.previewStoragePartitions = names; save(); } },
+    setStorageMode: mode => { if (config) { config.previewStorage = mode; save(); } },
+    isCoworkSession: id => config?.sessionMetadata?.[id]?.surface === "cowork",
+    // cf580efe9 Pi: each session's last dev-server page, shown dimmed after a relaunch (preview-service.cjs saveFrames).
+    frameDir: path.join(app.getPath("userData"), "preview-frames"),
     setKeepCookies: (enabled) => { if (!config) return; if (enabled) config.previewKeepCookies = true; else delete config.previewKeepCookies; save(); },
     broadcast: (event) => { windowRegistry.broadcast(event); },
     spawnEnv: async () => {
@@ -1645,7 +2019,11 @@ app.whenReady().then(async () => {
   // a first launch opens the one main window).
   const restoredWindows = windowRegistry.read();
   for (const entry of restoredWindows.windows) createMainWindow(entry);
-  desktopSettings = createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,getConfig:()=>config,getClient:()=>client,sessionOperations,save,emit,getWindow:()=>win,gitStatus:workspaceGitStatus});
+  // A banner is skipped only while a focused, visible window shows its session (NotificationService isUserViewingSession):
+  // a session finishing behind another one in the focused window still notifies.
+  desktopSettings = createDesktopSettings({app,powerSaveBlocker,powerMonitor,Notification,getConfig:()=>config,getClient:()=>client,sessionOperations,save,emit,getWindow:()=>win,gitStatus:workspaceGitStatus,
+    isViewingSession:(id)=>windowRegistry.windowsShowing(id).some((window)=>!window.isDestroyed()&&window.isVisible()&&window.isFocused()),
+    isAppFocused:()=>BrowserWindow.getAllWindows().some((window)=>!window.isDestroyed()&&window.isFocused())});
   desktopSettings.start();
   // Workflow agents run on the same core as sessions (the DeepSeek bridge by default).
   // Read at each start, so a core switch or a Codex endpoint change reaches workflow agents too.
@@ -1697,166 +2075,102 @@ app.whenReady().then(async () => {
       instructionsService.decorate("turn/start",next);
       const release=sessionOperations.reserveMessage(threadId);try{await owner.request("turn/start",next);}finally{release?.();}}});
   terminalService.install(ipcMain, { trustedSender: (event) => { try { return !!validSender(event, "terminal"); } catch { return false; } } });
-  ipcMain.handle("desktop:call", async (e, action, p = {}) => {
-    const senderKind = validSender(e, action);
-    // The Preview pane (preview-service.cjs validates each action; the sender is the pane's own window).
-    if (typeof action === "string" && action.startsWith("preview-")) {
-      if (!previewService) throw new Error("The preview isn’t ready yet.");
-      if (typeof p?.sessionId !== "string" || !agentToolSession(p.sessionId)) throw new Error("Unknown session.");
-      return previewService.call(e.sender, action, p);
+  const { createLocalRoutines } = await import('./local-routines.mjs');
+  const { createRoutineRunner, captureRoutineOptions } = await import('./routine-runner.mjs');
+  const { CoworkMainHost } = await import('./cowork-runtime/main-host.mjs');
+  const { CoworkSessions, COWORK_ENGINE } = await import('./cowork-runtime/session-service.mjs');
+  const coworkHost = new CoworkMainHost();
+  coworkSessions = new CoworkSessions({ dataDir: app.getPath('userData'), host: coworkHost,
+    provider: model => modelSettings.coworkConnection(model), approveFolder: cwd => workspaceQueryRoot(cwd), emit: receive,
+    approval: async (method, params, options) => { const owner = client; await owner.start(); if (owner !== client) return null; return owner.localApproval(method, params, options); },
+    onThread: thread => { const { turns, ...metadata } = thread; config.threadMetadata[thread.id] = metadata; save(); },
+  });
+  async function requestCowork(p) {
+    if (!COWORK_ENABLED) throw new Error(i18n.t('Cowork is still in development.'));
+    const params = { ...(p.params || {}), codeDesktop: { ...p.params?.codeDesktop } };
+    const { takeSurface } = await import('./surface-policy.mjs');
+    const surface = takeSurface(params);
+    const { applyProjectContext } = await import('./local-projects.mjs');
+    const project = applyProjectContext(config, p.method, params, surface);
+    if (p.method !== 'thread/start' && ![...config.threadIds, ...config.archivedThreadIds].includes(params.threadId)) throw new Error('Unknown Cowork session.');
+    if (['thread/archive', 'thread/delete'].includes(p.method)) sessionOperations.assertAvailable(params.threadId);
+    const release = p.method === 'turn/start' ? sessionOperations.reserveMessage(params.threadId) : null;
+    let result;
+    try { result = await coworkSessions.request(p.method, params); } finally { release?.(); }
+    const id = result.thread?.id || params.threadId;
+    if (p.method === 'thread/start') {
+      config.threadIds = [...new Set([id, ...config.threadIds])];
+      config.sessionMetadata[id] = { surface: 'cowork', engine: COWORK_ENGINE, ...(project ? { projectId: project.id } : {}) };
+      config.stats[id] = { messages: 0, tokens: 0, observedTokens: 0, observedUsage: { input: 0, output: 0, cached: 0, cacheWrite: 0 }, ids: [] };
+      save(); emitConfig(); emitSessionList('added', result.thread);
+    } else if (p.method === 'thread/name/set') emit({ kind: 'session-list', op: 'renamed', threadId: id, name: params.name });
+    else if (p.method === 'thread/archive' || p.method === 'thread/unarchive') {
+      const archive = p.method === 'thread/archive';
+      config.threadIds = config.threadIds.filter(value => value !== id);
+      config.archivedThreadIds = config.archivedThreadIds.filter(value => value !== id);
+      (archive ? config.archivedThreadIds : config.threadIds).unshift(id);
+      if (archive) { monitorService.stopSession(id); scheduleService.removeSession(id); }
+      save(); emitSessionList(archive ? 'archived' : 'unarchived', id);
+    } else if (p.method === 'thread/delete') {
+      config.threadIds = config.threadIds.filter(value => value !== id); config.archivedThreadIds = config.archivedThreadIds.filter(value => value !== id);
+      delete config.threadMetadata[id]; delete config.sessionMetadata[id]; delete config.stats[id];
+      config.pinnedOrder = (config.pinnedOrder || []).filter(value => value !== id);
+      save(); emitSessionList('deleted', id);
     }
-    // The Background tasks pane's Monitor and scheduled-prompt rows (monitor-service.cjs, schedule-service.cjs).
-    if (["monitor-state", "monitor-stop", "schedule-state", "schedule-stop"].includes(action)) {
-      if (typeof p?.sessionId !== "string" || !agentToolSession(p.sessionId)) throw new Error("Unknown session.");
-      if (action === "monitor-state") return monitorService.list(p.sessionId);
-      if (action === "schedule-state") return scheduleService.list(p.sessionId);
-      if (typeof p.id !== "string" || !p.id) throw new Error("Unknown task.");
-      if (action === "monitor-stop") return monitorService.stop(p.sessionId, p.id, { by: "user" });
-      return { stopped: scheduleService.remove(p.sessionId, p.id) };
+    return result;
+  }
+  const routineContext = async (engine = COWORK_ENGINE) => {
+    // With Cowork off, a routine runs on the connected core instead.
+    if (engine === COWORK_ENGINE && COWORK_ENABLED) {
+      if (!initial) await connect();
+      return { owner: coworkSessions, coreId: COWORK_ENGINE, models: initial?.models ?? [], hints: true, autoReview: false };
     }
-    switch (action) {
-      case "popout-open": return openPopout(p, windowRegistry.windowForSender(e.sender) ?? win);
-      // Multi-window and split view (window-registry.cjs): a new window (empty, or showing a session), this window's
-      // layout (its primary session and split side: menus, notification routing and relaunch follow it) and its View ›
-      // Split View state.
-      case "window-open": {
-        const sessionId = p.sessionId == null ? null : p.sessionId;
-        if (sessionId !== null && (typeof sessionId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(sessionId))) throw new Error("Unknown session.");
-        return openWindow({ sessionId, from: windowRegistry.windowForSender(e.sender) ?? win });
-      }
-      case "window-layout": return windowRegistry.setLayout(windowRegistry.windowForSender(e.sender), p);
-      case "split-menu-state": return setSplitMenuState(p, windowRegistry.windowForSender(e.sender));
-      case "popout-dock": {
-        const entry = senderKind === "popout" ? popoutForSender(e.sender) : popouts.get(popoutKey(p.sessionId, p.pane));
-        if (!entry) throw new Error("Unknown pane window.");
-        entry.docked = true;
-        entry.window.close();
-        return true;
-      }
-      case "popout-sync": {
-        const entry = popouts.get(popoutKey(p.sessionId, p.pane));
-        if (entry && !entry.window.isDestroyed()) entry.window.webContents.send("desktop:event", { kind: "popout-data", pane: p.pane, data: p.data ?? null });
-        return !!entry;
-      }
-      case "popout-list": return popoutList();
-      case "popout-always-on-top": {
-        // The popped-out header's pin (sidebar-support.js:9509-9547 eE/tE ->
-        // setPopoutAlwaysOnTop): only a pane window toggles itself.
-        const entry = senderKind === "popout" ? popoutForSender(e.sender) : null;
-        if (!entry || entry.window.isDestroyed()) throw new Error("Unknown pane window.");
-        entry.alwaysOnTop = p.value === true;
-        entry.window.setAlwaysOnTop(entry.alwaysOnTop);
-        broadcastPopouts();
-        return entry.alwaysOnTop;
-      }
-      case "init": {
-        try {
-          const owner = client;
-          const status = initial || (await connect());
-          if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
-          return {
-            ...status,
-            account: accountOperations.accountSnapshot(),
-            config,
-            fullScreen: (windowRegistry.windowForSender(e.sender) ?? win).isFullScreen(),
-            zoomFactor: zoomFactorOf(windowRegistry.windowForSender(e.sender) ?? win),
-            // What this window showed (relaunch, or the session it was opened for): main.jsx restores it.
-            windowLayout: windowRegistry.launchLayoutOf(windowRegistry.windowForSender(e.sender)),
-            approvalSnapshot: owner.approvalSnapshot(),
-            sessionOperations: sessionOperations.snapshot(),
-            auth: accountOperations.snapshot(),
-            extensionCores: extensionPacks.descriptors(),
-            // Settings › Code › Dynamic workflows: what the environment and managed settings decide (env wins).
-            workflowEnv: workflowEnvFacts(), workflowManaged: managedSettings(), workflowParallelism: os.availableParallelism?.() ?? os.cpus().length,
-            bypassCarry: carryFor(bypassCarry, owner.connection?.approvalConnectionId, config),
-            connectionNotices,
-            threadUsage: Object.fromEntries(threadUsage),
-          };
-        } catch (error) {
-          return {
-            connected: false,
-            error: error.message,
-            extensionCores: extensionPacks.descriptors(),
-            config,
-            models: [],
-          };
-        }
-      }
-      case "reconnect": {
-        // Only the reconnect a core switch asked for takes the switch's token; every reconnect drops the old carry.
-        const token = p.carryBypass === true ? switchToken : null;
-        switchToken = null; bypassCarry = null;
-        receive({ kind: "connection", connected: false });
-        client.invalidateApprovals("manual_reconnect");
-        client.removeAllListeners();
-        client.stop();
-        client = new CodexClient();
-        client.on("event", receive);
-        const owner = client;
-        client.on("status", (s) => {
-          if (!s.connected) initial = null;
-          receive(connectionEvent(owner, s));
-        });
-        initial = null;
-        const status = await connect();
-        if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
-        if (token) {
-          // The new core's requirements decide (a managed install refuses Bypass); every request still runs validateBypassRequest.
-          let bound = null;
-          try { bound = bindCarry(token, owner.connection?.approvalConnectionId, await owner.request("configRequirements/read", {}), carryScope(p)); } catch {}
-          if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
-          bypassCarry = bound;
-        }
-        return { ...status, config, approvalSnapshot: owner.approvalSnapshot(), extensionCores: extensionPacks.descriptors(),
-          bypassCarry: carryFor(bypassCarry, owner.connection?.approvalConnectionId, config), connectionNotices };
-      }
-      // The renderer applied the carry (consume-once): a later reload of the window starts from the saved default.
-      case "bypass-carry-clear": {
-        bypassCarry = null;
-        return true;
-      }
-      case "interrupt": {
-        const sent = interruptTurn(client, p);
-        // Stop closes the session's waiting OpenClaude Desktop tool sheets at once (the core's turn/completed follows): the
-        // calls of the turn it stops (a Codex sub-agent's go on, as Codex keeps the sub-agent running).
-        if (typeof p?.threadId === "string" && config.threadIds.includes(p.threadId)) agentTools.cancelThread(p.threadId);
-        return sent;
-      }
-      case "steer": {
-        // turn/steer against the live connection. The renderer needs to tell a
-        // non-steerable active turn (review/compact: activeTurnNotSteerable) from
-        // any other failure so it can fall back to thread/queue/add; IPC only
-        // carries messages, so the outcome is returned structurally.
-        if (typeof p.threadId !== "string" || !p.threadId || typeof p.expectedTurnId !== "string" || !p.expectedTurnId || !Array.isArray(p.input))
-          throw new Error("The steer target is unavailable.");
-        await client.start();
-        // The "ultracode" keyword in a steered message (the composer's "Dynamic workflow requested for this turn").
-        const steerInput = p.keyword === true && workflowToolService && config.threadIds.includes(p.threadId) ? await workflowToolService.keywordInput(p.input) : p.input;
-        try {
-          const result = await client.request("turn/steer", { threadId: p.threadId, expectedTurnId: p.expectedTurnId, input: steerInput,
-            ...(typeof p.clientUserMessageId === "string" ? { clientUserMessageId: p.clientUserMessageId } : {}) });
-          // The steered message is the user's latest request: a workflow the model starts from now on relays it (and its
-          // "+500k" budget), not the message the turn started with. A queued message is taken from its turn's user
-          // message item instead (workflow-tool-service.cjs observe).
-          if (workflowToolService && config.threadIds.includes(p.threadId)) await workflowToolService.userInput(p.threadId, p.input).catch(() => {});
-          return { ok: true, result };
-        } catch (error) {
-          return { ok: false, message: error.message, data: error.data ?? null, code: error.code ?? null };
-        }
-      }
-      case "session-action": {
-        const result = await sessionOperations.run(p);
-        // A fork joins the other windows' session lists too.
-        if (p.operation === "fork" && result?.thread?.id && config.threadIds.includes(result.thread.id) && result.thread.id !== p.threadId) emitSessionList("added", { ...result.thread, ...(config.threadMetadata[result.thread.id]?.name ? { name: config.threadMetadata[result.thread.id].name } : {}) });
-        return result;
-      }
-      case "customize": return customizeOperations.run(p);
-      case "codex-features": return codexFeatures.run(p);
-      case "rpc": {
+    const owner = client;
+    await owner.start();
+    if (owner !== client) throw new Error("The core connection changed. Try again.");
+    return { owner, coreId: coreForEngine(owner.serverInfo?.engine).id, models: initial?.models ?? [],
+      hints: owner.serverInfo?.capabilities?.permissionHints === true, autoReview: await autoReviewFeature(owner) };
+  };
+  localRoutines = createLocalRoutines({
+    getState: () => config.localRoutines,
+    commit: rows => { config.localRoutines = rows; save(); emit({ kind: 'local-routines' }); },
+    dataDir: app.getPath('userData'), approveFolder: workspaceQueryRoot,
+    captureOptions: async (execution, previous) => captureRoutineOptions({ config, ...await routineContext(previous?.coreId), execution, previous }),
+    launch: createRoutineRunner({ context: routineContext, rpc: (request, owner) => requestRpc(request, undefined, owner) }),
+  });
+  localRoutines.start();
+  // Settings › Storage › Clean up inactive sessions (code-cleanup.cjs; 2.31226.0 DeviceStorage previewCodeCleanup /
+  // runCodeCleanup / cancelCodeCleanup). A session goes through the app's own thread/delete, so every window's
+  // session list follows; worktrees go with git as Remove unused worktrees does.
+  codeCleanup = createCodeCleanup({
+    getConfig: () => config, save, connected: () => !!client?.serverInfo,
+    readThread: (id) => client.request("thread/read", { threadId: id, includeTurns: false }),
+    // A workflow the session launched keeps working in its folder after the turn ends (workflow-service.cjs runs).
+    inUse: async (id) => sessionOperations.isActive?.(id) === true || windowRegistry.windowsHolding(id).length > 0
+      || await Promise.resolve(workflowService?.list?.(id)).then((runs) => (runs ?? []).some((run) => run?.status === "running"), () => true),
+    isCowork: (id) => config.sessionMetadata?.[id]?.surface === "cowork" || coworkSessions.owns(id),
+    worktreeStatus: (dir) => worktrees.worktreeStatus(run, dir), removeWorktree: (dir) => worktrees.removeWorktree(run, dir),
+    forgetWorktree: worktrees.forgetWorktree, directoryUsage,
+    deleteSession: (id) => requestRpc({ method: "thread/delete", params: { threadId: id } }, undefined, client),
+    onProgress: (done, total) => emit({ kind: "code-cleanup-progress", done, total }),
+  });
+  // Shared by interactive messages and durable local scheduled tasks.
+  async function requestRpc(p, sender, expectedOwner) {
         if (deprecated.has(p.method)) throw new Error(deprecated.get(p.method));
         if (!allowed.has(p.method) || deprecated.has(p.method)) throw new Error("Unsupported operation.");
+        const coworkRoute = (p.method === 'thread/start' && p.params?.codeDesktop?.surface === 'cowork' && (!expectedOwner || expectedOwner === coworkSessions)) || coworkSessions.owns(p.params?.threadId);
+        if (coworkRoute) {
+          if (expectedOwner && expectedOwner !== coworkSessions) throw new Error('The Cowork session belongs to a different runtime.');
+          return requestCowork(p);
+        }
+        if (expectedOwner && expectedOwner !== client) throw new Error("The core connection changed. Try again.");
         await client.start();
-        const params = { ...(p.params || {}) };
+        if (expectedOwner && expectedOwner !== client) throw new Error("The core connection changed. Try again.");
+        const params = { ...(p.params || {}), ...(p.params?.codeDesktop ? { codeDesktop: { ...p.params.codeDesktop } } : {}) };
+        const { takeSurface } = await import('./surface-policy.mjs');
+        const requestedSurface = takeSurface(params);
+        const { applyProjectContext } = await import('./local-projects.mjs');
+        const requestedProject = applyProjectContext(config, p.method, params, requestedSurface);
         // The renderer's per-turn workflow facts (Mode, the "ultracode" keyword, ultracode mode) never reach a core:
         // taken here, used once the request is otherwise ready (workflow-tool-service.cjs turnStart).
         let workflowTurn = null;
@@ -1872,7 +2186,7 @@ app.whenReady().then(async () => {
         // Multi-window: the connection is shared, so a session another window still shows stays subscribed when this
         // window leaves it (the other split side of this window is checked by its renderer).
         if (p.method === "thread/unsubscribe" && typeof params.threadId === "string"
-          && windowRegistry.windowsShowing(params.threadId).some((window) => window !== windowRegistry.windowForSender(e.sender))) return {};
+          && windowRegistry.windowsHolding(params.threadId).some((window) => window !== windowRegistry.windowForSender(sender))) return {};
         if (p.method === "account/rateLimitResetCredit/consume") {
           const key = params.idempotencyKey, credit = params.creditId;
           if (typeof key !== "string" || !/^[A-Za-z0-9-]{8,128}$/.test(key) || (credit != null && (typeof credit !== "string" || !credit.trim() || credit.length > 512))) throw new Error("Unsupported operation.");
@@ -2077,6 +2391,7 @@ app.whenReady().then(async () => {
           if (fs.existsSync(scripts) && !params.sandboxPolicy.writableRoots.includes(scripts)) params.sandboxPolicy = { ...params.sandboxPolicy, writableRoots: [...params.sandboxPolicy.writableRoots, scripts] };
         }
         if (p.method === "turn/start" && workflowToolService && typeof params.threadId === "string" && config.threadIds.includes(params.threadId)) await workflowToolService.turnStart(params, workflowTurn ?? {});
+        if (expectedOwner && expectedOwner !== client) throw new Error("The core connection changed. Try again.");
         const release = p.method === "turn/start" ? sessionOperations.reserveMessage(params.threadId) : null;
         let result;
         const requester = client;
@@ -2099,6 +2414,10 @@ app.whenReady().then(async () => {
         finally { release?.(); }
         if (p.method === "thread/start") {
           bindAgentTools(params, result.thread);
+          if (requestedSurface) {
+            const project = requestedProject;
+            config.sessionMetadata[result.thread.id] = { ...config.sessionMetadata[result.thread.id], surface: requestedSurface, ...(project ? { projectId: project.id } : {}) };
+          }
           config.threadIds = [
             ...new Set([result.thread.id, ...config.threadIds]),
           ];
@@ -2110,11 +2429,16 @@ app.whenReady().then(async () => {
         if (result.thread && (config.threadIds.includes(result.thread.id) || config.archivedThreadIds.includes(result.thread.id))) {
           const { turns, ...metadata } = result.thread;
           config.threadMetadata[result.thread.id] = metadata;
+          for (const turn of turns ?? []) for (const item of turn.items ?? []) artifactIndex.recordArtifactItem(config, result.thread.id, item, (turn.completedAt ?? metadata.updatedAt ?? Date.now() / 1000) * 1000);
           if (typeof metadata.cwd === "string") observedThreadCwds.add(metadata.cwd);
           // A session started inside a prepared worktree remembers its creation base.
           const base = p.method === "thread/start" && typeof metadata.cwd === "string" ? config.worktreeBases[metadata.cwd] : undefined;
           if (base && !config.sessionMetadata[result.thread.id]?.baseBranch)
             config.sessionMetadata[result.thread.id] = { ...config.sessionMetadata[result.thread.id], baseBranch: base };
+          // ...and the repository the worktree was cut from (getAll originCwd for the Recent folders list).
+          const originCwd = p.method === "thread/start" && typeof metadata.cwd === "string" ? config.worktreeOrigins?.[metadata.cwd] : undefined;
+          if (typeof originCwd === "string" && originCwd && !config.sessionMetadata[result.thread.id]?.originCwd)
+            config.sessionMetadata[result.thread.id] = { ...config.sessionMetadata[result.thread.id], originCwd };
           save();
         }
         if (p.method === "thread/list" && Array.isArray(result?.data))
@@ -2161,7 +2485,300 @@ app.whenReady().then(async () => {
         else if (p.method === "thread/archive" || p.method === "thread/unarchive") emitSessionList(p.method === "thread/archive" ? "archived" : "unarchived", params.threadId);
         else if (p.method === "thread/delete") emitSessionList("deleted", params.threadId);
         return result;
+  }
+  ipcMain.handle("desktop:call", async (e, action, p = {}) => {
+    const senderKind = validSender(e, action);
+    // The Preview pane (preview-service.cjs validates each action; the sender is the pane's own window).
+    if (typeof action === "string" && action.startsWith("preview-")) {
+      if (!previewService) throw new Error("The preview isn’t ready yet.");
+      // Settings › Code › Browser › Keep cookies reads and sets the app-wide storage mode with no session (B23 review).
+      // So do Allowed sites (B39: the pane menu's and Settings' "Manage allowed sites…" dialog).
+      const sessionless = ((action === "preview-storage-read" || action === "preview-storage") && p?.sessionId === undefined)
+        || ["preview-allowed-origins", "preview-allowed-origin-add", "preview-allowed-origin-remove", "preview-allowed-origins-clear"].includes(action);
+      // The New session page's browser is owned by its folder ("home:<folder>", one the app already trusts).
+      if (!sessionless && (typeof p?.sessionId !== "string" || !(agentToolSession(p.sessionId) ?? previewHomeOwner(p.sessionId)))) throw new Error("Unknown session.");
+      return previewService.call(e.sender, action, p);
+    }
+    // The Background tasks pane's Monitor and scheduled-prompt rows (monitor-service.cjs, schedule-service.cjs).
+    if (["monitor-state", "monitor-stop", "schedule-state", "schedule-stop"].includes(action)) {
+      if (typeof p?.sessionId !== "string" || !agentToolSession(p.sessionId)) throw new Error("Unknown session.");
+      if (action === "monitor-state") return monitorService.list(p.sessionId);
+      if (action === "schedule-state") return scheduleService.list(p.sessionId);
+      if (typeof p.id !== "string" || !p.id) throw new Error("Unknown task.");
+      if (action === "monitor-stop") return monitorService.stop(p.sessionId, p.id, { by: "user" });
+      return { stopped: scheduleService.remove(p.sessionId, p.id) };
+    }
+    switch (action) {
+      case "popout-open": return openPopout(p, windowRegistry.windowForSender(e.sender) ?? win);
+      // Multi-window and split view (window-registry.cjs): a new window (empty, or showing a session), this window's
+      // layout (its primary session and split side: menus, notification routing and relaunch follow it) and its View ›
+      // Split View state.
+      case "window-open": {
+        const sessionId = p.sessionId == null ? null : p.sessionId;
+        if (sessionId !== null && (typeof sessionId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(sessionId))) throw new Error("Unknown session.");
+        // position {x, y} (screen points): a row torn off the sidebar (source-sidebar-drag.jsx) opens its window there.
+        const position = p.position && Number.isFinite(p.position.x) && Number.isFinite(p.position.y) && Math.abs(p.position.x) < 1e6 && Math.abs(p.position.y) < 1e6
+          ? { x: Math.round(p.position.x), y: Math.round(p.position.y) } : null;
+        // B27: Open in › New window, ⌘-click and a sidebar tear-off open the session in a session popout (shared-21
+        // $ce / te / shared-22 drag_tear_off → openPopout {type: "code-session"}); no session: a new-session draft popout.
+        return openSessionPopout({ sessionId, from: windowRegistry.windowForSender(e.sender) ?? win, position });
       }
+      // B27 session popout header (shared-18 yx/hx): Open in main window shows the popout's session (or, for a draft, the
+      // new-session page) in the full window focused last and closes the popout; Keep window on top pins it.
+      case "session-popout-state": {
+        const window = windowRegistry.windowForSender(e.sender);
+        if (!windowRegistry.isSessionPopout(window)) throw new Error("Not a session window.");
+        return { alwaysOnTop: windowRegistry.getState(window, "alwaysOnTop") === true };
+      }
+      case "session-popout-pin": {
+        const window = windowRegistry.windowForSender(e.sender);
+        if (!windowRegistry.isSessionPopout(window)) throw new Error("Not a session window.");
+        const value = p?.value === true;
+        window.setAlwaysOnTop(value);
+        return windowRegistry.setState(window, "alwaysOnTop", value);
+      }
+      case "session-popout-dock": {
+        const window = windowRegistry.windowForSender(e.sender);
+        if (!windowRegistry.isSessionPopout(window)) throw new Error("Not a session window.");
+        const sessionId = windowRegistry.layoutOf(window).current;
+        const target = await dockTargetWindow();
+        if (!target) return false;
+        const navigateTarget = () => { if (liveContents(target)) { windowRegistry.send(target, { kind: "desktop-navigate", threadId: sessionId ?? null }); showWindow(target); } };
+        // A window just created navigates once its renderer has loaded (init restores its layout first).
+        if (target.webContents.isLoading()) target.webContents.once("did-finish-load", () => setTimeout(navigateTarget, 300)); else navigateTarget();
+        if (!window.isDestroyed()) window.close();
+        return true;
+      }
+      case "window-layout": return windowRegistry.setLayout(windowRegistry.windowForSender(e.sender), p);
+      case "split-menu-state": return setSplitMenuState(p, windowRegistry.windowForSender(e.sender));
+      case "popout-dock": {
+        // A pane window docks itself (an App-hosted one is a main sender, B27); a main window may dock one by key.
+        const own = popoutForSender(e.sender);
+        const entry = own ?? (senderKind === "primary" ? popouts.get(popoutKey(p.sessionId, p.pane)) : null);
+        if (!entry) throw new Error("Unknown pane window.");
+        // The side chat window hands its conversation back, and its X closes the side chat rather than docking it.
+        if (own && p?.data && typeof p.data === "object" && JSON.stringify(p.data).length <= 2_000_000) entry.handback = p.data;
+        if (own && p?.close === true) entry.closed = true; else entry.docked = true;
+        entry.window.close();
+        return true;
+      }
+      case "popout-sync": {
+        const entry = popouts.get(popoutKey(p.sessionId, p.pane));
+        if (entry && !entry.window.isDestroyed()) entry.window.webContents.send("desktop:event", { kind: "popout-data", pane: p.pane, data: p.data ?? null });
+        return !!entry;
+      }
+      case "popout-list": return popoutList();
+      // B27: a window's answer to an agent layout command (runAgentLayoutCommand), from the window that was asked.
+      case "layout-command-result": {
+        const pending = typeof p?.requestId === "string" ? layoutRequests.get(p.requestId) : null;
+        if (!pending || pending.window !== windowRegistry.windowForSender(e.sender)) return false;
+        const response = p.response && typeof p.response === "object" ? p.response : { outcome: "failed", reason: "unknown_command" };
+        const target = typeof p.openWindow === "string" && [...config.threadIds, ...config.archivedThreadIds].includes(p.openWindow) ? p.openWindow : null;
+        if (!target) { pending.resolve(response); return true; }
+        try {
+          await openSessionPopout({ sessionId: target, from: pending.window, inactive: true });
+          const layout = response.layout && typeof response.layout === "object" ? { ...response.layout, popoutSessionIds: [...new Set([...(response.layout.popoutSessionIds ?? []), target])] } : response.layout;
+          pending.resolve({ ...response, layout });
+        } catch { pending.resolve({ ...response, outcome: "failed", reason: "popout_unavailable" }); }
+        return true;
+      }
+      // A pane window's own state, read as it loads without waiting for the core (init connects first): its Keep window
+      // on top (a pinned window restored at launch shows the pin pressed; shared-18 mx/hx) and the saved appearance it
+      // applies like a main window (cd377abb5 Yn mirroring; later changes arrive as config-updated).
+      case "popout-state": {
+        const entry = popoutForSender(e.sender);
+        if (!entry || entry.window.isDestroyed()) throw new Error("Unknown pane window.");
+        return { sessionId: entry.sessionId, pane: entry.pane, alwaysOnTop: entry.alwaysOnTop === true, config: sharedConfig(), ...(entry.seed ? { seed: entry.seed } : {}) };
+      }
+      // B27: the side chat window keeps its conversation here as it changes, so however the window closes the latest one
+      // goes back to the window that popped it out (popout-docked data).
+      case "popout-handback": {
+        const entry = popoutForSender(e.sender);
+        if (!entry || entry.window.isDestroyed() || entry.pane !== "side-chat") throw new Error("Unknown pane window.");
+        if (p?.data && typeof p.data === "object" && JSON.stringify(p.data).length <= 2_000_000) entry.handback = p.data;
+        return true;
+      }
+      // B27: a file reference opened in an App-hosted pane window (Tasks, Terminal) opens in the window showing its
+      // session, else the window that popped it out (window-registry.cjs open-file-ref route).
+      case "popout-open-file": {
+        const entry = popoutForSender(e.sender);
+        if (!entry || entry.window.isDestroyed()) throw new Error("Unknown pane window.");
+        const ref = p?.ref;
+        if (!ref || typeof ref.path !== "string" || !ref.path || ref.path.length > 4096) throw new Error("Unknown file.");
+        const clean = { path: ref.path, ...(Number.isInteger(ref.line) ? { line: ref.line } : {}), ...(Number.isInteger(ref.endLine) ? { endLine: ref.endLine } : {}) };
+        const sent = windowRegistry.dispatch({ kind: "open-file-ref", sessionId: entry.sessionId, ref: clean, ...(entry.ownerId !== null ? { windowId: entry.ownerId } : {}) });
+        return sent.length > 0;
+      }
+      // 'Add to prompt' in a pane window (a changed-line comment, plan comments): that window has no composer, so the
+      // text goes to the main window showing the pane's session, else the window that popped it out (window-registry
+      // add-to-prompt route); that window's composer takes it as a context snippet, opening the session if needed.
+      case "popout-add-to-prompt": {
+        const entry = popoutForSender(e.sender);
+        if (!entry || entry.window.isDestroyed()) throw new Error("Unknown pane window.");
+        const text = typeof p?.text === "string" ? p.text.trim() : "";
+        if (!text) return false;
+        const say = (source) => (i18n ? i18n.t(source) : source);
+        if (text.length > 200000) throw new Error(say("That comment is too long to add to the prompt."));
+        // A terminal selection keeps its tab label (B27: the Terminal pane popped out; composer-attachments-model makeSnippet).
+        const meta = { ...(typeof p?.label === "string" && p.label.trim() ? { label: p.label.trim().slice(0, 200) } : {}), ...(typeof p?.terminalTabId === "string" && p.terminalTabId.length <= 200 ? { terminalTabId: p.terminalTabId } : {}) };
+        const sent = windowRegistry.dispatch({ kind: "add-to-prompt", sessionId: entry.sessionId, text, ...(Object.keys(meta).length ? { meta } : {}), ...(entry.ownerId !== null ? { windowId: entry.ownerId } : {}) });
+        if (!sent.length) throw new Error(say("No window is open to take the comment."));
+        return true;
+      }
+      case "popout-always-on-top": {
+        // The popped-out header's pin (sidebar-support.js:9509-9547 eE/tE ->
+        // setPopoutAlwaysOnTop): only a pane window toggles itself.
+        const entry = popoutForSender(e.sender);
+        if (!entry || entry.window.isDestroyed()) throw new Error("Unknown pane window.");
+        entry.alwaysOnTop = p.value === true;
+        entry.window.setAlwaysOnTop(entry.alwaysOnTop);
+        broadcastPopouts();
+        return entry.alwaysOnTop;
+      }
+      case "init": {
+        try {
+          const owner = client;
+          const status = initial || (await connect());
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
+          return {
+            ...status,
+            account: accountOperations.accountSnapshot(),
+            config,
+            fullScreen: (windowRegistry.windowForSender(e.sender) ?? win).isFullScreen(),
+            zoomFactor: zoomFactorOf(windowRegistry.windowForSender(e.sender) ?? win),
+            // What this window showed (relaunch, or the session it was opened for): main.jsx restores it.
+            windowLayout: windowRegistry.launchLayoutOf(windowRegistry.windowForSender(e.sender)),
+            approvalSnapshot: owner.approvalSnapshot(),
+            sessionOperations: sessionOperations.snapshot(),
+            auth: accountOperations.snapshot(),
+            extensionCores: extensionPacks.descriptors(),
+            // Settings › Code › Dynamic workflows: what the environment and managed settings decide (env wins).
+            workflowEnv: workflowEnvFacts(), workflowManaged: managedSettings(), workflowParallelism: os.availableParallelism?.() ?? os.cpus().length,
+            bypassCarry: carryFor(bypassCarry, owner.connection?.approvalConnectionId, config),
+            connectionNotices,
+            threadUsage: Object.fromEntries(threadUsage),
+            coworkEnabled: COWORK_ENABLED,
+          };
+        } catch (error) {
+          return {
+            connected: false,
+            error: error.message,
+            extensionCores: extensionPacks.descriptors(),
+            config,
+            models: [],
+            coworkEnabled: COWORK_ENABLED,
+          };
+        }
+      }
+      case "reconnect": {
+        // Only the reconnect a core switch asked for takes the switch's token; every reconnect drops the old carry.
+        const token = p.carryBypass === true ? switchToken : null;
+        switchToken = null; bypassCarry = null;
+        receive({ kind: "connection", connected: false });
+        client.invalidateApprovals("manual_reconnect");
+        client.removeAllListeners();
+        client.stop();
+        client = new CodexClient();
+        client.on("event", receive);
+        const owner = client;
+        client.on("status", (s) => {
+          if (!s.connected) initial = null;
+          receive(connectionEvent(owner, s));
+        });
+        initial = null;
+        const status = await connect();
+        if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
+        if (token) {
+          // The new core's requirements decide (a managed install refuses Bypass); every request still runs validateBypassRequest.
+          let bound = null;
+          try { bound = bindCarry(token, owner.connection?.approvalConnectionId, await owner.request("configRequirements/read", {}), carryScope(p)); } catch {}
+          if (owner !== client) throw coreError(owner, "The {core} connection changed. Reconnect to continue.");
+          bypassCarry = bound;
+        }
+        return { ...status, config, approvalSnapshot: owner.approvalSnapshot(), extensionCores: extensionPacks.descriptors(),
+          bypassCarry: carryFor(bypassCarry, owner.connection?.approvalConnectionId, config), connectionNotices };
+      }
+      // The renderer applied the carry (consume-once): a later reload of the window starts from the saved default.
+      case "bypass-carry-clear": {
+        bypassCarry = null;
+        return true;
+      }
+      case "interrupt": {
+        if (coworkSessions.owns(p.threadId)) {
+          if (!config.threadIds.includes(p.threadId) || typeof p.turnId !== 'string') throw new Error('Unknown Cowork task.');
+          return coworkSessions.request('turn/interrupt', p);
+        }
+        const sent = interruptTurn(client, p);
+        // Stop closes the session's waiting OpenClaude Desktop tool sheets at once (the core's turn/completed follows): the
+        // calls of the turn it stops (a Codex sub-agent's go on, as Codex keeps the sub-agent running).
+        if (typeof p?.threadId === "string" && config.threadIds.includes(p.threadId)) agentTools.cancelThread(p.threadId);
+        return sent;
+      }
+      case "steer": {
+        if (coworkSessions.owns(p.threadId)) return { ok: false, message: 'Stop the current Cowork task before sending another message.', code: null, data: null };
+        // turn/steer against the live connection. The renderer needs to tell a
+        // non-steerable active turn (review/compact: activeTurnNotSteerable) from
+        // any other failure so it can fall back to thread/queue/add; IPC only
+        // carries messages, so the outcome is returned structurally.
+        if (typeof p.threadId !== "string" || !p.threadId || typeof p.expectedTurnId !== "string" || !p.expectedTurnId || !Array.isArray(p.input))
+          throw new Error("The steer target is unavailable.");
+        await client.start();
+        // The "ultracode" keyword in a steered message (the composer's "Dynamic workflow requested for this turn").
+        const steerInput = p.keyword === true && workflowToolService && config.threadIds.includes(p.threadId) ? await workflowToolService.keywordInput(p.input) : p.input;
+        try {
+          const result = await client.request("turn/steer", { threadId: p.threadId, expectedTurnId: p.expectedTurnId, input: steerInput,
+            ...(typeof p.clientUserMessageId === "string" ? { clientUserMessageId: p.clientUserMessageId } : {}) });
+          // The steered message is the user's latest request: a workflow the model starts from now on relays it (and its
+          // "+500k" budget), not the message the turn started with. A queued message is taken from its turn's user
+          // message item instead (workflow-tool-service.cjs observe).
+          if (workflowToolService && config.threadIds.includes(p.threadId)) await workflowToolService.userInput(p.threadId, p.input).catch(() => {});
+          return { ok: true, result };
+        } catch (error) {
+          return { ok: false, message: error.message, data: error.data ?? null, code: error.code ?? null };
+        }
+      }
+      case "session-action": {
+        if (coworkSessions.owns(p.threadId)) throw new Error('Fork, compact and code review are not available for this Cowork runtime yet.');
+        const result = await sessionOperations.run(p);
+        // A fork joins the other windows' session lists too.
+        if (p.operation === "fork" && result?.thread?.id && config.threadIds.includes(result.thread.id) && result.thread.id !== p.threadId) emitSessionList("added", { ...result.thread, ...(config.threadMetadata[result.thread.id]?.name ? { name: config.threadMetadata[result.thread.id].name } : {}) });
+        return result;
+      }
+      case "customize": return customizeOperations.run(p);
+      case "codex-features": return codexFeatures.run(p);
+      case "local-artifacts": {
+        if (p.action === 'read') return artifactIndex.readArtifact(config, p.key, readFile, { force: p.force });
+        if (p.action === 'list') {
+          const owner = client, snapshot = config;
+          if (!artifactIndexed.has(owner)) artifactIndexed.set(owner, new Set());
+          if (!artifactRead || artifactRead.owner !== owner) {
+            const pending = { owner };
+            pending.promise = (async () => { await owner.start(); const result = await artifactIndex.backfillArtifacts(snapshot, (method, params) => coworkSessions.owns(params.threadId) ? coworkSessions.request(method, params) : owner.request(method, params), artifactIndexed.get(owner)); if (snapshot === config) save(); return result; })().finally(() => { if (artifactRead === pending) artifactRead = null; });
+            artifactRead = pending;
+          }
+          return artifactRead.promise;
+        }
+        if (p.action === 'pin') { const entry = artifactIndex.updateArtifact(config, p); save(); return entry; }
+        throw new Error('Unknown artifact operation.');
+      }
+      case "local-routines": return localRoutines.request(p);
+      case "local-projects": {
+        const { localProjects } = await import('./local-projects.mjs');
+        const result = await localProjects(config, p, { dataDir: app.getPath('userData'), approveFolder: workspaceQueryRoot });
+        if (p.action !== 'list') { approvedWorkspaceRoots.add(result.cwd); observedThreadCwds.add(result.cwd); save(); }
+        return result;
+      }
+      case "surface-workspace": {
+        const { validSurface } = await import('./surface-policy.mjs');
+        if (!validSurface(p.surface) || p.surface === 'code') throw new Error('Choose a valid workspace.');
+        const saved = config.surfaceFolders?.[p.surface];
+        const dir = typeof saved === 'string' && path.isAbsolute(saved) && fs.existsSync(saved) ? saved : path.join(app.getPath('userData'), 'workspaces', p.surface);
+        fs.mkdirSync(dir, { recursive: true });
+        observedThreadCwds.add(dir);
+        approvedWorkspaceRoots.add(dir);
+        return { cwd: dir };
+      }
+      case "rpc": return requestRpc(p, e.sender);
       case "respond": {
         // A plan card answered 'Accept and bypass permissions': the opt-in and the core's requirements decide,
         // as for any Bypass turn. The owner is captured (and validated) synchronously through the wire write after.
@@ -2220,6 +2837,7 @@ app.whenReady().then(async () => {
         if (typeof p.agentPreview === "boolean") config.agentPreview = p.agentPreview;
         // The Preview pane's "Open links in preview" (src/preview-links-model.mjs), for every window of the profile.
         if (typeof p.previewLinks === "boolean") config.previewLinks = p.previewLinks;
+        if (typeof p.previewLinksChooserSeen === "boolean") config.previewLinksChooserSeen = p.previewLinksChooserSeen;
         if (["dynamicWorkflows","workflowEngines","workflowSizeGuideline"].some((key) => key in p) || typeof p.agentPreview === "boolean") {
           agentTools.notifyListChanged();
           // A bridge whose agent keeps the tool list it read when the session opened (ZCode, the ACP agents) reopens
@@ -2242,10 +2860,10 @@ app.whenReady().then(async () => {
           config.sessionMetadata = p.sessionMetadata;
         if (Array.isArray(p.customGroups)) config.customGroups = p.customGroups;
         if (p.rememberedActionCenterCounts && typeof p.rememberedActionCenterCounts === "object") {
-          // Placeholder shape for the next launch (official Kk/$i remembered counts).
-          // Projects/PRs have no local source and stay zero.
-          const sessions = Number(p.rememberedActionCenterCounts.sessions);
-          config.rememberedActionCenterCounts = { sessions: Number.isInteger(sessions) && sessions >= 0 ? Math.min(sessions, 999) : 0, projects: 0, prs: 0 };
+          // Placeholder shape for the next launch (official Kk/$i remembered counts, cc43287c9 ez/tz actionCenterPrs).
+          // Projects have no local source and stay zero; PRs count the sessions' active pull requests (B08).
+          const count = (value) => { const number = Number(value); return Number.isInteger(number) && number >= 0 ? Math.min(number, 999) : 0; };
+          config.rememberedActionCenterCounts = { sessions: count(p.rememberedActionCenterCounts.sessions), projects: 0, prs: count(p.rememberedActionCenterCounts.prs) };
         }
         try { save(); } catch (error) { config = previous; throw error; }
         if (config.allowBypassPermissions !== true) switchToken = bypassCarry = null;
@@ -2313,6 +2931,9 @@ app.whenReady().then(async () => {
           config.customGroups = config.customGroups.filter(group => group.id !== p.id);
           for (const meta of Object.values(config.sessionMetadata)) if (meta.customGroupId === p.id) meta.customGroupId = null;
           if (Array.isArray(config.projectOrder)) config.projectOrder = config.projectOrder.filter(key => key !== "ccg::" + p.id);
+          // shared-50 G removeGroup: the deleted group's key leaves collapsedGroups too (src/sidebar-model.js).
+          if (Array.isArray(config.sidebarPreferences?.collapsedGroups))
+            config.sidebarPreferences = { ...config.sidebarPreferences, collapsedGroups: config.sidebarPreferences.collapsedGroups.filter(key => key !== "custom:" + p.id) };
         } else if (p.operation === "pinned-order") {
           // Manual Pinned order (official Move up / Move down): only known ids, no duplicates.
           const known = new Set([...config.threadIds, ...config.archivedThreadIds]);
@@ -2344,6 +2965,42 @@ app.whenReady().then(async () => {
         pushCodeStats();
         return kept;
       }
+      // B29 suggested-task backlog (asar LocalSessions getTaskBacklog / dismissTaskBacklogItem / fileBackgroundTasksForLater):
+      // Home lists a folder's put-away spawn_task suggestions; a folder that no longer exists lists nothing.
+      case "task-backlog-list": {
+        if (typeof p.cwd !== "string" || !path.isAbsolute(p.cwd)) return [];
+        const limit = Number.isSafeInteger(p.limit) && p.limit > 0 ? Math.min(p.limit, 20) : 20;
+        const items = await taskBacklog().list(p.cwd, limit);
+        if (!items.length || !fs.existsSync(p.cwd)) return [];
+        return items.map(publicBacklogItem);
+      }
+      case "task-backlog-dismiss": {
+        if (typeof p.id !== "string") throw new Error("Unknown task.");
+        try { return (await taskBacklog().dismiss(p.id)) !== null; }
+        catch (error) { console.warn(`task backlog: ${error?.message ?? error}`); throw new Error("Task backlog unavailable; try again"); }
+      }
+      case "task-backlog-file": {
+        if (typeof p.sessionId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(p.sessionId)) throw new Error("Unknown session.");
+        const source = ["dismissed", "evicted", "orphaned"].includes(p.source) ? p.source : null;
+        if (!source || !Array.isArray(p.tasks)) throw new Error("Invalid task filing.");
+        const sessionCwd = config.threadMetadata?.[p.sessionId]?.cwd;
+        // sk: every filing goes to the session's folder (a worktree session's: the repository it came from,
+        // sessionMetadata.originCwd), and only a task aimed at that folder (no cwd, or the session's own cwd / origin)
+        // is filed; a suggestion for another repository is not put in this one's backlog.
+        const originCwd = config.sessionMetadata?.[p.sessionId]?.originCwd || (typeof sessionCwd === "string" && config.worktreeOrigins?.[sessionCwd]) || undefined;
+        const folder = originCwd || sessionCwd;
+        if (typeof folder !== "string" || !path.isAbsolute(folder)) return 0;
+        const own = new Set([sessionCwd, originCwd].filter((dir) => typeof dir === "string" && dir).map((dir) => taskBacklogFolderKey(dir)));
+        const filings = p.tasks.slice(0, 20)
+          .filter((task) => task?.cwd === undefined || task?.cwd === null || (typeof task.cwd === "string" && own.has(taskBacklogFolderKey(task.cwd))))
+          .map((task) => ({
+            cwd: folder,
+            source, title: typeof task?.title === "string" ? task.title : undefined, tldr: typeof task?.tldr === "string" && task.tldr ? task.tldr : undefined,
+            prompt: task?.prompt, suggestedAt: Number.isFinite(task?.suggestedAt) ? task.suggestedAt : Date.now(),
+            originSessionId: p.sessionId, originTaskId: task?.taskId,
+          }));
+        return (await taskBacklog().fileMany(filings)).length;
+      }
       case "session-ack": {
         // Action Center dismiss (official onDismissAwaiting = ack(id, timestamp)
         // + markRead(id)): the row stays hidden until the session's timestamp
@@ -2365,6 +3022,21 @@ app.whenReady().then(async () => {
         const cwd = workspaceQueryRoot(p.cwd);
         return workspaceGitComparison(cwd, { preferredBase: sessionBaseBranch(p.sessionId, cwd) });
       }
+      // B08 (cd5a31703 Gde/afe ghLookup): the branch's pull request through the user's GitHub CLI, read-only and
+      // cached per checkout+branch (git-pull-request.cjs); {status: found|none|missing|auth|error, pr?}.
+      case "workspace-pull-request": {
+        const cwd = workspaceQueryRoot(p.cwd);
+        return pullRequestLookup().lookup(cwd, typeof p.branch === "string" ? p.branch : null, { fresh: p.fresh === true });
+      }
+      // Import GitHub issue (ca80fca8d zN, cc43287c9 gH): the draft folder's GitHub issues through the user's gh,
+      // read-only (github-issues.cjs): status {available, unavailableReason}, list {issues}, get → the issue or null.
+      case "github-issues": {
+        const cwd = workspaceQueryRoot(p.cwd);
+        if (p.operation === "status") return githubIssues().status(cwd);
+        if (p.operation === "list") return githubIssues().list(cwd, typeof p.query === "string" ? p.query : "");
+        if (p.operation === "get") return githubIssues().get(cwd, p.number);
+        throw new Error("Unknown operation.");
+      }
       // F12 diff scope (panes-tile-current.js zm): 'branch' (default, merge-base of the session base), 'uncommitted'
       // or 'commit:<sha>'; `base` is the Changes "Compare against" branch (validated in git-status.cjs).
       case "workspace-git-diff": {
@@ -2374,9 +3046,19 @@ app.whenReady().then(async () => {
         return workspaceGitDiff(cwd, { completeContext: p.completeContext === true, scope,
           base: typeof p.base === "string" ? p.base : undefined, preferredBase: sessionBaseBranch(p.sessionId, cwd) });
       }
+      // B34 (cccc2cf0a Gb getDiffFileImage, heavyWorkWorker j_): one side ('before' | 'after') of a changed image in
+      // the same diff scope as workspace-git-diff, as a data URL or null.
+      case "workspace-git-image": {
+        const cwd = workspaceQueryRoot(p.cwd);
+        const scope = p.scope === undefined || p.scope === null ? "branch" : p.scope;
+        if (typeof scope !== "string" || !/^(branch|uncommitted|commit:[0-9a-fA-F]{7,64})$/.test(scope)) throw new Error("Invalid diff scope.");
+        return workspaceGitImage(cwd, { filePath: p.path, side: p.side, scope,
+          base: typeof p.base === "string" ? p.base : undefined, preferredBase: sessionBaseBranch(p.sessionId, cwd) });
+      }
       case "workspace-git-commits": {
         const cwd = workspaceQueryRoot(p.cwd);
-        return workspaceGitCommits(cwd, { base: typeof p.base === "string" ? p.base : undefined, preferredBase: sessionBaseBranch(p.sessionId, cwd) });
+        return workspaceGitCommits(cwd, { base: typeof p.base === "string" ? p.base : undefined, preferredBase: sessionBaseBranch(p.sessionId, cwd),
+          ...(Number.isSafeInteger(p.limit) ? { limit: p.limit } : {}) });
       }
       case "workspace-git-branches": return workspaceGitBranches(workspaceQueryRoot(p.cwd));
       case "workspace-info": {
@@ -2394,8 +3076,14 @@ app.whenReady().then(async () => {
             branches: branches.stdout.trim().split("\n").filter(Boolean),
             originHead: originHead.stdout.trim(),
           };
-        } catch {
-          return { isRepo: false, branch: "", branches: [] };
+        } catch (error) {
+          // B29 rY/nY (pE hostGit): a folder inside a repository (a .git entry up the tree) whose git cannot run reports
+          // why, so the composer can say 'Git is required to use a worktree.' instead of hiding the option.
+          const unavailable = worktrees.gitUnavailable(error);
+          const inRepository = typeof cwd === "string" && (() => { for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+            if (fs.existsSync(path.join(dir, ".git"))) return true;
+            if (path.dirname(dir) === dir) return false; } })();
+          return { isRepo: false, branch: "", branches: [], ...(unavailable && inRepository ? { gitUnavailable: unavailable.reason, ...(unavailable.message ? { gitError: unavailable.message } : {}) } : {}) };
         }
       }
       // Branch step 2 without a worktree (cc43287c9-BMbiZYzF.js:12084-12095 me, :15860-15912 UR; asar
@@ -2460,16 +3148,33 @@ app.whenReady().then(async () => {
         if(!base)throw new Error("Choose a custom worktree directory first.");
         const dest = path.join(base,path.basename(cwd)+"-"+Date.now().toString(36));
         fs.mkdirSync(path.dirname(dest), { recursive: true });
-        await run("git", [
-          "-C",
-          cwd,
-          "worktree",
-          "add",
-          "-b",
-          name,
-          dest,
-          p.branch || "HEAD",
-        ]);
+        // B29 (asar createWorktree onInitStatus, cc43287c9 _3): the window that asked shows each step ('Refreshing
+        // origin…', 'Adding worktree…'); the base branch is fetched first and a behind local branch starts from origin.
+        const token = typeof p.token === "string" && p.token.length <= 64 ? p.token : null;
+        const phase = (name) => { if (token) emit({ kind: "worktree-phase", token, phase: name }); };
+        // rY/nY: a git that cannot run says so (the renderer's 'Install Git' / 'Git isn't working' dialog).
+        const gitFailure = (error) => {
+          const unavailable = worktrees.gitUnavailable(error);
+          if (!unavailable) return error;
+          // Only the message crosses IPC: its first line is the rY copy the renderer recognizes (git-dialog-model.mjs);
+          // a startup failure's git output follows on the next lines.
+          return new Error(unavailable.reason === "missing" ? "Git is required to use a worktree." : unavailable.reason === "exec_blocked"
+            ? "Your system blocked OpenClaude Desktop from running Git." : `Git is installed but isn’t working.${unavailable.message ? `\n${unavailable.message}` : ""}`);
+        };
+        const { start } = p.branch ? await worktrees.refreshedStartPoint(run, cwd, p.branch, { onPhase: phase }) : { start: "HEAD" };
+        phase("worktree_add");
+        try {
+          await run("git", [
+            "-C",
+            cwd,
+            "worktree",
+            "add",
+            "-b",
+            name,
+            dest,
+            start || p.branch || "HEAD",
+          ]);
+        } catch (error) { throw gitFailure(error); }
         approvedWorkspaceRoots.add(dest);
         // Inside the repository (the default .code/worktrees): kept out of the main checkout's status.
         await worktrees.excludeWorktreeRoot(run, cwd, base).catch(() => null);
@@ -2477,12 +3182,17 @@ app.whenReady().then(async () => {
         // Persist the real creation base so the session's comparison never
         // silently falls back to the inferred default branch.
         if (p.branch) { config.worktreeBases[dest] = p.branch; save(); }
+        // c749529a1 _ (originCwd): the Recent folders list names the repository, never the worktree.
+        config.worktreeOrigins = { ...(config.worktreeOrigins && typeof config.worktreeOrigins === "object" ? config.worktreeOrigins : {}), [dest]: cwd }; save();
         return dest;
       }
       // A session's own worktree before it is archived or deleted: its folder and uncommitted changes (the renderer
       // confirms 'Archive/Delete session with uncommitted changes?'), and whether another session still works there.
+      // A session the app never recorded has no worktree of the app's (worktree: null), so its delete confirm does not
+      // read as a failed check (shared-19 IK shows "Couldn’t check…" only when the check itself fails).
       case "worktree-status": {
-        if (typeof p.threadId !== "string" || ![...config.threadIds, ...config.archivedThreadIds].includes(p.threadId)) throw new Error("Unknown session.");
+        if (typeof p.threadId !== "string" || !p.threadId) throw new Error("Unknown session.");
+        if (![...config.threadIds, ...config.archivedThreadIds].includes(p.threadId)) return { worktree: null, changes: 0, shared: false };
         const cwd = config.threadMetadata[p.threadId]?.cwd;
         const dir = typeof cwd === "string" ? (config.worktreeDirectories || []).find((entry) => path.resolve(entry) === path.resolve(cwd)) : null;
         if (!dir) return { worktree: null, changes: 0, shared: false };
@@ -2511,6 +3221,12 @@ app.whenReady().then(async () => {
         save();
         return { removed, kept };
       }
+      case "code-cleanup-preview": return codeCleanup.preview(p.window);
+      case "code-cleanup-run": return codeCleanup.run(typeof p.token === "string" ? p.token : "", { includeUncommitted: p.includeUncommitted === true, deleteSessions: p.deleteSessions === true });
+      case "code-cleanup-cancel": codeCleanup.cancel(); return true;
+      // App caches and logs › Clear cache and restart… (2.31226.0 Pfa confirm, then Mvi {silent}: the default session's
+      // HTTP, code, cache-storage, shader and service-worker caches, host resolver and auth caches; sign-ins stay).
+      case "clear-cache-restart": return clearCacheAndRestart(BrowserWindow.fromWebContents(e.sender));
       case "workflow-list": return workflowService.list(p.threadId);
       // Saved workflows of a known folder (~/.claude/workflows and the project's .claude/workflows up to its git root,
       // nearest wins): the '/' menu offers each as /<name> (Claude Code getWorkflowCommands). Only their summary.
@@ -2695,6 +3411,8 @@ app.whenReady().then(async () => {
         return true;
       }
       case "model-settings": return modelSettings.run(p);
+      // Code › Local › "Edit local environment": get / save the variables (applied when the core next starts).
+      case "local-environment": return localEnvironment.run(p);
       case "reveal-folder":
         await shell.openPath(p.cwd || config.cwd);
         return true;
@@ -2896,7 +3614,7 @@ app.whenReady().then(async () => {
       // Official getInstalledEditors / openInEditor (editors.cjs): the code editors on this Mac, and one opening a file
       // or folder. The path must be absolute and exist; the editor must be one of the known, installed ones.
       case "installed-editors": return require("./editors.cjs").installedEditors();
-      case "open-in-editor": return require("./editors.cjs").openInEditor(p.path, p.type);
+      case "open-in-editor": return require("./editors.cjs").openInEditor(p.path, p.type, {line:p.line});
       case "open-terminal": {
         // Official "Open in → Terminal" (c80a67939 Open in submenu). The folder
         // must be an absolute existing directory; nothing else is passed to open.
@@ -2939,7 +3657,50 @@ app.whenReady().then(async () => {
           return await owner.request("thread/revert",{threadId:p.threadId,beforeTurnId:p.beforeTurnId,...(restoreFiles?{codeDesktop:{restoreFiles:true}}:{})});
         } finally {release();}
       }
+      // c749529a1 getAll's Recent fields (originCwd, folderExists, isScratchWorkspace) for the renderer's sessions.
+      case "recent-folder-sessions": {
+        const { sessionFolders } = require("./recent-folders.cjs");
+        const known = new Set([...config.threadIds, ...config.archivedThreadIds]);
+        // B03 review: the folder is main's own record of the session (its threadMetadata cwd, or a cwd thread/list
+        // reported), never a renderer-supplied path: these origins become folders 'folder' accepts as a Recent pick.
+        const sessions = (Array.isArray(p.sessions) ? p.sessions : []).filter((session) => known.has(session?.id)).slice(0, 2000).flatMap((session) => {
+          const recorded = config.threadMetadata?.[session.id]?.cwd;
+          const cwd = typeof session.cwd === "string" && (session.cwd === recorded || observedThreadCwds.has(session.cwd)) ? session.cwd : recorded;
+          return typeof cwd === "string" && cwd ? [{ id: session.id, cwd }] : [];
+        });
+        const result = await sessionFolders(sessions, { config, scratchRoot: path.join(app.getPath("userData"), "workspaces"), run });
+        if (result.changed) save();
+        for (const entry of Object.values(result.sessions)) recentFolderPaths.add(entry.originCwd);
+        return result.sessions;
+      }
+      // c749529a1 P → LocalSessions.getDetectedProjects (index.chunk-BMnTSdxh.js): editor recents and scanned projects.
+      case "detected-projects": {
+        // An isolated profile (CODE_DESKTOP_DATA: the UI suites) never reads this Mac's editors and code folders
+        // unless it names a home to scan (CODE_DESKTOP_DETECTED_PROJECTS_HOME).
+        if (!detectedProjects) {
+          const { createDetectedProjects, detectProjects } = require("./recent-folders.cjs");
+          const home = process.env.CODE_DESKTOP_DETECTED_PROJECTS_HOME || (process.env.CODE_DESKTOP_DATA ? null : os.homedir());
+          detectedProjects = createDetectedProjects({ detect: () => home ? detectProjects(home) : Promise.resolve([]) });
+        }
+        const list = await detectedProjects.get();
+        for (const entry of list) recentFolderPaths.add(entry.path);
+        return list.map(({ path: dir, name, source, lastActivity }) => ({ path: dir, name, source, lastActivity }));
+      }
       case "folder": {
+        // A Recent folder pick (cc43287c9 FZ P → onSelectFolder, the same path as a browsed folder; shared-75
+        // ccd-session-store persists selectedFolder): one of the listed folders becomes the remembered session folder.
+        if(!p.additional && typeof p.path === "string") {
+          const known = recentFolderPaths.has(p.path) || [config.cwd, ...approvedWorkspaceRoots, ...observedThreadCwds, ...Object.values(config.threadMetadata || {}).map(meta => meta?.cwd)].includes(p.path);
+          if(!known || !path.isAbsolute(p.path)) throw new Error("Unknown workspace directory.");
+          const stat = await fs.promises.stat(p.path).catch(() => null);
+          if(!stat?.isDirectory()) throw new Error(i18n.t("That folder no longer exists."));
+          await fileSearch.cancelAll();
+          if (p.surface === 'cowork' || p.surface === 'chat') config.surfaceFolders = { ...config.surfaceFolders, [p.surface]: p.path };
+          else config.cwd = p.path;
+          approvedWorkspaceRoots.add(p.path);
+          save();
+          return p.path;
+        }
         if(p.additional && typeof p.path === "string") {
           const expanded=p.path.startsWith("~/")?path.join(os.homedir(),p.path.slice(2)):p.path;
           const absolute=path.resolve(workspaceQueryRoot(p.cwd),expanded);
@@ -2960,10 +3721,12 @@ app.whenReady().then(async () => {
         if (r.canceled) return null;
         if (p.additional) { approvedWorkspaceRoots.add(r.filePaths[0]); return r.filePaths[0]; }
         await fileSearch.cancelAll();
-        config.cwd = r.filePaths[0];
-        approvedWorkspaceRoots.add(config.cwd);
+        const dir = r.filePaths[0];
+        if (p.surface === 'cowork' || p.surface === 'chat') config.surfaceFolders = { ...config.surfaceFolders, [p.surface]: dir };
+        else config.cwd = dir;
+        approvedWorkspaceRoots.add(dir);
         save();
-        return config.cwd;
+        return dir;
       }
       // File › Open File… (ZCr): a file chosen in the dialog. One inside the open session's folder (p.inside) opens there;
       // another makes its folder the new session's folder, as Open Folder… does.
@@ -3001,6 +3764,7 @@ app.whenReady().then(async () => {
         return listFiles(p.cwd || config.cwd, p.relative || "", {
           includeChild: p.includeChild,
         });
+      case "files:content-search":
       case "files:search":
         return fileSearch.search({
           scope: fileSearchScope(e.sender, p.pane),
@@ -3008,21 +3772,63 @@ app.whenReady().then(async () => {
           root: fileSearchRoot(p.sessionId, p.homeWorkspace),
           query: p.query,
           browse: p.browse === true,
+          // B33: the Files pane filter asks for folder rows when its query ends in '/' (cccc2cf0a Fv).
+          folders: action === "files:search" && p.folders === true,
+          ...(action === "files:content-search" ? {mode:"content",options:p.options} : {}),
         });
+      case "files:watch":
+        return filesWatch.set(e.sender, { watchId: p.watchId, cwd: p.cwd || config.cwd, dirs: p.dirs });
       case "files:search:cancel": {
         if (typeof p.requestId !== "string" || !p.requestId || p.requestId.length > 128)
           throw new Error("Invalid search request identifier.");
         return fileSearch.cancel(fileSearchScope(e.sender, p.pane), p.requestId);
       }
-      case "file":
+      case "file:edit-read":
+        return readEditableFile(p.cwd || config.cwd, p.relative);
+      case "file:save":
+        return writeEditedFile(p.cwd || config.cwd, p.relative, p.text, p.expectedHash);
+      case "file": {
         // Files pane viewer: classified results (files.cjs); force re-reads a binary file as text.
-        return readFile(p.cwd || config.cwd, p.relative, { force: p.force === true });
+        const root = p.cwd || config.cwd;
+        const result = await readFile(root, p.relative, { force: p.force === true });
+        // B32: a file outside the working folder but inside one of the session's added folders (the outside-root
+        // card's Add folder, /add-dir) reads from that folder, as the original reads every session folder.
+        const added = typeof p.sessionId === "string" ? config.sessionMetadata?.[p.sessionId]?.additionalFolders : null;
+        const absolute = result?.unavailable === "outside_root" && Array.isArray(added) ? sessionFileAccess.requestedAbsolute(root, p.relative) : null;
+        // Added folders are stored as real paths (main 'folder'), so a path through a link such as /tmp → /private/tmp
+        // is matched by its real path too.
+        const hit = absolute ? sessionFileAccess.sessionFolderFor(absolute, added)
+          ?? sessionFileAccess.sessionFolderFor(await fs.promises.realpath(absolute).catch(() => ""), added) : null;
+        if (!hit) return result;
+        const inner = await readFile(hit.folder, hit.relative, { force: p.force === true });
+        return { ...inner, path: p.relative, ...(inner.unavailable === "missing" ? { creatable: false } : {}) };
+      }
+      // B32 (cd2efac6e Gl → showSessionFileInFolder): Show in Finder for a session file, also one outside the
+      // working folder; false (not an error) when there is no regular file to show.
+      case "file:reveal-session": {
+        const root = typeof p.cwd === "string" && path.isAbsolute(p.cwd) ? p.cwd : fileSearchRoot(p.sessionId);
+        return sessionFileAccess.revealSessionFile({ root, filePath: p.path, showItemInFolder: (target) => shell.showItemInFolder(target) });
+      }
+      // B32 (cd2efac6e tp → suggestFolderForSessionFile): the folder the outside-root card offers to add, or null.
+      case "file:folder-offer": {
+        const root = typeof p.cwd === "string" && path.isAbsolute(p.cwd) ? p.cwd : fileSearchRoot(p.sessionId);
+        const added = typeof p.sessionId === "string" ? config.sessionMetadata?.[p.sessionId]?.additionalFolders : null;
+        const folder = await sessionFileAccess.suggestFolderForFile({ root, sessionFolders: Array.isArray(added) ? added : [], filePath: p.path });
+        // home: the card shows the folder with it as "~" (fe(tp, homePath)).
+        return folder ? { folder, home: os.homedir() } : null;
+      }
+      // B13: the HTML preview frame of the text the viewer shows (file-preview-frame.cjs), and its release.
+      case "file:preview-frame":
+        return filePreviewFrames.register({ root: p.cwd || config.cwd, relative: p.relative, text: p.text });
+      case "file:preview-frame-release":
+        return filePreviewFrames.release(p.url);
       case 'image:read': return imageOperations.read(p);
       case 'image:copy': return imageOperations.copy(p);
       case 'image:save': return imageOperations.save(p);
       case "external": {
         const url = new URL(p.url);
-        if (!["https:", "http:"].includes(url.protocol))
+        // mailto:/tel: as the composer's link bubble opens them (ca80fca8d KM zM /^(https?|mailto|tel):/i).
+        if (!["https:", "http:", "mailto:", "tel:"].includes(url.protocol))
           throw new Error("Unsupported URL.");
         await shell.openExternal(url.href);
         return true;
@@ -3067,7 +3873,13 @@ const quitGuard = createQuitGuard({
 // quitting is set once shutdown starts (onStart), so the deferred quit's window close is let through; a quit the guard
 // holds (or the user cancels) leaves the window's close-hides behavior alone.
 installShutdownHandler(app, {
-  guard: (event) => quitGuard.handle(event),
+  guard: (event) => {
+    if (fileAutosaveQuitGate.handle(event)) return true;
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !confirmFileEdits(window)) { event.preventDefault(); return true; }
+    }
+    return quitGuard.handle(event);
+  },
   onStart: () => { quitting = true; try { savePopoutsForRelaunch(); } catch (error) { console.warn("Pane windows:", error?.message ?? error); } },
   stop: async () => {
     customCommands.dispose();
@@ -3078,8 +3890,9 @@ installShutdownHandler(app, {
     const previewsStopped = Promise.resolve(previewService?.dispose()).catch(() => {});
     monitorService.dispose();
     scheduleService.dispose();
+    localRoutines?.dispose();
     await pauseActiveGoals().catch(() => {});
-    await Promise.all([stopAllCodexClients(), fileSearch.dispose(), workflowService?.dispose()]);
+    await Promise.all([stopAllCodexClients(), coworkSessions?.stop(), fileSearch.dispose(), workflowService?.dispose()]);
     agentTools.stop();
     await Promise.all([terminalsStopped, previewsStopped]);
   },

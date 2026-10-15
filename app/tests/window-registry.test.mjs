@@ -28,15 +28,21 @@ function fakeTimers() {
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'window-registry-'));
 const events = (window) => window.webContents.sent.map(([, event]) => event);
 
-test('sanitizeLayout keeps a primary session and a split side; one session never shows on both sides', () => {
+test('sanitizeLayout keeps a primary session and the extra panes as grid cells; one session never shows twice', () => {
   assert.deepEqual(sanitizeLayout(null), { current: null, split: null });
   assert.deepEqual(sanitizeLayout({ current: 'a' }), { current: 'a', split: null });
-  assert.deepEqual(sanitizeLayout({ current: 'a', split: { sessionId: 'b', ratio: 0.3, active: 1 } }), { current: 'a', split: { sessionId: 'b', ratio: 0.3, active: 1 } });
-  assert.deepEqual(sanitizeLayout({ current: 'a', split: { sessionId: 'a', ratio: 'x', active: 7 } }), { current: 'a', split: { sessionId: null, ratio: 0.5, active: 0 } });
-  assert.deepEqual(sanitizeLayout({ current: 'bad\u0000id', split: { ratio: 5 } }).split.ratio, 0.85);
+  // The earlier two-sided shape reads as one pane in column 1 with [ratio, 1 - ratio] weights.
+  assert.deepEqual(sanitizeLayout({ current: 'a', split: { sessionId: 'b', ratio: 0.3, active: 1 } }),
+    { current: 'a', split: { panes: [{ sessionId: 'b', col: 1, row: 0 }], colWeights: [0.3, 0.7], rowSplit: 0.5, active: 1 } });
+  assert.deepEqual(sanitizeLayout({ current: 'a', split: { sessionId: 'a', ratio: 'x', active: 7 } }), { current: 'a', split: null }, 'the primary session is no pane');
+  const grid = sanitizeLayout({ current: 'a', split: { panes: [{ sessionId: 'b', col: 1, row: 0 }, { sessionId: 'c', col: 0, row: 1 }, { sessionId: 'b', col: 2, row: 0 },
+    { sessionId: 'd', col: 1, row: 0 }, { sessionId: 'e', col: 9, row: 0 }, { sessionId: 'f', col: 2, row: 2 }, { sessionId: 'g', col: 2, row: 1 }], colWeights: [1, 2, 3], rowSplit: 5, active: 2 } });
+  assert.deepEqual(grid, { current: 'a', split: { panes: [{ sessionId: 'b', col: 1, row: 0 }, { sessionId: 'c', col: 0, row: 1 }, { sessionId: 'g', col: 2, row: 1 }], colWeights: [1, 2, 3], rowSplit: 0.85, active: 2 } });
+  assert.equal(sanitizeLayout({ current: 'a', split: { panes: [{ sessionId: 'b', col: 1, row: 0 }], colWeights: [1, 2, 3] } }).split.colWeights, null, 'weights must match the columns');
   assert.equal(sanitizeLayout({ current: 'x'.repeat(201) }).current, null);
   assert.deepEqual(layoutSessions({ current: 'a', split: { sessionId: 'b' } }), ['a', 'b']);
   assert.deepEqual(layoutSessions({ split: { sessionId: 'b' } }), ['b']);
+  assert.deepEqual(layoutSessions({ current: 'a', split: { panes: [{ sessionId: 'b', col: 1, row: 0 }, { sessionId: 'c', col: 1, row: 1 }] } }), ['a', 'b', 'c']);
 });
 
 test('routeEvent: desktop-navigate targets the session, window-scoped kinds with a windowId one window, the rest every window', () => {
@@ -47,6 +53,8 @@ test('routeEvent: desktop-navigate targets the session, window-scoped kinds with
   assert.deepEqual(routeEvent({ method: 'item/agentMessage/delta', params: { threadId: 't1' } }), { target: 'all' });
   assert.deepEqual(routeEvent({ kind: 'connection', connected: true }), { target: 'all' });
   assert.deepEqual(routeEvent(null), { target: 'none' });
+  assert.deepEqual(routeEvent({ kind: 'add-to-prompt', sessionId: 's1', text: 'x', windowId: 3 }), { target: 'session', sessionId: 's1', windowId: 3 });
+  assert.deepEqual(routeEvent({ kind: 'add-to-prompt', sessionId: 's1', text: 'x' }), { target: 'session', sessionId: 's1', windowId: null });
 });
 
 test('restorableWindows: validated keys in order, unique, capped, the focused key kept; an empty file opens the main window', () => {
@@ -55,7 +63,7 @@ test('restorableWindows: validated keys in order, unique, capped, the focused ke
     { key: 'w-2' }, { key: 'BAD KEY' }, { key: '../escape' }] });
   assert.deepEqual(restored.windows.map((entry) => entry.key), ['main', 'w-2']);
   assert.equal(restored.focused, 'w-2');
-  assert.deepEqual(restored.windows[1].layout, { current: 'b', split: { sessionId: 'c', ratio: 0.4, active: 1 } });
+  assert.deepEqual(restored.windows[1].layout, { current: 'b', split: { panes: [{ sessionId: 'c', col: 1, row: 0 }], colWeights: [0.4, 0.6], rowSplit: 0.5, active: 1 } });
   assert.equal(restorableWindows({ windows: Array.from({ length: 20 }, (_, index) => ({ key: `w-${index}` })) }).windows.length, 8);
   assert.equal(restorableWindows({ focused: 'nope', windows: [{ key: 'w-1' }] }).focused, 'w-1');
   assert.match(newWindowKey(() => 'ABCD-1234-ef'), /^w-abcd1234ef$/);
@@ -136,7 +144,7 @@ test('persistence: open windows and layouts are written debounced, frozen at the
   assert.equal(fs.existsSync(file), false, 'debounced');
   timers.run();
   const written = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.deepEqual(written, { version: 1, focused: 'w-b', windows: [{ key: 'main', layout: { current: 's1', split: null } }, { key: 'w-b', layout: { current: 's2', split: { sessionId: 's3', ratio: 0.62, active: 1 } } }] });
+  assert.deepEqual(written, { version: 1, focused: 'w-b', windows: [{ key: 'main', layout: { current: 's1', split: null } }, { key: 'w-b', layout: { current: 's2', split: { panes: [{ sessionId: 's3', col: 1, row: 0 }], colWeights: [0.62, 0.38], rowSplit: 0.5, active: 1 } } }] });
   // An unchanged report schedules nothing.
   registry.setLayout(b, { current: 's2', split: { sessionId: 's3', ratio: 0.62, active: 1 } });
   assert.equal(timers.pending.size, 0);
@@ -181,7 +189,7 @@ test('window-state per window: the main window keeps window-state.json, others t
 
 test('launchLayout: the first window starts on the new-session page unless it was split; other windows reopen what they showed', () => {
   assert.deepEqual(launchLayout('main', { current: 'a' }), { current: null, split: null });
-  assert.deepEqual(launchLayout('main', { current: 'a', split: { sessionId: 'b', ratio: 0.4, active: 1 } }), { current: 'a', split: { sessionId: 'b', ratio: 0.4, active: 1 } });
+  assert.deepEqual(launchLayout('main', { current: 'a', split: { sessionId: 'b', ratio: 0.4, active: 1 } }), { current: 'a', split: { panes: [{ sessionId: 'b', col: 1, row: 0 }], colWeights: [0.4, 0.6], rowSplit: 0.5, active: 1 } });
   assert.deepEqual(launchLayout('w-1', { current: 'a' }), { current: 'a', split: null });
   const registry = createWindowRegistry();
   const a = new FakeWindow(), b = new FakeWindow();
@@ -196,11 +204,27 @@ test('launchLayout: the first window starts on the new-session page unless it wa
   assert.deepEqual(registry.launchLayoutOf(b), { current: 'y', split: null });
   registry.setLayout(b, { current: 'z', split: { sessionId: 'q' } });
   registry.captureLaunch(b);
-  assert.deepEqual(registry.launchLayoutOf(b), { current: 'z', split: { sessionId: 'q', ratio: 0.5, active: 0 } });
+  assert.deepEqual(registry.launchLayoutOf(b), { current: 'z', split: { panes: [{ sessionId: 'q', col: 1, row: 0 }], colWeights: null, rowSplit: 0.5, active: 0 } });
   // The main window's first load starts on Home; a reload after it (⌘R, a Language change) keeps the open session.
   registry.captureLaunch(a);
   assert.deepEqual(registry.launchLayoutOf(a), { current: null, split: null });
   registry.setLayout(a, { current: 'open', split: null });
   registry.captureLaunch(a);
   assert.deepEqual(registry.launchLayoutOf(a), { current: 'open', split: null });
+});
+
+test('dispatch add-to-prompt (B02 D1): the window showing the session, else the pane window owner, else the newest-focused', () => {
+  const registry = createWindowRegistry();
+  const a = new FakeWindow(), b = new FakeWindow(), c = new FakeWindow();
+  registry.register(a, { key: 'main', layout: { current: 's1' } });
+  registry.register(b, { key: 'w-b', layout: { current: 's2', split: { sessionId: 's3' } } });
+  registry.register(c, { key: 'w-c' });
+  const event = (sessionId, windowId) => ({ kind: 'add-to-prompt', sessionId, text: 'In a.js, line 1:\nfix', ...(windowId ? { windowId } : {}) });
+  assert.deepEqual(registry.dispatch(event('s3', a.id)), [b], 'shown on a split side wins over the owner');
+  assert.deepEqual(events(b), [event('s3', a.id)]);
+  assert.deepEqual(registry.dispatch(event('gone', a.id)), [a], 'nobody shows it: the owner window opens it');
+  assert.deepEqual(registry.dispatch(event('gone')), [c], 'no owner: the newest-focused window');
+  a.destroyed = true;
+  assert.deepEqual(registry.dispatch(event('gone', a.id)), [c], 'a closed owner falls back to the newest-focused');
+  assert.equal(events(a).length, 1);
 });

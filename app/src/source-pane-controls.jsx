@@ -1,3 +1,4 @@
+import {isGoToFileShortcut} from "./diff-go-to-file-model.mjs";
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SourceMenu, useMenuPopup } from "./source-menu";
@@ -268,6 +269,20 @@ function ArrangeTrigger({ tileId, layout, expanded, onMoveToEdge, onToggleExpand
 // the pane supplies. Nothing renders when every section is empty; a single
 // plain item (icon + action, no check/shortcut/submenu) unrolls into that
 // item's own icon button.
+// cd5e3435c U: hinted submenus open on click/ArrowRight, not hover.
+function PaneSettingsItem({ item }) {
+  if (item.items) return <SourceMenu.Submenu onOpenChange={item.onOpenChange}>
+    <SourceMenu.SubmenuTrigger hint={item.hint} trailing={item.trailing} icon={item.icon} disabled={item.disabled}
+      openOnHover={item.hint !== undefined || item.trailing !== undefined ? false : undefined}>{item.label}</SourceMenu.SubmenuTrigger>
+    <SourceMenu.Popup label={item.label} side="right" align="start" sideOffset={-4}>
+      {item.items.map((child, index) => <PaneSettingsItem key={child.value ?? index} item={child} />)}
+    </SourceMenu.Popup>
+  </SourceMenu.Submenu>;
+  return <SourceMenu.Item icon={item.icon} checked={item.checked} checkedRole={item.checkedRole} keepOpen={item.keepOpen}
+    shortcut={item.shortcut} disabled={item.disabled} disabledReason={item.disabledReason} variant={item.variant} description={item.description}
+    hint={item.hint} onClick={item.onSelect}>{item.label}</SourceMenu.Item>;
+}
+
 export function PaneSettingsMenu({ paneName, sections = [], unroll = true }) {
   const [open, setOpen] = useState(null);
   const trigger = useRef(null);
@@ -301,13 +316,7 @@ export function PaneSettingsMenu({ paneName, sections = [], unroll = true }) {
               {index > 0 && !section.noSeparator && <SourceMenu.Separator />}
               <SourceMenu.Group>
                 {section.header && <SourceMenu.GroupLabel>{section.header}</SourceMenu.GroupLabel>}
-                {section.items.map((item, itemIndex) => (
-                  <SourceMenu.Item key={item.value ?? itemIndex} icon={item.icon} checked={item.checked} checkedRole={item.checkedRole} keepOpen={item.keepOpen}
-                    shortcut={item.shortcut} disabled={item.disabled} disabledReason={item.disabledReason} variant={item.variant} description={item.description}
-                    hint={item.hint} onClick={item.onSelect}>
-                    {item.label}
-                  </SourceMenu.Item>
-                ))}
+                {section.items.map((item, itemIndex) => <PaneSettingsItem key={item.value ?? itemIndex} item={item} />)}
               </SourceMenu.Group>
             </React.Fragment>
           ))}
@@ -321,7 +330,13 @@ export function PaneSettingsMenu({ paneName, sections = [], unroll = true }) {
 // aria-label "Search files", no native title; an iconOnly Button with an
 // aria-label shows it as its tooltip (shared-frame ks oe/se).
 export function SourceFilesSearchButton({ onClick }) {
-  return <GhostButton label="Search files" icon="Search" onClick={onClick} data-files-search="" />;
+  const trigger=useRef(null);
+  useEffect(()=>{
+    const root=trigger.current?.closest('.source-file-panel');if(!root)return;
+    const key=event=>{if(!isGoToFileShortcut(event))return;event.preventDefault();event.stopPropagation();if(!event.repeat)onClick();};
+    root.addEventListener('keydown',key);return()=>root.removeEventListener('keydown',key);
+  },[onClick]);
+  return <GhostButton buttonRef={trigger} label="Go to file or search" icon="Search" shortcut="cmd+p" aria-keyshortcuts="Meta+P" onClick={onClick} data-files-search="" />;
 }
 
 // `leading` is the pane's own first trailing control (c_ for the file pane,

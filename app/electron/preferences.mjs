@@ -14,7 +14,7 @@ export const appearanceDefaults = Object.freeze({ motion: 'system', interfaceFon
   codeThemeLight: DEFAULT_CODE_THEMES.light, codeThemeDark: DEFAULT_CODE_THEMES.dark, transcriptView: DEFAULT_TRANSCRIPT_VIEW });
 // Code theme ids are validated against the catalog and their column's mode (a dark theme is not a light theme).
 const codeThemeKeys = { codeThemeLight: 'light', codeThemeDark: 'dark' };
-const choices = { theme:['light','dark','system'], mode:['code','chat'], permission:['auto','ask','acceptEdits','plan','bypass'],
+const choices = { theme:['light','dark','system'], mode:['code','chat','cowork'], permission:['auto','ask','acceptEdits','plan','bypass'],
   motion:['system','reduce'], interfaceFont:['anthropic','system','dyslexic'], transcriptSize:['s','m','l'], transcriptWidth:['s','m','l'],
   transcriptView:[...TRANSCRIPT_VIEWS], locale:[...LOCALE_CODES],
   // Codex-only (main.cjs decorates thread/turn requests for the Codex core): its web_search mode and its personality
@@ -110,6 +110,12 @@ export function settingsPatch(config, patch, models = []) {
     if (!(key in patch)) continue;
     if (typeof patch[key] !== 'boolean') throw new Error(`Invalid ${key} setting.`);
     next[key] = patch[key];
+  }
+  // Settings › Code › Sessions › Prompt suggestions (c71860c77-DzP8HoeV cr, ccPromptSuggestions; unset reads as on):
+  // false hides the core's suggested next prompt in the composer (main.jsx reads config.promptSuggestions !== false).
+  if ('promptSuggestions' in patch) {
+    if (typeof patch.promptSuggestions !== 'boolean') throw new Error('Invalid promptSuggestions setting.');
+    next.promptSuggestions = patch.promptSuggestions;
   }
   if ('allowBypassPermissions' in patch) {
     if (typeof patch.allowBypassPermissions !== 'boolean') throw new Error('Invalid bypass permissions setting.');

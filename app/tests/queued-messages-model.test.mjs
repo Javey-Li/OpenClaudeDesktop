@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   emptyQueue, submitLane, queueFromList, previewText, queuedCountLabel, lockEntry, unlockEntry,
   optimisticRemove, reorderEntries, optimisticReorder, editableDraft, isNotSteerable, lastDequeueable,
+  canSendNow, restoredOrder,
 } from "../src/queued-messages-model.mjs";
 
 const text = (value) => ({ type: "text", text: value, text_elements: [] });
@@ -97,4 +98,25 @@ test("editableDraft restores a queued skill item as its leading /name", () => {
   const skill = { type: "skill", name: "pdf", path: "/s/pdf/SKILL.md" };
   assert.deepEqual(editableDraft({ input: [text("summarize"), skill] }), { text: "/pdf summarize", attachments: [] });
   assert.deepEqual(editableDraft({ input: [skill] }), { text: "/pdf ", attachments: [] });
+});
+
+// B05 C3 'Send now' (cf74bc599 nS/oS onSteer; cc43287c9 :38930-38946): only an unlocked entry of a running turn,
+// one promotion at a time; a refused steer re-adds the entry and reorders it back to its old slot.
+test("Send now is offered for an unlocked entry while a turn runs, one at a time", () => {
+  const queue = queueFromList(list, "t");
+  assert.equal(canSendNow(queue, "q1", { turnId: "turn-1" }), true);
+  assert.equal(canSendNow(queue, "q1", {}), false, "idle: the queue starts the next turn itself");
+  assert.equal(canSendNow(queue, "q1", { turnId: "turn-1", connected: false }), false);
+  assert.equal(canSendNow(queue, "q1", { turnId: "turn-1", archived: true }), false);
+  assert.equal(canSendNow(queue, "q2", { turnId: "turn-1", steeringId: "q1" }), false, "steerBusy lock");
+  assert.equal(canSendNow(lockEntry(queue, "q1"), "q1", { turnId: "turn-1" }), false, "in-flight removal");
+  assert.equal(canSendNow(queue, "missing", { turnId: "turn-1" }), false);
+});
+
+test("a re-added entry is reordered back to its old slot", () => {
+  assert.deepEqual(restoredOrder(["a", "b", "new"], "new", 0), ["new", "a", "b"]);
+  assert.deepEqual(restoredOrder(["a", "b", "new"], "new", 1), ["a", "new", "b"]);
+  assert.equal(restoredOrder(["a", "b", "new"], "new", 2), null, "already last");
+  assert.equal(restoredOrder(["a", "new"], "new", 5), null, "an index past the end stays last");
+  assert.equal(restoredOrder(["a"], "missing", 0), null);
 });

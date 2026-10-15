@@ -132,7 +132,7 @@ const composer = () => page.getByRole("textbox", { name: "Message DeepSeek" });
 // Visible labels without the Icon glyph text nodes (src/icons.jsx renders a private-use codepoint as text).
 const labels = locator => locator.evaluateAll(items => items.map(item => { const clone = item.cloneNode(true); clone.querySelectorAll("[data-cds=Icon]").forEach(icon => icon.remove()); return clone.textContent.trim(); }));
 // shared-11 Enter selects; use the submit control for action routing checks.
-async function slash(text) { await composer().fill(text); await page.getByRole("button", {name:"Send message",exact:true}).click(); }
+async function slash(text) { await composer().fill(text); await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click(); }
 const dialog = () => page.getByRole("dialog", { name: "Settings", exact: true });
 const nav = () => page.getByRole("navigation", { name: "Settings", exact: true });
 async function openSection(command) {
@@ -179,7 +179,7 @@ try {
   await page.locator(".loading-state").waitFor({ state: "detached" });
 
   // 1. shared-22 QC:4132–4166 wraps the label in a dedicated truncating span.
-  // mS:2424–2501 appends Desktop app before Customize; zC does not reorder.
+  // shared-19 ZC: Settings, This computer, then Customize.
   // Keep the exact labels, aria-current and source geometry assertions.
   await openSection("/skills");
   // 1a. shared-22 FC :3620-3650 + jC :3397-3458 {className:"mt-sm"}: while the slow
@@ -221,14 +221,14 @@ try {
     }) }));
     return groups;
   });
-  assert.deepEqual(metrics.nav.map(group => group.title), ["Settings", "Desktop app", "Customize"]);
+  assert.deepEqual(metrics.nav.map(group => group.title), ["Settings", "This computer", "Customize"]);
   // Hooks follows Plugins for a core that lists hooks (capabilities.hooksList; the Codex fixture does).
   assert.deepEqual(metrics.nav[2].buttons.map(button => button.name), ["Skills", "Connectors", "Plugins", "Hooks"]);
   for (const button of metrics.nav[2].buttons) { near(button.height, 32, `${button.name} nav height`, 0.5); assert.equal(button.paddingInline, "8px"); assert.equal(button.gap, "12px"); }
   assert.equal(metrics.nav[2].buttons[0].current, "page");
   // QC/pS:2197–2200,4132–4166 explicitly uses md. shared-frame ra/aa:1654–1677
   // maps md to 20px; compact affects auto only. Correct the old 16px assumption.
-  for (const name of ['Preferences', 'Connectors']) {
+  for (const name of ['General', 'Connectors']) {
     const item = nav().getByRole('button', { name, exact:true });
     const box = await item.evaluate(button => ({
       icon: button.querySelector('[data-cds=Icon]').getBoundingClientRect().width,
@@ -238,7 +238,7 @@ try {
     assert.equal(box.icon, 20, `${name} icon does not stretch with the label`);
     assert.equal(box.label, box.text, `${name} fits the normal 192px navigation`);
   }
-  checks.push("/skills opens Settings with a Customize group (Skills/Connectors/Plugins/Hooks) after Settings and Desktop app; 32px rows, 8px inline padding, 12px icon gap, aria-current on Skills");
+  checks.push("/skills opens Settings with a Customize group (Skills/Connectors/Plugins/Hooks) after Settings and This computer; 32px rows, 8px inline padding, 12px icon gap, aria-current on Skills");
 
   // 1b. customize-skills Ti {missing:"all"} → c27f32a39 Ie: the failed list renders only the
   // role=status failure with a secondary busy "Retry" (no table, no raw backend text).
@@ -263,8 +263,8 @@ try {
   assert.equal((await trace()).slice(count).filter(entry => entry.method === "skills/list").at(0)?.params.forceReload, true, "Retry forces skills/list");
   const recovered = await readSeed(); delete recovered.skillsFail; delete recovered.skillsDelayMs; await writeSeed(recovered);
   await skillsRetry.click();
-  await page.getByRole("table", { name: "Skills", exact: true }).locator("tbody tr").nth(4).waitFor();
-  checks.push("Skills load failure: only the Ie role=status 'Couldn’t load your skills.' with a secondary size-sm (Za) CDS 'Retry' (no table/notice, raw error to console only); Retry stays on the failure with aria-busy during a failing forceReload skills/list and recovers the table once the backend answers");
+  await page.locator('[data-testid="skills-tabbed-list-row"]').nth(4).waitFor();
+  checks.push("Skills load failure: only the Ie role=status 'Couldn’t load your skills.' with a secondary size-sm (Za) CDS 'Retry' (no list/notice, raw error to console only); Retry stays on the failure with aria-busy during a failing forceReload skills/list and recovers the list once the backend answers");
   // Plugins: no classic-page failure branch in the source; so() with the catalog copy.
   await nav().getByRole("button", { name: "Plugins", exact: true }).click();
   await page.locator('[data-cz-page="plugins"] [data-cz-skeleton="plugins"]').waitFor();
@@ -278,14 +278,16 @@ try {
   const pluginsBack = await readSeed(); delete pluginsBack.pluginsFail; delete pluginsBack.pluginsDelayMs; await writeSeed(pluginsBack);
   count = (await trace()).length;
   await pluginsRetry.click();
-  await page.getByRole("table", { name: "Plugins", exact: true }).locator("tbody tr").nth(1).waitFor();
+  await page.locator('[data-testid="plugins-tabbed-list-row"]').nth(1).waitFor();
   assert.ok((await trace()).slice(count).some(entry => entry.method === "plugin/installed"), "Try again re-lists plugins");
   await nav().getByRole("button", { name: "Skills", exact: true }).click();
-  checks.push("Plugins loading shows the jC skeleton (no icon slot, no 'Loading plugins…'); a failed plugin/installed renders only so() 'Couldn’t load plugins.' + secondary 'Try again', which re-lists and restores the table");
+  checks.push("Plugins loading shows the jC skeleton (no icon slot, no 'Loading plugins…'); a failed plugin/installed renders only so() 'Couldn’t load plugins.' + secondary 'Try again', which re-lists and restores the list");
 
-  // 2. Skills table geometry.
-  const skillsTable = page.getByRole("table", { name: "Skills", exact: true });
-  await skillsTable.locator("tbody tr").nth(4).waitFor();
+  // 2. Skills list (B24: c5e558aae "Your skills" tabbed list, ccea1f474 Ws rows over c27f32a39 je).
+  const skillsTable = page.getByTestId("skills-tabbed-list-mine");
+  const skillRows = skillsTable.locator('[data-testid="skills-tabbed-list-row"]');
+  const openSkill = (file) => skillsTable.locator(`[data-row-id="${file}"] > button`).click();
+  await skillRows.nth(4).waitFor();
   // cc011544b:846–978: real catalog subpaths and More query seed.
   // Exercise protocol-backed entries; never inject result rows into the DOM.
   const catalogTraceStart = (await trace()).length;
@@ -331,64 +333,43 @@ try {
   await globalSearch.fill("fx");
   await page.getByRole("button", {name:"1 more match in Skills",exact:true}).click();
   assert.equal(await page.getByRole("searchbox", {name:"Search skills",exact:true}).inputValue(),"fx");
-  assert.equal(await skillsTable.locator('tbody tr').count(),4);
+  assert.equal(await skillRows.count(),4);
   await page.getByRole("button", {name:"Clear search",exact:true}).click();
-  await skillsTable.locator("tbody tr").nth(4).waitFor();
+  await skillRows.nth(4).waitFor();
   assert.equal((await trace()).slice(catalogTraceStart).filter(entry=>['skills/config/write','config/batchWrite'].includes(entry.method)).length,0);
   checks.push("Settings catalog search opens exact real skill/connector/plugin-skill details; disabled skill stays disabled, plugin-skill is not duplicated, More seeds the actual list without configuration writes");
   // ccefd43d9 SearchInput: Clear retains the expanded field; Escape closes it.
   // Restore the initial collapsed state for the existing independent shell check.
   await page.getByRole("searchbox", {name:"Search skills",exact:true}).press("Escape");
-  assert.deepEqual(await skillsTable.getByRole("columnheader").allTextContents(), ["Skill", "Last updated", "Author"]);
-  metrics.tokens = { hControl: await lengthToken("--cds-h-control"), padSm: await lengthToken("--cds-pad-sm"), footnote: await lengthToken("--cds-font-size-footnote"), textSecondary: await token("--cds-text-secondary"), alpha1: await page.evaluate(() => { const probe = document.createElement("span"); probe.style.borderTop = "1px solid var(--cds-alpha-1)"; document.querySelector(".ss-dialog").appendChild(probe); const value = getComputedStyle(probe).borderTopColor; probe.remove(); return value; }) };
-  metrics.skillsTable = await skillsTable.evaluate(table => {
-    const ths = [...table.querySelectorAll("th")].map(th => { const style = getComputedStyle(th), rect = th.getBoundingClientRect(); return { text: th.textContent, height: rect.height, width: rect.width, fontSize: style.fontSize, color: style.color, weight: style.fontWeight }; });
-    const rows = [...table.querySelectorAll("tbody tr")].map(tr => { const td = tr.querySelector("td"), style = getComputedStyle(td); return { id: tr.getAttribute("data-row-id"), error: tr.hasAttribute("data-skill-error"), height: tr.getBoundingClientRect().height, tdHeight: td.getBoundingClientRect().height, borderBottom: style.borderBottomWidth, borderColor: style.borderBottomColor, borderTop: style.borderTopWidth, contentHeight: style.height, paddingTop: style.paddingTop,
-      cells: [...tr.querySelectorAll("td")].map(cell => cell.textContent), badge: tr.querySelector("td:first-child .cz-badge")?.textContent ?? null, dashHidden: tr.querySelector("td:nth-child(2) [aria-hidden=true]")?.textContent ?? null }; });
-    return { ths, rows, role: table.getAttribute("role") || table.tagName.toLowerCase(), minWidth: getComputedStyle(table).minWidth, layout: getComputedStyle(table).tableLayout };
-  });
+  metrics.tokens = { hControl: await lengthToken("--cds-h-control"), padSm: await lengthToken("--cds-pad-sm"), padMd: await lengthToken("--cds-pad-md"), footnote: await lengthToken("--cds-font-size-footnote"), textSecondary: await token("--cds-text-secondary") };
   assert.equal(metrics.tokens.hControl, 32, "dialog density resolves h-control to 32px");
-  for (const th of metrics.skillsTable.ths) { near(th.height, metrics.tokens.hControl, `${th.text} header height`, 0.5); assert.equal(parseFloat(th.fontSize), metrics.tokens.footnote, `${th.text} header font-size = footnote token`); assert.equal(th.color, metrics.tokens.textSecondary, `${th.text} header color = secondary token`); }
-  near(metrics.skillsTable.ths[1].width, 128, "Last updated column"); near(metrics.skillsTable.ths[2].width, 160, "Author column");
-  assert.equal(metrics.skillsTable.layout, "fixed");
-  assert.equal(metrics.skillsTable.rows.length, 5, "4 skills + 1 error row");
-  const dataRows = metrics.skillsTable.rows.filter(row => !row.error);
-  assert.equal(dataRows.length, 4);
-  const rowHeight = 28 + 2 * metrics.tokens.padSm;
-  for (const [index, row] of metrics.skillsTable.rows.entries()) {
-    assert.equal(row.contentHeight, "28px", `row ${row.id} content height`); assert.equal(row.paddingTop, `${metrics.tokens.padSm}px`);
-    near(row.tdHeight, rowHeight + 1 + (index === 0 ? 1 : 0), `row ${row.id} cell box (28 + 2×pad-sm + border)`, 0.5);
-    assert.equal(row.borderBottom, "1px"); assert.equal(row.borderColor, metrics.tokens.alpha1, `row ${row.id} border colour = alpha-1`);
-    assert.equal(row.borderTop, index === 0 ? "1px" : "0px");
-  }
-  const byId = Object.fromEntries(dataRows.map(row => [path.basename(path.dirname(row.id)), row]));
-  assert.equal(byId["fx-beta"].badge, "Disabled"); assert.equal(byId["fx-alpha"].badge, null);
-  assert.equal(byId["fx-alpha"].cells[2], "You"); assert.equal(byId["fx-repo"].cells[2], "Repository"); assert.equal(byId["fx-plugin-skill"].cells[2], "Fx Plugin");
-  assert.equal(byId["fx-alpha"].cells[1], shortDate(alphaMtime), "Last updated = real SKILL.md mtime as a short date");
-  assert.equal(byId["fx-repo"].dashHidden, "—", "missing SKILL.md shows an aria-hidden dash");
-  assert.equal(metrics.skillsTable.rows.find(row => row.error).cells[0].includes("invalid frontmatter"), true);
-  // Badge (shared-frame :1958-1975) = h-control-nested / px-sm / rounded-chip / text-caption, all re-mapped by data-size=xs.
-  metrics.badgeTokens = { nested: await lengthToken("--cds-h-control-nested--xs"), padSm: await lengthToken("--cds-pad-sm--xs"),
-    caption: await lengthToken("--cds-font-size-caption--xs"), radius: await lengthToken("--cds-radius") };
-  metrics.badge = await skillsTable.locator(`tr[data-row-id="${skillFile(betaDir)}"] .cz-badge`).evaluate(node => {
-    const style = getComputedStyle(node), rect = node.getBoundingClientRect();
-    return { height: rect.height, paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight), radius: parseFloat(style.borderTopLeftRadius), fontSize: parseFloat(style.fontSize), size: node.getAttribute("data-size") };
-  });
-  assert.equal(metrics.badge.size, "xs");
-  assert.equal(metrics.badgeTokens.nested, 18, "comfortable resolves h-control-nested--xs to 18px");
-  near(metrics.badge.height, metrics.badgeTokens.nested, "Disabled badge height = h-control-nested xs", 0.5);
-  near(metrics.badge.paddingLeft, metrics.badgeTokens.padSm, "badge px-sm", 0.5);
-  near(metrics.badge.paddingRight, metrics.badgeTokens.padSm, "badge px-sm", 0.5);
-  near(metrics.badge.radius, metrics.badgeTokens.nested / 4, "badge rounded-chip = nested/4", 0.1);
-  near(metrics.badge.fontSize, metrics.badgeTokens.caption, "badge text-caption", 0.1);
-  // The dialog is comfortable, so the row's hover/selected ends use --cds-radius = 8px, not the compact 6px.
-  await skillsTable.locator(`tr[data-row-id="${skillFile(alphaDir)}"]`).hover();
-  metrics.rowRadius = await skillsTable.locator(`tr[data-row-id="${skillFile(alphaDir)}"] td`).first().evaluate(node => parseFloat(getComputedStyle(node).borderTopLeftRadius));
-  assert.equal(metrics.badgeTokens.radius, 8, "comfortable --cds-radius");
-  near(metrics.rowRadius, metrics.badgeTokens.radius, "hovered row end radius = --cds-radius", 0.1);
+  // ccefd43d9 b inDialog: the c3c330885 D toolbar beside the title — the "Your skills" tab, then the Filter and Sort triggers.
+  const skillsHeader = page.locator('[data-cz-page="skills"] .cz-header');
+  assert.deepEqual(await skillsHeader.getByRole("tab").allTextContents(), ["Your skills"]);
+  assert.equal(await skillsHeader.getByRole("button", { name: "Filter", exact: true }).getAttribute("data-variant"), "secondary");
+  assert.equal(await skillsHeader.getByRole("button", { name: "Sort by Last edited", exact: true }).evaluate(node => node.textContent.replace(/[\uE000-\uF8FF]/g, "")), "Sort · Last edited", "the Sort icon-font glyph aside");
+  assert.equal(await skillsHeader.getByRole("button", { name: "Reset filters and sort", exact: true }).count(), 0, "nothing held: no reset");
+  // c6a2a31c4 Nc order and c27f32a39 K headers with their "· {count}".
+  assert.deepEqual(await skillsTable.locator("[data-cz-section]").evaluateAll(nodes => nodes.map(node => node.textContent)),
+    ["Needs attention· 1", "In this project· 1", "Created by you· 3"]);
+  metrics.skillsList = await skillsTable.evaluate(list => [...list.querySelectorAll('[data-testid="skills-tabbed-list-row"]')].map(row => {
+    const rect = row.getBoundingClientRect(), tile = row.querySelector('[data-testid="tabbed-list-icon-tile"]').getBoundingClientRect();
+    return { id: row.getAttribute("data-row-id"), error: row.hasAttribute("data-skill-error"), height: rect.height, tile: [tile.width, tile.height], padding: getComputedStyle(row).paddingLeft,
+      name: row.querySelector(".text-body-medium")?.textContent ?? null, credit: row.querySelector(".text-footnote.text-secondary, .truncate.text-secondary")?.textContent ?? null,
+      off: row.querySelector('[data-cds="Badge"][data-variant="neutral"]')?.textContent ?? null, time: row.querySelector("time")?.getAttribute("datetime") ?? null,
+      chip: row.querySelector("[data-cz-plugin-chip]")?.textContent ?? null, menu: row.querySelector('button[aria-haspopup="menu"]')?.getAttribute("aria-label") ?? null };
+  }));
+  assert.equal(metrics.skillsList.length, 5, "4 skills + 1 error row");
+  const byId = Object.fromEntries(metrics.skillsList.filter(row => !row.error).map(row => [path.basename(path.dirname(row.id)), row]));
+  for (const row of metrics.skillsList) { near(row.tile[0], 36, `${row.id} size-9 tile`, 0.5); assert.equal(row.padding, `${metrics.tokens.padMd}px`, "row p-md"); }
+  assert.equal(byId["fx-beta"].off, "Disabled"); assert.equal(byId["fx-alpha"].off, null);
+  assert.equal(byId["fx-alpha"].credit, "by you·Alpha fixture skill", "Ie: credit, the aria-hidden ·, then the description"); assert.equal(byId["fx-plugin-skill"].chip, "Fx Plugin");
+  assert.equal(byId["fx-alpha"].time, new Date(alphaMtime * 1000).toISOString(), "the trailing time is the real SKILL.md mtime");
+  assert.equal(byId["fx-repo"].time, null, "no SKILL.md: no time");
+  assert.equal(byId["fx-alpha"].menu, "More actions for fx-alpha"); assert.equal(byId["fx-plugin-skill"].menu, null, "a plugin's skill has no menu (ec)");
+  assert.equal(metrics.skillsList.find(row => row.error).credit.includes("invalid frontmatter"), true);
   await page.screenshot({ path: path.join(directory, "skills.png") });
-  checks.push(`Badge xs = ${metrics.badge.height}px / ${metrics.badge.paddingLeft}px / ${metrics.badge.radius}px / ${metrics.badge.fontSize}px from the comfortable xs tokens; hovered row ends use --cds-radius ${metrics.rowRadius}px`);
-  checks.push(`Skills table: exact columns, 32px footnote/secondary headers, 128/160px columns, 5 rows (4 skills + error) at ${rowHeight}px + 1px alpha-1 borders, Disabled badge, You/Repository/plugin authors, real mtime date and aria-hidden dash`);
+  checks.push(`Skills list: "Your skills" toolbar with Filter / Sort · Last edited, Needs attention / In this project / Created by you sections with counts, 36px tiles, p-md rows, Disabled badge, "by you" credits, the Fx Plugin chip, real mtime <time> and the More actions menu`);
 
   // Source page-shell U: min-h-14 header outside the overflow-y-auto body.
   // No GUI run is claimed by merely adding these assertions.
@@ -440,44 +421,42 @@ try {
   assert.equal(await page.locator('.ss-settings-dialog').count(), 1);
   await searchToggle.click();
   await search.fill("");
-  await skillsTable.locator("tbody tr").nth(4).waitFor();
-  const owner = page.getByRole("radiogroup", { name: "Filter by owner", exact: true });
-  assert.deepEqual(await owner.getByRole("radio").allTextContents(), ["All", "Personal", "Repository", "Plugins"]);
-  // F13 shared-7 SR uncontained, size sm (page shell De): h-control--sm, gap-[1px], thumb ring inset 1px --cds-border on
-  // --cds-segmented-control-thumb, text-secondary labels, the checked one text-primary at weight 400; q table mt-sm below it.
-  const segmentMetrics = async (group) => group.evaluate(node => {
-    const thumb = node.querySelector(".ss-segment-thumb"), radios = [...node.querySelectorAll("[role=radio]")], checked = node.querySelector("[role=radio][aria-checked=true]"), unchecked = radios.find(radio => radio !== checked);
-    const table = node.parentElement.querySelector("table"), rect = node.getBoundingClientRect();
-    return { height: rect.height, gap: getComputedStyle(node).columnGap, padding: getComputedStyle(node).paddingTop, track: getComputedStyle(node).backgroundColor, variant: node.dataset.variant, size: node.dataset.size,
-      thumbShadow: getComputedStyle(thumb).boxShadow, thumbBg: getComputedStyle(thumb).backgroundColor, thumbHeight: thumb.getBoundingClientRect().height, thumbLeft: thumb.getBoundingClientRect().left - checked.getBoundingClientRect().left,
-      checkedColor: getComputedStyle(checked).color, checkedWeight: getComputedStyle(checked).fontWeight, uncheckedColor: getComputedStyle(unchecked).color,
-      radius: parseFloat(getComputedStyle(checked).borderTopLeftRadius), tableGap: table ? table.getBoundingClientRect().top - rect.bottom : null };
-  });
-  metrics.ownerSegments = await segmentMetrics(owner);
-  const segmentTokens = { smControl: await lengthToken("--cds-h-control--sm"), border: await token("--cds-border"), thumb: await bgToken("--cds-segmented-control-thumb"),
-    primary: await token("--cds-text-primary"), secondary: await token("--cds-text-secondary"), smRadius: await lengthToken("--cds-radius--sm") };
-  assert.deepEqual([metrics.ownerSegments.variant, metrics.ownerSegments.size], ["uncontained", "sm"]);
-  near(metrics.ownerSegments.height, segmentTokens.smControl, "owner radiogroup = h-control--sm", 0.5);
-  assert.equal(metrics.ownerSegments.gap, "1px"); assert.equal(metrics.ownerSegments.padding, "0px"); assert.equal(metrics.ownerSegments.track, "rgba(0, 0, 0, 0)");
-  assert.equal(metrics.ownerSegments.thumbShadow, `${segmentTokens.border} 0px 0px 0px 1px inset`, "xR inset --cds-border ring");
-  assert.equal(metrics.ownerSegments.thumbBg, segmentTokens.thumb); near(metrics.ownerSegments.thumbHeight, segmentTokens.smControl, "inset-y-0 thumb", 0.5); near(metrics.ownerSegments.thumbLeft, 0, "thumb under the checked label", 0.5);
-  assert.equal(metrics.ownerSegments.checkedColor, segmentTokens.primary); assert.equal(metrics.ownerSegments.checkedWeight, "400"); assert.equal(metrics.ownerSegments.uncheckedColor, segmentTokens.secondary);
-  near(metrics.ownerSegments.radius, segmentTokens.smRadius - 2, "label radius = --cds-radius - 2px", 0.1);
-  near(metrics.ownerSegments.tableGap, metrics.tokens.padSm, "segments → table = q mt-sm (no body gap)", 0.5);
-  checks.push(`F13 owner filter = uncontained sm SourceSegments: ${metrics.ownerSegments.height}px, gap 1px, no track, ring ${metrics.ownerSegments.thumbShadow}, checked weight 400 text-primary, labels text-secondary; table ${metrics.ownerSegments.tableGap}px below (mt-sm)`);
-  await owner.getByRole("radio", { name: "Personal", exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll('table[aria-label="Skills"] tbody tr').length === 2);
-  assert.deepEqual(await skillsTable.locator("tbody tr").evaluateAll(rows => rows.map(row => row.getAttribute("data-skill-scope"))), ["user", "user"]);
-  await owner.getByRole("radio", { name: "All", exact: true }).click();
-  await skillsTable.locator("tbody tr").nth(4).waitFor();
-  checks.push(`Page search is collapsible: a ${metrics.searchCollapsed.width}px ghost Search button expands to a ${Math.round(metrics.searchExpanded)}px role=search field with a Clear search button; 'nomatch' empties the table with the official copy; owner radiogroup (All/Personal/Repository/Plugins, shown for ≥2 groups) filters rows`);
+  await skillRows.nth(4).waitFor();
+  // c3c3eda79 ct: with plugin skills listed the Filter menu is "Filter by" › Plugin / Created by submenus.
+  const filterButton = skillsHeader.getByRole("button", { name: "Filter", exact: true });
+  await filterButton.click();
+  const filterMenu = page.getByRole("menu", { name: "Filter", exact: true });
+  await filterMenu.waitFor();
+  await filterMenu.getByRole("menuitem", { name: "Created by", exact: true }).click();
+  const createdBy = page.getByRole("menu", { name: "Created by", exact: true });
+  await createdBy.waitFor();
+  assert.deepEqual(await createdBy.locator('[role="menuitemradio"] .smenu-label').allTextContents(), ["All", "You", "Your organization", "Codex"]);
+  await createdBy.getByRole("menuitemradio", { name: "You", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="skills-tabbed-list-row"]').length === 4);
+  assert.equal(await skillsTable.locator("[data-skill-error]").count(), 0, "an error row has no owner");
+  await skillsHeader.getByRole("button", { name: "Filter, 1 on", exact: true }).waitFor();
+  await skillsHeader.getByRole("button", { name: "Reset filters and sort", exact: true }).click();
+  await skillRows.nth(4).waitFor();
+  // c5e558aae Nt / At: a held sort (Name) is one untitled run; the reset puts Last edited and the sections back.
+  await skillsHeader.getByRole("button", { name: "Sort by Last edited", exact: true }).click();
+  const sortMenu = page.getByRole("menu", { name: "Sort by", exact: true });
+  assert.deepEqual(await sortMenu.locator('[role="menuitemradio"] .smenu-label').allTextContents(), ["Last edited", "Name", "Plugin name"]);
+  await sortMenu.getByRole("menuitemradio", { name: "Name", exact: true }).click();
+  await skillsHeader.getByRole("button", { name: "Sort by Name", exact: true }).waitFor();
+  assert.equal(await skillsTable.locator("[data-cz-section]").count(), 0, "a held sort lists one flat run");
+  const named = await skillRows.evaluateAll(rows => rows.map(row => row.querySelector(".text-body-medium").textContent));
+  assert.deepEqual(named, [...named].sort((a, b) => a.localeCompare(b)));
+  await skillsHeader.getByRole("button", { name: "Reset filters and sort", exact: true }).click();
+  await skillsHeader.getByRole("button", { name: "Sort by Last edited", exact: true }).waitFor();
+  assert.equal(await skillsTable.locator("[data-cz-section]").count(), 3);
+  checks.push(`Page search is collapsible: a ${metrics.searchCollapsed.width}px ghost Search button expands to a ${Math.round(metrics.searchExpanded)}px role=search field with a Clear search button; 'nomatch' empties the list with the official copy; Filter › Created by › You leaves the 4 owned skills ("Filter, 1 on"), Sort › Name lists one flat run by name, and Reset filters and sort restores both`);
 
   // 4. Drill-in detail (page shell W): the list is replaced by an ArrowLeft "Skills" header plus the
   // skill header and the SKILL.md file view (customize-skill-detail :276 = flex flex-col h-full pb-xs px-xl gap-md).
   const detail = page.locator(".cz-skill-detail");
   const back = page.locator(".cz-drill-header").getByRole("button", { name: "Skills", exact: true });
-  const goBack = async () => { await back.click(); await skillsTable.locator("tbody tr").first().waitFor(); };
-  await skillsTable.locator(`tr[data-row-id="${skillFile(alphaDir)}"]`).click();
+  const goBack = async () => { await back.click(); await skillRows.first().waitFor(); };
+  await openSkill(skillFile(alphaDir));
   await detail.waitFor();
   assert.equal(await skillsTable.count(), 0, "the drill-in replaces the list, it is not a side card");
   assert.equal(await page.locator('[data-cz-page="skills"] [role=search]').count(), 0, "detailPresenting hides the page header");
@@ -535,9 +514,21 @@ try {
   assert.ok(Number(metrics.skillDetail.titleWeight) >= 500, `font-large-bold weight ${metrics.skillDetail.titleWeight}`);
   assert.deepEqual(metrics.skillDetail.facts, [["Added by", "You"], ["Last updated", shortDate(alphaMtime)]]); assert.equal(metrics.skillDetail.factLabelColor, metrics.detailTokens.muted);
   assert.equal(await detail.locator(".cz-skill-head h2").textContent(), "fx-alpha");
-  await detail.locator("[data-cds=InfoTip]").hover();
-  await page.locator('[data-cds="Tooltip"]').filter({ hasText: "Codex uses these descriptions when deciding which skills to use in chat." }).waitFor();
+  // B37 shared-frame pw: the InfoTip is a Popover (role dialog "More info") that opens on hover and stays open on a click.
+  const infoTip = detail.locator("[data-cds=InfoTip]");
+  const infoPopup = page.getByRole("dialog", { name: "More info", exact: true }).filter({ hasText: "Codex uses these descriptions when deciding which skills to use in chat." });
+  await infoTip.hover();
+  await infoPopup.waitFor();
   await page.mouse.move(2, 2);
+  await infoPopup.waitFor({ state: "detached" });
+  await infoTip.click();
+  await infoPopup.waitFor();
+  assert.equal(await infoTip.getAttribute("aria-expanded"), "true");
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(400);
+  assert.equal(await infoPopup.count(), 1, "a clicked InfoTip stays open after the pointer leaves");
+  await page.keyboard.press("Escape");
+  await infoPopup.waitFor({ state: "detached" });
   checks.push(`F13 skill detail geometry px 24 / pb 24 / gap 12, header min-h ${metrics.skillDetail.headHeight}px py 12 -mr-24 pr-md, h2 font-large-bold; facts Added by / Last updated; Description h3 + InfoTip tooltip; files mt-2`);
   await page.locator("[data-skill-file]").waitFor();
   // c2eed normal + shared-16 inherit Markdown: rendered preview by default;
@@ -594,9 +585,9 @@ try {
   assert.deepEqual(writes.at(-1).params, { path: skillFile(alphaDir), enabled: false });
   await page.screenshot({ path: path.join(directory, "skill-detail.png") });
   await goBack();
-  await page.waitForFunction(path => document.querySelector(`tr[data-row-id="${CSS.escape(path)}"] td:first-child .cz-badge`)?.textContent === "Disabled", skillFile(alphaDir));
+  await page.waitForFunction(path => document.querySelector(`[data-testid="skills-tabbed-list-row"][data-row-id="${CSS.escape(path)}"] [data-cds="Badge"][data-variant="neutral"]`)?.textContent === "Disabled", skillFile(alphaDir));
   await fs.writeFile(path.join(profile, "customize-fail.marker"), "fail");
-  await skillsTable.locator(`tr[data-row-id="${skillFile(repoDir)}"]`).click();
+  await openSkill(skillFile(repoDir));
   await page.waitForFunction(() => document.querySelector('[role=switch][aria-label="Enable skill"]')?.getAttribute("aria-checked") === "true");
   // fx-repo has no SKILL.md on disk → the official "No files to show." copy.
   await page.getByText("No files to show.", { exact: true }).waitFor();
@@ -628,8 +619,8 @@ try {
   await revealToast.waitFor({ state: "detached" });
   assert.equal(await app.evaluate(() => globalThis.__skillsMcpReveal), undefined, "a missing skill file is never revealed");
   await goBack();
-  assert.equal(await skillsTable.locator(`tr[data-row-id="${skillFile(repoDir)}"] .cz-badge`).count(), 0);
-  await skillsTable.locator(`tr[data-row-id="${skillFile(alphaDir)}"]`).click();
+  assert.equal(await skillsTable.locator(`[data-row-id="${skillFile(repoDir)}"] [data-cds="Badge"][data-variant="neutral"]`).count(), 0);
+  await openSkill(skillFile(alphaDir));
   await page.waitForFunction(name => document.querySelector(".cz-skill-detail h2")?.textContent === name, "fx-alpha");
   await showInFolder("fx-alpha");
   const revealed = await (async () => { for (let i = 0; i < 50; i++) { const value = await app.evaluate(() => globalThis.__skillsMcpReveal); if (value) return value; await new Promise(resolve => setTimeout(resolve, 40)); } return undefined; })();
@@ -642,7 +633,7 @@ try {
   for (const entry of changed.skills) for (const item of entry.skills) if (item.path === skillFile(betaDir)) item.enabled = true;
   await writeSeed(changed);
   await emit([{ method: "skills/changed", params: {} }]);
-  await page.waitForFunction(path => { const row = document.querySelector(`tr[data-row-id="${CSS.escape(path)}"]`); return row && !row.querySelector(".cz-badge"); }, skillFile(betaDir));
+  await page.waitForFunction(path => { const row = document.querySelector(`[data-testid="skills-tabbed-list-row"][data-row-id="${CSS.escape(path)}"]`); return row && !row.querySelector('[data-cds="Badge"][data-variant="neutral"]'); }, skillFile(betaDir));
   const afterChange = await trace();
   const notifyAt = afterChange.filter(entry => entry.method === "notify:skills/changed").at(-1);
   const relist = afterChange.filter(entry => entry.method === "skills/list" && Date.parse(entry.at) >= Date.parse(notifyAt.at)).at(0);
@@ -719,6 +710,17 @@ try {
   await page.locator('[data-cds="Tooltip"]').filter({ hasText: "Sign-in required" }).waitFor({ state: "detached" });
   await page.screenshot({ path: path.join(directory, "connectors.png") });
   checks.push("Connectors: one row per server, Check + sr-only Connected, role=status spinner + Connecting, ca Warning + Reconnect/Sign in with the explanation only in sr-only and the hover tooltip; Type/Status columns 160px, warning cells text-warning gap-xs with the action inside the cell; list uses the open thread with toolsAndAuthOnly");
+  // F13 shared-7 SR uncontained, size sm: the segmented-control metrics (kept for the status filter after the owner segments went).
+  const segmentMetrics = async (group) => group.evaluate(node => {
+    const thumb = node.querySelector(".ss-segment-thumb"), radios = [...node.querySelectorAll("[role=radio]")], checked = node.querySelector("[role=radio][aria-checked=true]"), unchecked = radios.find(radio => radio !== checked);
+    const table = node.parentElement.querySelector("table"), rect = node.getBoundingClientRect();
+    return { height: rect.height, gap: getComputedStyle(node).columnGap, padding: getComputedStyle(node).paddingTop, track: getComputedStyle(node).backgroundColor, variant: node.dataset.variant, size: node.dataset.size,
+      thumbShadow: getComputedStyle(thumb).boxShadow, thumbBg: getComputedStyle(thumb).backgroundColor, thumbHeight: thumb.getBoundingClientRect().height, thumbLeft: thumb.getBoundingClientRect().left - checked.getBoundingClientRect().left,
+      checkedColor: getComputedStyle(checked).color, checkedWeight: getComputedStyle(checked).fontWeight, uncheckedColor: getComputedStyle(unchecked).color,
+      radius: parseFloat(getComputedStyle(checked).borderTopLeftRadius), tableGap: table ? table.getBoundingClientRect().top - rect.bottom : null };
+  });
+  const segmentTokens = { smControl: await lengthToken("--cds-h-control--sm"), border: await token("--cds-border"), thumb: await bgToken("--cds-segmented-control-thumb"),
+    primary: await token("--cds-text-primary"), secondary: await token("--cds-text-secondary"), smRadius: await lengthToken("--cds-radius--sm") };
   // F13 customize-connectors :3580-3600: the uncontained sm "Filter by status" sits with the table in a gap-sm block
   // (the table has no mt-sm there); Connected keeps only the connected row, Not connected the other three.
   const statusFilter = page.getByRole("radiogroup", { name: "Filter by status", exact: true });
@@ -969,7 +971,7 @@ try {
   await newMenu.waitFor({ state: "detached" });
   count = (await trace()).length;
   // R04: "Remove {serverName}?" alert dialog layered above the z-500 Settings backdrop, initial focus on Remove.
-  const removeDialog = page.getByRole("dialog", { name: "Remove fx-new?", exact: true });
+  const removeDialog = page.getByRole("alertdialog", { name: "Remove fx-new?", exact: true });
   await removeDialog.waitFor();
   assert.equal(await connectorDrill.getByRole("group", { name: "Confirm removal" }).count(), 0, "no inline confirmation card");
   const confirmRemove = removeDialog.getByRole("button", { name: "Remove", exact: true });
@@ -1029,28 +1031,40 @@ try {
 
   // 7. Plugins.
   await nav().getByRole("button", { name: "Plugins", exact: true }).click();
-  const pluginTable = page.getByRole("table", { name: "Plugins", exact: true });
-  await pluginTable.locator("tbody tr").nth(1).waitFor();
-  assert.deepEqual(await pluginTable.getByRole("columnheader").allTextContents(), ["Plugin", "Author", "Skills", "Last updated"]);
+  // B24: c6a2a31c4 "Your plugins" tabbed list (ccea1f474 Ul rows) with the Show filter and sort in the header toolbar.
+  const pluginTable = page.getByTestId("plugins-tabbed-list-mine");
+  const pluginRow = (id) => pluginTable.locator(`[data-testid="plugins-tabbed-list-row"][data-plugin-id="${id}"]`);
+  const openPlugin = (id) => pluginRow(id).locator(":scope > button").click();
+  await pluginTable.locator('[data-testid="plugins-tabbed-list-row"]').nth(1).waitFor();
+  const pluginsHeader = page.locator('[data-cz-page="plugins"] .cz-header');
+  assert.deepEqual(await pluginsHeader.getByRole("tab").allTextContents(), ["Your plugins"]);
   assert.equal(await page.getByRole("button", { name: "Refresh", exact: true }).count(), 0, "no invented Refresh action in the Plugins header");
-  metrics.pluginColumns = await pluginTable.locator("th").evaluateAll(ths => ths.map(th => th.getBoundingClientRect().width));
-  near(metrics.pluginColumns[1], 160, "Author"); near(metrics.pluginColumns[2], 80, "Skills"); near(metrics.pluginColumns[3], 128, "Last updated");
-  assert.equal(await pluginTable.locator("tbody tr").count(), 2, "installed plugins only");
-  assert.equal(await pluginTable.locator('tr[data-plugin-id="fx-off"] .cz-badge').textContent(), "Disabled");
-  assert.equal(await pluginTable.locator('tr[data-plugin-id="fx-plugin"] td').nth(2).textContent(), "1", "skills count from skills/list rows with the plugin id");
-  assert.equal(await pluginTable.locator('tr[data-plugin-id="fx-plugin"] td').nth(1).textContent(), "Fixture Labs");
-  // F13 shared-4 _L: unique display names carry no "(Fixture Market)" suffix; the name cell holds a single text span.
+  assert.equal(await pluginTable.locator('[data-testid="plugins-tabbed-list-row"]').count(), 2, "installed plugins only");
+  assert.deepEqual(await pluginTable.locator("[data-cz-section]").evaluateAll(nodes => nodes.map(node => node.textContent)), ["Created by you· 1", "From marketplaces you added· 1"]);
+  assert.equal(await pluginRow("fx-off").locator('[data-cds="Badge"][data-variant="neutral"]').textContent(), "Disabled");
+  assert.equal(await pluginRow("fx-plugin").locator(".truncate.text-secondary").textContent(), "by Fixture Labs·Fixture plugin");
+  assert.equal(await pluginRow("fx-off").locator(".truncate.text-secondary").textContent(), "by Fixture Labs·0 skills", "Gl: the skill count when there is no description");
+  // F13 shared-4 _L: unique display names carry no "(Fixture Market)" suffix.
   assert.equal(await pluginTable.locator("[data-plugin-suffix]").count(), 0);
-  assert.deepEqual(await pluginTable.locator('tr[data-plugin-id="fx-plugin"] td:first-child span').allTextContents(), ["Fx Plugin"]);
+  assert.equal(await pluginRow("fx-plugin").locator(".text-body-medium").textContent(), "Fx Plugin");
   assert.equal(await page.getByText("Fixture Market", { exact: true }).count(), 0);
-  // No notice and no body gap: with no segments the q table follows the header with only mt-sm.
-  metrics.pluginsTableGap = await pluginTable.evaluate(table => { const header = table.closest(".cz-page").querySelector(".cz-header"), body = table.closest(".cz-page-body");
-    return { gap: table.getBoundingClientRect().top - (body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingTop)), headerBottom: header.getBoundingClientRect().bottom - body.getBoundingClientRect().top, notices: body.querySelectorAll(".cz-notice").length }; });
-  near(metrics.pluginsTableGap.gap, metrics.tokens.padSm, "Plugins table = mt-sm below the header", 0.5); assert.equal(metrics.pluginsTableGap.notices, 0);
+  // c3c3eda79 lt: Show › Disabled leaves fx-off; the reset (dn clear) brings the other back.
+  await pluginsHeader.getByRole("button", { name: "Filter", exact: true }).click();
+  const showMenu = page.getByRole("menu", { name: "Filter", exact: true });
+  assert.deepEqual(await showMenu.locator('[role="menuitemradio"] .smenu-label').allTextContents(), ["All plugins", "Enabled", "Disabled"]);
+  await showMenu.getByRole("menuitemradio", { name: "Disabled", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="plugins-tabbed-list-row"]').length === 1);
+  assert.equal(await pluginRow("fx-off").count(), 1);
+  await pluginsHeader.getByRole("button", { name: "Reset filters and sort", exact: true }).click();
+  await pluginTable.locator('[data-testid="plugins-tabbed-list-row"]').nth(1).waitFor();
+  // No notice and no body gap: the list follows the header directly.
+  metrics.pluginsTableGap = await pluginTable.evaluate(list => { const body = list.closest(".cz-page-body");
+    return { gap: list.getBoundingClientRect().top - (body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingTop)), notices: body.querySelectorAll(".cz-notice").length }; });
+  near(metrics.pluginsTableGap.gap, 0, "Plugins list starts at the top of the body", 0.5); assert.equal(metrics.pluginsTableGap.notices, 0);
   // F13 c36b3644c be: while plugin/read is held the drill shows the c9d36aa51 skeleton, not "Loading plugin details…".
   const slowRead = await readSeed(); slowRead.pluginReadDelayMs = 1500; await writeSeed(slowRead);
   count = (await trace()).length;
-  await pluginTable.locator('tr[data-plugin-id="fx-plugin"]').click();
+  await openPlugin("fx-plugin");
   const pluginSkeleton = page.getByTestId("plugin-page-skeleton");
   await pluginSkeleton.waitFor();
   metrics.pluginSkeleton = await pluginSkeleton.evaluate(node => ({ bars: [...node.querySelectorAll("[data-cds=Skeleton]")].map(bar => { const rect = bar.getBoundingClientRect(); return [Math.round(rect.width), Math.round(rect.height)]; }).slice(0, 3),
@@ -1062,7 +1076,7 @@ try {
   await page.locator("[data-plugin-skills]").waitFor();
   assert.equal(await pluginSkeleton.count(), 0);
   delete slowRead.pluginReadDelayMs; await writeSeed(slowRead);
-  checks.push("F13 Plugins: no notice, unique names without the marketplace suffix, table mt-sm below the header; the drill shows the plugin-page skeleton (200×24 title, 40×20 pill, 32×32 square, 14 shimmer bars) until plugin/read answers");
+  checks.push("F13 Plugins: no notice, unique names without the marketplace suffix, the list right below the header; the drill shows the plugin-page skeleton (200×24 title, 40×20 pill, 32×32 square, 14 shimmer bars) until plugin/read answers");
   const read = (await trace()).slice(count).find(entry => entry.method === "plugin/read");
   assert.deepEqual(read.params, { pluginName: "fx-plugin", marketplacePath: path.join(codexHome, "plugins/fx-market.json") });
   // c36b3644c :200–538: slash skill labels, contents tabs rather than simultaneous side-panel lists.
@@ -1098,14 +1112,14 @@ try {
   await page.screenshot({ path: path.join(directory, "plugins.png") });
   await pluginDetail.getByRole('button', {name:'Plugins',exact:true}).click();
   await pluginTable.waitFor();
-  assert.equal(await pluginTable.locator('tbody tr').count(), 2);
-  checks.push("Plugins: exact columns with 160/80/128px widths, 2 installed rows, Disabled badge, real skill count, plugin/read detail lists skills/hooks/connectors");
+  assert.equal(await pluginTable.locator('[data-testid="plugins-tabbed-list-row"]').count(), 2);
+  checks.push("Plugins: 'Your plugins' toolbar, Created by you / From marketplaces you added sections, 2 installed rows, Disabled badge, 'by Fixture Labs' credits with the description or skill count, Show › Disabled filters and Reset restores; plugin/read detail lists skills/hooks/connectors");
   // R04 c26e90ba3 qt: a non-local plugin's metadata ends with "Last updated —"; a local one has none.
-  await pluginTable.locator('tr[data-plugin-id="fx-off"]').click();
+  await openPlugin("fx-off");
   await page.locator('[data-cz-detail="plugin"] .cz-plugin-metadata').waitFor();
   assert.deepEqual(await page.locator('[data-cz-detail="plugin"] .cz-plugin-metadata > div').evaluateAll(nodes => nodes.map(node => [node.firstElementChild.textContent, node.lastElementChild.textContent])).then(rows => rows.at(-1)), ["Last updated", "—"]);
   await page.locator('[data-cz-detail="plugin"]').getByRole('button', {name:'Plugins',exact:true}).click();
-  await pluginTable.locator('tr[data-plugin-id="fx-plugin"]').click();
+  await openPlugin("fx-plugin");
   await pluginDetail.getByRole('tab', {name:'Connectors',exact:true}).click();
   assert.equal(await pluginDetail.locator('.cz-plugin-metadata').getByText("Last updated").count(), 0, "local plugins have no Last updated");
   // A Connectors-tab row opens that server's connector drill (pe onSelect).
@@ -1122,6 +1136,8 @@ try {
   await add.click();
   const addMenu = page.getByRole("menu", { name: "Add", exact: true });
   await addMenu.waitFor();
+  // B30 ca80fca8d jN re: with connectors listed, 'Manage connectors' is the first row inside the Connectors submenu,
+  // never a top-level row (that plain row is only the no-connector state).
   assert.equal(await page.getByRole("menuitem", { name: "Manage connectors" }).count(), 0);
   // jy returns null with no skill rows and Bv's empty state has no Codex counterpart: none of these invented rows exist.
   for (const invented of ["Loading skills…", "No enabled skills", "Loading plugins…", "No installed plugins provide skills"])
@@ -1165,12 +1181,12 @@ try {
   await page.waitForFunction(() => document.activeElement?.closest(".sc-input"));
   await page.keyboard.insertText("use it");
   await page.waitForFunction(() => document.querySelector(".sc-input").value === "/fx-beta use it");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator(".assistant-message").filter({ hasText: "CUSTOMIZE_FIXTURE_REPLY" }).first().waitFor();
   const sent = (await trace()).slice(count).find(entry => entry.method === "turn/start");
   assert.deepEqual(sent.params.input, [{ type: "text", text: "use it", text_elements: [] }, { type: "skill", name: "fx-beta", path: skillFile(betaDir) }]);
   await chip.waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   await add.click();
   await addMenu.getByRole("menuitem", { name: "Skills", exact: true }).click();
   await skillsMenu.locator(`[data-skill-path="${skillFile(betaDir)}"]`).click();
@@ -1189,7 +1205,7 @@ try {
   // F05 skills in '/' (cc183b3ab-BNeMUZS1.js:619-700; c099c328d-CbkcmYSW.js:10637-10690): the slash list ends with the enabled
   // skills; choosing one inserts the chip marked kind 'skill', '/fx-beta …' parses as a message and the turn carries the skill item.
   await page.locator(".assistant-message").filter({ hasText: "CUSTOMIZE_FIXTURE_REPLY" }).nth(1).waitFor();
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   await composer().fill("/fx");
   const slashMenu = page.getByRole("menu", { name: "Slash commands", exact: true });
   await slashMenu.waitFor();
@@ -1209,7 +1225,7 @@ try {
   const viaSlash = (await trace()).slice(count).find(entry => entry.method === "turn/start");
   assert.deepEqual(viaSlash.params.input, [{ type: "text", text: "via slash", text_elements: [] }, { type: "skill", name: "fx-beta", path: skillFile(betaDir) }]);
   assert.equal(await page.locator(".composer-error").count(), 0, "a skill is not rejected as an unknown command");
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   checks.push("F05 '/fx' lists the enabled skills after the host commands with their descriptions; choosing fx-beta inserts the kind 'skill' chip ('/fx-beta '), Enter sends [text 'via slash', {type:skill,name:'fx-beta',path}] with no unknown-command error");
   // Text typed first, then Add › Skills (c099c328d-CbkcmYSW.js:7926-7940 B: every skill chip is deleted, then the picked one
   // goes in at the start): the chip leads the draft, a second pick replaces it, and turn/start still carries the skill item.
@@ -1224,11 +1240,11 @@ try {
   metrics.skillAfterText = { value: await composer().evaluate(node => node.value), chips: await labels(chip) };
   assert.deepEqual(metrics.skillAfterText, { value: "/fx-repo summarize this", chips: ["/fx-repo"] }, "the second skill replaces the first at the start");
   count = (await trace()).length;
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page.locator(".assistant-message").filter({ hasText: "CUSTOMIZE_FIXTURE_REPLY" }).nth(3).waitFor();
   const afterText = (await trace()).slice(count).find(entry => entry.method === "turn/start");
   assert.deepEqual(afterText.params.input, [{ type: "text", text: "summarize this", text_elements: [] }, { type: "skill", name: "fx-repo", path: skillFile(repoDir) }]);
-  await page.getByRole("button", { name: "Stop response", exact: true }).waitFor({ state: "detached" });
+  await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').waitFor({ state: "detached" });
   checks.push("F05 review: 'summarize this' typed first, then Add › Skills fx-beta → '/fx-beta summarize this'; picking fx-repo replaces it ('/fx-repo summarize this', one chip); turn/start carries [text 'summarize this', {type:skill,name:'fx-repo',path}]");
 
   // 9. Slash commands and /help.

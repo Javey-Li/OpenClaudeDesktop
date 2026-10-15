@@ -1,25 +1,36 @@
-// Files pane viewer: "Find in file" and the breadcrumb folder lister (2.2553.1 cd2efac6e-CAi4fxTN.js).
-// Find (zi / qi / Xi): case-insensitive matches over the file's lines, at most FIND_LIMIT of them; Enter / ⌘G
-// step forward, Shift+Enter / ⇧⌘G back, both wrapping. The bar reads "{current} of {total}" or "No results".
-// Breadcrumb (ja :Ma): every folder segment inside the workspace lists that folder; the file name lists its parent.
+// Files find: original 2.31226.0 cc3bc2027 engine, options and time/line limits.
+// Local adapter provides line/column spans for editor and read-only highlights.
+// Breadcrumb contracts remain traced to 2.2553.1 cd2efac6e.
 
-export const FIND_LIMIT = 10000;
+import { defaultSearchOptions, searchLimit, compileSearch, scanSearch } from './generated/code-editor/search.mjs';
 
-/** Matches of query in text: [{line (1-based), start, end}] in document order (case-insensitive, literal). */
-export function findInText(text, query, limit = FIND_LIMIT) {
-  if (typeof text !== "string" || typeof query !== "string" || query === "") return [];
-  const haystack = text.toLowerCase(), needle = query.toLowerCase();
-  const matches = [];
-  let line = 1, lineStart = 0, counted = 0;
-  for (let at = haystack.indexOf(needle); at !== -1 && matches.length < limit; at = haystack.indexOf(needle, at + needle.length)) {
-    // Count the newlines before the match (each one once).
-    for (let next = text.indexOf("\n", counted); next !== -1 && next < at; next = text.indexOf("\n", counted)) { line++; lineStart = next + 1; counted = next + 1; }
-    const lineEnd = text.indexOf("\n", at);
-    // A match never spans lines (the viewer highlights one row at a time).
-    if (lineEnd !== -1 && lineEnd < at + needle.length) continue;
-    matches.push({ line, start: at - lineStart, end: at - lineStart + needle.length });
+export const FIND_LIMIT = searchLimit;
+export const DEFAULT_SEARCH_OPTIONS = Object.freeze({ ...defaultSearchOptions });
+// Original viewer Ya: shared for this renderer lifetime, restored when a bar opens.
+let rememberedOptions = DEFAULT_SEARCH_OPTIONS;
+export const getSearchOptions = () => rememberedOptions;
+export function rememberSearchOptions(options) { rememberedOptions = { ...options }; return rememberedOptions; }
+
+/** Original bounded scan, with local line offsets for the editor's decorations. */
+export function searchInText(text, query, options = DEFAULT_SEARCH_OPTIONS, { previous, now } = {}) {
+  if (typeof text !== 'string' || typeof query !== 'string' || !query) return { matches: [], invalid: false, partial: false, hasLongLines: false };
+  const matcher = compileSearch(query, options);
+  if (!matcher) return { matches: [], invalid: !!(options.matchCase || options.wholeWord || options.regexp), partial: false, hasLongLines: false };
+  const normalized = text.replace(/\r\n?/g, '\n');
+  const found = scanSearch(normalized, matcher, previous?.found, now);
+  const rows = normalized.split('\n'), matches = [], byLine = new Map();
+  for (const line of found.lines) {
+    let row = byLine.get(line);
+    if (!row) { row = { ranges: matcher(rows[line - 1]), cursor: 0 }; byLine.set(line, row); }
+    const range = row.ranges[row.cursor++];
+    if (range) matches.push({ line, start: range[0], end: range[1] });
   }
-  return matches;
+  return { matches, invalid: false, partial: found.resume !== undefined, hasLongLines: found.hasLongLines, found };
+}
+
+/** Literal default used by existing consumers; callers may impose a smaller display cap. */
+export function findInText(text, query, limit = FIND_LIMIT) {
+  return searchInText(text, query).matches.slice(0, limit);
 }
 
 /** The next active index after a step of delta (±1), wrapping; -1 when there are no matches. */
@@ -37,7 +48,7 @@ export function firstMatchFrom(matches, line) {
   return index < 0 ? 0 : index;
 }
 
-/** {current, total, capped} for the "{current} of {total}" status (total shown as "10,000+" when capped). */
+/** {current, total, capped} for the "{current} of {total}" status (total shown as "1,000,000+" when capped). */
 export function findStatus(matches, index, limit = FIND_LIMIT) {
   return { current: index >= 0 ? index + 1 : 0, total: matches.length, capped: matches.length >= limit };
 }

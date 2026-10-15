@@ -14,6 +14,12 @@ const unwrapped = (promise) => promise.catch((error) => {
 contextBridge.exposeInMainWorld("desktop", {
   call: (action, params) => unwrapped(ipcRenderer.invoke("desktop:call", action, params)),
   appearance,
+  setFileEditDirty: paths => ipcRenderer.sendSync("desktop:file-edit-dirty", paths),
+  onFileAutosaveFlush: handler => {
+    const listener = (_event, token) => { Promise.resolve().then(handler).finally(() => ipcRenderer.send('desktop:file-autosave-flushed', token)).catch(() => {}); };
+    ipcRenderer.on('desktop:file-autosave-flush', listener);
+    return () => ipcRenderer.removeListener('desktop:file-autosave-flush', listener);
+  },
   // Finder drops arrive as File objects; only the main process may stat them.
   pathForFile: (file) => { try { return webUtils.getPathForFile(file) || ""; } catch { return ""; } },
   onEvent: (handler) => {

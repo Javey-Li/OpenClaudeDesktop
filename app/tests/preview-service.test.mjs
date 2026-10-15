@@ -44,7 +44,7 @@ function fakeElectron() {
     async executeJavaScriptInIsolatedWorld() { return { ok: true }; }
   }
   class WebContentsView {
-    constructor(options) { this.options = options; this.webContents = new Contents(); this.bounds = null; this.visible = true; }
+    constructor(options) { this.options = options; this.webContents = new Contents(); this.webContents.session = options.webPreferences.session; this.bounds = null; this.visible = true; }
     setBounds(bounds) { this.bounds = bounds; } setVisible(value) { this.visible = value; } setBackgroundColor() {}
   }
   class BrowserWindow extends EventEmitter {
@@ -301,6 +301,7 @@ test('viewport presets and the color scheme go to CDP emulation; screenshots com
   const shot = await instance.call(sender, 'preview-capture', { sessionId: 's1' });
   assert.equal(Buffer.from(shot.bytes).toString(), 'png');
   assert.equal(shot.type, 'image/png');
+  assert.equal(shot.displayWidth, view.bounds.width, 'capture carries the native displayed width for density-correct drawing');
 });
 
 test('dev servers: start from launch.json, reuse, logs, stop; busy port, autoPort and a missing command', async (t) => {
@@ -474,6 +475,9 @@ test('previewShortcut: the pane chords pressed inside the page (⇧⌘X Annotate
   const mac = process.platform === 'darwin';
   const press = (key, mods = {}) => ({ type: 'keyDown', key, meta: mac, control: !mac, shift: false, alt: false, ...mods });
   assert.equal(previewShortcut(press('X', { shift: true })), 'sketch');
+  assert.equal(previewShortcut(press('S', { shift: true })), 'selection');
+  assert.equal(previewShortcut(press('S', { shift: true, isComposing: true })), null);
+  assert.equal(previewShortcut(press('S', { shift: true, keyCode: 229 })), null);
   assert.equal(previewShortcut(press('w')), 'close');
   assert.equal(previewShortcut(press('l')), 'address');
   assert.equal(previewShortcut(press('x')), null, '⌘X is the page\'s cut');
@@ -496,4 +500,440 @@ test('a .claude/launch.json written while the pane is open reaches it without re
   const seen = () => sender.sent.some((event) => event.kind === 'preview' && event.state.launch.configs.some((config) => config.name === 'web'));
   for (let i = 0; i < 60 && !seen(); i++) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.ok(seen(), 'the pane got the new configuration');
+});
+
+test('start page detection: preview-detect lists package.json scripts; preview-use-server creates, appends, refuses (addServerFromCandidate)', async (t) => {
+  const cwd = project();
+  const { fake, instance } = service(cwd);
+  t.after(() => { instance.dispose(); fs.rmSync(cwd, { recursive: true, force: true }); });
+  const sender = fake.sender();
+  fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ scripts: { dev: 'vite', start: 'node server.js', build: 'vite build' } }));
+  fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), '');
+  fs.writeFileSync(path.join(cwd, 'vite.config.ts'), '');
+  const found = await instance.call(sender, 'preview-detect', { sessionId: 's1' });
+  assert.deepEqual(found.map((c) => [c.name, c.runtimeExecutable, c.runtimeArgs.join(' '), c.port, c.framework, c.validation.status]),
+    [['dev', 'pnpm', 'run dev', 5173, 'vite', 'ok'], ['start', 'pnpm', 'run start', 5173, 'vite', 'ok']]);
+  const file = path.join(cwd, '.claude/launch.json');
+  assert.deepEqual(await instance.call(sender, 'preview-use-server', { sessionId: 's1', candidate: found[0] }), { ok: true, name: 'dev' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).configurations, [{ name: 'dev', runtimeExecutable: 'pnpm', runtimeArgs: ['run', 'dev'], port: 5173 }]);
+  assert.deepEqual(await instance.call(sender, 'preview-use-server', { sessionId: 's1', candidate: { ...found[0], name: 'DEV' } }), { ok: false, reason: 'name-exists' });
+  assert.deepEqual(await instance.call(sender, 'preview-use-server', { sessionId: 's1', candidate: found[1] }), { ok: true, name: 'start' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).configurations.map((c) => c.name), ['dev', 'start']);
+  assert.deepEqual(await instance.call(sender, 'preview-use-server', { sessionId: 's1', candidate: { ...found[0], runtimeArgs: ['run', 'build && rm -rf ~'] } }), { ok: false, reason: 'shell-metachar' });
+  assert.deepEqual(await instance.call(sender, 'preview-use-server', { sessionId: 's1', candidate: { ...found[0], runtimeArgs: ['run', 'serve'] } }), { ok: false, reason: 'script-not-found' });
+  assert.deepEqual(await instance.call(sender, 'preview-use-server', { sessionId: 's1', candidate: { ...found[0], runtimeExecutable: 'sh' } }), { ok: false, reason: 'runner-not-allowed' });
+  const state = await instance.call(sender, 'preview-state', { sessionId: 's1' });
+  assert.deepEqual(state.launch.configs.map((c) => c.name), ['dev', 'start']);
+});
+
+test('preview tabs retain independent native pages and history, isolate background events and validate ownership', async t => {
+  const cwd = project(), { fake, instance } = service(cwd), sender = fake.sender();
+  t.after(async () => { await instance.dispose(); fs.rmSync(cwd, { recursive:true, force:true }); });
+  const call = (action, extra={}) => instance.call(sender, action, {sessionId:'s1', ...extra});
+  const initial = await call('preview-state'); assert.deepEqual(initial.tabs, []);
+  await call('preview-navigate', {url:'http://localhost:3000/'});
+  await call('preview-navigate', {url:'http://localhost:3000/about'});
+  await call('preview-attach', {instanceId:'pane', bounds:{x:0,y:0,width:400,height:300}, visible:true});
+  const first = instance._previews.get('s1'), view = first.view;
+  const secondState = await call('preview-tab-new'), second = instance._previews.get('s1');
+  assert.equal(secondState.tabs.length,2); assert.equal(first.visible,false); assert.notEqual(first.parent,fake.windows.get(sender));
+  await call('preview-navigate',{url:'http://localhost:3000/second'});
+  view.webContents.emit('page-title-updated', {}, 'Background title');
+  const state = await call('preview-state');
+  assert.equal(state.url,'http://localhost:3000/second'); assert.equal(state.tabs[0].title,'Background title');
+  const fileRequest = url => new Promise(resolve => fake.partition.handlers.beforeRequest({url,webContentsId:view.webContents.id},resolve));
+  assert.deepEqual(await fileRequest('file:///etc/passwd'),{cancel:true});
+  await call('preview-tab-activate',{tabId:first.tabId});
+  assert.equal(instance._previews.get('s1').view,view); assert.equal(view.webContents.index,1);assert.equal(view.visible,true);
+  await call('preview-history',{action:'back'});assert.equal(view.webContents.getURL(),'http://localhost:3000/');
+  assert.equal(second.view.webContents.getURL(),'http://localhost:3000/second');
+  const reordered = await call('preview-tab-reorder',{tabId:first.tabId,toIndex:1});
+  assert.deepEqual(reordered.tabs.map(t=>t.id),[second.tabId,first.tabId]);
+  await assert.rejects(call('preview-tab-reorder',{tabId:first.tabId,toIndex:9}),/position/);
+  await assert.rejects(call('preview-tab-activate',{sessionId:'s2',tabId:first.tabId}),/Unknown preview tab/);
+  const result=await call('preview-tab-close',{tabId:second.tabId});
+  assert.equal(second.view,null); assert.equal(result.activeTabId,first.tabId);
+  assert.equal(result.tabs.length,1);assert.equal(result.lastTabClosed,false);
+  const final=await call('preview-tab-close',{tabId:first.tabId});
+  assert.equal(final.lastTabClosed,true);assert.equal(final.tabs.length,0);assert.equal(view.webContents.destroyed,true);
+  for(let i=0;i<9;i++) await call('preview-tab-new');
+  await assert.rejects(call('preview-tab-new'),/Close a preview tab/);
+});
+
+test('closing server tabs asks only for the last reference; keep/stop and Close others use current state', async t => {
+  const port=await freePort(),cwd=project([{name:'web',runtimeExecutable:process.execPath,runtimeArgs:['server.js'],port}]);
+  const {fake,instance}=service(cwd),sender=fake.sender();
+  t.after(async()=>{await instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  const call=(action,extra={})=>instance.call(sender,action,{sessionId:'s1',...extra});
+  assert.equal((await call('preview-server-start',{name:'web'})).ok,true);
+  await call('preview-navigate',{url:`http://localhost:${port}/`});const first=(await call('preview-state')).activeTabId;
+  const second=(await call('preview-tab-new')).activeTabId;
+  await call('preview-navigate',{url:`http://localhost:${port}/about`});
+  assert.equal((await call('preview-tab-close',{tabId:first})).confirmation,undefined);
+  let pending=await call('preview-tab-close',{tabId:second});assert.equal(pending.confirmation.processes[0].name,'web');
+  assert.equal((await call('preview-state')).tabs.length,1);
+  const kept=await call('preview-tab-close',{tabId:second,decision:'keep'});assert.equal(kept.lastTabClosed,true);assert.equal(kept.servers[0].status,'running');
+  await call('preview-navigate',{url:`http://localhost:${port}/`});const active=(await call('preview-state')).activeTabId;
+  const blank=(await call('preview-tab-new')).activeTabId;
+  pending=await call('preview-tab-close',{tabId:blank,others:true});assert.equal(pending.confirmation.others,true);
+  // Another pane opened a reference during confirmation: the decision rechecks before stopping.
+  await call('preview-navigate',{url:`http://localhost:${port}/new-reference`});
+  const closed=await call('preview-tab-close',{tabId:active,decision:'stop'});assert.equal(closed.servers[0].status,'running');
+  const stopped=await call('preview-tab-close',{tabId:blank,decision:'stop'});assert.equal(stopped.servers[0].status,'stopped');assert.equal(stopped.lastTabClosed,true);
+});
+
+test('popup tabs preserve the originating page and its site approval boundary; closed loads settle promptly', async t => {
+  const cwd=project(),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(async()=>{await instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  let allow=false;const asked=[];
+  const agent=instance.forSession({id:'s1',cwd},{requestApproval:async request=>{asked.push(request);return allow;}});
+  await agent.navigate('http://localhost:3000/');const first=instance._previews.get('s1'),contents=first.view.webContents;
+  contents.openHandler({url:'https://denied.example/page'});await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(first.group.tabs.size,1);assert.equal(contents.getURL(),'http://localhost:3000/');
+  allow=true;contents.openHandler({url:'https://allowed.example/page'});await new Promise(resolve=>setTimeout(resolve,30));
+  const second=instance._previews.get('s1');assert.notEqual(second,first);assert.equal(second.url,'https://allowed.example/page');
+  assert.equal(second.agentDriven,true);assert.equal(contents.getURL(),'http://localhost:3000/');assert.equal(asked.length,2);
+  second.view.webContents.loadURL=async()=>{};
+  second.view.webContents.close=function(){this.destroyed=true;this.emit('destroyed');};
+  const pending=instance.call(sender,'preview-navigate',{sessionId:'s1',url:'http://localhost:3000/held'});
+  await instance.call(sender,'preview-tab-close',{sessionId:'s1',tabId:second.tabId});
+  const result=await Promise.race([pending,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('load did not settle on close')),500);timer.unref();})]);
+  assert.equal(result.code,'closed');assert.equal(instance._previews.get('s1'),first);
+  const mac=process.platform==='darwin';assert.equal(previewShortcut({type:'keyDown',key:'t',meta:mac,control:!mac}),'new-tab');
+});
+
+test('closing a tab while its outside-site approval is pending cannot resurrect its native view', async t => {
+  const cwd=project(),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(async()=>{await instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  let grant;const approval=new Promise(resolve=>grant=resolve);
+  const agent=instance.forSession({id:'s1',cwd},{requestApproval:()=>approval});
+  await agent.navigate('http://localhost:3000/');
+  const entry=instance._previews.get('s1');
+  const navigation=agent.navigate('https://allowed.example/');
+  const rejection=assert.rejects(navigation,/preview tab was closed/);
+  await instance.call(sender,'preview-tab-close',{sessionId:'s1',tabId:entry.tabId});
+  grant(true);await rejection;
+  assert.equal(entry.view,null);assert.equal(instance._previews.get('s1').group.tabs.size,1);
+  assert.equal((await instance.call(sender,'preview-state',{sessionId:'s1'})).tabs.length,0);
+});
+
+test('closed web tabs reopen LIFO in fresh views, skip blank/files, retain cap-blocked history and isolate sessions', async t=>{
+  const cwd=project(),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(async()=>{await instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  const call=(action,extra={})=>instance.call(sender,action,{sessionId:'s1',...extra});
+  fs.writeFileSync(path.join(cwd,'page.html'),'hello');
+  for(const url of ['http://localhost:3000/first','http://localhost:3000/second',`file://${cwd}/page.html`]){
+    await call('preview-navigate',{url});const tab=instance._previews.get('s1');
+    await call('preview-tab-close',{tabId:tab.tabId});
+  }
+  await call('preview-tab-new');await call('preview-tab-close',{tabId:instance._previews.get('s1').tabId});
+  assert.equal((await call('preview-state')).lastTabClosed,true);
+  assert.equal((await call('preview-tab-reopen',{sessionId:'s2'})).reopened,false);
+  let reopened=await call('preview-tab-reopen');assert.equal(reopened.reopened,true);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(instance._previews.get('s1').url,'http://localhost:3000/second');
+  assert.equal(instance._previews.get('s1').view.webContents.entries.length,1);
+  for(let i=0;i<8;i++)await call('preview-tab-new');
+  assert.equal((await call('preview-tab-reopen')).reopened,false);
+  await call('preview-tab-close',{tabId:instance._previews.get('s1').tabId});
+  assert.equal((await call('preview-tab-reopen')).reopened,true);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(instance._previews.get('s1').url,'http://localhost:3000/first');
+  assert.equal((await call('preview-tab-reopen')).reopened,false);
+});
+
+test('closed tab history enforces original 25-entry bound and rejects a changed session folder', async t=>{
+  const cwd=project(),other=project(),fake=fakeElectron();let folder=cwd;
+  const instance=createPreviewService({electron:fake.electron,getSession:id=>({id,cwd:folder}),logger:{warn(){}}}),sender=fake.sender();
+  t.after(async()=>{await instance.dispose();for(const dir of [cwd,other])fs.rmSync(dir,{recursive:true,force:true});});
+  const call=(action,extra={})=>instance.call(sender,action,{sessionId:'s1',...extra});
+  for(let i=0;i<28;i++) {await call('preview-navigate',{url:`http://localhost:3000/${i}`});await call('preview-tab-close',{tabId:instance._previews.get('s1').tabId});}
+  // Reopened tabs remain open; remove them without adding another web history item by navigating to a local file first.
+  fs.writeFileSync(path.join(cwd,'blank.html'),'blank');
+  for(let i=27;i>=3;i--){assert.equal((await call('preview-tab-reopen')).reopened,true);await new Promise(resolve=>setImmediate(resolve));assert.equal(instance._previews.get('s1').url,`http://localhost:3000/${i}`);await call('preview-navigate',{url:`file://${cwd}/blank.html`});await call('preview-tab-close',{tabId:instance._previews.get('s1').tabId});}
+  assert.equal((await call('preview-tab-reopen')).reopened,false);
+  await call('preview-navigate',{url:'http://localhost:3000/changed'});await call('preview-tab-close',{tabId:instance._previews.get('s1').tabId});folder=other;
+  assert.equal((await call('preview-tab-reopen')).reopened,false);
+});
+
+test('closed-tab history evicts the oldest session after the original 50-session bound', async t=>{
+  const cwd=project(),fake=fakeElectron(),sender=fake.sender();
+  const instance=createPreviewService({electron:fake.electron,getSession:id=>({id,cwd}),logger:{warn(){}}});
+  t.after(async()=>{await instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  for(let i=0;i<51;i++){
+    const sessionId=`history-${i}`;await instance.call(sender,'preview-navigate',{sessionId,url:`http://localhost:3000/${i}`});
+    await instance.call(sender,'preview-tab-close',{sessionId,tabId:instance._previews.get(sessionId).tabId});
+  }
+  assert.equal(sender.listenerCount('destroyed'),1,'one renderer cleanup hook across all sessions');
+  assert.equal((await instance.call(sender,'preview-tab-reopen',{sessionId:'history-0'})).reopened,false);
+  assert.equal((await instance.call(sender,'preview-tab-reopen',{sessionId:'history-1'})).reopened,true);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(instance._previews.get('history-1').url,'http://localhost:3000/1');
+  sender.emit('destroyed');assert.equal(sender.listenerCount('destroyed'),0);
+  for(const entry of instance._previews.values())assert.equal(entry.subscribers.has(sender),false);
+});
+
+test('agent-dispatched page keys cannot switch host tabs while real native selection keys can', async t=>{
+  const cwd=project(),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(async()=>{await instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  const call=(action,extra={})=>instance.call(sender,action,{sessionId:'s1',...extra});
+  await call('preview-navigate',{url:'http://localhost:3000/first'});const first=instance._previews.get('s1');
+  await call('preview-tab-new');await call('preview-navigate',{url:'http://localhost:3000/second'});const second=instance._previews.get('s1');
+  await call('preview-attach',{instanceId:'pane',bounds:{x:0,y:0,width:400,height:300},visible:true});
+  const contents=second.view.webContents,mac=process.platform==='darwin';let prevented=0;
+  const press=()=>contents.emit('before-input-event',{preventDefault(){prevented++;}},{type:'keyDown',key:'1',code:'Digit1',meta:mac,control:!mac,shift:false,alt:false});
+  contents.debugger.sendCommand=async method=>{if(method==='Input.dispatchKeyEvent')press();return {};};
+  const agent=instance.forSession({id:'s1',cwd},{requestApproval:async()=>true});
+  await agent.press({keys:mac?'cmd+1':'ctrl+1'});
+  assert.ok(prevented>=1);assert.equal(instance._previews.get('s1'),second);
+  second.group.syntheticInputUntil=0;press();assert.equal(instance._previews.get('s1'),first);
+});
+
+test('address navigation uses original context-aware URL/search parsing and consumes invalid input', async t => {
+  const cwd=project(null),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(()=>{instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  const address=text=>instance.call(sender,'preview-address-navigate',{sessionId:'s1',text});
+  assert.deepEqual(await address('user:secret@example.test'),{ok:false,invalid:true});
+  assert.equal(instance._previews.get('s1').view,null,'invalid input does not create a native page');
+  await address('http://localhost:3000/base');const view=instance._previews.get('s1').view;
+  await address('/about?q=1');assert.equal(view.webContents.getURL(),'http://localhost:3000/about?q=1');
+  await address('other.test/page');assert.equal(view.webContents.getURL(),'http://other.test/page');
+  const before=view.webContents.entries.length;
+  for(const value of ['ghp_fake@example.test','file://remote/private','\ud800/secret'])assert.deepEqual(await address(value),{ok:false,invalid:true});
+  assert.equal(view.webContents.entries.length,before);
+  // The Electron stand-in records the destination without making any network request.
+  await address('find useful examples');assert.equal(view.webContents.getURL(),'https://www.google.com/search?q=find%20useful%20examples');
+  await assert.rejects(address('https://user:secret@example.test'),/user name or password/);
+});
+
+test('address file intents retain workspace checks and reload the displayed path without adding history', async t => {
+  const cwd=project(null),outside=project(null),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(()=>{instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});fs.rmSync(outside,{recursive:true,force:true});});
+  fs.writeFileSync(path.join(cwd,'page one.html'),'<title>Page</title>');fs.symlinkSync(outside,path.join(cwd,'outside'));
+  const address=text=>instance.call(sender,'preview-address-navigate',{sessionId:'s1',text});
+  await address('./page one.html');const view=instance._previews.get('s1').view;
+  assert.ok(view.webContents.getURL().endsWith('/page%20one.html'));
+  const before=view.webContents.entries.length;let reloads=0;view.webContents.reload=()=>reloads++;
+  const result=await address(path.join(cwd,'page one.html'));assert.equal(result.reloaded,true);assert.equal(reloads,1);assert.equal(view.webContents.entries.length,before);
+  assert.deepEqual(await address('private file words'),{ok:false,invalid:true});
+  await assert.rejects(address('./outside/private.html'),/session’s folder only/);
+  await assert.rejects(address(path.join(outside,'private.html')),/session’s folder only/);
+  assert.equal(view.webContents.entries.length,before,'blocked file paths and file-like searches leave the native page intact');
+});
+
+test('element picker is owned by the visible pane and cancels on native Escape or tab switch', async t=>{
+ const cwd=project(null),{fake,instance}=service(cwd),sender=fake.sender(),other=fake.sender();
+ t.after(()=>{instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+ await instance.call(sender,'preview-navigate',{sessionId:'s1',url:'localhost:3000'});
+ await instance.call(sender,'preview-attach',{sessionId:'s1',instanceId:'pane',bounds:{x:0,y:0,width:500,height:400}});
+ const entry=instance._previews.get('s1');
+ await assert.rejects(instance.call(other,'preview-selection',{sessionId:'s1',instanceId:'pane',enabled:true}),/does not own/);
+ let state=await instance.call(sender,'preview-selection',{sessionId:'s1',instanceId:'pane',enabled:true});assert.equal(state.selection.enabled,true);
+ // Bounds updates retain ownership and must not invalidate a live selection.
+ await instance.call(sender,'preview-attach',{sessionId:'s1',instanceId:'pane',bounds:{x:0,y:0,width:510,height:400}});
+ entry.elementInspector.captureElementContext=async()=>({tagName:'button',screenshot:'fixture'});
+ entry.elementInspector.inspectModeCallback(42);await entry.picker.whenIdle();
+ const picked=sender.sent.find(event=>event.kind==='preview-element-selected');assert.equal(picked.context.tagName,'button');assert.equal(picked.tabId,entry.tabId);assert.equal(picked.instanceId,'pane');assert.equal(other.sent.some(event=>event.kind==='preview-element-selected'),false);
+ await instance.call(sender,'preview-selection',{sessionId:'s1',instanceId:'pane',enabled:true});let prevented=false;
+ entry.view.webContents.emit('before-input-event',{preventDefault(){prevented=true;}},{type:'keyDown',key:'Escape'});await entry.picker.whenIdle();assert.equal(prevented,true);assert.equal(entry.selection.enabled,false);
+ await instance.call(sender,'preview-selection',{sessionId:'s1',instanceId:'pane',enabled:true});entry.view.webContents.emit('did-navigate-in-page',{},'http://localhost:3000/#next',true);await entry.picker.whenIdle();assert.equal(entry.selection.enabled,false);
+ await instance.call(sender,'preview-selection',{sessionId:'s1',instanceId:'pane',enabled:true});await instance.call(sender,'preview-tab-new',{sessionId:'s1'});await entry.picker.whenIdle();assert.equal(entry.selection.enabled,false);assert.equal(entry.elementInspector.inspectModeCallback,null);
+});
+
+test('storage changes rebuild Code views with the selected jar, keep Cowork shared, and clear only the active jar', async t => {
+  const cwd = project(null), fake = fakeElectron(), jars = new Map();
+  const makeJar = name => ({ ...fake.partition, name, clearCount: 0, authCount: 0,
+    async clearData() { this.clearCount++; }, async clearAuthCache() { this.authCount++; } });
+  fake.electron.session.fromPartition = name => {
+    if (!jars.has(name)) jars.set(name, makeJar(name));
+    return jars.get(name);
+  };
+  let mode = 'none';
+  const instance = createPreviewService({ electron: fake.electron, getSession: id => ({ id, cwd }),
+    getStorageMode: () => mode, setStorageMode: value => { mode = value; }, isCoworkSession: id => id === 'cowork', logger: { warn() {} } });
+  t.after(async () => { await instance.dispose(); fs.rmSync(cwd, { recursive: true, force: true }); });
+  const sender = fake.sender();
+  const call = (action, sessionId, props = {}) => instance.call(sender, action, { sessionId, ...props });
+  const open = id => call('preview-navigate', id, { url: 'http://localhost:3200/page' });
+  await open('s1');await open('s2');await open('cowork');
+  const initial = await call('preview-state', 's1');
+  const ephemeral = [...jars.keys()].find(name => !name.startsWith('persist:'));
+  assert.ok(ephemeral);assert.equal(jars.size, 2);
+  await assert.rejects(call('preview-storage', 's1', { mode: 'invalid' }), /Unknown storage/);
+  assert.equal(mode, 'none');
+  const changed = await call('preview-storage', 's1', { mode: 'session' });
+  assert.equal(mode, 'session');assert.equal(changed.previewStorage, 'session');
+  assert.notEqual(changed.activeTabId, initial.activeTabId);
+  assert.equal(changed.tabs.length, 1);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await call('preview-state', 's1')).url, 'http://localhost:3200/page');
+  assert.equal((await call('preview-state', 'cowork')).previewStorage, 'shared');
+  assert.equal([...jars.keys()].filter(name => name.startsWith('persist:preview-session-')).length, 2);
+  await call('preview-clear-data', 's1');
+  assert.equal([...jars.values()].reduce((n, jar) => n + jar.clearCount, 0), 1);
+  assert.equal(jars.get('persist:preview').clearCount, 0);
+  assert.equal(jars.get(ephemeral).clearCount, 0);
+  assert.equal((await call('preview-state', 's1')).previewStorage, 'session', 'clearing does not turn persistence off');
+  const shared = await call('preview-storage', 's1', { mode: 'shared' });
+  assert.equal(shared.tabs.length, 0, 'source shared rebind starts a fresh browser');
+  await open('s1');await call('preview-clear-data', 's1');
+  assert.equal(jars.get('persist:preview').clearCount, 1);
+  assert.equal(jars.get('persist:preview').authCount, 1);
+  jars.get('persist:preview').clearData = async () => { throw Error('cannot clear'); };
+  await assert.rejects(call('preview-clear-data', 's1'), /cannot clear/);
+  // Settings › Code › Browser › Keep cookies (c71860c77-DzP8HoeV Kr): the same mode without a session; open panes follow.
+  assert.deepEqual(await call('preview-storage-read'), { previewStorage: 'shared' });
+  await assert.rejects(call('preview-storage', undefined, { mode: 'forever' }), /Unknown storage/);
+  assert.deepEqual(await call('preview-storage', undefined, { mode: 'session' }), { previewStorage: 'session' });
+  assert.equal(mode, 'session');
+  assert.equal((await call('preview-state', 's1')).previewStorage, 'session');
+});
+
+test('Until quit startup clears tracked persistent Code jars and preserves the shared jar', async t => {
+  const cwd = project(null), fake = fakeElectron();
+  const name = 'persist:preview-session-' + 'a'.repeat(64), calls = [];
+  let saved = [name, 'persist:preview', 'another-app'];
+  fake.electron.session.fromPartition = partitionName => ({ ...fake.partition,
+    async clearData() { calls.push(['data', partitionName]); }, async clearAuthCache() { calls.push(['auth', partitionName]); } });
+  const instance = createPreviewService({ electron: fake.electron, getSession: id => ({ id, cwd }),
+    getStorageMode: () => 'none', getStoredPartitions: () => saved, setStoredPartitions: value => { saved = value; } });
+  t.after(async () => { await instance.dispose(); fs.rmSync(cwd, { recursive: true, force: true }); });
+  await instance.call(fake.sender(), 'preview-state', { sessionId: 's1' });
+  assert.deepEqual(calls, [['data', name], ['auth', name]]);
+  assert.deepEqual(saved, []);
+});
+
+test('transcript links reuse source-normalized origin tabs, preserve other sites and respect cap/validation', async t => {
+  const cwd=project(null),{fake,instance}=service(cwd),sender=fake.sender();
+  t.after(()=>{instance.dispose();fs.rmSync(cwd,{recursive:true,force:true});});
+  const open=url=>instance.call(sender,'preview-link-open',{sessionId:'s1',url});
+  const first=await open('https://example.com/one');assert.equal(first.opened,true);await new Promise(resolve=>setImmediate(resolve));
+  const second=await open('https://www.example.com/two');assert.equal(second.tabId,first.tabId);await new Promise(resolve=>setImmediate(resolve));
+  const third=await open('https://other.example.com/');assert.notEqual(third.tabId,first.tabId);await new Promise(resolve=>setImmediate(resolve));
+  let state=await instance.call(sender,'preview-state',{sessionId:'s1'});assert.equal(state.tabs.length,2);assert.ok(state.tabs.some(tab=>tab.url==='https://www.example.com/two'));
+  for(const url of ['file:///etc/hosts','javascript:alert(1)','https://user:pass@example.com/','https://chromewebstore.google.com/detail/x'])assert.equal((await open(url)).opened,false);
+  for(let i=2;i<9;i++)await open(`https://site${i}.example.com/`);
+  assert.equal((await open('https://cap.example.com/')).opened,false);assert.equal((await open('https://example.com/three')).tabId,first.tabId);
+  state=await instance.call(sender,'preview-state',{sessionId:'s1'});assert.equal(state.tabs.length,9);assert.deepEqual(fake.opened,[],'renderer owns external fallback');
+  await assert.rejects(instance.call(sender,'preview-link-open',{sessionId:'unknown',url:'https://example.com'}),/Unknown session/);
+});
+
+test('ca80fca8d xq: a port another session\'s dev server holds fails as port-held with that port', async (t) => {
+  const port = await freePort();
+  const config = [{ name: 'web', runtimeExecutable: process.execPath, runtimeArgs: ['server.js'], port }];
+  const first = project(config), second = project(config);
+  const fake = fakeElectron();
+  const instance = createPreviewService({ electron: fake.electron, getSession: (id) => ({ s1: { id, cwd: first }, s2: { id, cwd: second } })[id] ?? null, spawnEnv: async () => ({ ...process.env }), logger: { warn() {} } });
+  t.after(async () => { await instance.dispose(); for (const dir of [first, second]) fs.rmSync(dir, { recursive: true, force: true }); });
+  const sender = fake.sender();
+  assert.equal((await instance.call(sender, 'preview-server-start', { sessionId: 's1', name: 'web' })).ok, true);
+  const held = await instance.call(sender, 'preview-server-start', { sessionId: 's2', name: 'web' });
+  assert.deepEqual({ ok: held.ok, code: held.code, heldPort: held.heldPort }, { ok: false, code: 'port-held', heldPort: port });
+  assert.match(held.message, new RegExp(`^Port ${port} is in use by another chat's dev server`));
+  const entry = instance.snapshot('s2').servers.find((server) => server.name === 'web');
+  assert.deepEqual({ status: entry.status, code: entry.error.code, heldPort: entry.error.heldPort }, { status: 'failed', code: 'port-held', heldPort: port });
+});
+
+test('cf580efe9 Pi: a session\'s dev-server page is kept as a frame at quit and offered after the restart until shown or dismissed', async (t) => {
+  const port = await freePort();
+  const cwd = project([{ name: 'web', runtimeExecutable: process.execPath, runtimeArgs: ['server.js'], port }]);
+  const frameDir = fs.mkdtempSync(path.join(os.tmpdir(), 'preview-frames-'));
+  const make = () => { const fake = fakeElectron(); return { fake, instance: createPreviewService({ electron: fake.electron, getSession: (id) => (id === 's1' ? { id, cwd } : null), spawnEnv: async () => ({ ...process.env }), logger: { warn() {} }, frameDir }) }; };
+  t.after(() => { for (const dir of [cwd, frameDir]) fs.rmSync(dir, { recursive: true, force: true }); });
+  // First run: the server's page is open when the app quits.
+  const one = make();
+  const sender = one.fake.sender();
+  assert.equal((await one.instance.call(sender, 'preview-server-start', { sessionId: 's1', name: 'web' })).ok, true);
+  assert.equal(one.instance.snapshot('s1').lastFrame, null, 'nothing from before this run');
+  await one.instance.dispose();
+  assert.ok(one.fake.cdp.some(([method, params]) => method === 'Page.captureScreenshot' && params.format === 'jpeg'));
+  assert.equal(fs.readdirSync(frameDir).length, 2, 'the frame and its record');
+  // Second run: the snapshot names it, preview-last-frame reads it, and a page shown again discards it.
+  const two = make();
+  const lastFrame = two.instance.snapshot('s1').lastFrame;
+  assert.equal(lastFrame.configName, 'web');
+  const frame = await two.instance.call(two.fake.sender(), 'preview-last-frame', { sessionId: 's1' });
+  assert.deepEqual({ jpeg: Buffer.from(frame.jpegBase64, 'base64').toString(), configName: frame.configName }, { jpeg: 'png', configName: 'web' });
+  await two.instance.call(two.fake.sender(), 'preview-navigate', { sessionId: 's1', url: `http://localhost:${port}/` });
+  assert.equal(two.instance.snapshot('s1').lastFrame, null, 'a page shown again replaces it');
+  assert.equal(await two.instance.call(two.fake.sender(), 'preview-last-frame', { sessionId: 's1' }), null);
+  await two.instance.dispose();
+  // Third run: Show start page discards it.
+  const three = make();
+  assert.equal(three.instance.snapshot('s1').lastFrame?.configName, 'web', 'the page was still open at the second quit');
+  const after = await three.instance.call(three.fake.sender(), 'preview-last-frame-discard', { sessionId: 's1' });
+  assert.equal(after.lastFrame, null);
+  assert.deepEqual(fs.readdirSync(frameDir), []);
+  await three.instance.dispose();
+  // Without a frame folder the feature is off.
+  const { instance } = service(cwd);
+  assert.equal(instance.snapshot('s1').lastFrame, null);
+  assert.equal(await instance.call(fakeElectron().sender(), 'preview-last-frame', { sessionId: 's1' }), null);
+  await instance.dispose();
+});
+
+test('main.cjs lets Settings › Keep cookies read and set the storage mode without a session (B23 review)', () => {
+  const main = fs.readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
+  const gate = main.slice(main.indexOf('action.startsWith("preview-")'), main.indexOf('return previewService.call(e.sender, action, p);'));
+  assert.match(gate, /action === "preview-storage-read" \|\| action === "preview-storage"\) && p\?\.sessionId === undefined/);
+  // B39: the Allowed sites calls need no session either, and the New session page's preview is owned by "home:<folder>".
+  assert.match(gate, /"preview-allowed-origins", "preview-allowed-origin-add", "preview-allowed-origin-remove", "preview-allowed-origins-clear"\]\.includes\(action\)/);
+  assert.match(gate, /!sessionless && \(typeof p\?\.sessionId !== "string" \|\| !\(agentToolSession\(p\.sessionId\) \?\? previewHomeOwner\(p\.sessionId\)\)\)/);
+  assert.match(main, /getSession: \(id\) => agentToolSession\(id\) \?\? previewHomeOwner\(id\)/);
+});
+
+// B39 Allowed sites (2.31226.0 launchPreviewAllowedOrigins): sites saved from the dialog need no approval in any session;
+// removing one (or Clear all) drops the sessions' own approvals for it, so the agent asks again.
+test('Allowed sites: a saved site needs no approval; remove and Clear all ask again', async (t) => {
+  const cwd = project(null);
+  let saved = ['https://docs.example'];
+  const fake = fakeElectron();
+  const instance = createPreviewService({ electron: fake.electron, getSession: (id) => (id === 's1' ? { id, cwd } : null), logger: { warn() {} },
+    getAllowedOrigins: () => saved, setAllowedOrigins: (list) => { saved = list; } });
+  t.after(() => { instance.dispose(); fs.rmSync(cwd, { recursive: true, force: true }); });
+  const asked = [];
+  let answer = true;
+  const agent = instance.forSession({ id: 's1', cwd }, { requestApproval: async (request) => { asked.push(request.host); return answer; } });
+  await agent.navigate('https://www.docs.example/guide');
+  assert.deepEqual(asked, [], 'a saved site opens without asking');
+  const contents = instance._previews.get('s1').view.webContents;
+  const held = (url) => { let prevented = false; contents.emit('will-navigate', { preventDefault: () => { prevented = true; } }, url); return prevented; };
+  assert.equal(held('https://docs.example/other'), false, 'nor are its own navigations held');
+  const sender = fake.sender();
+  // The dialog's calls need no session.
+  assert.deepEqual(await instance.call(sender, 'preview-allowed-origins', {}), [{ origin: 'https://docs.example', builtin: false }]);
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-add', { origin: 'https://news.example', schemeless: true }), 'ok');
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-add', { origin: 'https://news.example/' }), 'exists');
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-add', { origin: 'http://localhost:5173' }), 'loopback');
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-add', { origin: 'mailto:x@example.com' }), 'invalid');
+  assert.deepEqual(saved, ['https://docs.example', 'https://news.example']);
+  // A site allowed for this session only, then saved: removing it from the list revokes both.
+  await agent.navigate('https://shop.example/');
+  assert.deepEqual(asked, ['shop.example']);
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-add', { origin: 'https://shop.example' }), 'ok');
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-remove', { origin: 'https://shop.example' }), true);
+  assert.equal(await instance.call(sender, 'preview-allowed-origin-remove', { origin: 'https://shop.example' }), false, 'already gone');
+  answer = false;
+  await assert.rejects(agent.navigate('https://shop.example/'), /didn’t allow opening shop\.example/);
+  assert.deepEqual(asked, ['shop.example', 'shop.example'], 'asked again');
+  // Clear all empties the list and the session approvals.
+  answer = true;
+  await agent.navigate('https://blog.example/');
+  assert.equal(await instance.call(sender, 'preview-allowed-origins-clear', {}), true);
+  assert.deepEqual(saved, []);
+  assert.equal(instance._previews.get('s1').group.approvedHosts.size, 0);
+  assert.equal(held('https://news.example/'), true, 'a cleared site is held again');
+});
+
+// B39 landing preview: the New session page's browser is owned by its folder ("home:<folder>"), as getSession resolves.
+test('the New session page owns a preview by its folder', async (t) => {
+  const cwd = project(null);
+  const fake = fakeElectron();
+  const instance = createPreviewService({ electron: fake.electron, getSession: (id) => (id === `home:${cwd}` ? { id, cwd } : null), logger: { warn() {} } });
+  t.after(() => { instance.dispose(); fs.rmSync(cwd, { recursive: true, force: true }); });
+  const sender = fake.sender();
+  const owner = `home:${cwd}`;
+  const state = await instance.call(sender, 'preview-state', { sessionId: owner });
+  assert.equal(state.sessionId, owner);
+  assert.equal(state.cwd, cwd);
+  await instance.call(sender, 'preview-navigate', { sessionId: owner, url: 'https://example.com/' });
+  assert.equal(instance.snapshot(owner).url, 'https://example.com/', 'the user browses without an agent or approval');
+  await assert.rejects(instance.call(sender, 'preview-state', { sessionId: 'home:/elsewhere' }), /Unknown session/);
 });

@@ -45,7 +45,7 @@ try {
       .getByRole("textbox", { name: "Message DeepSeek" })
       .fill("Test approval " + decision);
     await page
-      .getByRole("button", { name: "Send message", exact: true })
+      .locator('[data-testid="code-prompt-send"]:not([inert] *)')
       .click();
     await page.getByRole("region", { name: "Action approval" }).waitFor();
     assert.equal(
@@ -62,12 +62,12 @@ try {
       .filter({ hasText: result })
       .waitFor();
   }
-  await page.getByRole("button", {name: "Session options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Plan", exact: true}).click();
+  await page.getByRole("button", {name: "View options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Plan", exact: true}).click();
   await page.getByText("Respect user decision", { exact: true }).waitFor();
   // panes-toggle-current.js:3165 cl label is "Changes" (was the non-source "Show changes").
   await page.getByRole("button", { name: "Changes", exact: true }).click();
   await page.locator(".diff .added").filter({ hasText: "+new" }).waitFor();
-  await page.getByRole("button", {name: "Session options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Files", exact: true}).click();
+  await page.getByRole("button", {name: "View options", exact: true}).click(); await page.getByRole("menuitemcheckbox", {name: "Files", exact: true}).click();
   await page.getByRole("treeitem", { name: "ui-smoke.txt", exact: true }).click();
   await page
     .locator(".source-file-preview")
@@ -86,18 +86,18 @@ try {
     .filter({ hasText: "Renamed test" })
     .waitFor();
   await page.getByRole("textbox", { name: "Message DeepSeek" }).fill("disconnect");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator('[data-testid="code-prompt-send"]:not([inert] *)').click();
   await page
     .getByRole("alert")
     .filter({ hasText: "Codex disconnected" })
     .waitFor();
   assert.equal(
-    await page.getByRole("button", { name: "Stop response" }).count(),
+    await page.locator('[data-testid="code-prompt-stop"]:not([inert] *)').count(),
     0,
   );
   assert.equal(
     await page
-      .getByRole("button", { name: "Send message", exact: true })
+      .locator('[data-testid="code-prompt-send"]:not([inert] *)')
       .isDisabled(),
     true,
   );

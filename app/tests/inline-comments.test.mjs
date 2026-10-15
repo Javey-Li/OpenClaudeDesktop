@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { serializePlanComments, planFeedbackWithComments, serializeLineComment, planCommentsStore } from '../src/inline-comments.mjs';
+import { serializePlanComments, planFeedbackWithComments, serializeLineComment, planCommentsStore, addToPrompt, promptAdditions, ADD_TO_PROMPT_EVENT } from '../src/inline-comments.mjs';
 
 test('plan comments serialize as the official "On selected text" blocks, before the typed feedback', () => {
   const comments = [{ quote: 'Step 2: drop the table\nand recreate it', text: 'Use a migration instead.' }, { quote: 'tests', text: '  ' }];
@@ -31,4 +31,41 @@ test('the plan comment store is per session: add, edit, remove, clear', () => {
   assert.deepEqual(planCommentsStore.get('s1'), []);
   off();
   assert.ok(seen.length >= 5);
+});
+
+test('addToPrompt reports whether a listener took the text (B02 D1: nothing listening keeps the comment open)', () => {
+  const target = new EventTarget();
+  assert.equal(addToPrompt('note', target), false, 'no composer and no relay: not added');
+  assert.equal(addToPrompt('   ', target), false);
+  const seen = [];
+  const passive = (event) => seen.push(['passive', event.detail.text]);
+  const taker = (event) => { if (event.defaultPrevented) return; event.preventDefault(); seen.push(['taker', event.detail.text]); };
+  const second = (event) => { if (!event.defaultPrevented) seen.push(['second', event.detail.text]); };
+  target.addEventListener(ADD_TO_PROMPT_EVENT, passive);
+  assert.equal(addToPrompt('only seen', target), false, 'a listener that does not take it does not count');
+  target.addEventListener(ADD_TO_PROMPT_EVENT, taker);
+  target.addEventListener(ADD_TO_PROMPT_EVENT, second);
+  assert.equal(addToPrompt('  In a.js, line 1:\n> x\nfix  ', target), true);
+  assert.deepEqual(seen, [['passive', 'only seen'], ['passive', 'In a.js, line 1:\n> x\nfix'], ['taker', 'In a.js, line 1:\n> x\nfix']], 'one taker; later sides skip it');
+  assert.equal(addToPrompt('x', null), false);
+});
+
+test('promptAdditions queues relayed text per session until the side showing it takes it', () => {
+  const heard = [];
+  const off = promptAdditions.subscribe((sessionId) => heard.push(sessionId));
+  assert.equal(promptAdditions.queue('', 'x'), false);
+  assert.equal(promptAdditions.queue('s1', '  '), false);
+  assert.equal(promptAdditions.queue('s1', ' first '), true);
+  assert.equal(promptAdditions.queue('s1', 'second'), true);
+  assert.equal(promptAdditions.queue('s2', 'other'), true);
+  assert.deepEqual(heard, ['s1', 's1', 's2']);
+  assert.equal(promptAdditions.has('s1'), true);
+  assert.deepEqual(promptAdditions.take('s1'), ['first', 'second']);
+  assert.equal(promptAdditions.has('s1'), false);
+  assert.deepEqual(promptAdditions.take('s1'), []);
+  assert.deepEqual(promptAdditions.take('s2'), ['other']);
+  off();
+  promptAdditions.queue('s3', 'quiet');
+  assert.deepEqual(heard, ['s1', 's1', 's2']);
+  promptAdditions.take('s3');
 });
