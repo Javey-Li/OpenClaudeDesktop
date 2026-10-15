@@ -44,6 +44,8 @@ Claude Desktop's interface is great: clear conversations, every step visible, ev
 | Appearance | Fixed | **Theme, colors, fonts, assistant name and avatar** |
 | Source code | Closed | **Open source. Change anything** |
 | Your data | Sent to Anthropic | **Sent only to the provider you choose; settings and history stay on your Mac** |
+| Transparency | Not transparent | **Open Source Code** |
+
 
 ---
 
