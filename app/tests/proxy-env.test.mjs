@@ -19,14 +19,16 @@ test('The spawn environment gains the shell proxy in both spellings and keeps lo
   assert.deepEqual(proxyEnv({}, {NO_PROXY:'corp'}), {});
   assert.deepEqual(proxyEnv({PATH:'/bin'}, {HTTPS_PROXY:'http://127.0.0.1:7890'}), {
     HTTPS_PROXY:'http://127.0.0.1:7890', https_proxy:'http://127.0.0.1:7890',
-    NO_PROXY:'localhost,127.0.0.1,::1', no_proxy:'localhost,127.0.0.1,::1',
+    NO_PROXY:'localhost,127.0.0.1,::1', no_proxy:'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY:'1',
   });
   // The app's own environment (a launch from Terminal) wins; NO_PROXY keeps its entries and gains loopback.
   assert.deepEqual(proxyEnv({https_proxy:'http://own:1', NO_PROXY:'corp, localhost'}, {HTTPS_PROXY:'http://shell:2', HTTP_PROXY:'http://shell:3'}), {
     HTTP_PROXY:'http://shell:3', http_proxy:'http://shell:3',
-    NO_PROXY:'corp,localhost,127.0.0.1,::1', no_proxy:'corp,localhost,127.0.0.1,::1',
+    NO_PROXY:'corp,localhost,127.0.0.1,::1', no_proxy:'corp,localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY:'1',
   });
-  assert.deepEqual(proxyEnv({HTTPS_PROXY:'http://own:1', NO_PROXY:'localhost,127.0.0.1,::1'}, {}), {});
+  // Node only reads the proxy variables when NODE_USE_ENV_PROXY is set: added unless the environment already has it.
+  assert.deepEqual(proxyEnv({HTTPS_PROXY:'http://own:1', NO_PROXY:'localhost,127.0.0.1,::1'}, {}), {NODE_USE_ENV_PROXY:'1'});
+  assert.deepEqual(proxyEnv({HTTPS_PROXY:'http://own:1', NO_PROXY:'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY:'0'}, {}), {});
 });
 
 test('The login shell is read once as an interactive login shell, and fails closed to no proxy', async () => {

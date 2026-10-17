@@ -141,21 +141,72 @@ const EFFORT = (id) => ({ id, name: id[0].toUpperCase() + id.slice(1) })
 const GEMINI_25_BUDGETS = { low: 1024, medium: 8192, high: 24576 }
 
 /**
- * A Gemini model's reasoning efforts ({efforts, defaultEffort}), or null: Gemini 3 / Gemma 4 take a thinkingLevel
- * (LOW, HIGH: the default), Gemini 2.5 a thinkingBudget (defaultModelConfigs.ts chat-base-3 / chat-base-2.5).
+ * A Gemini model's reasoning efforts ({efforts, defaultEffort}), or null: Gemini 4 and later take a thinkingLevel of LOW,
+ * MEDIUM or HIGH (the default; MINIMAL is refused), Gemini 3 / Gemma 4 LOW or HIGH, Gemini 2.5 a thinkingBudget
+ * (defaultModelConfigs.ts chat-base-3 / chat-base-2.5).
  */
 export function geminiModelEfforts(model) {
   const id = String(model ?? '').toLowerCase()
   if (/gemini-2\.5/.test(id)) return { efforts: ['low', 'medium', 'high'].map(EFFORT), defaultEffort: 'medium' }
+  if (/gemini-(?:[4-9]|\d{2,})/.test(id)) return { efforts: ['low', 'medium', 'high'].map(EFFORT), defaultEffort: 'high' }
   if (/gemini-3|gemma-4/.test(id)) return { efforts: ['low', 'high'].map(EFFORT), defaultEffort: 'high' }
   return null
+}
+
+/**
+ * A Gemini model as people read it (gemini-3.1-pro-preview: Gemini 3.1 Pro Preview): its name when that is already
+ * one (a settings displayName such as Gemini 4 Argon), else the id spelled out. A label that is a bare model id is
+ * never trusted over the id: Gemini CLI titles its Flash rows before resolving them to the latest release
+ * (getAvailableModelOptions: the row that runs gemini-3.8-flash is titled gemini-3.5-flash).
+ */
+export function geminiModelName(id, name) {
+  const raw = String(id ?? '')
+  if (name && !rawGeminiId(name) && name !== raw) return name
+  const match = /^(gemini|gemma)-(.+)$/i.exec(raw)
+  if (!match) return raw === 'auto' ? 'Auto' : (name ?? raw)
+  const words = match[2].split('-').map((word) => /^\d+(?:\.\d+)?$/.test(word) ? word
+    : /^(?:it|\d+b|a\d+b|e\d+b)$/i.test(word) ? word.toUpperCase() : word[0].toUpperCase() + word.slice(1))
+  return [match[1][0].toUpperCase() + match[1].slice(1).toLowerCase(), ...words].join(' ')
+}
+
+/** A name that is a bare model id (gemini-…, gemma-…), lower-cased; null for anything else. */
+function rawGeminiId(name) {
+  return typeof name === 'string' && /^(?:gemini|gemma)-[a-z0-9.-]+$/i.test(name.trim()) ? name.trim().toLowerCase() : null
+}
+
+/** The built-in tool left on when every other is off (see launch): no side effects, so a toolless session stays one. */
+const KEPT_TOOL = 'update_topic'
+
+/** Primary menu rows besides Auto and the default: the newest Gemini models (the rest under More models). */
+const GEMINI_PRIMARY = 4
+
+/**
+ * model/list rows as the model menu shows them: readable names; Auto, then Gemini newest first (Pro, Flash, Flash
+ * Lite within a version, a preview after its release), then Gemma and anything else; Auto, the default and the
+ * newest Gemini models in the menu (section main), the rest under More models (section overflow).
+ */
+export function geminiModelRows(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  const facts = (row) => {
+    const id = String(row?.id ?? '').toLowerCase()
+    const version = /^gemini-(\d+(?:\.\d+)?)/.exec(id)
+    const tier = /flash-lite|lite/.test(id) ? 2 : /flash/.test(id) ? 1 : 0
+    return { auto: id === 'auto', gemini: !!version, version: version ? Number(version[1]) : -1, tier, preview: /preview|exp/.test(id) ? 1 : 0 }
+  }
+  const order = list.map((row, index) => ({ row, index, ...facts(row) })).sort((a, b) =>
+    (b.auto - a.auto) || (b.gemini - a.gemini) || (b.version - a.version) || (a.tier - b.tier) || (a.preview - b.preview) || (a.index - b.index))
+  let newest = 0
+  return order.map(({ row, auto, gemini }) => {
+    const primary = auto || (gemini && newest++ < GEMINI_PRIMARY) || row.isDefault === true
+    return { ...row, displayName: geminiModelName(row.id, row.displayName), section: primary ? 'main' : 'overflow' }
+  })
 }
 
 /** modelConfigs.customOverrides for an effort: one per model family, matched by its alias. [] for none. */
 export function geminiEffortOverrides(effort) {
   const value = typeof effort === 'string' ? effort.toLowerCase() : ''
   const out = []
-  const level = value === 'low' || value === 'minimal' ? 'LOW' : value === 'high' || value === 'xhigh' ? 'HIGH' : null
+  const level = value === 'low' || value === 'minimal' ? 'LOW' : value === 'medium' ? 'MEDIUM' : value === 'high' || value === 'xhigh' ? 'HIGH' : null
   if (level) out.push({ match: { model: 'chat-base-3' }, modelConfig: { generateContentConfig: { thinkingConfig: { thinkingLevel: level } } } })
   const budget = GEMINI_25_BUDGETS[value === 'minimal' ? 'low' : value === 'xhigh' ? 'high' : value]
   if (budget) out.push({ match: { model: 'chat-base-2.5' }, modelConfig: { generateContentConfig: { thinkingConfig: { thinkingBudget: budget } } } })
@@ -895,6 +946,10 @@ export default {
   /** Reasoning efforts per model family (geminiModelEfforts), applied at launch (geminiEffortOverrides). */
   modelEfforts: (model) => geminiModelEfforts(model),
   effortInLaunch: true,
+  /** Gemini CLI drops ELECTRON_RUN_AS_NODE from an MCP server's env (BLOCKED_EXECUTION_ENVS): it rides in the command. */
+  mcpDropsRunAsNode: true,
+  /** The model menu's names, order and sections (geminiModelRows). */
+  presentModels: (rows) => geminiModelRows(rows),
   // A workflow agent (the runner's bridge) runs without Gemini's own sub-agents (invoke_agent: they would run outside
   // the run's concurrency cap, agent count and budget, as Claude's workflow subagents have no Agent tool) and without
   // enter_plan_mode (a read-only agent waiting on a plan approval nobody is shown).
@@ -985,6 +1040,10 @@ export default {
       const mcp = /^mcp__(.+?)__(.+)$/.exec(name)
       return mcp ? `mcp_${mcp[1]}_${mcp[2]}` : name
     })
+    // Every built-in tool off (a side question, a chat without tools): Gemini CLI still sends tools: [{functionDeclarations:
+    // []}], which Vertex AI refuses ("tools[0].tool_type: required one_of"). update_topic (a Think tool that only notes the
+    // conversation's topic) stays, so the request carries one declaration.
+    if (BUILTIN_TOOLS.every(([name]) => exclude.includes(name))) exclude.splice(exclude.indexOf(KEPT_TOOL), 1)
     if (exclude.length) overlay.tools = { exclude }
     if (config.disabledServers?.length) overlay.mcp = { excluded: config.disabledServers }
     // OpenClaude Desktop's own tools server (session mcpServers, app-tools.js) gets past a user mcp.allowed list (Gemini drops
@@ -1331,6 +1390,11 @@ export default {
       })
     }
     return [...rows.values()]
+  },
+
+  /** Whether Gemini saved anything of a session to reopen: it writes a session's file only once it records a prompt. */
+  hasSavedSession(ctx, sessionId) {
+    return findChats(ctx.env, sessionId).some((entry) => entry.chat.messages.some(realUser))
   },
 
   /**

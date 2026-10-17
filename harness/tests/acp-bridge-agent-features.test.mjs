@@ -197,6 +197,13 @@ test('Gemini: never its own sandbox, full token split per turn, retention-delete
   const ctx = { env: { HOME: home } }
   const launch = gemini.launch(ctx, { threadDir: path.join(home, 'thread'), cwd: home, writable: [home] })
   assert.equal(launch.env.GEMINI_SANDBOX, 'false')
+  // Every built-in tool off: one stays, else Gemini sends an empty tools entry Vertex AI refuses (tool_type one_of).
+  const all = gemini.builtinTools().map((tool) => tool.name)
+  gemini.launch(ctx, { threadDir: path.join(home, 'toolless'), cwd: home, writable: [home], disabledTools: all })
+  const toolless = JSON.parse(fs.readFileSync(path.join(home, 'toolless', 'gemini-home', '.gemini', 'settings.json'), 'utf8'))
+  assert.deepEqual(all.filter((name) => !toolless.tools.exclude.includes(name)), ['update_topic'])
+  gemini.launch(ctx, { threadDir: path.join(home, 'some'), cwd: home, writable: [home], disabledTools: ['update_topic', 'run_shell_command'] })
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'some', 'gemini-home', '.gemini', 'settings.json'), 'utf8')).tools.exclude, ['update_topic', 'run_shell_command'])
 
   const chat = { messages: [
     { type: 'user', content: [{ text: 'first' }] }, { type: 'gemini', content: 'a', tokens: { input: 999, output: 1, cached: 0, thoughts: 0, tool: 0, total: 1000 } },
@@ -221,6 +228,9 @@ test('Gemini: never its own sandbox, full token split per turn, retention-delete
   const records = fs.readFileSync(path.join(home, '.gemini', 'tmp', 'workspace', 'chats', files[0]), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
   assert.equal(records[0].sessionId, '590d2884-c80c-43c3-887e-e0d5a0d072f6')
   assert.deepEqual(records.slice(1, 3).map((record) => [record.type, record.type === 'user' ? record.content[0].text : record.content]), [['user', 'hello'], ['gemini', 'hi there']])
+  // A session Gemini saved a prompt of can be reopened; one it never recorded can't (its process is kept instead).
+  assert.equal(gemini.hasSavedSession(ctx, '590d2884-c80c-43c3-887e-e0d5a0d072f6'), true)
+  assert.equal(gemini.hasSavedSession(ctx, '6ea195a6-c5da-4570-ad00-5f7cfb2d7f23'), false)
   // beforeLoad only writes one back when the file is missing.
   assert.equal(gemini.beforeLoad(ctx, '590d2884-c80c-43c3-887e-e0d5a0d072f6', { cwd: workspace, turns }), undefined)
 })

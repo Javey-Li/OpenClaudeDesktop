@@ -14,7 +14,7 @@ import { tomlWithDisabledTools, tomlToolsLists, parseTomlStringArray } from '../
 import { adapterById } from '../packages/acp-bridge/src/agents/index.js'
 import { readKimiConfig, kimiServerDisablePatterns, kimiQualifiedToolName, kimiMcpNamePart, kimiToolOffReason, kimiBlockedPrompt, globRegExp } from '../packages/acp-bridge/src/agents/kimi.js'
 import { qwenMustAsk, qwenDestructiveCommand, qwenProtectedPath, qwenSkillPolicy, qwenSkillHidden, qwenBundledSkillsDir } from '../packages/acp-bridge/src/agents/qwen.js'
-import { geminiEnvAuthType, geminiModelEfforts, geminiEffortOverrides } from '../packages/acp-bridge/src/agents/gemini.js'
+import { geminiEnvAuthType, geminiModelEfforts, geminiEffortOverrides, geminiModelName, geminiModelRows } from '../packages/acp-bridge/src/agents/gemini.js'
 import { minimaxCompactionResult, minimaxAgents, minimaxPluginPackage } from '../packages/acp-bridge/src/agents/minimax.js'
 
 const FAKE_AGENT = path.resolve(import.meta.dirname, '../packages/acp-bridge/testing/fake-acp-agent.mjs')
@@ -280,12 +280,14 @@ test('Gemini efforts: thinking level for Gemini 3, thinking budget for 2.5, appl
   const gemini = adapterById('gemini')
   assert.deepEqual(geminiModelEfforts('gemini-3-flash-preview'), { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' })
   assert.equal(geminiModelEfforts('gemini-2.5-pro').defaultEffort, 'medium')
+  assert.deepEqual(geminiModelEfforts('gemini-4-argon').efforts.map((e) => e.id), ['low', 'medium', 'high'])
+  assert.equal(geminiModelEfforts('gemini-4-argon').defaultEffort, 'high')
   assert.equal(geminiModelEfforts('auto'), null)
   assert.deepEqual(geminiEffortOverrides('low'), [
     { match: { model: 'chat-base-3' }, modelConfig: { generateContentConfig: { thinkingConfig: { thinkingLevel: 'LOW' } } } },
     { match: { model: 'chat-base-2.5' }, modelConfig: { generateContentConfig: { thinkingConfig: { thinkingBudget: 1024 } } } },
   ])
-  assert.deepEqual(geminiEffortOverrides('medium').map((entry) => entry.match.model), ['chat-base-2.5'])
+  assert.deepEqual(geminiEffortOverrides('medium').map((entry) => entry.match.model), ['chat-base-3', 'chat-base-2.5'])
   assert.deepEqual(geminiEffortOverrides(null), [])
   assert.equal(gemini.effortInLaunch, true)
   const home = tmp()
@@ -381,4 +383,20 @@ test('MiniMax /compact in a session: instructions reach mcode; the result is on 
     assert.equal(last.items.some((item) => item.type === 'contextCompaction'), false)
     assert.equal(last.items.find((item) => item.type === 'agentMessage').text, '_No compaction is needed for this conversation yet._')
   } finally { await b.close() }
+})
+
+test('Gemini model menu: readable names, newest first, Auto + the newest four and the default in the menu', () => {
+  assert.equal(geminiModelName('gemini-3.1-pro-preview'), 'Gemini 3.1 Pro Preview')
+  assert.equal(geminiModelName('gemma-4-26b-a4b-it'), 'Gemma 4 26B A4B IT')
+  assert.equal(geminiModelName('gemini-4-argon', 'Gemini 4 Argon'), 'Gemini 4 Argon')
+  assert.equal(geminiModelName('auto'), 'Auto')
+  // Gemini CLI titles its latest Flash rows with the older id: the model a row runs (its id) names it.
+  assert.equal(geminiModelName('gemini-3.8-flash', 'gemini-3.5-flash'), 'Gemini 3.8 Flash')
+  const relabeled = geminiModelRows([{ id: 'gemini-3.5-flash-lite', displayName: 'gemini-3.1-flash-lite' }, { id: 'gemini-3.8-flash', displayName: 'gemini-3.5-flash' }])
+  assert.deepEqual(relabeled.map((row) => row.displayName), ['Gemini 3.8 Flash', 'Gemini 3.5 Flash Lite'])
+  const ids = ['auto', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemma-4-31b-it', 'gemini-4-argon']
+  const shown = (def) => geminiModelRows(ids.map((id) => ({ id, displayName: id, isDefault: id === def }))).map((row) => `${row.section === 'main' ? '+' : '-'}${row.id}`)
+  assert.deepEqual(shown('gemini-4-argon'), ['+auto', '+gemini-4-argon', '+gemini-3.5-flash', '+gemini-3.1-pro-preview', '+gemini-3.1-flash-lite', '-gemini-3-flash-preview', '-gemini-2.5-pro', '-gemini-2.5-flash-lite', '-gemma-4-31b-it'])
+  assert.ok(shown('gemini-2.5-pro').includes('+gemini-2.5-pro'))
+  assert.deepEqual(geminiModelRows(null), [])
 })

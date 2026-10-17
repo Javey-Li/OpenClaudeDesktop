@@ -86,6 +86,8 @@ function proxyEnv(base = {}, shell = {}) {
   const bypass = (merged.NO_PROXY || "").split(",").map((entry) => entry.trim()).filter(Boolean);
   const noProxy = [...bypass, ...LOOPBACK.filter((host) => !bypass.includes(host))].join(",");
   if (noProxy !== own.NO_PROXY) Object.assign(added, { NO_PROXY: noProxy, no_proxy: noProxy });
+  // Node (Gemini CLI, other Node-based cores) ignores HTTP(S)_PROXY unless asked: without this its fetch fails behind a local proxy.
+  if (typeof base?.NODE_USE_ENV_PROXY !== "string" || base.NODE_USE_ENV_PROXY === "") added.NODE_USE_ENV_PROXY = "1";
   return added;
 }
 /**

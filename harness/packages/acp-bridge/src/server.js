@@ -123,7 +123,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
   const sessionMcpServers = (thread, session) => {
     // An agent that got the server in its launch config (adapter.appToolsInLaunch: MiniMax's mcp.json) gets none here.
     if (thread?.appToolsInLaunch) return []
-    const entry = (thread?.tools?.disabledServers ?? []).includes(appTools?.name) ? null : acpAppToolsServer(appTools, session)
+    const entry = (thread?.tools?.disabledServers ?? []).includes(appTools?.name) ? null : acpAppToolsServer(appTools, session, { runAsNodeInCommand: adapter?.mcpDropsRunAsNode === true })
     return entry ? [entry] : []
   }
   // The server as the agent's own config declares it, for an adapter that takes it at launch (appToolsInLaunch): named
@@ -593,6 +593,11 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     }
   }
 
+  /** False when the agent says it saved nothing of the thread's session yet (adapter.hasSavedSession); true otherwise. */
+  function savedSession(thread) {
+    try { return adapter.hasSavedSession(ctx, thread.id) !== false } catch { return true }
+  }
+
   /** Starts (or restarts) the thread's agent process for its current settings (one start at a time per thread). */
   async function ensureHost(thread, options = {}) {
     while (thread.ensuring) { try { await thread.ensuring } catch {} }
@@ -605,6 +610,10 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
     const config = launchConfig(thread)
     const key = keyOf(config)
     if (thread.host && !thread.host.exited && thread.sessionReady && (thread.hostKey === key || keepRunning)) return thread.host
+    // An agent that keeps nothing of a session until its first prompt (adapter.hasSavedSession: Gemini) can't reopen it in a
+    // new process (session/load: "Invalid session identifier"): such a session keeps its process, and the new settings
+    // apply from the next turn, once there is something to reopen.
+    if (thread.host && !thread.host.exited && thread.sessionReady && adapter?.hasSavedSession && !savedSession(thread)) return thread.host
     if (thread.host && !thread.host.exited && thread.sessionReady && await deferRestart(thread, config, key)) return thread.host
     if (thread.host && !thread.host.exited && thread.hostKey !== key) await stopHost(thread)
     if (thread.host?.exited) thread.host = null
@@ -2997,7 +3006,7 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
       models = (fallback.length ? fallback : [...catalog.values()]).map((model, index) => ({ ...model, isDefault: model.isDefault ?? index === 0 }))
     }
     const anyDefault = models.some((model) => model.isDefault)
-    return models.map((model, index) => {
+    const rows = models.map((model, index) => {
       const isDefault = model.isDefault || (!anyDefault && index === 0)
       // Each row's own efforts (what a session on that model offers), recorded or from the adapter's catalog.
       const info = live ? model : { ...model, ...modelInfo(null, model.id, catalog) }
@@ -3017,6 +3026,9 @@ export function serve({ input, output, env = process.env, adapter, log = (line) 
         provider: adapter.id, contextWindow: model.contextWindow ?? listed.contextWindow ?? adapter.contextWindow?.(model.id) ?? null,
       }
     })
+    // The agent's own presentation of its menu (adapter.presentModels: Gemini's names, order and main/overflow sections).
+    if (adapter.presentModels) { try { return adapter.presentModels(rows) } catch (error) { log(`present models: ${error?.message ?? error}`) } }
+    return rows
   }
 
   async function removeAgentSession(sessionId, cwd) {

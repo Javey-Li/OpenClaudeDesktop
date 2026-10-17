@@ -66,9 +66,21 @@ export function sessionToken(secret, session) {
 }
 
 /** The ACP stdio mcpServers entry for one session (null without a server or a session to name). */
-export function acpAppToolsServer(server, session) {
-  const entry = appToolsLaunchEntry(server, session)
+export function acpAppToolsServer(server, session, { runAsNodeInCommand = false } = {}) {
+  let entry = appToolsLaunchEntry(server, session)
+  if (entry && runAsNodeInCommand) entry = withRunAsNodeInCommand(entry)
   return entry ? { ...entry, env: Object.entries(entry.env).map(([name, value]) => ({ name, value })) } : null
+}
+
+/**
+ * An entry whose ELECTRON_RUN_AS_NODE rides in the command (/usr/bin/env ELECTRON_RUN_AS_NODE=1 <app> <script>), for an
+ * agent that drops that variable from a server's env (adapter.mcpDropsRunAsNode: Gemini CLI's BLOCKED_EXECUTION_ENVS):
+ * without it the app's own binary starts as a second OpenClaude Desktop, window and all. Unchanged on Windows.
+ */
+export function withRunAsNodeInCommand(entry, platform = process.platform) {
+  if (!entry?.env?.ELECTRON_RUN_AS_NODE || platform === 'win32') return entry
+  const { ELECTRON_RUN_AS_NODE: value, ...env } = entry.env
+  return { ...entry, command: '/usr/bin/env', args: [`ELECTRON_RUN_AS_NODE=${value}`, entry.command, ...entry.args], env }
 }
 
 /**

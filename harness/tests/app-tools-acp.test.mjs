@@ -12,7 +12,7 @@ import { PassThrough } from 'node:stream'
 import { serve } from '../packages/acp-bridge/src/server.js'
 import { LineTransport } from '../packages/acp-bridge/src/transport.js'
 import { adapterById } from '../packages/acp-bridge/src/agents/index.js'
-import { appToolsServer, acpAppToolsServer, sessionIdentityOf, sessionToken, SESSION_CONFIG_KEY } from '../packages/acp-bridge/src/app-tools.js'
+import { appToolsServer, acpAppToolsServer, withRunAsNodeInCommand, sessionIdentityOf, sessionToken, SESSION_CONFIG_KEY } from '../packages/acp-bridge/src/app-tools.js'
 
 const FAKE_AGENT = path.resolve(import.meta.dirname, '../packages/acp-bridge/testing/fake-acp-agent.mjs')
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-acp-')))
@@ -73,6 +73,16 @@ test('app-tools.js: the ACP entry carries the server env, the socket, the token 
     name: 'code_desktop', command: '/Apps/OpenClaude Desktop', args: ['/Apps/agent-tools-server.mjs'],
     env: [{ name: 'ELECTRON_RUN_AS_NODE', value: '1' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_SOCKET', value: '/tmp/cd-tools-x/s' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_TOKEN', value: sessionToken('tok', 'thread-1') }, { name: 'CODE_DESKTOP_AGENT_SESSION', value: 'thread-1' }],
   })
+  // Gemini CLI drops ELECTRON_RUN_AS_NODE from a server's env: it rides in the command instead (else a second app opens).
+  assert.deepEqual(acpAppToolsServer(server, 'thread-1', { runAsNodeInCommand: true }), {
+    name: 'code_desktop', command: '/usr/bin/env', args: ['ELECTRON_RUN_AS_NODE=1', '/Apps/OpenClaude Desktop', '/Apps/agent-tools-server.mjs'],
+    env: [{ name: 'CODE_DESKTOP_AGENT_TOOLS_SOCKET', value: '/tmp/cd-tools-x/s' }, { name: 'CODE_DESKTOP_AGENT_TOOLS_TOKEN', value: sessionToken('tok', 'thread-1') }, { name: 'CODE_DESKTOP_AGENT_SESSION', value: 'thread-1' }],
+  })
+  const plain = { name: 'x', command: '/usr/bin/node', args: ['s.mjs'], env: { A: '1' } }
+  assert.equal(withRunAsNodeInCommand(plain), plain)
+  const app = { name: 'x', command: 'C:\\App.exe', args: ['s.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  assert.equal(withRunAsNodeInCommand(app, 'win32'), app)
+  assert.equal(adapterById('gemini').mcpDropsRunAsNode, true)
   assert.equal(acpAppToolsServer(server, null), null)
   assert.equal(acpAppToolsServer(null, 'thread-1'), null)
   assert.equal(appToolsServer({ ...TOOLS, CODE_DESKTOP_AGENT_TOOLS_SERVER: 'nope' }), null)
