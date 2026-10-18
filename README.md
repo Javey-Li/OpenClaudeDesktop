@@ -18,8 +18,8 @@
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/session-dark.png">
-  <img src="docs/images/session.png" alt="OpenClaude Desktop：AI 读取文件、修改代码、运行测试，并用中文总结改动" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="new-2.42304.0/docs/images/session-dark.png">
+  <img src="new-2.42304.0/docs/images/session.png" alt="OpenClaude Desktop：AI 读取文件、修改代码、运行测试，并用中文总结改动" width="100%">
 </picture>
 
 <sub>↑ 让它“给网页加上暗色模式”：读了 2 个文件、改了 1 个文件、跑了测试，最后用中文告诉你改了什么、怎么验证。</sub>
@@ -27,6 +27,16 @@
 </div>
 
 <br>
+
+## 两个版本
+
+| 文件夹 | 界面 | 说明 |
+|---|---|---|
+| [`new-2.42304.0/`](new-2.42304.0/) | 新界面 | 迁移自官方 Claude Desktop 2.42304.0 的新 Code 界面：新版加载行、任务清单与下一步框、Context 分类明细、官方工具结果正文等。**推荐使用。** |
+| [`old-2.31226.0/`](old-2.31226.0/) | 旧界面 | 迁移自官方 Claude Desktop 2.31226.0，Claude 2.1.302 之前、10 月 16 日前的版本（0.2.186）。 |
+
+两个文件夹各自是一套完整源码（`app/`、`harness/` 等）。下文的命令都在所选文件夹里执行，例如先 `cd new-2.42304.0`。
+
 
 ## 你的 Claude Desktop，不是 Anthropic 的
 
@@ -66,21 +76,21 @@ Claude Desktop 的界面很好用：对话清楚、每一步都看得见、改�
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/home.png" alt="主页：左侧是会话列表，中间是使用统计">
+      <img src="new-2.42304.0/docs/images/home.png" alt="主页：左侧是会话列表，中间是使用统计">
       <p align="center"><b>主页</b><br><sub>左侧管理所有会话，中间一眼看到你的使用情况</sub></p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/session-dark.png" alt="深色模式下的对话界面">
+      <img src="new-2.42304.0/docs/images/session-dark.png" alt="深色模式下的对话界面">
       <p align="center"><b>深色模式</b><br><sub>跟随系统自动切换，晚上写代码不刺眼</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/slash-commands.png" alt="输入 / 弹出的命令菜单">
+      <img src="new-2.42304.0/docs/images/slash-commands.png" alt="输入 / 弹出的命令菜单">
       <p align="center"><b>斜杠命令</b><br><sub>输入 <code>/</code> 就能找到所有功能，不用记</sub></p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/settings-models.png" alt="设置里的模型页面">
+      <img src="new-2.42304.0/docs/images/settings-models.png" alt="设置里的模型页面">
       <p align="center"><b>换模型、填 Key</b><br><sub>DeepSeek 官方、第三方中转、更多服务商都在这里</sub></p>
     </td>
   </tr>
@@ -163,7 +173,7 @@ npm run build && npm start
 
 打开应用会出现设置向导，点 **开始**：
 
-<p align="center"><img src="docs/images/setup.png" alt="第一次打开时的设置向导" width="70%"></p>
+<p align="center"><img src="new-2.42304.0/docs/images/setup.png" alt="第一次打开时的设置向导" width="70%"></p>
 
 接下来按提示操作：
 
@@ -251,7 +261,7 @@ OpenClaudeDesktop/
 - 开发模式运行：`cd app && npm run build && npm start`
 - 运行测试：`cd app && npm test`，`cd harness && npm test`
 - 重新生成 README 截图：`cd app && npx vite build && node scripts/readme-screenshots.mjs && README_LOCALE=en node scripts/readme-screenshots.mjs`
-- 详细的设计和改动记录：[docs/DEVELOPMENT-LOG.md](docs/DEVELOPMENT-LOG.md)、[HANDOFF.md](HANDOFF.md)、[harness/README.md](harness/README.md)
+- 详细的设计和改动记录：[docs/DEVELOPMENT-LOG.md](new-2.42304.0/docs/DEVELOPMENT-LOG.md)、[HANDOFF.md](HANDOFF.md)、[harness/README.md](harness/README.md)
 
 ---
 

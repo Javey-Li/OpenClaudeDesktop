@@ -18,8 +18,8 @@ Which AI runs it, what you pay, how it talks, how it looks: all up to you.
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/session-dark-en.png">
-  <img src="docs/images/session-en.png" alt="OpenClaude Desktop: the AI reads files, edits code, runs the tests and summarizes what it changed" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="new-2.42304.0/docs/images/session-dark-en.png">
+  <img src="new-2.42304.0/docs/images/session-en.png" alt="OpenClaude Desktop: the AI reads files, edits code, runs the tests and summarizes what it changed" width="100%">
 </picture>
 
 <sub>↑ Asked to "add a dark mode to my website": it read 2 files, edited 1, ran the tests, then explained what changed and how to check it.</sub>
@@ -27,6 +27,16 @@ Which AI runs it, what you pay, how it talks, how it looks: all up to you.
 </div>
 
 <br>
+
+## Two versions
+
+| Folder | UI | Notes |
+|---|---|---|
+| [`new-2.42304.0/`](new-2.42304.0/) | New UI | Migrated from the official Claude Desktop 2.42304.0's new Code UI: the new working line, task list and next-step box, Context breakdown, official tool result bodies and more. **Recommended.** |
+| [`old-2.31226.0/`](old-2.31226.0/) | Old UI | Migrated from the official Claude Desktop 2.31226.0; the version before Claude 2.1.302 and October 16 (0.2.186). |
+
+Each folder is a complete source tree (`app/`, `harness/` and the rest). Run the commands below inside the folder you picked, e.g. `cd new-2.42304.0` first.
+
 
 ## Your Claude Desktop, not Anthropic's
 
@@ -68,21 +78,21 @@ Tell it what you want in plain English (or Chinese): "add a dark mode to this pa
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/home-en.png" alt="Home: sessions in the sidebar, usage stats in the middle">
+      <img src="new-2.42304.0/docs/images/home-en.png" alt="Home: sessions in the sidebar, usage stats in the middle">
       <p align="center"><b>Home</b><br><sub>All your sessions on the left, your usage at a glance</sub></p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/session-dark-en.png" alt="A conversation in dark mode">
+      <img src="new-2.42304.0/docs/images/session-dark-en.png" alt="A conversation in dark mode">
       <p align="center"><b>Dark mode</b><br><sub>Follows your system appearance automatically</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/slash-commands-en.png" alt="The menu that opens when you type /">
+      <img src="new-2.42304.0/docs/images/slash-commands-en.png" alt="The menu that opens when you type /">
       <p align="center"><b>Slash commands</b><br><sub>Type <code>/</code> to find every action. Nothing to memorize</sub></p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/settings-models-en.png" alt="The Models page in Settings">
+      <img src="new-2.42304.0/docs/images/settings-models-en.png" alt="The Models page in Settings">
       <p align="center"><b>Models and keys</b><br><sub>DeepSeek official, third-party relays and more providers</sub></p>
     </td>
   </tr>
@@ -165,7 +175,7 @@ npm run build && npm start
 
 A setup screen opens. Click **Get started**:
 
-<p align="center"><img src="docs/images/setup-en.png" alt="The setup screen on first launch" width="70%"></p>
+<p align="center"><img src="new-2.42304.0/docs/images/setup-en.png" alt="The setup screen on first launch" width="70%"></p>
 
 Then follow the prompts:
 
@@ -253,7 +263,7 @@ OpenClaudeDesktop/
 - Run in development: `cd app && npm run build && npm start`
 - Run the tests: `cd app && npm test`, `cd harness && npm test`
 - Regenerate the README screenshots: `cd app && npx vite build && node scripts/readme-screenshots.mjs && README_LOCALE=en node scripts/readme-screenshots.mjs`
-- Design and change history (mostly in Chinese): [docs/DEVELOPMENT-LOG.md](docs/DEVELOPMENT-LOG.md), [HANDOFF.md](HANDOFF.md), [harness/README.md](harness/README.md)
+- Design and change history (mostly in Chinese): [docs/DEVELOPMENT-LOG.md](new-2.42304.0/docs/DEVELOPMENT-LOG.md), [HANDOFF.md](HANDOFF.md), [harness/README.md](harness/README.md)
 
 ---
 
