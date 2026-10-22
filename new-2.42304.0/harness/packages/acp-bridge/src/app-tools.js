@@ -29,6 +29,10 @@ export const APP_TOOL_NAMES = Object.freeze([
   'show_widget', 'read_me',
   // agent-tools/turn-plan.mjs: the task list and the next-step box (2.42304.0 ccd_turn update_plan / wrap_up, alwaysLoad).
   'update_plan', 'wrap_up',
+  // agent-tools/browser.mjs: the Claude in Chrome tools, on pages in the user's own Chrome (chrome_ prefixed: preview
+  // already has navigate / read_page / find on this server).
+  'chrome_tabs_context_mcp', 'chrome_tabs_create_mcp', 'chrome_navigate', 'chrome_read_page', 'chrome_find', 'chrome_form_input',
+  'chrome_computer', 'chrome_javascript_tool', 'chrome_browser_batch',
 ])
 
 /** {name, command, args, env, instructions} (env holds the socket and token; instructions text or null) or null. */
