@@ -1,108 +1,55 @@
-<div align="center">
+# OpenClaudeDesktop · Javey-Li 衍生项目
 
-# OpenClaude Desktop
+简体中文 · [English](README.md)
 
-### 1:1 复刻 Claude Desktop 的开源版，跑你自己选的 AI
+这是基于 [oleyyu/OpenClaudeDesktop](https://github.com/oleyyu/OpenClaudeDesktop) 继续开发的开源衍生项目，目标是逐步构建完整的 Claude Desktop 日常替代体验。
 
-[English](README.md) · **简体中文**
+范围包括聊天、项目知识、附件、Artifacts、代码与工作任务、工具调用、浏览器和桌面操作，以及可持续的后台工作。开发分阶段进行；这些是产品目标，不代表当前全部可用。
 
-![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple&logoColor=white)
-![内核](https://img.shields.io/badge/内核-DeepSeek%20·%20Codex%20·%20Kimi%20·%20Gemini%20·%20更多-4D6BFE)
-![简体中文](https://img.shields.io/badge/界面-简体中文%20%2F%20English-D97757)
-[![MIT License](https://img.shields.io/badge/许可证-MIT-2EA44F)](LICENSE)
+## 现在到哪一步
 
-<br>
+本项目处于产品定义和基础实现核实阶段。当前应用代码继承自上游，尚未发布本衍生项目独立验证的应用版本。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="new-2.42304.0/docs/images/session-dark.png">
-  <img src="new-2.42304.0/docs/images/session.png" alt="OpenClaude Desktop" width="100%">
-</picture>
+上游已经包含 Electron/React 应用、DeepSeek Harness 桥接、多种内核适配、文件与终端服务、预览、本地 Projects 和 Artifacts 代码，以及 Chrome Bridge。代码存在不等于完整可用，也不代表各内核的行为一致。
 
-</div>
+目前从干净源码构建仍缺少历史版本的 `reference/` 资源。完整应用启动、真实模型执行任务和 Cowork VM 尚未在本衍生项目验证，因此暂不提供承诺可用的一键安装步骤。
 
-<br>
+## 我们准备做什么
 
-## 这是什么
+- 在继承的代码工作台上，补齐更完整的 Claude Desktop 工作流程。
+- 把会话、资料、产物和任务执行连起来，明确状态、恢复和权限。
+- 支持明确选择模型与 Agent 内核，让数据、账号和服务边界可理解。
+- 先让构建和功能检查可复现，再把对应功能标为可用。
 
-1:1 复刻官方 Claude Desktop 的 Code 界面。不是仿制：界面组件由生成器从官方应用里原样切出、直接运行，宿主只加一层适配，让它们能驱动其他 AI 内核。
+首先服务于维护者自己的日常使用。仓库公开，是为了让项目方向、实现过程和实际限制都可查看。
 
-- **界面和交互一致**：侧栏、输入框与环境栏、对话区（加载行、工具行、diff）、任务清单与下一步框、会话右栏与 Context 明细、设置、菜单和快捷键。
-- **功能一致**：权限模式、计划、侧边对话、定时任务、动态工作流、终端、预览、文件与改动面板、MCP、Skills、插件、Hooks。
-- **AI 你来选**：内置 DeepSeek Harness，也支持 Codex、Kimi、Qwen、MiniMax、Gemini、OpenCode、ZCode、MiMo，或任何 OpenAI 兼容接口。每个模型可以单独设显示名、上下文窗口和图片输入。
-- **不需要 Claude 账号**：直接向你选的服务商付费，设置和记录都留在你的 Mac 上。
+## 从哪里了解项目
 
-## 两个版本
+| 文件 | 回答什么问题 |
+|---|---|
+| [PRD：产品需求](docs/PRD.md) | 为谁做、要解决什么、完整范围是什么、怎样判断完成 |
+| [开发说明](docs/DEVELOPMENT.md) | 代码在哪、当前受什么阻碍、下一步先改什么 |
+| [参与开发](CONTRIBUTING.md) | 怎样提出改动、说明来源和检查结果 |
 
-| 文件夹 | 界面 | 复刻自 |
-|---|---|---|
-| [`new-2.42304.0/`](new-2.42304.0/) | **新界面**（推荐） | Claude Desktop 2.42304.0 |
-| [`old-2.31226.0/`](old-2.31226.0/) | 旧界面（0.2.186，Claude 2.1.302 / 10 月 16 日之前） | Claude Desktop 2.31226.0 |
+## 代码目录
 
-两个文件夹各是一套完整源码，下面的命令在你选的那个文件夹里执行。
+- [`new-2.42304.0/`](new-2.42304.0/)：当前开发基线。目录名记录上游参考的界面版本，不是本衍生项目的发行版本。
+- [`old-2.31226.0/`](old-2.31226.0/)：保留用于比较的历史源码。
 
-## 截图
+这两个目录中的 README 是上游文档，其中的功能表述和安装步骤尚未全部由本项目独立验证。本仓库根目录的 README 说明本衍生项目的状态。
 
-<table>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/home.png" alt="首页"></td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/session-dark.png" alt="暗色模式"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/slash-commands.png" alt="斜杠命令"></td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/settings-models.png" alt="模型设置"></td>
-  </tr>
-</table>
+## 来源与相关项目
 
-## 核心功能
+应用基础来自 [OpenClaudeDesktop](https://github.com/oleyyu/OpenClaudeDesktop)。保留上游贡献与版权说明，区分继承实现和本项目新增改动。
 
-<table>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/workflow.png" alt="动态工作流"><br><b>动态工作流</b>：阶段与智能体，在后台任务里实时显示</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/task-list.png" alt="任务清单"><br><b>任务清单</b>与加载行、运行中的工具</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/next-step.png" alt="下一步"><br>回合结束时的<b>下一步</b>框</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/context.png" alt="上下文"><br>会话右栏的<b>上下文</b>分类明细</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/approval.png" alt="审批"><br>命令<b>审批</b>卡</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/side-chat.png" alt="侧边对话"><br><b>/btw</b> 侧边对话</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/changes.png" alt="更改"><br><b>更改</b>面板：本会话的 diff</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/model-effort-dark.png" alt="推理强度"><br>模型菜单的<b>推理强度</b>子菜单（暗色）</td>
-  </tr>
-</table>
+[Open Claude UI](https://github.com/Caho1/open-claude-ui) 可供选择组件和交互实现；[REA](https://github.com/morluto/rea) 用于研究可观察的原版行为；[learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 提供 Agent 教学案例。列出这些项目不代表已经集成，也不代表它们都是应用运行依赖。
 
-## 安装
+## 模型接入与官方服务
 
-需要 Apple 芯片的 Mac、[Node.js](https://nodejs.org) 22.19 或更新版本（`brew install node`），以及服务商的 API key（默认 [DeepSeek](https://platform.deepseek.com/api_keys)）。
+模型 API、本地 Agent 内核和 Claude 订阅提供的能力不同。接入某个后端，不会自动获得官方账号功能、云会话或同步数据。每项接入都需要说明认证方式、费用归属和服务限制。
 
-```bash
-git clone https://github.com/oleyyu/OpenClaudeDesktop.git
-cd OpenClaudeDesktop/new-2.42304.0/harness && npm install
-cd ../app && npm install
-npm run package
-```
+## 许可证与项目关系
 
-打包好的应用在 `OpenClaudeDesktop/new-2.42304.0/releases/OpenClaude Desktop-darwin-arm64/`，拖进「应用程序」即可。不打包直接试用：在 `app/` 里运行 `npm run build && npm start`。
+保留上游的 [MIT 许可证与版权声明](LICENSE)。第三方代码和提取资源需要分别核实来源与许可；根目录许可证不能证明每项继承资源都可重新分发。
 
-> 打包需要 `reference/` 里的界面资源（字体、图标），不在本仓库中。国内网络可先运行 `npm config set registry https://registry.npmmirror.com` 加快 `npm install`。
-
-首次启动时选择内核、连接模型（官方 API key，或任意接口的地址和 key），之后可在「设置 › 模型」里修改。
-
-## 常见问题
-
-- **内核一直连不上**：多半是 Node.js 低于 22.19。运行 `node -v` 检查，再 `brew upgrade node`。
-- **要花多少钱？** 应用免费，按用量向服务商付费（设置 › 用量）。
-- **数据存在哪？** 都在你的 Mac 上：`~/Library/Application Support/OpenClaude Desktop/`，DeepSeek 的对话在 `~/.dsh/`。只有对话内容会发给你选的服务商。
-
-## 参与开发
-
-`app/` 是 Electron + React 应用（官方组件在 `app/src/generated/`，每块区域一个生成器 `app/scripts/extract-*.mjs`）；`harness/` 负责连接各内核。测试：分别在 `app/` 和 `harness/` 里运行 `npm test`。
-
-## 许可证
-
-[MIT](LICENSE)。
-
-> **声明**：OpenClaude Desktop 是非官方社区项目，与 Anthropic 无关联，也未获其认可。“Claude” 是 Anthropic 的商标，这里仅用于描述界面风格。
+这是独立社区项目，不是 Anthropic 官方应用，也未获 Anthropic 认可。

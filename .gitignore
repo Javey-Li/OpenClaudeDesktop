@@ -2,3 +2,9 @@
 node_modules/
 releases/
 *.log
+
+# Developer-local state and credentials.
+.local/
+research/
+.env
+.env.*

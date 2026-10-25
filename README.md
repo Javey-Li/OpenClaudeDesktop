@@ -1,108 +1,55 @@
-<div align="center">
+# OpenClaudeDesktop · Javey-Li fork
 
-# OpenClaude Desktop
+[简体中文](README.zh-CN.md) · English
 
-### A 1:1 open-source recreation of Claude Desktop, running the AI you choose
+A community derivative of [oleyyu/OpenClaudeDesktop](https://github.com/oleyyu/OpenClaudeDesktop), working toward a complete everyday alternative to Claude Desktop.
 
-**English** · [简体中文](README.zh-CN.md)
+The goal covers conversations, project knowledge, attachments, artifacts, coding and work tasks, tools, browser and desktop interaction, and persistent background work. Development will proceed in stages. These are product goals, not a list of completed features.
 
-![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple&logoColor=white)
-![Cores](https://img.shields.io/badge/cores-DeepSeek%20·%20Codex%20·%20Kimi%20·%20Gemini%20·%20more-4D6BFE)
-![Languages](https://img.shields.io/badge/UI-English%20%2F%20简体中文-D97757)
-[![MIT License](https://img.shields.io/badge/license-MIT-2EA44F)](LICENSE)
+## Current state
 
-<br>
+This fork is in product definition and baseline verification. Its application code is currently inherited from upstream. This fork has no independently verified application release yet.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="new-2.42304.0/docs/images/session-dark-en.png">
-  <img src="new-2.42304.0/docs/images/session-en.png" alt="OpenClaude Desktop" width="100%">
-</picture>
+The upstream code contains an Electron/React application, a DeepSeek Harness bridge, multiple core adapters, file and terminal services, previews, local project and artifact code, and a Chrome bridge. Their presence does not establish complete or equivalent behavior across backends.
 
-</div>
+A clean source build remains blocked by missing historical `reference/` resources. Full application startup, real-model task execution, and the Cowork VM have not been verified for this fork. There is no supported install-and-run path to recommend yet.
 
-<br>
+## What this fork is for
 
-## What it is
+- Extend the inherited code workbench toward the wider Claude Desktop workflow.
+- Connect conversations, knowledge, artifacts, and task execution through consistent state and permissions.
+- Support explicit choices of model and agent backends, with clear data and account boundaries.
+- Make builds and functional checks reproducible before claiming a capability is ready.
 
-The official Claude Desktop Code interface, recreated 1:1. Not a look-alike: the components are sliced out of the official app by generators and run as they are, with a thin host layer that lets them drive other AI cores.
+The intended user is initially the maintainer. The repository is public so its direction, implementation, and limitations can be inspected.
 
-- **Same UI, same behavior**: sidebar, composer and environment bar, transcript (working line, tool rows, diffs), task list and next-step box, session rail with the Context breakdown, settings, menus and shortcuts.
-- **Same features**: permission modes, plans, side chats, routines, dynamic workflows, terminal, preview, files and changes panes, MCP, skills, plugins and hooks.
-- **Your AI**: DeepSeek Harness (built in), Codex, Kimi, Qwen, MiniMax, Gemini, OpenCode, ZCode, MiMo, or any OpenAI-compatible endpoint. Per-model display names, context windows and image input.
-- **No Claude account**: pay your provider directly. Settings and history stay on your Mac.
+## Read the project
 
-## Versions
+| Document | Purpose |
+|---|---|
+| [Product requirements](docs/PRD.md) (中文) | Intended users, complete scope, user workflows, and completion criteria |
+| [Development guide](docs/DEVELOPMENT.md) (中文) | Source layout, current blockers, and the next implementation steps |
+| [Contributing](CONTRIBUTING.md) | How to propose a change and describe what was checked |
 
-| Folder | UI | Recreated from |
-|---|---|---|
-| [`new-2.42304.0/`](new-2.42304.0/) | **New UI** (recommended) | Claude Desktop 2.42304.0 |
-| [`old-2.31226.0/`](old-2.31226.0/) | Old UI (0.2.186, before Claude 2.1.302 / October 16) | Claude Desktop 2.31226.0 |
+## Source layout
 
-Each folder is a complete source tree. Run the commands below inside the one you pick.
+- [`new-2.42304.0/`](new-2.42304.0/): active inherited source tree. The folder names its upstream UI reference, not this fork's release version.
+- [`old-2.31226.0/`](old-2.31226.0/): historical source retained for comparison.
 
-## Screenshots
+The READMEs inside those trees are upstream documents. They describe the upstream implementation and may contain claims or setup steps that this fork has not independently verified. The root README describes this fork.
 
-<table>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/home-en.png" alt="Home"></td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/session-dark-en.png" alt="Dark mode"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/slash-commands-en.png" alt="Slash commands"></td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/settings-models-en.png" alt="Models"></td>
-  </tr>
-</table>
+## Upstream and related work
 
-## Core features
+The application foundation comes from [OpenClaudeDesktop](https://github.com/oleyyu/OpenClaudeDesktop). Preserve upstream attribution and distinguish inherited implementation from changes made here.
 
-<table>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/workflow-en.png" alt="Dynamic Workflow"><br><b>Dynamic Workflow</b>: phases and agents, live in Background tasks</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/task-list-en.png" alt="Task list"><br><b>Task list</b> and the working line with the running tool</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/next-step-en.png" alt="Next step"><br><b>Next step</b> box at the end of a turn</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/context-en.png" alt="Context"><br><b>Context</b> breakdown in the session rail</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/approval-en.png" alt="Approval"><br><b>Approval</b> card for a command</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/side-chat-en.png" alt="Side chat"><br><b>/btw</b> side chat next to the session</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="new-2.42304.0/docs/images/changes-en.png" alt="Changes"><br><b>Changes</b> pane with the session diff</td>
-    <td width="50%"><img src="new-2.42304.0/docs/images/model-effort-dark-en.png" alt="Effort"><br>Model menu with the <b>Effort</b> submenu (dark)</td>
-  </tr>
-</table>
+[Open Claude UI](https://github.com/Caho1/open-claude-ui) is a potential source of components and interaction work. [REA](https://github.com/morluto/rea) supports investigation of observable behavior. [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) provides educational agent examples. Listing these projects does not mean their code is integrated or required to run the application.
 
-## Install
+## Model access and official services
 
-You need a Mac with Apple silicon, [Node.js](https://nodejs.org) 22.19 or newer (`brew install node`) and an API key for your provider ([DeepSeek](https://platform.deepseek.com/api_keys) is the default).
+A model API, a local agent runtime, and a Claude subscription provide different capabilities. Connecting a backend does not automatically provide official account features, cloud sessions, or synchronized data. Each integration must document its authentication, billing, and service limits.
 
-```bash
-git clone https://github.com/oleyyu/OpenClaudeDesktop.git
-cd OpenClaudeDesktop/new-2.42304.0/harness && npm install
-cd ../app && npm install
-npm run package
-```
+## License and affiliation
 
-The app lands in `OpenClaudeDesktop/new-2.42304.0/releases/OpenClaude Desktop-darwin-arm64/`; drag it into Applications. To try it without packaging, run `npm run build && npm start` in `app/`.
+The repository retains the upstream [MIT license and copyright notice](LICENSE). Third-party code and extracted resources require their own source and license checks. The root license does not establish permission for every inherited asset.
 
-> Building needs the `reference/` assets (fonts, icons), which aren't in this repository. In mainland China, `npm config set registry https://registry.npmmirror.com` speeds up `npm install`.
-
-On first launch, pick a core and connect a model (an official API key, or any endpoint's base URL and key). Change it later in **Settings › Models**.
-
-## FAQ
-
-- **The core never connects**: usually Node.js is older than 22.19. Run `node -v`, then `brew upgrade node`.
-- **What does it cost?** The app is free; you pay your provider for what you use (Settings › Usage).
-- **Where is my data?** On your Mac: `~/Library/Application Support/OpenClaude Desktop/` and, for DeepSeek, `~/.dsh/`. Only the conversation goes to the provider you chose.
-
-## For contributors
-
-`app/` is the Electron + React app (official components in `app/src/generated/`, one generator per area in `app/scripts/extract-*.mjs`); `harness/` connects the cores. Tests: `npm test` in `app/` and in `harness/`.
-
-## License
-
-[MIT](LICENSE).
-
-> **Disclaimer**: OpenClaude Desktop is an unofficial community project, not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic, used only to describe the interface.
+This is an independent community project. It is not an official Anthropic application or endorsed by Anthropic.
