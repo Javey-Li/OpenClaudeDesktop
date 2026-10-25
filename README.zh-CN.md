@@ -1,5 +1,3 @@
-> 本 fork 的开发入口：[开发路线](docs/PLAN.md) · [当前进度](docs/STATUS.md) · [完整功能清单](docs/FEATURES.md) · [安装与检查](docs/SETUP.md)。当前以新目录开发；工具就绪与完整产品可用分别记录。下方保留上游介绍。
-
 <div align="center">
 
 # OpenClaude Desktop
