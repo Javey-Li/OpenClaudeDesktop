@@ -1,0 +1,19 @@
+{
+  "name": "open-claude-development",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^24.22.1"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "check": "node scripts/check.mjs",
+    "check:rea": "node scripts/check-rea.mjs",
+    "rea": "node .local/tools/rea/node_modules/rea-agents/scripts/rea.mjs",
+    "check:build": "node scripts/doctor.mjs --build",
+    "check:chrome": "npm --prefix new-2.42304.0/app run check:chrome-bridge",
+    "build": "npm --prefix new-2.42304.0/app run build"
+  }
+}

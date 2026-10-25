@@ -2,3 +2,16 @@
 node_modules/
 releases/
 *.log
+
+# Local research, runtimes, and credentials stay on this machine.
+.local/
+research/
+.env
+.env.*
+!.env.example
+# Official snapshots and private build inputs are never pushed.
+new-2.42304.0/reference/
+new-2.42304.0/cowork-ref/
+new-2.42304.0/app/dist/
+new-2.42304.0/app/public/assets/v1/
+new-2.42304.0/app/public/reference/
