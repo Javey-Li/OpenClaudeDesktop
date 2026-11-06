@@ -41,6 +41,7 @@ import {isModelWorkflow,modelWorkflowRuns,withModelWorkflowRows,workflowTask,wor
 import {SourceBackgroundTasks,taskRowsStore} from "./source-background-tasks.jsx";
 import {backgroundTasks,taskSections} from "./background-tasks-model.mjs";
 import { SourceTasksPane } from "./source-agent.jsx";
+import { SourceRouterPane } from "./source-router-pane.jsx";
 import { agentView, subAgentMessageError } from "./agent-model.mjs";
 import { ADD_TO_PROMPT_EVENT, promptAdditions, serializeLineComment } from "./inline-comments.mjs";
 import { paneComposers, relayPanePrompt } from "./popout-r4f-relay.mjs";
@@ -346,7 +347,7 @@ const tileStorage = (() => { try { return globalThis.localStorage ?? null; } cat
 const tileStore = createTileLayoutStore({ storage: (SESSION_POPOUT_WINDOW || PANE_WINDOW) && tileStorage
   ? { getItem: (name) => tileStorage.getItem(name), setItem: () => {}, removeItem: () => {} } : tileStorage });
 const EMPTY_TILE_ENTRY = emptySessionEntry();
-const PANE_NAMES = { files: t("Files"), changes: t("Changes"), plan: t("Plan"), tasks: t("Background tasks"), terminal: t("Terminal"), preview: t("Preview"), session: t("Side chat") };
+const PANE_NAMES = { files: t("Files"), changes: t("Changes"), plan: t("Plan"), tasks: t("Background tasks"), terminal: t("Terminal"), preview: t("Preview"), session: t("Side chat"), router: "总管" };
 const baseTileLayout = (entry) => (entry?.expandedTile ? entry.baseLayout : entry?.tileLayout) ?? null;
 // The home page (no session) keeps its own Files pane over the chosen folder
 // (local behavior; the official home route has no side panes).
@@ -6714,6 +6715,10 @@ function App({ side = 0, initialSession = null }) {
               renderItem={(childItem,childId,placement) => <Message item={childItem} agentNested agentContext={{state,onOpen:openAgent}} sessionKey={childId} reasoningPlacement={placement}
                 isStreaming={isItemStreaming(state,childId,childItem)} cwd={state.threads[childId]?.cwd || workdir}
                 onOpenFileRef={openFileRef} transcriptView={transcriptView} pendingApprovalItemIds={pendingApprovalItems} />} />
+          ) : tileId === "router" ? (
+            <SourceRouterPane load={() => call("router-board", {})} headerCenter={tileApi.dragHandle}
+              controls={<SourcePaneControls tileId="router" paneName={PANE_NAMES.router} layout={baseTileLayout(tileEntry)} expanded={expandedTile === "router"}
+                onMoveToEdge={edge => moveTileEdge("router", edge)} onToggleExpand={() => toggleExpandTile("router")} onClose={() => closePaneTile("router")} />} />
           ) : tileId !== CHAT_TILE_ID ? (
             <FilePanel
               cwd={workdir}
