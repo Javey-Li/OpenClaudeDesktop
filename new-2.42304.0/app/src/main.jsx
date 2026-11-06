@@ -6649,7 +6649,9 @@ function App({ side = 0, initialSession = null }) {
             onClose={() => dockPaneWindow({ close: true })}
             windowControls={{ onDock: () => dockPaneWindow(), alwaysOnTop: popoutPinned, onTogglePin: togglePaneWindowPin }} />
         ) : section === "board" && !PANE_WINDOW ? (
-          <SourceBoardPage load={api ? (options) => call("board", options) : null} />
+          <SourceBoardPage load={api ? (options) => call("board", options) : null}
+            capture={api ? (payload) => call("board-capture", payload) : null}
+            onOpenLink={(url) => call("external", { url }).catch(() => {})} />
         ) : (
         <SourceTileLayout layout={displayLayout} onLayoutChange={PANE_WINDOW ? () => {} : changeTileLayout} tiles={tileDefs} hasPane={hasPane} onTileTearOff={PANE_WINDOW ? () => false : tearOffTile} restoreKey={tileOwner} onRestoreLayout={restoreTileLayout} tileHosts={tileStore}
           renderTile={(tileId, tileApi) => tileId === "session" ? (

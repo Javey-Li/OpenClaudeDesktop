@@ -3,16 +3,16 @@ import { Icon } from "./icons";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import {
   BOARD_COLUMNS,
+  CAPTURE_PROJECTS,
   boardTotals,
   conversationSources,
   groupConversations,
   relativeLabel,
-  routeCapture,
 } from "./board-view-model.mjs";
 import "./source-board-page.css";
 
 const SOURCE_LABELS = { superagent: "Superagent", t3: "T3", codex: "Codex" };
-const STATUS_LABELS = { running: "在跑", waiting: "等你", done: "完成", stuck: "卡住" };
+const STATUS_LABELS = { running: "在跑", waiting: "等你", done: "完成", stuck: "卡住", suspected: "可能卡住" };
 const CAPTURE_MODES = [
   { id: "note", label: "一句话" },
   { id: "link", label: "一个链接" },
@@ -70,28 +70,37 @@ function ReportBlock({ report }) {
   </section>;
 }
 
-function CaptureBar({ config, onCaptured }) {
+function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
   const [mode, setMode] = useState("note");
+  const [projectId, setProjectId] = useState("");
   const [value, setValue] = useState("");
   const [notice, setNotice] = useState(null);
+  const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    const result = routeCapture({ mode, text: value, config });
-    if (!result.ok) {
-      setNotice({ ok: false, text: result.reason });
-      return;
+    if (!projectId) { setNotice({ ok: false, text: "先选项目。" }); return; }
+    if (!value.trim()) { setNotice({ ok: false, text: "先写点什么。" }); return; }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await onCapture?.({ mode, projectId, text: value });
+      if (!result?.ok) throw new Error(result?.error || "Issue 没写成。");
+      setNotice({ ok: true, text: `已开 Issue · ${result.repo}`, href: result.url, repo: result.repo });
+      onCaptured?.(result);
+      setValue("");
+      inputRef.current?.focus();
+    } catch (error) {
+      setNotice({ ok: false, text: error?.message || "Issue 没写成。" });
+    } finally {
+      setBusy(false);
     }
-    setNotice({ ok: true, text: `还没写出去：${result.message}`, label: result.label, target: result.target });
-    onCaptured?.(result);
-    setValue("");
-    inputRef.current?.focus();
   };
   return <section className="psb-capture" aria-label="往看板丢一件事">
     <div className="psb-capture-head">
       <div>
         <span className="psb-eyebrow">丢东西进来</span>
-        <p>一句话会进 Trigger；一个链接会开成 Issue。第一版还没有真的写出去。</p>
+        <p>{config?.hint || "一句话和链接都会写成所选项目的 GitHub Issue。"}</p>
       </div>
       <div className="psb-capture-modes" role="tablist" aria-label="丢进来的类型">
         {CAPTURE_MODES.map((entry) => <button key={entry.id} type="button" role="tab" aria-selected={mode === entry.id}
@@ -101,15 +110,23 @@ function CaptureBar({ config, onCaptured }) {
     </div>
     <form className="psb-capture-form" onSubmit={submit}>
       <Icon name={mode === "link" ? "Link" : "Chat"} size={18} className="psb-capture-icon" />
+      <select className="psb-capture-project" value={projectId} aria-label="选项目"
+        onChange={(event) => { setProjectId(event.target.value); setNotice(null); }}>
+        <option value="">先选项目</option>
+        {CAPTURE_PROJECTS.map((project) => <option key={project.id} value={project.id} disabled={!project.repo}>
+          {project.name}{project.repo ? "" : "（没有仓库）"}
+        </option>)}
+      </select>
       <input ref={inputRef} value={value} onChange={(event) => { setValue(event.target.value); setNotice(null); }}
         aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴一个链接…" : "比如：S05 第四小节先保留，别折回两拍"} />
-      <SourceSettingsButton variant="primary" size="sm" type="submit" disabled={!value.trim()}>交给总管</SourceSettingsButton>
+      <SourceSettingsButton variant="primary" size="sm" type="submit" busy={busy} disabled={!value.trim() || !projectId}>写 Issue</SourceSettingsButton>
     </form>
     <div className="psb-capture-foot" aria-live="polite">
       <span>{config?.hint}</span>
       {notice && <span className="psb-capture-notice" data-ok={notice.ok || undefined}>
         {notice.ok ? <Icon name="Check" size={14} /> : <Icon name="WarningCircle" size={14} />}
-        {notice.ok ? `${notice.text} · ${notice.label} → ${notice.target}` : notice.text}
+        {notice.text}
+        {notice.href && <button type="button" className="psb-issue-link" onClick={() => onOpenLink?.(notice.href)}>打开 Issue</button>}
       </span>}
     </div>
   </section>;
@@ -170,20 +187,43 @@ function ConversationRow({ row, now, selected, onSelect }) {
   </button>;
 }
 
-function ConversationList({ projects, now, onCaptured }) {
+function ProjectGroups({ groups, now, selected, onSelect }) {
+  return groups.map((group) => <section className="psb-project" key={group.id}>
+    <header className="psb-project-head">
+      <div>
+        <h3>{group.name}</h3>
+        <span>{group.repo}</span>
+      </div>
+      <span>{group.note}</span>
+      <span className="psb-project-count">{group.conversations.length}</span>
+    </header>
+    <div className="psb-project-grid">
+      {group.conversations.map((row) => <ConversationRow key={row.id} row={row} now={now} selected={selected === row.id}
+        onSelect={(id) => onSelect(selected === id ? null : id)} />)}
+    </div>
+  </section>);
+}
+
+function ConversationList({ projects, older, now }) {
   const [source, setSource] = useState("all");
   const [selected, setSelected] = useState(null);
+  const [showOlder, setShowOlder] = useState(false);
   const sources = useMemo(() => conversationSources(projects), [projects]);
-  const groups = useMemo(() => groupConversations(projects.map((project) => ({
+  const filter = (project) => ({
     ...project,
     conversations: source === "all" ? project.conversations : project.conversations.filter((row) => row.source === source),
+  });
+  const groups = useMemo(() => groupConversations(projects.map((project) => ({
+    ...filter(project),
   }))), [projects, source]);
+  const olderGroups = useMemo(() => groupConversations((older?.projects ?? []).map(filter)), [older, source]);
   const total = groups.reduce((count, group) => count + group.conversations.length, 0);
+  const olderTotal = olderGroups.reduce((count, group) => count + group.conversations.length, 0);
   return <section className="psb-conversations" aria-labelledby="psb-conversations-title">
     <header className="psb-section-head">
       <div>
-        <span className="psb-eyebrow">按项目</span>
-        <h2 id="psb-conversations-title">全部对话</h2>
+        <span className="psb-eyebrow">按项目 · 最近 3 天</span>
+        <h2 id="psb-conversations-title">最近对话</h2>
       </div>
       <span className="psb-section-count">{total} 条</span>
       <div className="psb-source-filter" role="group" aria-label="按来源筛选">
@@ -193,25 +233,21 @@ function ConversationList({ projects, now, onCaptured }) {
       </div>
     </header>
     {groups.length === 0 ? <div className="psb-conversation-empty">
-      <p>这个来源下还没有对话。</p>
+      <p>这个来源最近 3 天没有对话。</p>
       <button type="button" onClick={() => setSource("all")}>看全部</button>
-    </div> : groups.map((group) => <section className="psb-project" key={group.id}>
-      <header className="psb-project-head">
-        <div>
-          <h3>{group.name}</h3>
-          <span>{group.repo}</span>
-        </div>
-        <span>{group.note}</span>
-        <span className="psb-project-count">{group.conversations.length}</span>
-      </header>
-      <div className="psb-project-grid">
-        {group.conversations.map((row) => <ConversationRow key={row.id} row={row} now={now} selected={selected === row.id}
-          onSelect={(id) => setSelected(selected === id ? null : id)} />)}
-      </div>
-    </section>)}
+    </div> : <ProjectGroups groups={groups} now={now} selected={selected} onSelect={setSelected} />}
+    {olderTotal > 0 && <section className="psb-older" data-open={showOlder || undefined}>
+      <button type="button" className="psb-older-toggle" aria-expanded={showOlder} onClick={() => setShowOlder(!showOlder)}>
+        <span>旧对话与已归档</span>
+        <b>{olderTotal}</b>
+        <em>{older?.archived ? `含 ${older.archived} 条归档` : "默认折叠"}</em>
+        <i>{showOlder ? "收起" : "展开"}</i>
+      </button>
+      {showOlder && <ProjectGroups groups={olderGroups} now={now} selected={selected} onSelect={setSelected} />}
+    </section>}
     <footer className="psb-conversations-foot">
+      <span>默认只显示最近 3 天；更旧和归档的对话折叠在下面。</span>
       <span>点一条对话就能展开它最后说到哪；打开真实会话仍走左侧列表或 ⌘K。</span>
-      {onCaptured && <span>丢进来的东西不会直接改这些对话。</span>}
     </footer>
   </section>;
 }
@@ -236,10 +272,9 @@ function ErrorState({ error, onRetry }) {
   </div>;
 }
 
-export function SourceBoardPage({ load }) {
+export function SourceBoardPage({ load, capture, onOpenLink }) {
   const [state, setState] = useState({ status: "loading" });
   const [selected, setSelected] = useState(null);
-  const [captured, setCaptured] = useState(null);
   const loadRef = useRef(load);
   loadRef.current = load;
 
@@ -308,9 +343,9 @@ export function SourceBoardPage({ load }) {
     </header>
 
     <ReportBlock report={snapshot.report} />
-    <CaptureBar config={snapshot.capture} onCaptured={setCaptured} />
+    <CaptureBar config={snapshot.capture} onCapture={capture} onOpenLink={onOpenLink} />
     <BoardColumns columns={snapshot.columns ?? {}} now={snapshot.generatedAt} selected={selected} onSelect={setSelected} />
-    <ConversationList projects={snapshot.projects ?? []} now={snapshot.generatedAt} onCaptured={captured} />
+    <ConversationList projects={snapshot.projects ?? []} older={snapshot.older} now={snapshot.generatedAt} />
 
     <footer className="psb-origin">
       <span>只读来源：Codex ~/.codex/sessions · superagent 127.0.0.1:3082 · T3 127.0.0.1:3773</span>
