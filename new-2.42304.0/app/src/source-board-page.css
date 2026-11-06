@@ -298,6 +298,17 @@ html[data-mode="dark"] .psb-page {
 }
 .psb-capture-form:focus-within { border-bottom-color: var(--psb-ochre); }
 .psb-capture-icon { flex: none; color: var(--psb-faint); }
+.psb-capture-project {
+  max-width: 180px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--psb-ink);
+  font-family: var(--psb-sans);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
 .psb-capture-form input {
   flex: 1 1 auto;
   min-width: 0;
@@ -328,6 +339,12 @@ html[data-mode="dark"] .psb-page {
   color: var(--psb-rust);
 }
 .psb-capture-notice[data-ok] { color: var(--psb-sage); }
+.psb-issue-link {
+  margin-left: 4px !important;
+  color: var(--psb-sage) !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 .psb-columns {
   display: grid;
@@ -529,6 +546,7 @@ html[data-mode="dark"] .psb-page {
 .psb-status-dot[data-status="running"] { background: var(--psb-sage); box-shadow: 0 0 0 3px color-mix(in srgb, var(--psb-sage) 13%, transparent); }
 .psb-status-dot[data-status="waiting"] { background: var(--psb-ochre); }
 .psb-status-dot[data-status="stuck"] { background: var(--psb-rust); }
+.psb-status-dot[data-status="suspected"] { background: var(--psb-rust); box-shadow: 0 0 0 3px color-mix(in srgb, var(--psb-rust) 12%, transparent); }
 .psb-conv-title {
   min-width: 0;
   overflow: hidden;
@@ -582,6 +600,25 @@ html[data-mode="dark"] .psb-page {
   color: var(--psb-faint);
   font-size: 10px;
 }
+.psb-older {
+  margin-top: 28px;
+  border-top: 1px solid var(--psb-rule);
+}
+.psb-older-toggle {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 0 !important;
+  text-align: left;
+}
+.psb-older-toggle span { font-family: var(--psb-serif); font-size: 18px; letter-spacing: -.015em; }
+.psb-older-toggle b { color: var(--psb-faint); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.psb-older-toggle em { color: var(--psb-faint); font-size: 10px; font-style: normal; }
+.psb-older-toggle i { color: var(--psb-muted); font-size: 10px; font-style: normal; }
+.psb-older-toggle:hover i { color: var(--psb-ink); }
+.psb-older[data-open] .psb-older-toggle { border-bottom: 1px solid var(--psb-rule-soft); }
 
 .psb-origin {
   display: flex;

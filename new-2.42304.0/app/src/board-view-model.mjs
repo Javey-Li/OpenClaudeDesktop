@@ -8,6 +8,7 @@
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
+const RECENT_DAYS = 3;
 
 const time = (value) => {
   const at = Date.parse(value ?? "");
@@ -15,6 +16,10 @@ const time = (value) => {
 };
 
 const text = (value) => (typeof value === "string" ? value.trim() : "");
+const firstLine = (value, limit = 80) => {
+  const line = text(value).split(/\r?\n/).find(Boolean) ?? "";
+  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
+};
 
 export const BOARD_COLUMNS = Object.freeze([
   { key: "decide", title: "要我定的", eyebrow: "01", empty: "没有等你定的事。" },
@@ -29,41 +34,39 @@ export const BOARD_SOURCES = Object.freeze([
 ]);
 
 const PROJECTS = [
-  { id: "fretsense", name: "Fret Sense", repo: "Javey-Li/FretSense", note: "主产品",
-    patterns: [/\/FretSense(?:\/|$)/i, /Javey-Li\/FretSense/i, /fretsense-batch/i] },
-  { id: "delicacy", name: "Delicacy", repo: "Javey-Li/delicacy-html", note: "设计智能",
-    patterns: [/delicacy-html/i, /\/Projects\/GitHubing(?:\/|$)/i, /Javey-Li\/delicacy-html/i] },
-  { id: "guitaros", name: "GuitarOS", repo: "Javey-Li/GuitarOS", note: "教学系统",
-    patterns: [/\/guitarOS(?:\/|$)/i, /guitar-brain/i, /Javey-Li\/GuitarOS/i] },
-  { id: "dawdex", name: "DAWdex", repo: "Javey-Li/DAWdex", note: "暂存",
-    patterns: [/\/DAWdex(?:\/|$)/i, /Javey-Li\/DAWdex/i] },
-  { id: "mission", name: "Mission", repo: "Javey-Li/mission", note: "个人系统",
-    patterns: [/\/Projects\/mission(?:\/|$)/i, /Javey-Li\/mission/i] },
-  { id: "personal-super-agent", name: "Personal super agent", repo: "Javey-Li/OpenClaudeDesktop", note: "总管",
-    patterns: [/personal-super-agent/i, /\/OpenClaudeDesktop(?:\/|$)/i, /\/OpenClaude Desktop(?:\/|$)/i] },
-  { id: "eunoia", name: "Eunoia", repo: "Javey-Li/Eunoia", note: "研究",
-    patterns: [/\/Projects\/Eunoia(?:\/|$)/i] },
-  { id: "dsh-superagent", name: "dsh-superagent", repo: "Javey-Li/dsh-superagent-prototype", note: "执行器",
-    patterns: [/dsh-superagent/i, /dshsa-w/i] },
-  { id: "codex-tasks", name: "Codex tasks", repo: "", note: "临时工作区",
-    patterns: [/\/Documents\/Codex\//i] },
+  { id: "fretsense", name: "FretSense", repo: "Javey-Li/FretSense", note: "主产品",
+    patterns: [/\/FretSense(?:\/|$)/i, /FretSense-fleet/i, /fretsense-batch/i, /superagent-fretsense/i] },
+  { id: "delicacy", name: "Delicacy", repo: "Javey-Li/Delicacy-HTML", note: "设计智能",
+    patterns: [/delicacy-html/i, /\/Delicacy(?:\/|$)/i] },
+  { id: "guitaros", name: "GuitarOS", repo: "", note: "教学系统",
+    patterns: [/\/guitarOS(?:\/|$)/i, /guitar-brain/i] },
+  { id: "dawdex", name: "DAWdex", repo: "", note: "暂存",
+    patterns: [/\/DAWdex(?:\/|$)/i] },
+  { id: "mission", name: "mission", repo: "", note: "个人系统",
+    patterns: [/\/Projects\/mission(?:\/|$)/i] },
+  { id: "personal-super-agent", name: "personal-super-agent", repo: "Javey-Li/personal-super-agent", note: "总管",
+    patterns: [/personal-super-agent/i, /dsh-superagent/i, /dshsa-/i, /\/OpenClaudeDesktop(?:\/|$)/i, /\/OpenClaude Desktop(?:\/|$)/i] },
+  { id: "other", name: "其他", repo: "", note: "", patterns: [] },
 ];
 
-const slug = (value) => text(value).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-").replace(/^-|-$/g, "");
+export const CAPTURE_PROJECTS = Object.freeze(PROJECTS
+  .filter((project) => project.id !== "other")
+  .map(({ id, name, repo }) => ({ id, name, repo })));
+
+const otherProject = PROJECTS[PROJECTS.length - 1];
 
 export function projectFor({ path: workspace = "", title = "", repo = "" } = {}) {
   const matched = PROJECTS.find((project) => project.patterns.some((pattern) => pattern.test(workspace)));
   if (matched) return { ...matched, patterns: undefined };
-  const name = text(title) || text(workspace).split("/").filter(Boolean).pop() || "其他";
-  return { id: `project:${slug(name) || "other"}`, name, repo: text(repo), note: workspace ? "本地项目" : "" };
+  return { ...otherProject, patterns: undefined, repo: text(repo) };
 }
 
-const projectMeta = (row) => ({
-  id: row.projectId || projectFor({ path: row.workspace || row.cwd, title: row.project, repo: row.repo }).id,
-  name: row.project || projectFor({ path: row.workspace || row.cwd, title: row.project, repo: row.repo }).name,
-  repo: text(row.repo),
-  note: text(row.note),
-});
+const projectMeta = (row) => {
+  if (row.projectId && row.project) {
+    return { id: row.projectId, name: row.project, repo: text(row.repo), note: text(row.note) };
+  }
+  return projectFor({ path: row.workspace || row.cwd || row.repo, title: row.project });
+};
 
 function normalizeConversation(row, source) {
   const project = projectMeta(row);
@@ -76,8 +79,9 @@ function normalizeConversation(row, source) {
     title: text(row.title) || "未命名对话",
     preview: text(row.preview),
     source,
-    status: ["running", "waiting", "stuck"].includes(row.status) ? row.status : "done",
+    status: ["running", "waiting", "stuck", "suspected"].includes(row.status) ? row.status : "done",
     updatedAt: row.updatedAt || row.at || new Date().toISOString(),
+    archived: !!row.archived,
     unread: !!row.unread,
     threadId: text(row.threadId) || undefined,
     href: text(row.href) || undefined,
@@ -132,7 +136,7 @@ function sourceRows(inputs = {}) {
   });
 }
 
-export function boardTotals({ columns = {}, projects = [] } = {}) {
+export function boardTotals({ projects = [] } = {}) {
   const conversations = projects.flatMap((project) => project.conversations ?? []);
   return {
     conversations: conversations.length,
@@ -186,11 +190,15 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
     }
   }
   const seen = new Set();
-  const projects = mergeProjects(conversationRows.filter((row) => {
+  const allConversations = conversationRows.filter((row) => {
     if (seen.has(row.id)) return false;
     seen.add(row.id);
     return true;
-  }));
+  });
+  const cutoff = time(now) - RECENT_DAYS * DAY;
+  const recent = allConversations.filter((row) => !row.archived && time(row.updatedAt) >= cutoff);
+  const older = allConversations.filter((row) => row.archived || time(row.updatedAt) < cutoff);
+  const projects = mergeProjects(recent);
   for (const key of Object.keys(columnRows)) {
     const seenTitle = new Set();
     columnRows[key] = columnRows[key]
@@ -209,9 +217,10 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
     generatedAt: now,
     columns: columnRows,
     projects,
+    older: { count: older.length, archived: older.filter((row) => row.archived).length, projects: mergeProjects(older) },
     sources: sourceRows(sources),
     capture: captureConfig(),
-    totals: boardTotals({ columns: columnRows, projects }),
+    totals: boardTotals({ projects }),
   };
   snapshot.report = buildRuleReport(snapshot);
   return snapshot;
@@ -219,10 +228,37 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
 
 export function captureConfig() {
   return {
-    issueRepo: "Javey-Li/OpenClaudeDesktop",
-    trigger: "superagent.inbox",
-    issueLabel: "board-capture",
-    hint: "一句话会进 superagent Trigger；链接会开成 Issue。第一版还没有真的写出去。",
+    hint: "一句话和链接都会写成所选项目的 GitHub Issue。",
+  };
+}
+
+export function buildIssueDraft({ projectId = "", mode = "note", text: value = "", projects = CAPTURE_PROJECTS } = {}) {
+  const input = String(value ?? "").trim();
+  if (!projectId) return { ok: false, reason: "先选项目。" };
+  if (!input) return { ok: false, reason: "先写点什么。" };
+  const project = projects.find((entry) => entry.id === projectId);
+  if (!project) return { ok: false, reason: "这个项目不认识。" };
+  if (!project.repo) return { ok: false, reason: `${project.name} 还没有 GitHub 仓库。` };
+  if (mode === "link") {
+    let url;
+    try { url = new URL(input); } catch { return { ok: false, reason: "这个链接还读不出来。" }; }
+    if (!/^https?:$/.test(url.protocol)) return { ok: false, reason: "只收 http 或 https 链接。" };
+    const title = firstLine(`${url.host}${url.pathname}`) || firstLine(input);
+    return {
+      ok: true,
+      projectId,
+      repo: project.repo,
+      title: `链接 · ${title}`,
+      body: `链接：${input}\n\n来自总看板 · ${project.name}\n`,
+    };
+  }
+  const title = firstLine(input) || "总看板里丢进来的一件事";
+  return {
+    ok: true,
+    projectId,
+    repo: project.repo,
+    title,
+    body: `${input}\n\n来自总看板 · ${project.name}\n`,
   };
 }
 
@@ -251,37 +287,4 @@ export function relativeLabel(iso, nowIso = new Date().toISOString()) {
   if (delta < DAY) return `${Math.floor(delta / HOUR)} 小时前`;
   if (delta < 7 * DAY) return `${Math.floor(delta / DAY)} 天前`;
   return new Date(at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-}
-
-// “一句话 / 一个链接”的门口：一句话给 superagent Trigger，链接写成目标仓库
-// Issue。真实写入还没接，返回值只描述将要发生的事。
-export function routeCapture({ mode = "note", text: value = "", config = captureConfig() } = {}) {
-  const input = String(value ?? "").trim();
-  if (!input) return { ok: false, reason: "先写点什么。" };
-  if (mode === "link") {
-    let url;
-    try { url = new URL(input); } catch { return { ok: false, reason: "这个链接还读不出来。" }; }
-    if (!/^https?:$/.test(url.protocol)) return { ok: false, reason: "只收 http 或 https 链接。" };
-    const title = input.length > 72 ? `${input.slice(0, 69)}…` : input;
-    return {
-      ok: true,
-      kind: "issue",
-      target: config.issueRepo,
-      label: "GitHub Issue",
-      title,
-      body: `从总看板丢进来：${input}\n\n> 第一版还没有真的创建 Issue。`,
-      href: `https://github.com/${config.issueRepo}/issues/new?title=${encodeURIComponent(title)}`,
-      message: `会开成 ${config.issueRepo} 的 Issue`,
-    };
-  }
-  const title = input.length > 56 ? `${input.slice(0, 53)}…` : input;
-  return {
-    ok: true,
-    kind: "trigger",
-    target: config.trigger,
-    label: "Superagent Trigger",
-    title,
-    payload: { text: input, source: "board", createdAt: new Date().toISOString() },
-    message: `会交给 ${config.trigger}（Superagent Trigger）`,
-  };
 }

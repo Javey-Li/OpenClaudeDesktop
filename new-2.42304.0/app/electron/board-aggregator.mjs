@@ -19,7 +19,7 @@ const execFileAsync = promisify(execFile);
 const DAY = 24 * 60 * 60 * 1000;
 const CODEX_LIMIT = 80;
 const CODEX_HEAD_BYTES = 2 * 1024 * 1024;
-const CODEX_TAIL_BYTES = 1024 * 1024;
+const CODEX_TAIL_BYTES = 4 * 1024 * 1024;
 
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const iso = (value) => {
@@ -36,6 +36,8 @@ const preview = (value, limit = 180) => {
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
 };
 const noiseTitle = (value) => /^(noop|reply with the single word: ready|t3 .*smoke|t3 executor no-op|链路测试)/i.test(text(value));
+const shellPath = (env = process.env) => ["/Users/javeyli/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", env.PATH]
+  .filter(Boolean).join(":");
 
 async function readHead(file, maxBytes) {
   const handle = await fs.open(file, "r");
@@ -77,6 +79,8 @@ function userCandidate(value) {
   if (input.startsWith("# AGENTS.md instructions") || input.includes("<INSTRUCTIONS>") || input.includes("<app-context>")) return "";
   if (input.startsWith("## Referenced chats with Codex")) return "";
   if (input.includes("<environment_context>") || input.includes("<external_codex_apps_open_page>")) return "";
+  if (/^You are the write executor for a dsh-superagent Ticket/i.test(input)) return "";
+  if (/^You are \/root, the primary agent/i.test(input)) return "";
   return input;
 }
 
@@ -88,37 +92,70 @@ function messageText(item) {
     .join("\n");
 }
 
-function parseCodexFile(head, tail, mtimeMs, now) {
+const badTitle = (value) => /^You are the write executor|^You are \/root, the primary agent|PSA report protocol \(required\)/i.test(text(value));
+
+function executorTitle(prompt) {
+  const match = /"title"\s*:\s*"((?:\\.|[^"])*)"/.exec(text(prompt));
+  if (!match) return "";
+  try { return JSON.parse(`"${match[1]}"`); } catch { return ""; }
+}
+
+function parseCodexFile(head, tail, mtimeMs, now, catalog) {
   const headRows = jsonLines(head);
   const tailRows = jsonLines(tail);
   const metaRow = headRows.find((row) => row?.type === "session_meta");
   const meta = metaRow?.payload ?? {};
   if (meta.parent_thread_id) return null;
   let prompt = "";
+  let rawPrompt = "";
   let lastAgent = "";
   for (const row of headRows) {
     if (row?.type === "event_msg" && row.payload?.type === "item_completed") {
       const item = row.payload.item;
-      if (item?.type === "UserMessage" && !prompt) prompt = userCandidate(messageText(item));
+      if (item?.type === "UserMessage") {
+        const value = messageText(item);
+        if (!rawPrompt && text(value)) rawPrompt = value;
+        if (!prompt) prompt = userCandidate(value);
+      }
     }
-    if (row?.type === "response_item" && row.payload?.type === "message" && row.payload?.role === "user" && !prompt) {
-      prompt = userCandidate(messageText(row.payload));
+    if (row?.type === "response_item" && row.payload?.type === "message" && row.payload?.role === "user") {
+      const value = messageText(row.payload);
+      if (!rawPrompt && text(value)) rawPrompt = value;
+      if (!prompt) prompt = userCandidate(value);
     }
   }
   let lastEvent = "";
-  for (const row of [...tailRows].reverse()) {
-    if (row?.type === "event_msg") {
-      if (!lastEvent) lastEvent = text(row.payload?.type);
-      const item = row.payload?.item;
-      if (!lastAgent && item?.type === "AgentMessage") lastAgent = messageText(item);
-      if (lastEvent && lastAgent) break;
+  let lastEventAt = 0;
+  let lastStarted = 0;
+  let lastCompleted = 0;
+  let lastAborted = 0;
+  for (const row of tailRows) {
+    const at = Date.parse(row?.timestamp ?? "");
+    if (Number.isFinite(at)) lastEventAt = Math.max(lastEventAt, at);
+    if (row?.type !== "event_msg") continue;
+    const type = text(row.payload?.type);
+    if (type) lastEvent = type;
+    if (type === "task_started" && Number.isFinite(at)) lastStarted = Math.max(lastStarted, at);
+    if (type === "task_complete" && Number.isFinite(at)) lastCompleted = Math.max(lastCompleted, at);
+    if (type === "turn_aborted" && Number.isFinite(at)) lastAborted = Math.max(lastAborted, at);
+    const item = row.payload?.item;
+    if (item?.type === "AgentMessage") {
+      const value = messageText(item);
+      if (value) lastAgent = value;
     }
   }
   const cwd = text(meta.cwd) || text((meta.runtime_workspace_roots ?? [])[0]);
   const project = projectFor({ path: cwd });
-  const title = firstLine(prompt) || `${project.name} · Codex`;
-  const age = now - mtimeMs;
-  const status = lastEvent === "turn_aborted" ? "stuck" : age < 5 * 60_000 ? "running" : "done";
+  const indexed = catalog.index.get(text(meta.id));
+  const stored = catalog.rows.get(text(meta.id));
+  const title = [indexed, text(stored?.name), text(stored?.title), firstLine(executorTitle(rawPrompt || stored?.title)), firstLine(prompt)]
+    .map(text)
+    .find((value) => value && !badTitle(value)) || `${project.name} · Codex`;
+  const openTurn = lastStarted > Math.max(lastCompleted, lastAborted);
+  const idleFor = now - (lastEventAt || mtimeMs);
+  const status = openTurn ? (idleFor > 30 * 60_000 ? "suspected" : "running")
+    : lastAborted > lastCompleted ? "stuck" : "done";
+  const archived = stored?.archived === 1 || Number(stored?.archived_at ?? 0) > 0;
   return {
     id: `codex:${text(meta.id) || `${mtimeMs}`}`,
     projectId: project.id,
@@ -129,9 +166,11 @@ function parseCodexFile(head, tail, mtimeMs, now) {
     preview: preview(lastAgent) || shortPath(cwd),
     source: "codex",
     status,
+    archived,
     updatedAt: new Date(mtimeMs).toISOString(),
     threadId: text(meta.id) || undefined,
     lastEvent,
+    lastEventAt: lastEventAt ? new Date(lastEventAt).toISOString() : "",
     cwd,
   };
 }
@@ -151,6 +190,42 @@ async function walkFiles(root) {
   return files;
 }
 
+async function sqliteRows(dbPath, sql) {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      return db.prepare(sql).all();
+    } finally {
+      db.close();
+    }
+  } catch {
+    const { stdout } = await execFileAsync("sqlite3", ["-readonly", "-json", dbPath, sql], { maxBuffer: 8 * 1024 * 1024 });
+    return stdout.trim() ? JSON.parse(stdout) : [];
+  }
+}
+
+async function readCodexCatalog(home) {
+  const index = new Map();
+  try {
+    const lines = (await fs.readFile(path.join(home, ".codex", "session_index.jsonl"), "utf8")).split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const row = JSON.parse(line);
+        if (row?.id && text(row.thread_name)) index.set(text(row.id), text(row.thread_name));
+      } catch { /* one malformed line */ }
+    }
+  } catch { /* no index: titles fall back to the state database */ }
+  const rows = new Map();
+  try {
+    const listed = await sqliteRows(path.join(home, ".codex", "state_5.sqlite"),
+      "SELECT id, title, name, archived, archived_at FROM threads");
+    for (const row of listed) rows.set(text(row.id), row);
+  } catch { /* no state database: titles fall back to the first prompt */ }
+  return { index, rows };
+}
+
 async function readCodexSource({ home, now }) {
   const root = path.join(home, ".codex", "sessions", "2026");
   try {
@@ -159,6 +234,7 @@ async function readCodexSource({ home, now }) {
     return { ok: false, error: `找不到 ${shortPath(root)}`, conversations: [], columns: { decide: [], done: [], stuck: [] }, total: 0 };
   }
   const files = await walkFiles(root);
+  const catalog = await readCodexCatalog(home);
   const recent = [];
   for (const file of files) {
     try {
@@ -171,13 +247,13 @@ async function readCodexSource({ home, now }) {
   const rows = (await Promise.all(chosen.map(async ({ file, stat }) => {
     try {
       const [head, tail] = await Promise.all([readHead(file, CODEX_HEAD_BYTES), readTail(file, CODEX_TAIL_BYTES)]);
-      return parseCodexFile(head, tail, stat.mtimeMs, now);
+      return parseCodexFile(head, tail, stat.mtimeMs, now, catalog);
     } catch {
       return null;
     }
   }))).filter(Boolean);
-  const conversations = rows.filter((row) => !noiseTitle(row.title)).map(({ lastEvent, cwd, ...row }) => row);
-  const done = rows.filter((row) => !noiseTitle(row.title) && row.lastEvent === "task_complete" && now - Date.parse(row.updatedAt) <= 2 * DAY)
+  const conversations = rows.filter((row) => !noiseTitle(row.title)).map(({ lastEvent, lastEventAt, cwd, ...row }) => row);
+  const done = rows.filter((row) => !row.archived && !noiseTitle(row.title) && row.status === "done" && now - Date.parse(row.updatedAt) <= 2 * DAY)
     .slice(0, 6)
     .map((row) => ({
       id: `codex-done:${row.threadId || row.id}`,
@@ -189,14 +265,14 @@ async function readCodexSource({ home, now }) {
       who: "Codex",
       at: row.updatedAt,
     }));
-  const stuck = rows.filter((row) => !noiseTitle(row.title) && row.lastEvent === "turn_aborted" && now - Date.parse(row.updatedAt) <= 7 * DAY)
+  const stuck = rows.filter((row) => !row.archived && !noiseTitle(row.title) && ["stuck", "suspected"].includes(row.status) && now - Date.parse(row.updatedAt) <= 7 * DAY)
     .slice(0, 8)
     .map((row) => ({
       id: `codex-stuck:${row.threadId || row.id}`,
       projectId: row.projectId,
       project: row.project,
       title: row.title,
-      detail: `Codex 回合中断 · ${shortPath(row.cwd)}`,
+      detail: row.status === "suspected" ? `可能卡住：超过 30 分钟没新事件 · ${shortPath(row.cwd)}` : `Codex 回合中断 · ${shortPath(row.cwd)}`,
       kind: "会话",
       who: "Codex",
       at: row.updatedAt,
@@ -308,19 +384,13 @@ function nowIso(now) {
 }
 
 async function readT3Projects(dbPath) {
-  const sql = "SELECT project_id, title, workspace_root FROM projection_projects WHERE deleted_at IS NULL ORDER BY title";
-  try {
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(dbPath, { readOnly: true });
-    try {
-      return db.prepare(sql).all();
-    } finally {
-      db.close();
-    }
-  } catch {
-    const { stdout } = await execFileAsync("sqlite3", ["-readonly", "-json", dbPath, sql], { maxBuffer: 8 * 1024 * 1024 });
-    return stdout.trim() ? JSON.parse(stdout) : [];
-  }
+  return sqliteRows(dbPath, "SELECT project_id, title, workspace_root FROM projection_projects WHERE deleted_at IS NULL ORDER BY title");
+}
+
+async function readT3Archived(dbPath) {
+  const rows = await sqliteRows(dbPath,
+    "SELECT thread_id FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL AND archived_at IS NOT NULL");
+  return new Set(rows.map((row) => text(row.thread_id)).filter(Boolean));
 }
 
 async function mapLimit(values, limit, run) {
@@ -336,8 +406,9 @@ async function mapLimit(values, limit, run) {
   return out;
 }
 
-async function t3Threads(bin, projectId) {
+async function t3Threads(bin, projectId, env) {
   const { stdout } = await execFileAsync(bin, ["thread", "list", "--json", "--project", projectId], {
+    env: { ...env, PATH: shellPath(env) },
     maxBuffer: 8 * 1024 * 1024,
     timeout: 15_000,
   });
@@ -367,8 +438,9 @@ async function readT3Source({ env, home, now }) {
     return { ok: false, error: `找不到 T3 线程库 ${shortPath(candidates[0])}`, conversations: [], columns: { decide: [], done: [], stuck: [] }, total: 0 };
   }
   let projects;
+  let archived;
   try {
-    projects = await readT3Projects(dbPath);
+    [projects, archived] = await Promise.all([readT3Projects(dbPath), readT3Archived(dbPath)]);
   } catch (error) {
     return { ok: false, error: `T3 项目清单读不出来：${error?.message || error}`, conversations: [], columns: { decide: [], done: [], stuck: [] }, total: 0 };
   }
@@ -376,7 +448,7 @@ async function readT3Source({ env, home, now }) {
   let failures = 0;
   const groups = await mapLimit(projects, 4, async (project) => {
     try {
-      const rows = await t3Threads(bin, project.project_id);
+      const rows = await t3Threads(bin, project.project_id, env);
       return { project, rows, ok: true };
     } catch (error) {
       failures += 1;
@@ -403,11 +475,12 @@ async function readT3Source({ env, home, now }) {
       source: "t3",
       status: status === "running" || status === "working" ? "running" : status === "waiting" ? "waiting"
         : status === "failed" || status === "error" ? "stuck" : "done",
+      archived: archived.has(text(row.threadId)),
       updatedAt: iso(row.updatedAt || row.createdAt) || nowIso(now),
       threadId: text(row.threadId),
     };
   });
-  const done = rows.filter((row) => !noiseTitle(row.title) && text(row.status) === "completed"
+  const done = rows.filter((row) => !archived.has(text(row.threadId)) && !noiseTitle(row.title) && text(row.status) === "completed"
     && now - Date.parse(iso(row.updatedAt) || 0) <= 2 * DAY)
     .slice(0, 6)
     .map((row) => {
@@ -423,7 +496,7 @@ async function readT3Source({ env, home, now }) {
         at: iso(row.updatedAt) || nowIso(now),
       };
     });
-  const stuck = rows.filter((row) => !noiseTitle(row.title) && ["failed", "error"].includes(text(row.status)))
+  const stuck = rows.filter((row) => !archived.has(text(row.threadId)) && !noiseTitle(row.title) && ["failed", "error"].includes(text(row.status)))
     .slice(0, 6)
     .map((row) => {
       const project = projectFor({ path: text(row.project.workspace_root), title: text(row.project.title) });

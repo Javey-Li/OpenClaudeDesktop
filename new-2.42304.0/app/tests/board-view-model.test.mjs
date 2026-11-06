@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import {
   boardTotals,
   buildBoardSnapshot,
+  buildIssueDraft,
   buildRuleReport,
   conversationSources,
   groupConversations,
   projectFor,
   relativeLabel,
-  routeCapture,
 } from "../src/board-view-model.mjs";
 
 const now = "2026-11-07T04:00:00.000Z";
@@ -22,7 +22,7 @@ function fixture() {
         detail: "2 个会话",
         total: 2,
         conversations: [
-          { id: "codex:1", projectId: "fretsense", project: "Fret Sense", title: "修好识别回放", source: "codex",
+          { id: "codex:1", projectId: "fretsense", project: "FretSense", title: "修好识别回放", source: "codex",
             status: "running", updatedAt: "2026-11-07T03:58:00.000Z", preview: "正在核对第二遍" },
           { id: "codex:2", projectId: "delicacy", project: "Delicacy", title: "第四小节复核", source: "codex",
             status: "done", updatedAt: "2026-11-07T03:20:00.000Z", preview: "已经收口" },
@@ -38,7 +38,7 @@ function fixture() {
         ok: true,
         detail: "1 个线程 · T3 0.1.7",
         total: 1,
-        conversations: [{ id: "t3:1", projectId: "fretsense", project: "Fret Sense", title: "白皮书审查", source: "t3",
+        conversations: [{ id: "t3:1", projectId: "fretsense", project: "FretSense", title: "白皮书审查", source: "t3",
           status: "done", updatedAt: "2026-11-06T20:00:00.000Z", preview: "FretSense · completed" }],
         columns: { decide: [], done: [], stuck: [] },
       },
@@ -92,7 +92,7 @@ test("no connected source stays empty and says which sources are down", () => {
 
 test("conversations stay grouped per project, newest first", () => {
   const groups = groupConversations(fixture().projects);
-  assert.deepEqual(groups.map((group) => group.name), ["Fret Sense", "Delicacy"]);
+  assert.deepEqual(groups.map((group) => group.name), ["FretSense", "Delicacy"]);
   for (const group of groups) {
     for (let index = 1; index < group.conversations.length; index++) {
       assert.ok(Date.parse(group.conversations[index - 1].updatedAt) >= Date.parse(group.conversations[index].updatedAt));
@@ -105,24 +105,45 @@ test("workspace paths map to the owner's project names", () => {
   assert.equal(projectFor({ path: "/Users/javeyli/Projects/FretSense" }).id, "fretsense");
   assert.equal(projectFor({ path: "/Users/javeyli/Projects/delicacy-html" }).name, "Delicacy");
   assert.equal(projectFor({ path: "/Users/javeyli/Projects/guitarOS/guitar-brain" }).name, "GuitarOS");
-  assert.equal(projectFor({ path: "/Users/javeyli/Projects/personal-super-agent-desktop" }).name, "Personal super agent");
+  assert.equal(projectFor({ path: "/Users/javeyli/Projects/personal-super-agent-desktop" }).name, "personal-super-agent");
+  assert.equal(projectFor({ path: "/Users/javeyli/Projects/Eunoia" }).name, "其他");
 });
 
-test("a note goes to the superagent Trigger and a link becomes an Issue", () => {
-  const note = routeCapture({ mode: "note", text: "S05 第四小节先保留" });
+test("old and archived conversations are folded out of the recent list", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true,
+        conversations: [
+          { id: "codex:recent", projectId: "fretsense", project: "FretSense", title: "最近的事", status: "done", updatedAt: "2026-11-07T03:00:00.000Z" },
+          { id: "codex:old", projectId: "fretsense", project: "FretSense", title: "旧的事", status: "done", updatedAt: "2026-10-01T03:00:00.000Z" },
+          { id: "codex:archived", projectId: "delicacy", project: "Delicacy", title: "归档的事", status: "done", updatedAt: "2026-11-07T02:00:00.000Z", archived: true },
+        ],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  assert.equal(snapshot.totals.conversations, 1);
+  assert.equal(snapshot.older.count, 2);
+  assert.equal(snapshot.older.archived, 1);
+});
+
+test("capture drafts a note or link for the selected project", () => {
+  const note = buildIssueDraft({ projectId: "fretsense", mode: "note", text: "S05 第四小节先保留" });
   assert.equal(note.ok, true);
-  assert.equal(note.kind, "trigger");
-  assert.equal(note.target, "superagent.inbox");
-  assert.match(note.message, /Trigger/);
+  assert.equal(note.repo, "Javey-Li/FretSense");
+  assert.match(note.title, /S05/);
 
-  const link = routeCapture({ mode: "link", text: "https://github.com/Javey-Li/OpenClaudeDesktop/issues/1" });
+  const link = buildIssueDraft({ projectId: "personal-super-agent", mode: "link", text: "https://github.com/Javey-Li/OpenClaudeDesktop/issues/1" });
   assert.equal(link.ok, true);
-  assert.equal(link.kind, "issue");
-  assert.equal(link.target, "Javey-Li/OpenClaudeDesktop");
-  assert.match(link.message, /Issue/);
+  assert.equal(link.repo, "Javey-Li/personal-super-agent");
+  assert.match(link.title, /链接/);
 
-  assert.equal(routeCapture({ mode: "link", text: "not a url" }).ok, false);
-  assert.equal(routeCapture({ mode: "note", text: "   " }).ok, false);
+  assert.equal(buildIssueDraft({ projectId: "guitaros", mode: "note", text: "x" }).ok, false);
+  assert.equal(buildIssueDraft({ projectId: "", mode: "note", text: "x" }).ok, false);
+  assert.equal(buildIssueDraft({ projectId: "fretsense", mode: "link", text: "not a url" }).ok, false);
+  assert.equal(buildIssueDraft({ projectId: "fretsense", mode: "note", text: "   " }).ok, false);
 });
 
 test("relative time is read against the board clock", () => {

@@ -3497,6 +3497,7 @@ app.whenReady().then(async () => {
       case "workflow-member": return workflowService.member(p.id,p.memberId,p.action);
       case "router-board": return (await import("./router-board.mjs")).readRouterBoard();
       case "board": return (await import("./board-aggregator.mjs")).readBoardSnapshot(p ?? {});
+      case "board-capture": return (await import("./board-capture.mjs")).createBoardIssue(p ?? {});
       case "workflow-pause": return workflowService.pause(p.id,p.paused===true);
       case "workflow-save": return workflowService.save(p.id,{scope:p.scope==="user"?"user":"project",name:typeof p.name==="string"?p.name.slice(0,200):undefined,overwrite:p.overwrite===true});
       case "workflow-settings": return workflowSettings();
