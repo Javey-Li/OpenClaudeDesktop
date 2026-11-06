@@ -1635,14 +1635,14 @@ export function SourceSidebar({
   };
   // pw u (sidebar-groups.js:5241): the whole IO identity (main.jsx accountIdentity), ellipsized by CSS.
   const primaryRows = mode === 'code'
-    ? [["New", "Add", "new"], ["Projects", "Projects", "projects"], ["Artifacts", "Artifacts", "artifacts"], ["Routines", "Clock", "routines"], ["Customize", "Tool", "customize"]]
+    ? [["New", "Add", "new"], ["总看板", "Grid", "board"], ["Projects", "Projects", "projects"], ["Artifacts", "Artifacts", "artifacts"], ["Routines", "Clock", "routines"], ["Customize", "Tool", "customize"]]
     : [["New", "Add", "new"], ["Projects", "Projects", "projects"], ["Artifacts", "Artifacts", "artifacts"], ["Scheduled", "Clock", "routines"], ["Design", "Palette", "design"], ["Customize", "Tool", "customize"]];
   const renderNavRow = ([label, icon, key]) => {
     const selected = key === "new" ? section === "new" && !current : section === key;
     // shared-21 ND (:7590-7597) puts "group" on every plain row button, so the
     // New glyph's group-hover / group-data-[selected=focused] utilities resolve.
     return <button key={key} type="button" className="source-sidebar-nav-row group" data-row="" data-roving-item="" data-selected={selected ? "focused" : undefined}
-      aria-current={key === "new" && selected ? "page" : undefined} aria-keyshortcuts={key === "new" ? "Meta+n" : undefined}
+      aria-current={selected ? "page" : undefined} aria-keyshortcuts={key === "new" ? "Meta+n" : undefined}
       // shared-19 MY: New session drags into the session area as a new split side (a draft pane).
       onPointerDown={key === "new" && mode === "code" && windowActions?.onOpenSplit ? (event) => beginDrag(event, { key: "__new-session-drag-source__", label: t("New session"), draft: true }) : undefined}
       onClick={() => key === "new" ? onNew?.() : setSection?.(key)}>
