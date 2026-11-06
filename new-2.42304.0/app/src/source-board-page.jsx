@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
+import { Button } from "./arc/button/button";
+import SegmentedControl from "./arc/segmented-control/segmented-control";
 import {
   BOARD_COLUMNS,
   CAPTURE_PROJECTS,
@@ -9,7 +11,10 @@ import {
   groupConversations,
   relativeLabel,
 } from "./board-view-model.mjs";
+import { buildBriefSummary, buildProjectBriefs } from "./board-brief-model.mjs";
+import { BriefBoard, ColumnView, ConversationCard, SourceFilter, StatusBar } from "./source-board-components.jsx";
 import "./source-board-page.css";
+import "./arc-tokens.css";
 import "./source-board-v2.css";
 
 const SOURCE_LABELS = { superagent: "Superagent", t3: "T3", codex: "Codex" };
@@ -192,10 +197,9 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
         <span className="psb-eyebrow">丢东西进来</span>
         <p>{config?.hint || "一句话和链接都会写成所选项目的 GitHub Issue。"}</p>
       </div>
-      <div className="psb-capture-modes" role="tablist" aria-label="丢进来的类型">
-        {CAPTURE_MODES.map((entry) => <button key={entry.id} type="button" role="tab" aria-selected={mode === entry.id}
-          className="psb-capture-mode" data-active={mode === entry.id || undefined}
-          onClick={() => { setMode(entry.id); setNotice(null); inputRef.current?.focus(); }}>{entry.label}</button>)}
+      <div className="psb-capture-modes">
+        <SegmentedControl label="丢进来的类型" value={mode} options={CAPTURE_MODES.map((entry) => ({ value: entry.id, label: entry.label }))}
+          onValueChange={(next) => { setMode(next); setNotice(null); inputRef.current?.focus(); }} />
       </div>
     </div>
     <form className="psb-capture-form" onSubmit={submit}>
@@ -209,7 +213,7 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
       </select>
       <input ref={inputRef} value={value} onChange={(event) => { setValue(event.target.value); setNotice(null); }}
         aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴一个链接…" : "比如：S05 第四小节先保留，别折回两拍"} />
-      <SourceSettingsButton variant="primary" size="sm" type="submit" busy={busy} disabled={!value.trim() || !projectId}>写 Issue</SourceSettingsButton>
+      <Button variant={value.trim() && projectId ? "primary" : "secondary"} size="sm" type="submit" loading={busy} disabled={!value.trim() || !projectId}>写 Issue</Button>
     </form>
     <div className="psb-capture-foot" aria-live="polite">
       <span>{config?.hint}</span>
@@ -280,7 +284,7 @@ function BoardColumn({ column, rows, past = [], now, selected, onSelect }) {
 
 function BoardColumns({ columns, now, selected, onSelect }) {
   return <section className="psb-columns" aria-label="总管的三个栏">
-    {BOARD_COLUMNS.map((column) => <BoardColumn key={column.key} column={column} rows={columns[column.key] ?? []}
+    {BOARD_COLUMNS.map((column) => <ColumnView key={column.key} column={column} rows={columns[column.key] ?? []}
       past={column.key === "stuck" ? columns.stuckPast ?? [] : []} now={now} selected={selected} onSelect={onSelect} />)}
   </section>;
 }
@@ -314,7 +318,7 @@ function ProjectGroups({ groups, now, selected, onSelect }) {
       <span className="psb-project-count">{group.conversations.length}</span>
     </header>
     <div className="psb-project-grid">
-      {group.conversations.map((row) => <ConversationRow key={row.id} row={row} now={now} selected={selected === row.id}
+      {group.conversations.map((row) => <ConversationCard key={row.id} row={row} now={now} selected={selected === row.id}
         onSelect={(id) => onSelect(selected === id ? null : id)} />)}
     </div>
   </section>);
@@ -342,11 +346,7 @@ function ConversationList({ projects, older, now }) {
         <h2 id="psb-conversations-title">最近对话</h2>
       </div>
       <span className="psb-section-count">{total} 条</span>
-      <div className="psb-source-filter" role="group" aria-label="按来源筛选">
-        <button type="button" data-active={source === "all" || undefined} onClick={() => setSource("all")}>全部</button>
-        {sources.filter((entry) => entry.count > 0).map((entry) => <button type="button" key={entry.id} data-active={source === entry.id || undefined}
-          onClick={() => setSource(entry.id)}>{entry.label}<span>{entry.count}</span></button>)}
-      </div>
+      <div className="psb-source-filter-arc"><SourceFilter sources={sources.filter((entry) => entry.count > 0)} value={source} onChange={setSource} /></div>
     </header>
     {groups.length === 0 ? <div className="psb-conversation-empty">
       <p>这个来源最近 3 天没有对话。</p>
@@ -425,6 +425,8 @@ export function SourceBoardPage({ load, capture, onOpenLink }) {
   const { snapshot } = state;
   const totals = snapshot.totals ?? boardTotals(snapshot);
   const empty = totals.conversations === 0 && (snapshot.columns?.decide?.length ?? 0) + (snapshot.columns?.done?.length ?? 0) + (snapshot.columns?.stuck?.length ?? 0) === 0;
+  const briefs = buildProjectBriefs({ projects: snapshot.projects ?? [], columns: snapshot.columns ?? {}, now: snapshot.generatedAt });
+  const briefSummary = buildBriefSummary(briefs);
   return <section className="psb-page" aria-label="总看板" data-empty={empty || undefined} data-refreshing={state.refreshing || undefined}>
     <header className="psb-masthead">
       <div className="psb-masthead-top">
@@ -444,20 +446,10 @@ export function SourceBoardPage({ load, capture, onOpenLink }) {
           <SourceSettingsButton variant="ghost" icon="ArrowClockwise" size="sm" busy={state.refreshing} onClick={() => refresh({ force: true })}>刷新</SourceSettingsButton>
         </div>
       </div>
-      <div className="psb-tally" aria-label="今天的数量">
-        <span><b>{totals.running ?? 0}</b> 个在跑</span>
-        <span><b>{totals.waiting ?? 0}</b> 个等你</span>
-        <span><b>{snapshot.columns?.decide?.length ?? 0}</b> 件要定</span>
-        <span><b>{totals.unread ?? 0}</b> 条未读</span>
-        <span className="psb-tally-note">
-          {snapshot.stuckSummary?.past ? `已过去 ${snapshot.stuckSummary.past} 件 · ` : ""}规则简报 · 按当前数据即时拼出
-        </span>
-      </div>
-      <DayBar totals={totals} columns={snapshot.columns ?? {}} />
+      <StatusBar totals={totals} columns={snapshot.columns ?? {}} stuckSummary={snapshot.stuckSummary} summary={briefSummary} />
     </header>
 
-    <LiveBand projects={snapshot.projects ?? []} sources={snapshot.sources ?? []} totals={totals} now={snapshot.generatedAt} />
-    <ReportBlock report={snapshot.report} />
+    <BriefBoard briefs={briefs} summary={briefSummary} sources={snapshot.sources ?? []} now={snapshot.generatedAt} />
     <CaptureBar config={snapshot.capture} onCapture={capture} onOpenLink={onOpenLink} />
     <BoardColumns columns={snapshot.columns ?? {}} now={snapshot.generatedAt} selected={selected} onSelect={setSelected} />
     <ConversationList projects={snapshot.projects ?? []} older={snapshot.older} now={snapshot.generatedAt} />
