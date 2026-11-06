@@ -4,9 +4,7 @@ import { SourceSettingsButton } from "./source-settings-button.jsx";
 import {
   BOARD_COLUMNS,
   boardTotals,
-  boardVariantFromLocation,
   conversationSources,
-  createMockBoardSnapshot,
   groupConversations,
   relativeLabel,
   routeCapture,
@@ -20,13 +18,7 @@ const CAPTURE_MODES = [
   { id: "link", label: "一个链接" },
 ];
 
-const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-async function defaultLoad({ variant = "normal" } = {}) {
-  await wait(180);
-  if (variant === "error") return { ok: false, error: "聚合器没有回话：三个来源里有两个超时。" };
-  return { ok: true, snapshot: createMockBoardSnapshot({ empty: variant === "empty" }) };
-}
+const defaultLoad = async () => ({ ok: false, error: "看板只在 Electron 桌面版里读真数据。" });
 
 function dateLabel(iso) {
   const date = new Date(iso);
@@ -50,11 +42,11 @@ function ReportBlock({ report }) {
       <div className="psb-report-aside">
         <span className="psb-eyebrow">今日简报</span>
         <strong>还没生成</strong>
-        <p>汇报任务每天 08:40 写一次。</p>
+        <p>简报由当前数据即时拼出。</p>
       </div>
       <div className="psb-report-body">
-        <p className="psb-report-lede">今天的汇报还没到。来源照常读，三栏里已有的东西仍然可以先看。</p>
-        <p className="psb-report-quiet">这里只放汇报任务的成品，不在看板里临时编结论。</p>
+        <p className="psb-report-lede">现在还没有能拼成简报的数据。来源照常读，连上的部分仍然可以先看。</p>
+        <p className="psb-report-quiet">这里不补假数据，也不把没连上的来源算进结论。</p>
       </div>
     </section>;
   }
@@ -90,7 +82,7 @@ function CaptureBar({ config, onCaptured }) {
       setNotice({ ok: false, text: result.reason });
       return;
     }
-    setNotice({ ok: true, text: `演示：${result.message}`, label: result.label, target: result.target });
+    setNotice({ ok: true, text: `还没写出去：${result.message}`, label: result.label, target: result.target });
     onCaptured?.(result);
     setValue("");
     inputRef.current?.focus();
@@ -99,7 +91,7 @@ function CaptureBar({ config, onCaptured }) {
     <div className="psb-capture-head">
       <div>
         <span className="psb-eyebrow">丢东西进来</span>
-        <p>一句话会进 Trigger；一个链接会开成 Issue。第一版只做假处理。</p>
+        <p>一句话会进 Trigger；一个链接会开成 Issue。第一版还没有真的写出去。</p>
       </div>
       <div className="psb-capture-modes" role="tablist" aria-label="丢进来的类型">
         {CAPTURE_MODES.map((entry) => <button key={entry.id} type="button" role="tab" aria-selected={mode === entry.id}
@@ -174,7 +166,7 @@ function ConversationRow({ row, now, selected, onSelect }) {
       <span>{STATUS_LABELS[row.status]}</span>
       <span>{row.preview}</span>
     </span>
-    {selected && <span className="psb-conv-preview">{row.preview} <em>打开对话仍由真实会话接管；这里是演示。</em></span>}
+    {selected && <span className="psb-conv-preview">{row.preview} <em>打开对话仍由真实会话接管。</em></span>}
   </button>;
 }
 
@@ -233,38 +225,34 @@ function LoadingState() {
   </div>;
 }
 
-function ErrorState({ error, onRetry, onSample }) {
+function ErrorState({ error, onRetry }) {
   return <div className="psb-state psb-error" role="alert">
     <span className="psb-eyebrow">读不出来</span>
     <h1>看板没拿到数据</h1>
     <p>{error || "聚合器没有回话。"} 三个来源里只要有一个没回，就不假装其它两个是全貌。</p>
     <div className="psb-state-actions">
       <SourceSettingsButton variant="secondary" icon="ArrowClockwise" onClick={onRetry}>再读一次</SourceSettingsButton>
-      <SourceSettingsButton variant="ghost" onClick={onSample}>先看示例数据</SourceSettingsButton>
     </div>
   </div>;
 }
 
 export function SourceBoardPage({ load }) {
-  const variant = useMemo(() => boardVariantFromLocation(window.location.search), []);
-  const [override, setOverride] = useState(null);
   const [state, setState] = useState({ status: "loading" });
   const [selected, setSelected] = useState(null);
   const [captured, setCaptured] = useState(null);
-  const activeVariant = override ?? variant;
   const loadRef = useRef(load);
   loadRef.current = load;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ force = false } = {}) => {
     setState((previous) => previous.status === "ready" ? { ...previous, refreshing: true } : { status: "loading" });
     try {
-      const result = await (loadRef.current ?? defaultLoad)({ variant: activeVariant });
+      const result = await (loadRef.current ?? defaultLoad)({ force });
       if (!result?.ok || !result.snapshot) throw new Error(result?.error || "聚合器没有回话。");
       setState({ status: "ready", snapshot: result.snapshot, refreshing: false });
     } catch (error) {
       setState({ status: "error", error: error?.message || "聚合器没有回话。" });
     }
-  }, [activeVariant]);
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -280,7 +268,7 @@ export function SourceBoardPage({ load }) {
 
   if (state.status === "loading") return <section className="psb-page psb-page-state" aria-label="总看板"><LoadingState /></section>;
   if (state.status === "error") return <section className="psb-page psb-page-state" aria-label="总看板">
-    <ErrorState error={state.error} onRetry={refresh} onSample={() => { setOverride("normal"); setState({ status: "loading" }); }} />
+    <ErrorState error={state.error} onRetry={() => refresh({ force: true })} />
   </section>;
 
   const { snapshot } = state;
@@ -290,7 +278,7 @@ export function SourceBoardPage({ load }) {
     <header className="psb-masthead">
       <div className="psb-masthead-top">
         <span className="psb-kicker">总管 <i /> Personal super agent</span>
-        <span className="psb-demo-pill">演示数据</span>
+        <span className="psb-mode-pill">只读</span>
       </div>
       <div className="psb-masthead-main">
         <div>
@@ -299,9 +287,10 @@ export function SourceBoardPage({ load }) {
         </div>
         <div className="psb-masthead-actions">
           <span className="psb-source-health" title="聚合来源">
-            <span className="psb-live-dot" />{snapshot.sources?.filter((source) => source.status === "ok").length ?? 0} 个来源已读
+            <span className="psb-live-dot" data-offline={(snapshot.sources ?? []).some((source) => source.status !== "connected") || undefined} />
+            {snapshot.sources?.filter((source) => source.status === "connected").length ?? 0}/{snapshot.sources?.length ?? 3} 个来源已读
           </span>
-          <SourceSettingsButton variant="ghost" icon="ArrowClockwise" size="sm" busy={state.refreshing} onClick={refresh}>刷新</SourceSettingsButton>
+          <SourceSettingsButton variant="ghost" icon="ArrowClockwise" size="sm" busy={state.refreshing} onClick={() => refresh({ force: true })}>刷新</SourceSettingsButton>
         </div>
       </div>
       <div className="psb-tally" aria-label="今天的数量">
@@ -309,7 +298,12 @@ export function SourceBoardPage({ load }) {
         <span><b>{totals.waiting ?? 0}</b> 个等你</span>
         <span><b>{snapshot.columns?.decide?.length ?? 0}</b> 件要定</span>
         <span><b>{totals.unread ?? 0}</b> 条未读</span>
-        <span className="psb-tally-note">report task · 只展示，不在看板里重写</span>
+        <span className="psb-tally-note">规则简报 · 按当前数据即时拼出</span>
+      </div>
+      <div className="psb-source-strip" aria-label="数据来源">
+        {(snapshot.sources ?? []).map((source) => <span key={source.id} data-status={source.status} title={source.status === "connected" ? source.hint : source.error}>
+          <i />{source.label} · {source.status === "connected" ? source.detail : "没连上"}
+        </span>)}
       </div>
     </header>
 
@@ -319,8 +313,8 @@ export function SourceBoardPage({ load }) {
     <ConversationList projects={snapshot.projects ?? []} now={snapshot.generatedAt} onCaptured={captured} />
 
     <footer className="psb-origin">
-      <span>聚合形状：superagent /orchestrator/api · T3 线程 · ~/.codex/sessions</span>
-      <span>{snapshot.sources?.map((source) => `${source.label} ${source.detail}`).join(" · ")}</span>
+      <span>只读来源：Codex ~/.codex/sessions · superagent 127.0.0.1:3082 · T3 127.0.0.1:3773</span>
+      <span>{snapshot.sources?.map((source) => `${source.label} ${source.status === "connected" ? source.detail : `没连上（${source.error}）`}`).join(" · ")}</span>
     </footer>
   </section>;
 }
