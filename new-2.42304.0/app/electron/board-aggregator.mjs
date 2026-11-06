@@ -35,7 +35,8 @@ const preview = (value, limit = 180) => {
   const line = text(value).replace(/\s+/g, " ");
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
 };
-const noiseTitle = (value) => /^(noop|reply with the single word: ready|t3 .*smoke|t3 executor no-op|链路测试)/i.test(text(value));
+const noiseTitle = (value) => /^(noop|reply with the single word: ready|reply with exactly|t3 .*smoke|t3 executor no-op|链路测试)/i.test(text(value))
+  || /FULL_ACCESS_OK/i.test(text(value));
 const shellPath = (env = process.env) => ["/Users/javeyli/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", env.PATH]
   .filter(Boolean).join(":");
 
@@ -275,6 +276,7 @@ async function readCodexSource({ home, now }) {
       detail: row.status === "suspected" ? `可能卡住：超过 30 分钟没新事件 · ${shortPath(row.cwd)}` : `Codex 回合中断 · ${shortPath(row.cwd)}`,
       kind: "会话",
       who: "Codex",
+      category: "turn",
       at: row.updatedAt,
     }));
   return {
@@ -347,18 +349,26 @@ async function readSuperagentSource({ env, now }) {
     at: iso(row.updatedAt || row.createdAt) || nowIso(now),
   }));
   const problems = Array.isArray(overview?.problems) ? overview.problems : [];
-  const stuck = problems.map((row, index) => ({
-    id: `superagent-stuck:${text(row.name) || text(row.source?.id) || index}`,
-    projectId: project.id,
-    project: project.name,
-    title: text(row.kind) === "source-error" ? `${text(row.source?.id)} 来源出错`
-      : text(row.kind) === "setup" ? "Superagent 启动没完成"
-        : text(row.detail) || text(row.kind) || "Superagent 有问题",
-    detail: text(row.detail) || text(row.source?.health?.detail) || text(row.kind),
-    kind: "问题",
-    who: "Superagent",
-    at: iso(row.source?.health?.at || row.at) || nowIso(now),
-  }));
+  const stuck = problems.map((row, index) => {
+    const sourceId = text(row.source?.id);
+    const listed = Array.isArray(sources) ? sources.find((entry) => text(entry.id) === sourceId || text(entry.key) === sourceId) : null;
+    const health = text(listed?.health?.status) || text(listed?.status) || text(row.source?.health?.status);
+    return {
+      id: `superagent-stuck:${text(row.name) || sourceId || index}`,
+      projectId: project.id,
+      project: project.name,
+      title: text(row.kind) === "source-error" ? `${sourceId} 来源出错`
+        : text(row.kind) === "setup" ? "Superagent 启动没完成"
+          : text(row.detail) || text(row.kind) || "Superagent 有问题",
+      detail: text(row.detail) || text(row.source?.health?.detail) || text(row.kind),
+      kind: "问题",
+      who: "Superagent",
+      category: text(row.kind) || "problem",
+      sourceId,
+      recovered: !!sourceId && /^(ok|up|healthy|connected|ready)$/i.test(health),
+      at: iso(row.source?.health?.at || row.at) || nowIso(now),
+    };
+  });
   const done = (Array.isArray(endedTickets?.items) ? endedTickets.items : []).slice(0, 6).map((row) => ({
     id: `superagent-done:${row.id}`,
     projectId: project.id,
@@ -508,6 +518,7 @@ async function readT3Source({ env, home, now }) {
         detail: `T3 运行失败 · ${text(row.project.title) || project.name}`,
         kind: "线程",
         who: "T3",
+        category: "thread",
         at: iso(row.updatedAt) || nowIso(now),
       };
     });

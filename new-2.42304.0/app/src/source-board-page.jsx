@@ -10,6 +10,7 @@ import {
   relativeLabel,
 } from "./board-view-model.mjs";
 import "./source-board-page.css";
+import "./source-board-v2.css";
 
 const SOURCE_LABELS = { superagent: "Superagent", t3: "T3", codex: "Codex" };
 const STATUS_LABELS = { running: "在跑", waiting: "等你", done: "完成", stuck: "卡住", suspected: "可能卡住" };
@@ -61,12 +62,101 @@ function ReportBlock({ report }) {
       <span className="psb-report-lede-label">做完了什么</span>
       <p className="psb-report-lede">{report.lines?.[0]?.text}</p>
       <div className="psb-report-lines">
-        {(report.lines ?? []).slice(1).map((line) => <div className="psb-report-line" key={line.key}>
+        {(report.lines ?? []).slice(1).filter((line) => line.key !== "sources").map((line) => <div className="psb-report-line" key={line.key}>
           <span>{line.label}</span>
           <p>{line.text}</p>
         </div>)}
       </div>
     </div>
+  </section>;
+}
+
+function DayBar({ totals, columns }) {
+  const label = { running: "在跑", waiting: "等你", decide: "要定", stuck: "卡住", done: "收口" };
+  const parts = [
+    ["running", totals.running ?? 0],
+    ["waiting", totals.waiting ?? 0],
+    ["decide", columns.decide?.length ?? 0],
+    ["stuck", columns.stuck?.length ?? 0],
+    ["done", columns.done?.length ?? 0],
+  ].filter(([, value]) => value > 0);
+  const total = parts.reduce((sum, [, value]) => sum + value, 0);
+  if (!total) return null;
+  return <div className="psb-daybar" role="img" aria-label={parts.map(([key, value]) => `${label[key]} ${value}`).join("，")}>
+    {parts.map(([key, value]) => <span key={key} data-tone={key} style={{ flexGrow: value }} />)}
+  </div>;
+}
+
+function SourceReadout({ sources }) {
+  const connected = sources.filter((source) => source.status === "connected").length;
+  const total = sources.length || 3;
+  return <aside className="psb-readout" aria-label="来源读取">
+    <div className="psb-readout-head">
+      <span>来源</span>
+      <b>{connected}<em>/{total}</em></b>
+      <span className="psb-readout-word">{connected === total ? "都读到了" : "有缺口"}</span>
+    </div>
+    <div className="psb-readout-bar" role="img" aria-label={`${connected}/${total} 个来源已读`}>
+      {sources.map((source) => <span key={source.id} data-ok={source.status === "connected" || undefined}
+        title={`${source.label} · ${source.status === "connected" ? source.detail : source.error}`} />)}
+    </div>
+    <ul className="psb-readout-list">
+      {sources.map((source) => <li key={source.id} data-ok={source.status === "connected" || undefined}>
+        <i />
+        <span>{source.label}</span>
+        <em>{source.status === "connected" ? source.detail : "没连上"}</em>
+      </li>)}
+    </ul>
+  </aside>;
+}
+
+function ToolRow({ row, now, open, onToggle }) {
+  const running = row.status === "running";
+  return <div className="psb-tool" data-open={open || undefined}>
+    <button type="button" className="psb-tool-row" aria-expanded={open} onClick={onToggle}>
+      <span className="psb-tool-dot" data-status={row.status} aria-hidden="true" />
+      <span className="psb-tool-title">{row.title}</span>
+      <span className="psb-tool-meta">{row.projectName} · {relativeLabel(row.updatedAt, now)}</span>
+      <span className="psb-tool-state" data-status={row.status} aria-label={running ? "在跑" : "等你"}>
+        {running ? <span className="psb-tool-dots" aria-hidden="true"><i /><i /><i /></span> : "等你"}
+      </span>
+      <Icon name="CaretRight" size={12} className="psb-tool-caret" />
+    </button>
+    {open && <p className="psb-tool-preview">{row.preview || "这条还没留下最后一句。"}
+      <em>{STATUS_LABELS[row.status]} · {SOURCE_LABELS[row.source] ?? row.source}</em></p>}
+  </div>;
+}
+
+function LiveBand({ projects, sources, totals, now }) {
+  const [open, setOpen] = useState(null);
+  const rows = useMemo(() => {
+    const cutoff = Date.parse(now) - 6 * 60 * 60 * 1000;
+    const all = projects.flatMap((project) => (project.conversations ?? []).map((row) => ({ ...row, projectName: project.name })));
+    return all.filter((row) => (row.status === "running" || row.status === "waiting") && Date.parse(row.updatedAt) >= cutoff)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 3);
+  }, [projects, now]);
+  const running = rows.filter((row) => row.status === "running").length;
+  const waiting = rows.filter((row) => row.status === "waiting").length;
+  const latest = projects.flatMap((project) => project.conversations ?? [])
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+  return <section className="psb-live" aria-label="正在发生">
+    <div className="psb-live-main">
+      <header className="psb-live-head">
+        <span className="psb-eyebrow">正在发生</span>
+        <span className="psb-live-count">
+          {running ? `${running} 在跑` : "没有在跑"}{waiting ? ` · ${waiting} 等你` : ""}
+          <em>共 {totals.conversations ?? 0} 条最近对话</em>
+        </span>
+      </header>
+      {rows.length > 0 ? <div className="psb-tool-list">
+        {rows.map((row) => <ToolRow key={row.id} row={row} now={now} open={open === row.id}
+          onToggle={() => setOpen(open === row.id ? null : row.id)} />)}
+      </div> : <p className="psb-live-empty">
+        现在没有在跑的。{latest ? `最近一条 ${relativeLabel(latest.updatedAt, now)} 收口。` : "等有新对话再放上来。"}
+      </p>}
+    </div>
+    <SourceReadout sources={sources} />
   </section>;
 }
 
@@ -132,40 +222,66 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
   </section>;
 }
 
-function BoardItem({ row, now, selected, onSelect }) {
-  return <button type="button" className="psb-column-row" data-selected={selected || undefined} aria-expanded={selected}
-    onClick={() => onSelect(row.id)}>
+function BoardItem({ row, now, selected, onSelect, tone, past }) {
+  return <button type="button" className="psb-column-row" data-selected={selected || undefined} data-past={past || undefined}
+    data-tone={tone || undefined} aria-expanded={selected} onClick={() => onSelect(row.id)}>
     <span className="psb-row-meta">
+      {tone === "done" && <span className="psb-row-check" aria-label="已完成">✓</span>}
       <span>{row.project}</span>
       <span>{row.kind}</span>
       <span>{relativeLabel(row.at, now)}</span>
+      {past && <span className="psb-past-tag">{row.pastLabel || "已过去"}</span>}
     </span>
     <span className="psb-row-title">{row.title}</span>
     <span className="psb-row-detail">{row.detail}</span>
     <span className="psb-row-foot">
       <SourceMark source={row.source} />
       <span>{row.who}</span>
+      {past && <span className="psb-past-reason">{row.pastReason}</span>}
       <span className="psb-row-word">{selected ? "收起" : "展开"}</span>
     </span>
   </button>;
 }
 
+function BoardColumn({ column, rows, past = [], now, selected, onSelect }) {
+  const [pastOpen, setPastOpen] = useState(false);
+  const reasonText = useMemo(() => {
+    const label = { recovered: "已恢复", test: "测试", pilot: "试点", review: "旧复核", expired: "过期" };
+    const counts = new Map();
+    for (const row of past) counts.set(row.pastKind, (counts.get(row.pastKind) ?? 0) + 1);
+    return [...counts.entries()].slice(0, 2).map(([kind, count]) => `${count} 件${label[kind] ?? "已过去"}`).join(" · ");
+  }, [past]);
+  return <section className="psb-column" data-column={column.key}>
+    <header className="psb-column-head">
+      <span className="psb-eyebrow">{column.eyebrow}</span>
+      <h2>{column.title}</h2>
+      <span className="psb-column-count">{rows.length}</span>
+      {past.length > 0 && <span className="psb-column-past">已过去 {past.length} 件</span>}
+    </header>
+    <div className="psb-column-scroll">
+      {rows.length === 0 ? <p className="psb-column-empty">{past.length > 0 && column.key === "stuck" ? "现在没有卡住的。" : column.empty}</p>
+        : rows.map((row) => <BoardItem key={row.id} row={row} now={now} tone={column.key}
+          selected={selected === row.id} onSelect={(id) => onSelect(selected === id ? null : id)} />)}
+      {past.length > 0 && <section className="psb-past" data-open={pastOpen || undefined}>
+        <button type="button" className="psb-past-toggle" aria-expanded={pastOpen} onClick={() => setPastOpen(!pastOpen)}>
+          <span>已过去</span>
+          <b>{past.length} 件</b>
+          <em>· {reasonText}</em>
+          <i>{pastOpen ? "收起" : "展开"}</i>
+        </button>
+        {pastOpen && <div className="psb-past-list">
+          {past.map((row) => <BoardItem key={row.id} row={row} now={now} tone={column.key} past
+            selected={selected === row.id} onSelect={(id) => onSelect(selected === id ? null : id)} />)}
+        </div>}
+      </section>}
+    </div>
+  </section>;
+}
+
 function BoardColumns({ columns, now, selected, onSelect }) {
   return <section className="psb-columns" aria-label="总管的三个栏">
-    {BOARD_COLUMNS.map((column) => {
-      const rows = columns[column.key] ?? [];
-      return <section className="psb-column" key={column.key} data-column={column.key}>
-        <header className="psb-column-head">
-          <span className="psb-eyebrow">{column.eyebrow}</span>
-          <h2>{column.title}</h2>
-          <span className="psb-column-count">{rows.length}</span>
-        </header>
-        <div className="psb-column-scroll">
-          {rows.length === 0 ? <p className="psb-column-empty">{column.empty}</p> : rows.map((row) => <BoardItem key={row.id} row={row}
-            now={now} selected={selected === row.id} onSelect={(id) => onSelect(selected === id ? null : id)} />)}
-        </div>
-      </section>;
-    })}
+    {BOARD_COLUMNS.map((column) => <BoardColumn key={column.key} column={column} rows={columns[column.key] ?? []}
+      past={column.key === "stuck" ? columns.stuckPast ?? [] : []} now={now} selected={selected} onSelect={onSelect} />)}
   </section>;
 }
 
@@ -333,15 +449,14 @@ export function SourceBoardPage({ load, capture, onOpenLink }) {
         <span><b>{totals.waiting ?? 0}</b> 个等你</span>
         <span><b>{snapshot.columns?.decide?.length ?? 0}</b> 件要定</span>
         <span><b>{totals.unread ?? 0}</b> 条未读</span>
-        <span className="psb-tally-note">规则简报 · 按当前数据即时拼出</span>
+        <span className="psb-tally-note">
+          {snapshot.stuckSummary?.past ? `已过去 ${snapshot.stuckSummary.past} 件 · ` : ""}规则简报 · 按当前数据即时拼出
+        </span>
       </div>
-      <div className="psb-source-strip" aria-label="数据来源">
-        {(snapshot.sources ?? []).map((source) => <span key={source.id} data-status={source.status} title={source.status === "connected" ? source.hint : source.error}>
-          <i />{source.label} · {source.status === "connected" ? source.detail : "没连上"}
-        </span>)}
-      </div>
+      <DayBar totals={totals} columns={snapshot.columns ?? {}} />
     </header>
 
+    <LiveBand projects={snapshot.projects ?? []} sources={snapshot.sources ?? []} totals={totals} now={snapshot.generatedAt} />
     <ReportBlock report={snapshot.report} />
     <CaptureBar config={snapshot.capture} onCapture={capture} onOpenLink={onOpenLink} />
     <BoardColumns columns={snapshot.columns ?? {}} now={snapshot.generatedAt} selected={selected} onSelect={setSelected} />
