@@ -315,7 +315,6 @@ export function titlebarViewOptionsItems({
       .map((spec) => ({ kind: spec.pane, label: spec.label, icon: spec.icon, shortcut: spec.shortcut })),
     ...((hasTasks || open.has("tasks")) ? [{ kind: "tasks", label: "Background tasks", icon: "AgentsSimple" }] : []),
     ...((hasPlan || open.has("plan")) ? [{ kind: "plan", label: "Plan", icon: "Checklist" }] : []),
-    { kind: "router", label: "总管", icon: "Signpost" },
   ].map((item) => ({
     ...item,
     checked: open.has(item.kind),
