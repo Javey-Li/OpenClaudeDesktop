@@ -5,8 +5,11 @@ import {
   buildBoardSnapshot,
   buildIssueDraft,
   buildRuleReport,
+  classifyLine,
   conversationSources,
   groupConversations,
+  isMainThread,
+  MAIN_THREAD_NAME,
   projectFor,
   relativeLabel,
 } from "../src/board-view-model.mjs";
@@ -150,4 +153,60 @@ test("relative time is read against the board clock", () => {
   assert.equal(relativeLabel("2026-11-07T03:59:30.000Z", now), "刚刚");
   assert.equal(relativeLabel("2026-11-07T03:30:00.000Z", now), "30 分钟前");
   assert.equal(relativeLabel("2026-11-07T01:00:00.000Z", now), "3 小时前");
+});
+
+test("the executive Codex conversation is named by its role", () => {
+  for (const title of [
+    "标题：接管 Fret Sense 首席职责",
+    "@标题：接管 Fret Sense 首席职责 @标题：接管 Fret Sense 首席职责 现在你负责总结这两个对话的…",
+    "标题接管 Fret Sense 首席职责",
+    "接手超级代理主对话",
+  ]) assert.equal(isMainThread({ title }), true, title);
+  assert.equal(isMainThread({ title: "接管 Fret Sense 的一个普通写线" }), false);
+  assert.equal(MAIN_THREAD_NAME, "执行总负责 · Codex 主对话");
+
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true,
+        conversations: [{ id: "codex:main", projectId: "fretsense", project: "FretSense",
+          title: "标题：接管 Fret Sense 首席职责", status: "running", updatedAt: now, preview: "**结论**：正在收口。" }],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  const row = snapshot.projects.flatMap((project) => project.conversations)[0];
+  assert.equal(row.projectId, "personal-super-agent");
+  assert.equal(row.title, MAIN_THREAD_NAME);
+  assert.equal(row.main, true);
+  assert.equal(row.summary, "正在收口。");
+});
+
+test("line names and Issue repos beat a stale workspace project", () => {
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L4j 总看板三级页面" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L8c 接 L8b 收口" }).id, "fretsense");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L15e 0/120 docs 口径" }).id, "fretsense");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "V4i 钢琴卷帘回最早版" }).id, "dawdex");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "SB3 Obsidian P1" }).id, "obsidian");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "R-46 总看板三级页面" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "收口 PR 114",
+    preview: "对应 Javey-Li/FretSense Issue #5" }).id, "fretsense");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "普通维护" }), null);
+});
+
+test("a stored prompt becomes a short line name, not the whole instruction block", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true,
+        conversations: [{ id: "codex:prompt", projectId: "personal-super-agent", project: "personal-super-agent",
+          title: "你是 L4j 总看板三级页面写线，接续现有工作树。任务：完成 R-43/R-46。",
+          status: "running", updatedAt: now, preview: "正在跑" }],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  assert.equal(snapshot.projects[0].conversations[0].title, "L4j 总看板三级页面写线");
 });

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { describeTool, extractCodexTelemetry, formatDuration, formatTokens, switchReason } from "../src/board-telemetry-model.mjs";
+import {
+  describeTool, extractCodexTelemetry, formatDuration, formatTokens, switchReason, toolKind, toolSentence,
+} from "../src/board-telemetry-model.mjs";
 
 const at = (minute, second = 0) => `2026-11-07T01:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}.000Z`;
 let ordinal = 0;
@@ -82,4 +84,54 @@ test("tool descriptions and number formats stay short", () => {
   assert.equal(formatTokens(1_500), "1.5k");
   assert.equal(formatDuration(4000), "4.0s");
   assert.equal(formatDuration(125_000), "2m05s");
+});
+
+test("each tool call says what it did in one sentence", () => {
+  assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "cd /repo && npm run test" })), "跑测试");
+  assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "rg -n 'Piano Roll' /repo" })), "搜「Piano Roll」");
+  assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "node /repo/apps/server/dist/bin.mjs thread list" })), "跑脚本：bin.mjs");
+  assert.equal(toolSentence("apply_patch", "*** Begin Patch\n*** Update File: /repo/src/a.css\n@@\n-old\n+new\n*** End Patch"),
+    "改 1 个文件：a.css");
+  assert.equal(toolSentence("update_plan", JSON.stringify({ plan: [
+    { step: "a", status: "completed" }, { step: "b", status: "in_progress" },
+  ] })), "更新计划：2 步，做完 1 步");
+  assert.equal(toolKind("apply_patch"), "edit");
+  assert.equal(toolKind("mcp__github__list_issues"), "tool");
+});
+
+test("raw arguments stay complete and the line plan comes from its own calls", () => {
+  const args = JSON.stringify({ cmd: "npm run test", note: "x".repeat(600) });
+  const plan = [
+    { step: "盘工作树", status: "completed" },
+    { step: "补测试", status: "in_progress" },
+    { step: "出截图", status: "pending" },
+  ];
+  const rows = [
+    row("response_item", { type: "function_call", name: "exec_command", call_id: "a", arguments: args }, at(1)),
+    row("response_item", { type: "function_call", name: "update_plan", call_id: "b", arguments: JSON.stringify({ plan }) }, at(2)),
+    row("response_item", { type: "function_call_output", call_id: "a", output: "Chunk ID: 1\nProcess exited with code 0\nOutput:\nall pass" }, at(2, 4)),
+  ];
+  const telemetry = extractCodexTelemetry(rows, { openTurn: false });
+  assert.equal(telemetry.tools[0].summary, "跑测试");
+  assert.ok(telemetry.tools[0].args.length > 240);
+  assert.match(telemetry.tools[0].args, /"note"/);
+  assert.equal(telemetry.tools[0].resultLine, "all pass");
+  assert.deepEqual(telemetry.plan.steps.map((step) => step.status), ["completed", "in_progress", "pending"]);
+  assert.equal(telemetry.plan.done, 1);
+  assert.equal(telemetry.plan.current, "补测试");
+});
+
+test("structured tool output is summarised, not printed as raw JSON", () => {
+  const rows = [
+    row("response_item", { type: "function_call", name: "exec_command", call_id: "a",
+      arguments: JSON.stringify({ cmd: "node /repo/apps/server/dist/bin.mjs status" }) }, at(1)),
+    row("response_item", { type: "function_call_output", call_id: "a",
+      output: "Output:\n{'status': 'running', 'runCount': 1, 'itemCount': 131, 'pendingRequestCount': 0, 'note': 'x'}" }, at(1, 2)),
+  ];
+  const { tools } = extractCodexTelemetry(rows);
+  assert.equal(tools[0].summary, "跑脚本：bin.mjs");
+  assert.doesNotMatch(tools[0].resultLine, /^\{['"]/);
+  assert.match(tools[0].resultLine, /返回结构化结果/);
+  assert.match(tools[0].resultLine, /status/);
+  assert.match(tools[0].result, /status/);
 });

@@ -6,6 +6,7 @@
 // source stays failed; nothing here fills a gap with fixture data.
 
 import { cleanBoardTitle, leadingRef, settledLabel, splitStuck, staleConversation } from "./board-stuck-model.mjs";
+import { firstSentence } from "./board-text-model.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -48,6 +49,8 @@ const PROJECTS = [
     patterns: [/\/Projects\/mission(?:\/|$)/i] },
   { id: "personal-super-agent", name: "personal-super-agent", repo: "Javey-Li/personal-super-agent", note: "总管",
     patterns: [/personal-super-agent/i, /dsh-superagent/i, /dshsa-/i, /\/OpenClaudeDesktop(?:\/|$)/i, /\/OpenClaude Desktop(?:\/|$)/i] },
+  { id: "obsidian", name: "Obsidian", repo: "", note: "第二大脑",
+    patterns: [/\/Obsidian Vault(?:\/|$)/i] },
   { id: "other", name: "其他", repo: "", note: "", patterns: [] },
 ];
 
@@ -56,6 +59,10 @@ export const CAPTURE_PROJECTS = Object.freeze(PROJECTS
   .map(({ id, name, repo }) => ({ id, name, repo })));
 
 const otherProject = PROJECTS[PROJECTS.length - 1];
+const byId = (id) => {
+  const project = PROJECTS.find((entry) => entry.id === id) ?? otherProject;
+  return { id: project.id, name: project.name, repo: project.repo, note: project.note };
+};
 
 export function projectFor({ path: workspace = "", title = "", repo = "" } = {}) {
   const matched = PROJECTS.find((project) => project.patterns.some((pattern) => pattern.test(workspace)));
@@ -63,12 +70,74 @@ export function projectFor({ path: workspace = "", title = "", repo = "" } = {})
   return { ...otherProject, patterns: undefined, repo: text(repo) };
 }
 
+// The executive Codex conversation. Its stored title is its first prompt
+// ("接管 Fret Sense 首席职责 现在你负责总结……", "接手超级代理主对话"); the board names it by role.
+export const MAIN_THREAD_NAME = "执行总负责 · Codex 主对话";
+const MAIN_TITLE = /^(?:@?\s*标题\s*[:：]?\s*)?(?:接管|接手)\s*.{0,16}?(?:首席职责|主对话)/;
+export function isMainThread({ title = "" } = {}) {
+  return MAIN_TITLE.test(text(title));
+}
+
+// Line names carry their project: a keyword in the name, else the line letter
+// (L4/W/R/T are this desktop and its superagent base, V the DAWdex video, SB the
+// Obsidian rebuild; see the line table in CODEX_MAIN_HANDOFF), else an Issue/PR repo.
+const NAME_KEYWORDS = [
+  ["fretsense", /fret\s?sense/i],
+  ["delicacy", /delicacy/i],
+  ["guitaros", /guitar\s?os/i],
+  ["dawdex", /dawdex|钢琴卷帘|piano roll|cubase/i],
+  ["obsidian", /obsidian|第二大脑/i],
+  ["mission", /\bmission\b/i],
+  ["personal-super-agent", /super\s?agent|超级代理|总看板/i],
+];
+const LINE_PREFIX = [
+  ["fretsense", /^L(?:8|15)[a-z]?(?=[\s·:：]|$)/],
+  ["personal-super-agent", /^(?:L(?:4|5|6|14)[a-z]?|W\d+[a-z]?|R-?\d+|T\d+)(?=[\s·:：]|$)/],
+  ["dawdex", /^V\d+[a-z]?(?=[\s·:：]|$)/],
+  ["obsidian", /^SB\d*[a-z]?(?=[\s·:：]|$)/],
+];
+const REPO_PROJECT = [
+  ["fretsense", /Javey-Li\/FretSense\b/i],
+  ["delicacy", /Javey-Li\/Delicacy-HTML\b/i],
+  ["guitaros", /Javey-Li\/(?:GuitarOS|guitar-brain)\b/i],
+  ["dawdex", /Javey-Li\/DAWdex\b/i],
+  ["mission", /Javey-Li\/mission\b/i],
+  ["personal-super-agent", /Javey-Li\/(?:personal-super-agent|dsh-superagent[\w-]*|OpenClaudeDesktop)\b/i],
+];
+
+export function classifyLine({ projectId = "", title = "", preview = "", repo = "" } = {}) {
+  if (isMainThread({ title })) return byId("personal-super-agent");
+  const name = text(title);
+  // An explicit line prefix is the strongest signal: a DAWdex video line can
+  // mention FretSense in its body and still belong to DAWdex.
+  const prefix = LINE_PREFIX.find(([, pattern]) => pattern.test(name));
+  if (prefix) return byId(prefix[0]);
+  const repoHit = REPO_PROJECT.find(([, pattern]) => pattern.test(`${text(repo)} ${name} ${text(preview)}`));
+  if (repoHit) return byId(repoHit[0]);
+  const keyword = NAME_KEYWORDS.find(([, pattern]) => pattern.test(name));
+  if (keyword) return byId(keyword[0]);
+  if (projectId && projectId !== "other") return null;
+  return null;
+}
+
 const projectMeta = (row) => {
-  if (row.projectId && row.project) {
-    return { id: row.projectId, name: row.project, repo: text(row.repo), note: text(row.note) };
-  }
-  return projectFor({ path: row.workspace || row.cwd || row.repo, title: row.project });
+  const given = row.projectId && row.project
+    ? { id: row.projectId, name: row.project, repo: text(row.repo), note: text(row.note) }
+    : projectFor({ path: row.workspace || row.cwd || row.repo, title: row.project });
+  const { patterns, ...meta } = given;
+  return classifyLine({ projectId: meta.id, title: row.title, preview: row.preview ?? row.detail, repo: row.repo }) ?? meta;
 };
+
+// A Codex session's stored title can be its whole first prompt. A line name is
+// the opening clause ("L4j 总看板三级页面写线"), not the instructions after it.
+function shortLineTitle(value) {
+  const title = text(value).replace(/^你是\s*/, "").trim();
+  const clause = title.split(/[，,。；;\n]/)[0].trim();
+  return clause.length > 52 ? `${clause.slice(0, 51).trimEnd()}…` : clause;
+}
+
+const lineTitle = (row, fallback) => (isMainThread({ title: row.title }) ? MAIN_THREAD_NAME
+  : shortLineTitle(cleanBoardTitle(row.title)) || fallback);
 
 function normalizeConversation(row, source) {
   const project = projectMeta(row);
@@ -78,8 +147,10 @@ function normalizeConversation(row, source) {
     project: project.name,
     repo: project.repo,
     note: project.note,
-    title: cleanBoardTitle(row.title) || "未命名对话",
+    title: lineTitle(row, "未命名对话"),
+    main: isMainThread({ title: row.title }) || undefined,
     preview: text(row.preview),
+    summary: firstSentence(row.preview),
     source,
     status: ["running", "waiting", "stuck", "suspected"].includes(row.status) ? row.status : "done",
     updatedAt: row.updatedAt || row.at || new Date().toISOString(),
@@ -90,6 +161,7 @@ function normalizeConversation(row, source) {
     context: row.context ?? null,
     models: row.models ?? null,
     tools: Array.isArray(row.tools) ? row.tools : [],
+    plan: row.plan ?? null,
     outcome: text(row.outcome) || undefined,
   };
 }
@@ -100,7 +172,7 @@ function normalizeColumnItem(row, source) {
     id: text(row.id),
     projectId: project.id,
     project: project.name,
-    title: cleanBoardTitle(row.title) || cleanBoardTitle(row.detail) || "未命名",
+    title: lineTitle(row, cleanBoardTitle(row.detail) || "未命名"),
     detail: text(row.detail),
     source,
     kind: text(row.kind) || "事项",

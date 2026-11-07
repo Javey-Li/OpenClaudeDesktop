@@ -182,6 +182,7 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
     context: telemetry.context,
     models: telemetry.models,
     tools: telemetry.tools,
+    plan: telemetry.plan,
   };
 }
 

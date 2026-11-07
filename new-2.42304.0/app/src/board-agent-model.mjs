@@ -6,13 +6,10 @@
 // column row and as a conversation is one row that carries the session's
 // context, model and tool telemetry.
 
+import { firstSentence } from "./board-text-model.mjs";
+
 const text = (value) => (typeof value === "string" ? value.trim() : "");
-const plain = (value) => text(value)
-  .replace(/\*\*|__|`/g, "")
-  .replace(/(^|\s)#{1,6}\s+/g, "$1")
-  .replace(/(^|\s)[-*]\s+/g, "$1")
-  .replace(/\s+/g, " ")
-  .trim();
+const plain = (value) => firstSentence(value, 140);
 const time = (value) => {
   const at = Date.parse(value ?? "");
   return Number.isFinite(at) ? at : 0;
@@ -67,6 +64,9 @@ function fromConversation(row) {
     context: row.context ?? null,
     models: row.models ?? null,
     tools: row.tools ?? [],
+    plan: row.plan ?? null,
+    report: text(row.preview),
+    main: row.main,
     outcome: row.outcome,
     pastReason: row.stale?.reason,
   };
@@ -89,6 +89,8 @@ function fromColumn(row, state) {
     context: null,
     models: null,
     tools: [],
+    plan: null,
+    report: text(row.detail),
     outcome: row.settled ? "settled" : undefined,
     pastReason: row.pastReason,
   };
@@ -104,10 +106,13 @@ function merge(into, extra) {
     context: into.context ?? extra.context,
     models: into.models ?? extra.models,
     tools: into.tools?.length ? into.tools : extra.tools,
+    plan: into.plan ?? extra.plan,
+    report: into.state === "done" && report ? report.report : into.report || extra.report,
+    main: into.main ?? extra.main,
   };
 }
 
-export function buildAgentInbox({ columns = {}, projects = [], older = [], now = new Date().toISOString() } = {}) {
+export function buildAgentInbox({ columns = {}, projects = [], older = [], now = new Date().toISOString(), doneWithinMs = 2 * 24 * 60 * 60 * 1000, doneLimit = DONE_LIMIT, superagentDone = false } = {}) {
   const conversations = projects.flatMap((project) => project.conversations ?? []);
   const byKey = new Map();
   const add = (item) => {
@@ -127,15 +132,15 @@ export function buildAgentInbox({ columns = {}, projects = [], older = [], now =
   }
   for (const row of conversations) {
     if (row.stale) { past.push(fromConversation(row)); continue; }
-    if (row.status === "done" && time(now) - time(row.updatedAt) > 2 * 24 * 60 * 60 * 1000) continue;
-    if (row.status === "done" && row.source === "superagent") continue;
+    if (row.status === "done" && time(now) - time(row.updatedAt) > doneWithinMs) continue;
+    if (row.status === "done" && row.source === "superagent" && !superagentDone) continue;
     add(fromConversation(row));
   }
 
   const ordered = [...byKey.values()].map((item) => ({ ...item, step: stepFor(item) }))
     .sort((a, b) => RANK[a.state] - RANK[b.state] || time(b.at) - time(a.at));
   const live = ordered.filter((item) => item.state !== "done");
-  const done = ordered.filter((item) => item.state === "done").slice(0, DONE_LIMIT);
+  const done = ordered.filter((item) => item.state === "done").slice(0, doneLimit);
   const counts = Object.fromEntries(INBOX_STATES.map((state) => [state, ordered.filter((item) => item.state === state).length]));
   const pastItems = past.sort((a, b) => time(b.at) - time(a.at)).map((item) => ({ ...item, step: item.detail }));
   return { items: [...live, ...done], past: pastItems, counts };
