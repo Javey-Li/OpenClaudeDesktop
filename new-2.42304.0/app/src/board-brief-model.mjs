@@ -21,6 +21,7 @@ function conversationItem(row) {
     who: row.source,
     at: row.updatedAt,
     status: row.status,
+    ...(row.stale ? { pastKind: "expired", pastLabel: "已过去", pastReason: row.stale.reason } : {}),
   };
 }
 
@@ -80,17 +81,21 @@ export function buildProjectBriefs({ projects = [], columns = {}, now = new Date
 
   const briefs = [...byId.values()].map((entry) => {
     const conversations = entry.conversations;
+    const live = conversations.filter((row) => !row.stale);
     const done = uniqueByTitle([
-      ...conversations.filter((row) => row.status === "done").map(conversationItem),
+      ...live.filter((row) => row.status === "done").map(conversationItem),
       ...entry.columns.done.map(columnItem),
     ]);
-    const open = uniqueByTitle(conversations.filter((row) => row.status === "running" || row.status === "waiting").map(conversationItem));
+    const open = uniqueByTitle(live.filter((row) => row.status === "running" || row.status === "waiting").map(conversationItem));
     const stuck = uniqueByTitle([
-      ...conversations.filter((row) => row.status === "stuck" || row.status === "suspected").map(conversationItem),
+      ...live.filter((row) => row.status === "stuck" || row.status === "suspected").map(conversationItem),
       ...entry.columns.stuck.map(columnItem),
     ]);
     const decide = uniqueByTitle(entry.columns.decide.map(columnItem));
-    const past = uniqueByTitle(entry.columns.stuckPast.map(columnItem));
+    const past = uniqueByTitle([
+      ...entry.columns.stuckPast.map(columnItem),
+      ...conversations.filter((row) => row.stale).map(conversationItem),
+    ]);
     const last = conversations
       .filter((row) => text(row.updatedAt))
       .sort((a, b) => time(b.updatedAt) - time(a.updatedAt))[0];

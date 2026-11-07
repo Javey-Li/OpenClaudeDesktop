@@ -5,7 +5,7 @@
 // /orchestrator/api, and the T3 threads served by 127.0.0.1:3773. A failed
 // source stays failed; nothing here fills a gap with fixture data.
 
-import { cleanBoardTitle, splitStuck } from "./board-stuck-model.mjs";
+import { cleanBoardTitle, leadingRef, settledLabel, splitStuck, staleConversation } from "./board-stuck-model.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -87,6 +87,10 @@ function normalizeConversation(row, source) {
     unread: !!row.unread,
     threadId: text(row.threadId) || undefined,
     href: text(row.href) || undefined,
+    context: row.context ?? null,
+    models: row.models ?? null,
+    tools: Array.isArray(row.tools) ? row.tools : [],
+    outcome: text(row.outcome) || undefined,
   };
 }
 
@@ -106,6 +110,7 @@ function normalizeColumnItem(row, source) {
     recovered: row.recovered === true,
     at: row.at || row.updatedAt || new Date().toISOString(),
     href: text(row.href) || undefined,
+    ref: Number.isFinite(Number(row.ref)) && row.ref !== null && row.ref !== "" ? Number(row.ref) : undefined,
   };
 }
 
@@ -143,12 +148,49 @@ function sourceRows(inputs = {}) {
 
 export function boardTotals({ projects = [] } = {}) {
   const conversations = projects.flatMap((project) => project.conversations ?? []);
+  const live = conversations.filter((row) => !row.stale);
   return {
     conversations: conversations.length,
-    running: conversations.filter((row) => row.status === "running").length,
-    waiting: conversations.filter((row) => row.status === "waiting").length,
+    running: live.filter((row) => row.status === "running").length,
+    waiting: live.filter((row) => row.status === "waiting").length,
     unread: conversations.filter((row) => row.unread).length,
   };
+}
+
+function collectSettled(sources) {
+  const settled = new Map();
+  for (const result of Object.values(sources)) {
+    if (!result?.ok) continue;
+    for (const entry of result.settled ?? []) {
+      const ref = Number(entry?.ref);
+      if (Number.isFinite(ref)) settled.set(ref, entry);
+    }
+  }
+  return settled;
+}
+
+function reconcileConversation(row, settled, now) {
+  const ref = leadingRef(row.title);
+  const hit = ref ? settled.get(ref) : null;
+  if (hit && ["running", "waiting", "stuck", "suspected"].includes(row.status)) {
+    return { ...row, status: "done", outcome: row.outcome || text(hit.outcome) || "ended" };
+  }
+  const stale = staleConversation(row, now);
+  return stale ? { ...row, stale } : row;
+}
+
+function settleColumns(columnRows, settled) {
+  for (const key of ["decide", "stuck"]) {
+    const keep = [];
+    for (const row of columnRows[key]) {
+      const ref = row.ref ?? leadingRef(row.title);
+      const hit = ref ? settled.get(ref) : null;
+      if (!hit) { keep.push(row); continue; }
+      const label = settledLabel(hit.outcome);
+      columnRows.done.push({ ...row, kind: "工单", detail: [label, row.detail].filter(Boolean).join(" · "), settled: true, at: hit.at || row.at });
+    }
+    columnRows[key] = keep;
+  }
 }
 
 export function buildRuleReport(snapshot) {
@@ -196,12 +238,14 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
       }
     }
   }
+  const settled = collectSettled(sources);
+  settleColumns(columnRows, settled);
   const seen = new Set();
   const allConversations = conversationRows.filter((row) => {
     if (seen.has(row.id)) return false;
     seen.add(row.id);
     return true;
-  });
+  }).map((row) => reconcileConversation(row, settled, now));
   const cutoff = time(now) - RECENT_DAYS * DAY;
   const recent = allConversations.filter((row) => !row.archived && time(row.updatedAt) >= cutoff);
   const older = allConversations.filter((row) => row.archived || time(row.updatedAt) < cutoff);

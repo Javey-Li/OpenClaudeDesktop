@@ -9,6 +9,7 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 export const STUCK_TTL_HOURS = 12;
+export const OPEN_TTL_DAYS = 3;
 
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const time = (value) => {
@@ -85,7 +86,12 @@ export function splitStuck(rows = [], { now = new Date().toISOString(), ttlHours
 }
 
 export function cleanBoardTitle(value) {
-  let title = text(value)
+  const raw = text(value);
+  if (/^\{\s*"trigger_id"\s*:/.test(raw)) {
+    const thread = /"thread"\s*:\s*"([^"]+)"/.exec(raw)?.[1];
+    return thread ? `触发信号 · ${thread}` : "触发信号";
+  }
+  let title = raw
     .replace(/^@+/, "")
     .replace(/^(?:标题[:：]\s*)+/, "")
     .trim();
@@ -98,4 +104,29 @@ export function cleanBoardTitle(value) {
     if (leadingCopy) title = title.slice(leadingCopy[1].length).trim();
   }
   return title.replace(/^[“"](.*)[”"]$/, "$1").trim();
+}
+
+export function leadingRef(value) {
+  const match = /^\s*#(\d+)\b/.exec(text(value));
+  return match ? Number(match[1]) : null;
+}
+
+const SETTLED_LABEL = { merged: "已合并", completed: "工单已结束", closed: "已关闭" };
+
+export function settledLabel(outcome) {
+  return SETTLED_LABEL[text(outcome).toLowerCase()] ?? "工单已结束";
+}
+
+// A live row is only "open" while something is still moving. These are the
+// ages after which a row stops counting as 没做完 / 卡住 and moves to 已过去.
+export function staleConversation(row, now = new Date().toISOString()) {
+  if (!["running", "waiting", "stuck", "suspected"].includes(row.status)) return null;
+  const stamp = time(row.updatedAt);
+  if (!stamp) return null;
+  const age = Math.max(0, time(now) - stamp);
+  if (age >= OPEN_TTL_DAYS * DAY) return { kind: "expired", reason: `${Math.floor(age / DAY)} 天没有新事件` };
+  if (row.status !== "waiting" && age >= STUCK_TTL_HOURS * HOUR) {
+    return { kind: "expired", reason: `${Math.floor(age / HOUR)} 小时没有新事件` };
+  }
+  return null;
 }

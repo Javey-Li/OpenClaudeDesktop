@@ -103,3 +103,8 @@ test("titles lose the prompt prefix and wrapping quotes", () => {
   assert.equal(cleanBoardTitle("@标题：接管 Fret Sense 首席职责 @标题：接管 Fret Sense 首席职责 现在你负责总结这两个对话"),
     "接管 Fret Sense 首席职责 现在你负责总结这两个对话");
 });
+
+test("a raw trigger payload becomes a readable title", () => {
+  assert.equal(cleanBoardTitle('{"trigger_id":"c45a91c3489f4e66cf9fca753b6cd667","from":"","thread":"github:123","at":"2026-11-07T01:00:00Z"}'), "触发信号 · github:123");
+  assert.equal(cleanBoardTitle('{"trigger_id":"abc'), "触发信号");
+});

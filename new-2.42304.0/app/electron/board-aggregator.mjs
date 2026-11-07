@@ -14,6 +14,8 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildBoardSnapshot, projectFor } from "../src/board-view-model.mjs";
+import { settledLabel } from "../src/board-stuck-model.mjs";
+import { extractCodexTelemetry } from "../src/board-telemetry-model.mjs";
 
 const execFileAsync = promisify(execFile);
 const DAY = 24 * 60 * 60 * 1000;
@@ -35,7 +37,7 @@ const preview = (value, limit = 180) => {
   const line = text(value).replace(/\s+/g, " ");
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
 };
-const noiseTitle = (value) => /^(noop|reply with the single word: ready|reply with exactly|t3 .*smoke|t3 executor no-op|链路测试)/i.test(text(value))
+const noiseTitle = (value) => /^(noop|reply with the single word: ready|reply with exactly|run the shell command|t3 .*smoke|t3 executor no-op|链路测试)/i.test(text(value))
   || /FULL_ACCESS_OK/i.test(text(value));
 const shellPath = (env = process.env) => ["/Users/javeyli/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", env.PATH]
   .filter(Boolean).join(":");
@@ -101,7 +103,7 @@ function executorTitle(prompt) {
   try { return JSON.parse(`"${match[1]}"`); } catch { return ""; }
 }
 
-function parseCodexFile(head, tail, mtimeMs, now, catalog) {
+function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
   const headRows = jsonLines(head);
   const tailRows = jsonLines(tail);
   const metaRow = headRows.find((row) => row?.type === "session_meta");
@@ -157,6 +159,10 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog) {
   const status = openTurn ? (idleFor > 30 * 60_000 ? "suspected" : "running")
     : lastAborted > lastCompleted ? "stuck" : "done";
   const archived = stored?.archived === 1 || Number(stored?.archived_at ?? 0) > 0;
+  const telemetry = extractCodexTelemetry([...headRows, ...tailRows], {
+    openTurn,
+    partial: size > CODEX_HEAD_BYTES + CODEX_TAIL_BYTES,
+  });
   return {
     id: `codex:${text(meta.id) || `${mtimeMs}`}`,
     projectId: project.id,
@@ -173,6 +179,9 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog) {
     lastEvent,
     lastEventAt: lastEventAt ? new Date(lastEventAt).toISOString() : "",
     cwd,
+    context: telemetry.context,
+    models: telemetry.models,
+    tools: telemetry.tools,
   };
 }
 
@@ -248,7 +257,7 @@ async function readCodexSource({ home, now }) {
   const rows = (await Promise.all(chosen.map(async ({ file, stat }) => {
     try {
       const [head, tail] = await Promise.all([readHead(file, CODEX_HEAD_BYTES), readTail(file, CODEX_TAIL_BYTES)]);
-      return parseCodexFile(head, tail, stat.mtimeMs, now, catalog);
+      return parseCodexFile(head, tail, stat.mtimeMs, now, catalog, stat.size);
     } catch {
       return null;
     }
@@ -318,10 +327,19 @@ async function readSuperagentSource({ env, now }) {
   const repo = text(state?.setup?.accounts?.repository) || "Javey-Li/FretSense";
   const project = projectFor({ path: repo, title: "Fret Sense", repo });
   const threadRows = Array.isArray(threads?.items) ? threads.items : [];
+  const endedById = new Map((Array.isArray(endedTickets?.items) ? endedTickets.items : []).map((row) => [text(row.id), row]));
+  const settled = [];
   const conversations = threadRows.map((row) => {
     const stage = text(row.stage);
-    const status = stage === "error" ? "stuck" : stage === "evaluating" || stage === "queued" ? "running"
-      : stage === "subscribed" ? "waiting" : "done";
+    const tickets = Array.isArray(row.tickets) ? row.tickets : [];
+    const allEnded = tickets.length > 0 && tickets.every((ticket) => text(ticket.state) === "ended") && !(Number(row.pending) > 0);
+    const outcomes = tickets.map((ticket) => text(endedById.get(text(ticket.id))?.ended?.outcome)).filter(Boolean);
+    const outcome = outcomes.includes("merged") ? "merged" : outcomes[0] || "";
+    const status = allEnded ? "done"
+      : stage === "error" ? "stuck" : stage === "evaluating" || stage === "queued" ? "running"
+        : stage === "subscribed" ? "waiting" : "done";
+    const number = /^github:(\d+)$/.exec(text(row.key))?.[1];
+    if (allEnded && number) settled.push({ ref: Number(number), outcome: outcome || "ended", at: iso(row.lastAt || row.createdAt) });
     return {
       id: `superagent:${row.key}`,
       projectId: project.id,
@@ -335,6 +353,7 @@ async function readSuperagentSource({ env, now }) {
       updatedAt: iso(row.lastAt || row.createdAt) || nowIso(now),
       threadId: text(row.key) || undefined,
       href: text(row.url) || undefined,
+      outcome: allEnded ? outcome || "ended" : undefined,
     };
   });
   const person = Array.isArray(overview?.person) ? overview.person : [];
@@ -374,7 +393,7 @@ async function readSuperagentSource({ env, now }) {
     projectId: project.id,
     project: project.name,
     title: text(row.title) || text(row.id),
-    detail: text(row.summary) ? preview(row.summary, 140) : `工单结束 · ${text(row.ended?.outcome) || "ended"}`,
+    detail: doneDetail(row),
     kind: "工单",
     who: "Superagent",
     at: iso(row.updatedAt || row.ended?.at || row.createdAt) || nowIso(now),
@@ -386,7 +405,15 @@ async function readSuperagentSource({ env, now }) {
     total: threadRows.length,
     conversations,
     columns: { decide, done, stuck },
+    settled,
   };
+}
+
+function doneDetail(row) {
+  const label = settledLabel(row.ended?.outcome);
+  const summary = text(row.summary);
+  if (!summary || /^[A-Z][A-Z0-9_]{5,}:/.test(summary)) return label;
+  return `${label} · ${preview(summary, 120)}`;
 }
 
 function nowIso(now) {
@@ -488,6 +515,7 @@ async function readT3Source({ env, home, now }) {
       archived: archived.has(text(row.threadId)),
       updatedAt: iso(row.updatedAt || row.createdAt) || nowIso(now),
       threadId: text(row.threadId),
+      models: t3Models(row),
     };
   });
   const done = rows.filter((row) => !archived.has(text(row.threadId)) && !noiseTitle(row.title) && text(row.status) === "completed"
@@ -532,6 +560,25 @@ async function readT3Source({ env, home, now }) {
 }
 
 let cache = { at: 0, snapshot: null };
+
+function t3Models(row) {
+  const model = text(row.model);
+  if (!model) return null;
+  return {
+    partial: false,
+    segments: [{
+      model,
+      from: iso(row.createdAt),
+      to: iso(row.updatedAt || row.createdAt),
+      turns: null,
+      completed: 0,
+      aborted: 0,
+      ended: "open",
+      switchedBy: "start",
+      current: true,
+    }],
+  };
+}
 
 export async function readBoardSnapshot({ env = process.env, force = false } = {}) {
   const now = Date.now();

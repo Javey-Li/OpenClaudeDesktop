@@ -41,7 +41,7 @@ html[data-mode="dark"] .psb-page {
 .psb-page *,
 .psb-page *::before,
 .psb-page *::after { box-sizing: border-box; }
-.psb-page button { margin: 0; border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+:where(.psb-page) button { margin: 0; border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .psb-page button:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow, 0 0 0 2px var(--psb-bg), 0 0 0 4px var(--psb-ochre)); border-radius: 3px; }
 .psb-page p,
 .psb-page h1,
