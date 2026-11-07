@@ -57,7 +57,9 @@ test("three levels keep real lines, fix the main title and read T3 failures as s
   assert.equal(main.progress.current, "补测试");
 
   const blocked = project.lines.find((line) => line.name === "L4i 总看板三级页面-接续");
-  assert.equal(blocked.summary, "T3 运行失败 · Projects");
+  assert.equal(blocked.summary, "T3 运行失败");
+  assert.equal(blocked.displayReport, "T3 运行失败");
+  assert.equal(blocked.report, "T3 运行失败 · Projects");
   assert.doesNotMatch(blocked.summary, /只回传状态：Projects/);
 
   const live = project.lines.find((line) => line.name === "L4j 总看板三级页面-可用模型");
@@ -72,4 +74,50 @@ test("a plan only counts while the line is open", () => {
   const plan = { total: 2, done: 1, current: "", steps: [], at: now };
   assert.equal(lineProgress({ state: "done", plan }).kind, "state");
   assert.equal(lineProgress({ state: "running", plan, at: now }).label, "1/2 步");
+});
+
+test("T3 Projects failures keep the failure but show the line's project, not Projects", () => {
+  const rows = [
+    ["l4h", "L4h 总看板三级页面-强模型"],
+    ["l4g", "L4g 总看板三级页面"],
+    ["l4i", "L4i 总看板三级页面-接续"],
+    ["v4h", "V4h 钢琴卷帘回最早版-强模型"],
+    ["unknown", "说明"],
+  ];
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      t3: {
+        ok: true, total: rows.length,
+        conversations: rows.map(([id, title]) => ({
+          id: `t3:${id}`, projectId: "other", project: "Projects", title,
+          source: "t3", status: "stuck", updatedAt: now, preview: "Projects · failed",
+        })),
+        columns: {
+          decide: [], done: [],
+          stuck: rows.map(([id, title]) => ({
+            id: `t3-stuck:${id}`, projectId: "other", project: "Projects", title,
+            detail: "T3 运行失败 · Projects", kind: "线程", who: "T3", at: now,
+          })),
+        },
+      },
+    },
+  });
+  const levels = buildBoardLevels(snapshot);
+  const psa = levels.projects.find((project) => project.id === "personal-super-agent");
+  for (const name of ["L4h 总看板三级页面-强模型", "L4g 总看板三级页面", "L4i 总看板三级页面-接续"]) {
+    const line = psa.lines.find((entry) => entry.name === name);
+    assert.ok(line, name);
+    assert.equal(line.state, "stuck");
+    assert.equal(line.summary, "T3 运行失败");
+    assert.equal(line.displayReport, "T3 运行失败");
+    assert.equal(line.report, "T3 运行失败 · Projects");
+  }
+  const dawdex = levels.projects.find((project) => project.id === "dawdex");
+  assert.equal(dawdex.lines.find((entry) => entry.name === "V4h 钢琴卷帘回最早版-强模型").summary, "T3 运行失败");
+  const other = levels.projects.find((project) => project.id === "other");
+  assert.ok(other);
+  assert.equal(other.name, "其他");
+  assert.equal(other.lines.find((entry) => entry.name === "说明").summary, "T3 运行失败");
+  assert.equal([...psa.lines, ...dawdex.lines, ...other.lines].some((line) => line.summary.includes("Projects")), false);
 });

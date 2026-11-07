@@ -11,6 +11,7 @@ import { buildAgentInbox } from "./board-agent-model.mjs";
 import { firstSentence } from "./board-text-model.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
+const text = (value) => (typeof value === "string" ? value.trim() : "");
 const time = (value) => {
   const at = Date.parse(value ?? "");
   return Number.isFinite(at) ? at : 0;
@@ -43,21 +44,34 @@ export function lineProgress(line) {
 
 const T3_STATUS = Object.freeze({ running: "在跑", working: "在跑", completed: "已完成", failed: "失败", error: "出错", idle: "空闲", waiting: "在等" });
 
+// T3's failure/completion rows are generated as "T3 运行失败 · <T3 project>".
+// The board project comes from the line name or Issue repo, so the T3 folder
+// name ("Projects") is not a board project; keep the raw report and show the fact.
+function t3DisplayReport(value) {
+  const report = text(value);
+  if (/^T3 运行失败 · /i.test(report)) return "T3 运行失败";
+  if (/^T3 回合完成 · /i.test(report)) return "T3 回合完成";
+  return report;
+}
+
 function toLine(item, past = false) {
   // A T3 conversation reports "<project> · <status>". After a column row is
   // merged in, the report may instead be "T3 运行失败 · <project>"; that is a
   // readable sentence and must not be parsed as a status line.
+  const rawReport = item.report || item.detail;
+  const displayReport = item.source === "t3" ? t3DisplayReport(rawReport) : rawReport;
   const t3 = item.source === "t3"
-    ? /^.+ · (running|working|completed|failed|error|idle|waiting)$/i.exec(item.report || "")
+    ? /^.+ · (running|working|completed|failed|error|idle|waiting)$/i.exec(rawReport)
     : null;
-  const sentence = t3 ? "" : firstSentence(item.report || item.detail, 120);
+  const sentence = t3 ? "" : firstSentence(displayReport, 120);
   const status = t3 ? T3_STATUS[t3[1].toLowerCase()] ?? t3[1] : "";
-  const summary = sentence || (t3 ? `T3 只回传状态：${status}，没有最后一句。` : item.detail || "这条线没有留下最后一句。");
+  const summary = sentence || (t3 ? `T3 只回传状态：${status}，没有最后一句。` : displayReport || "这条线没有留下最后一句。");
   return {
     ...item,
     key: past ? `past:${item.key}` : item.key,
     name: item.title,
     summary,
+    displayReport,
     past,
     spoke: Boolean(sentence),
     progress: lineProgress(item),

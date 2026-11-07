@@ -271,7 +271,8 @@ function ProjectLevel({ project, now, onGo }) {
 
 function LineLevel({ project, line, now, onGo, onOpenLink }) {
   const [copied, setCopied] = useState(false);
-  const report = useMemo(() => plainText(line.report || line.detail).replace(/\n/g, " "), [line.report, line.detail]);
+  const report = useMemo(() => plainText(line.displayReport || line.report || line.detail).replace(/\n/g, " "),
+    [line.displayReport, line.report, line.detail]);
   const copy = async () => {
     try { await navigator.clipboard.writeText(line.threadId); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { /* clipboard blocked */ }
   };

@@ -117,7 +117,7 @@ export function classifyLine({ projectId = "", title = "", preview = "", repo = 
   const keyword = NAME_KEYWORDS.find(([, pattern]) => pattern.test(name));
   if (keyword) return byId(keyword[0]);
   if (projectId && projectId !== "other") return null;
-  return null;
+  return byId("other");
 }
 
 const projectMeta = (row) => {
