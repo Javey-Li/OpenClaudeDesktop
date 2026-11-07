@@ -1,0 +1,77 @@
+/* Arc UI's free components use semantic CSS variables. Keep them inside the
+   board and map them to OpenClaude's paper palette instead of importing Arc's
+   global neutral/lavender foundation. */
+
+.psb-page {
+  --background: var(--psb-bg);
+  --surface: var(--psb-paper);
+  --surface-raised: var(--psb-paper);
+  --surface-muted: var(--psb-paper-muted);
+  --foreground: var(--psb-ink);
+  --text-secondary: var(--psb-muted);
+  --text-muted: var(--psb-faint);
+  --border: var(--psb-rule-soft);
+  --border-subtle: var(--psb-rule-soft);
+  --border-strong: var(--psb-rule);
+  --accent: var(--psb-ochre);
+  --accent-strong: var(--psb-ochre);
+  --accent-subtle: color-mix(in srgb, var(--psb-ochre) 10%, transparent);
+  --accent-foreground: #fff;
+  --success: var(--psb-sage);
+  --warning: var(--psb-ochre);
+  --danger: var(--psb-rust);
+  --info: var(--psb-sage);
+  --tone-teal: var(--psb-sage);
+  --tone-sky: #5f7f8c;
+  --tone-orchid: #8b6f86;
+  --tone-violet: #7f7396;
+  --tone-rose: var(--psb-rust);
+  --tone-amber: var(--psb-ochre);
+  --tone-green: var(--psb-sage);
+  --radius-control: 7px;
+  --radius-panel: 10px;
+  --radius-pill: 999px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-8: 16px;
+  --space-12: 24px;
+  --text-xs: 10.5px;
+  --text-sm: 11.5px;
+  --text-base: 13px;
+  --text-xl: 18px;
+  --text-3xl: 26px;
+  --leading-body: 1.55;
+  --tracking-body: -0.005em;
+  --tracking-display: -0.02em;
+  --font-body: var(--psb-sans);
+  --font-display: var(--psb-serif);
+  --duration-instant: 120ms;
+  --duration-fast: 160ms;
+  --duration-standard: 240ms;
+  --duration-considered: 480ms;
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --control-height-sm: 26px;
+  --control-height-md: 32px;
+  --control-height-lg: 38px;
+  --control-on: var(--psb-ink);
+  --control-glyph: var(--psb-bg);
+  --control-track: var(--psb-rule);
+  --control-thumb: var(--psb-paper);
+  --shadow-resting: none;
+  --shadow-raised: 0 8px 22px rgba(36, 35, 31, 0.07);
+  --focus-outline: var(--psb-ochre);
+  --focus-outline-width: 2px;
+  --focus-outline-offset: 2px;
+}
+
+html[data-mode="dark"] .psb-page {
+  --accent-foreground: #171614;
+  --control-glyph: #171614;
+  --shadow-raised: 0 8px 22px rgba(0, 0, 0, 0.28);
+  --tone-sky: #8fa9b3;
+  --tone-orchid: #b49aaa;
+  --tone-violet: #aaa0c0;
+}
