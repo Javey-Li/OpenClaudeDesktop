@@ -214,9 +214,13 @@ html[data-mode="dark"] .psb-page { --psa-cached: #8fb0bc; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .psa-collapse, .psa-glyph *, .psa-tool-caret, .psa-tool-head { transition: none !important; }
+  .psa-collapse, .psa-glyph-core, .psa-glyph-check, .psa-glyph-bang, .psa-tool-caret, .psa-tool-head { transition: none !important; }
   .psa-tool-status[data-status="running"] i { animation: none; opacity: .8; }
 }
 html[data-reduce-motion="true"] .psa-collapse,
-html[data-reduce-motion="true"] .psa-glyph * { transition: none !important; }
+html[data-reduce-motion="true"] .psa-glyph-core,
+html[data-reduce-motion="true"] .psa-glyph-check,
+html[data-reduce-motion="true"] .psa-glyph-bang,
+html[data-reduce-motion="true"] .psa-tool-caret,
+html[data-reduce-motion="true"] .psa-tool-head { transition: none !important; }
 html[data-reduce-motion="true"] .psa-tool-status[data-status="running"] i { animation: none; opacity: .8; }

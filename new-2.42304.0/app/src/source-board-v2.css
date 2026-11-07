@@ -782,5 +782,11 @@ html[data-reduce-motion="true"] .psb-tool-dots i { animation: none; opacity: .7;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .psb-live { animation: none; }
+  .psb-tool-caret { transition: none; }
   .psb-conv-card, .psb-brief-caret { transition: none; }
 }
+html[data-reduce-motion="true"] .psb-live { animation: none; }
+html[data-reduce-motion="true"] .psb-tool-caret { transition: none; }
+html[data-reduce-motion="true"] .psb-conv-card,
+html[data-reduce-motion="true"] .psb-brief-caret { transition: none; }

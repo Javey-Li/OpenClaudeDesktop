@@ -41,7 +41,7 @@ html[data-mode="dark"] .psb-page {
 .psb-page *,
 .psb-page *::before,
 .psb-page *::after { box-sizing: border-box; }
-:where(.psb-page) button { margin: 0; border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+:where(.psb-page) button { margin: 0; border: 0; padding: 0; background: none; color: inherit; font: inherit; }
 .psb-page button:focus-visible { outline: none; box-shadow: var(--cds-focus-shadow, 0 0 0 2px var(--psb-bg), 0 0 0 4px var(--psb-ochre)); border-radius: 3px; }
 .psb-page p,
 .psb-page h1,
@@ -307,7 +307,6 @@ html[data-mode="dark"] .psb-page {
   font-family: var(--psb-sans);
   font-size: 11px;
   line-height: 1.5;
-  cursor: pointer;
 }
 .psb-capture-form input {
   flex: 1 1 auto;
@@ -722,10 +721,16 @@ html[data-mode="dark"] .psb-page {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .psb-page *,
-  .psb-page *::before,
-  .psb-page *::after { animation: none !important; transition: none !important; }
+  .psb-masthead h1,
+  .psb-report,
+  .psb-capture,
+  .psb-columns,
+  .psb-conversations,
+  .psb-skeleton span { animation: none; }
 }
-html[data-reduce-motion="true"] .psb-page *,
-html[data-reduce-motion="true"] .psb-page *::before,
-html[data-reduce-motion="true"] .psb-page *::after { animation: none !important; transition: none !important; }
+html[data-reduce-motion="true"] .psb-masthead h1,
+html[data-reduce-motion="true"] .psb-report,
+html[data-reduce-motion="true"] .psb-capture,
+html[data-reduce-motion="true"] .psb-columns,
+html[data-reduce-motion="true"] .psb-conversations,
+html[data-reduce-motion="true"] .psb-skeleton span { animation: none; }
