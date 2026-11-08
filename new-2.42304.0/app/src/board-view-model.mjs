@@ -79,9 +79,10 @@ export function isMainThread({ title = "" } = {}) {
   return MAIN_TITLE.test(text(title));
 }
 
-// Line names carry their project: a keyword in the name, else the line letter
-// (L4/W/R/T are this desktop and its superagent base, V the DAWdex video, SB the
-// Obsidian rebuild; see the line table in CODEX_MAIN_HANDOFF), else an Issue/PR repo.
+// Project attribution order: an explicit repo/Issue first, then the row's
+// project metadata, and only when metadata is unknown the line name rules
+// (L4/W this desktop, V the DAWdex video, SB the Obsidian rebuild). R-xx is a
+// Router task number, not a project prefix.
 const NAME_KEYWORDS = [
   ["fretsense", /fret\s?sense/i],
   ["delicacy", /delicacy/i],
@@ -111,20 +112,18 @@ const REPO_PROJECT = [
 export function classifyLine({ projectId = "", title = "", preview = "", repo = "" } = {}) {
   if (isMainThread({ title })) return byId("personal-super-agent");
   const name = text(title);
-  // An explicit line prefix is the strongest signal: a DAWdex video line can
-  // mention FretSense in its body and still belong to DAWdex.
+  const repoHit = REPO_PROJECT.find(([, pattern]) => pattern.test(`${text(repo)} ${name} ${text(preview)}`));
+  if (repoHit) return byId(repoHit[0]);
+  if (projectId && projectId !== "other") return null;
+  // Line names are the last resort. A stored title can be a whole first prompt,
+  // so match keywords on the opening line name, not on body mentions.
   const atStart = LINE_AT_START.exec(name)?.[0];
   const embedded = atStart ? null : LINE_IN_NAME.exec(name.slice(0, 48))?.[1];
   const token = atStart ?? embedded;
   const lineProject = token ? LINE_PROJECT.find(([, pattern]) => pattern.test(token)) : null;
   if (lineProject) return byId(lineProject[0]);
-  const repoHit = REPO_PROJECT.find(([, pattern]) => pattern.test(`${text(repo)} ${name} ${text(preview)}`));
-  if (repoHit) return byId(repoHit[0]);
-  // A stored title can be a whole first prompt. Match project keywords on the
-  // opening line name, not on body mentions of other projects.
   const keyword = NAME_KEYWORDS.find(([, pattern]) => pattern.test(shortLineTitle(name)));
   if (keyword) return byId(keyword[0]);
-  if (projectId && projectId !== "other") return null;
   return byId("other");
 }
 
@@ -277,6 +276,27 @@ function settleColumns(columnRows, settled) {
   }
 }
 
+const COLUMN_RANK = Object.freeze({ decide: 0, stuck: 1, done: 2 });
+function dedupeColumnsByThread(columnRows) {
+  const best = new Map();
+  for (const bucket of ["decide", "done", "stuck"]) {
+    for (const row of columnRows[bucket]) {
+      const key = threadKey(row, row.source);
+      const existing = best.get(key);
+      if (!existing) { best.set(key, { bucket, row }); continue; }
+      const at = time(row.at);
+      const existingAt = time(existing.row.at);
+      const wins = at !== existingAt ? at > existingAt
+        : (COLUMN_RANK[bucket] ?? 9) < (COLUMN_RANK[existing.bucket] ?? 9);
+      if (wins) best.set(key, { bucket, row });
+    }
+  }
+  const next = { decide: [], done: [], stuck: [] };
+  for (const { bucket, row } of best.values()) next[bucket].push(row);
+  for (const bucket of Object.keys(next)) next[bucket].sort((a, b) => time(b.at) - time(a.at));
+  return next;
+}
+
 export function buildRuleReport(snapshot) {
   const decide = snapshot.columns?.decide ?? [];
   const done = snapshot.columns?.done ?? [];
@@ -324,6 +344,7 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
   }
   const settled = collectSettled(sources);
   settleColumns(columnRows, settled);
+  Object.assign(columnRows, dedupeColumnsByThread(columnRows));
   const seen = new Set();
   const allConversations = conversationRows.filter((row) => {
     if (seen.has(row.id)) return false;

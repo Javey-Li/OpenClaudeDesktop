@@ -183,22 +183,50 @@ test("the executive Codex conversation is named by its role", () => {
   assert.equal(row.summary, "正在收口。");
 });
 
-test("line names and Issue repos beat a stale workspace project", () => {
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L4j 总看板三级页面" }).id, "personal-super-agent");
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L8c 接 L8b 收口" }).id, "fretsense");
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L15e 0/120 docs 口径" }).id, "fretsense");
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "V4i 钢琴卷帘回最早版" }).id, "dawdex");
-  assert.equal(classifyLine({ projectId: "fretsense", title: "SB3 Obsidian P1" }).id, "personal-super-agent");
-  assert.equal(classifyLine({ projectId: "fretsense", title: "PSA 测试 fixture 修复" }).id, "personal-super-agent");
-  assert.equal(classifyLine({ projectId: "fretsense", title: "你在 T3 写线执行 L4f 的实现" }).id, "personal-super-agent");
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "T3 写线执行 V4h 的实现" }).id, "dawdex");
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "R-46 总看板三级页面" }).id, "personal-super-agent");
-  assert.equal(classifyLine({ projectId: "fretsense", title: "R-46 三级页面" }), null);
+test("repo/Issue attribution comes first, then project metadata, then line names", () => {
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "收口 PR 114",
     preview: "对应 Javey-Li/FretSense Issue #5" }).id, "fretsense");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L8c 接 L8b 收口" }), null);
+  assert.equal(classifyLine({ projectId: "fretsense", title: "V4i 钢琴卷帘回最早版" }), null);
+  assert.equal(classifyLine({ projectId: "fretsense", title: "SB3 Obsidian P1" }), null);
+  assert.equal(classifyLine({ projectId: "other", title: "L4j 总看板三级页面" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "other", title: "L8c 接 L8b 收口" }).id, "fretsense");
+  assert.equal(classifyLine({ projectId: "other", title: "L15e 0/120 docs 口径" }).id, "fretsense");
+  assert.equal(classifyLine({ projectId: "other", title: "V4i 钢琴卷帘回最早版" }).id, "dawdex");
+  assert.equal(classifyLine({ projectId: "other", title: "SB3 Obsidian P1" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "R-46 总看板三级页面" }), null);
+  assert.equal(classifyLine({ projectId: "fretsense", title: "R-46 三级页面" }), null);
   assert.equal(classifyLine({ projectId: "fretsense", title: "普通维护" }), null);
   assert.equal(classifyLine({ projectId: "other", title: "说明",
     preview: "Projects · failed" }).id, "other");
+});
+
+test("project metadata wins over a line name, and the R task number is not a project", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true, total: 4,
+        conversations: [
+          { id: "codex:l8", threadId: "l8", projectId: "personal-super-agent", project: "personal-super-agent",
+            title: "L8c 接 L8b 收口", source: "codex", status: "running", updatedAt: now, preview: "…" },
+          { id: "codex:sb", threadId: "sb", projectId: "obsidian", project: "Obsidian",
+            title: "SB3 Obsidian P1", source: "codex", status: "running", updatedAt: now, preview: "…" },
+          { id: "codex:r60", threadId: "r60", projectId: "fretsense", project: "FretSense",
+            title: "R60 Me加载态与Scale重叠小修", source: "codex", status: "running", updatedAt: now, preview: "…" },
+          { id: "codex:psa", threadId: "psa", projectId: "fretsense", project: "FretSense",
+            title: "PSA 测试 fixture 修复", source: "codex", status: "done", updatedAt: now,
+            preview: "[PR #43](https://github.com/Javey-Li/personal-super-agent/pull/43) 已开。" },
+        ],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  const rows = new Map(snapshot.projects.flatMap((project) => project.conversations).map((row) => [row.title, row]));
+  assert.equal(rows.get("L8c 接 L8b 收口").projectId, "personal-super-agent");
+  assert.equal(rows.get("SB3 Obsidian P1").projectId, "obsidian");
+  assert.equal(rows.get("R60 Me加载态与Scale重叠小修").projectId, "fretsense");
+  assert.equal(rows.get("PSA 测试 fixture 修复").projectId, "personal-super-agent");
 });
 
 test("an R task number follows the real project instead of forcing personal-super-agent", () => {
@@ -217,9 +245,11 @@ test("an R task number follows the real project instead of forcing personal-supe
   const row = snapshot.projects.flatMap((project) => project.conversations)[0];
   assert.equal(row.projectId, "fretsense");
   assert.equal(row.project, "FretSense");
-  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "R59 总看板归类与历史去重小修" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "R59 总看板归类与历史去重小修" }), null);
+  assert.equal(classifyLine({ projectId: "other", title: "R59 总看板归类与历史去重小修" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "other",
     title: "R59 原独立复审发现两项代码问题；FretSense 已过去同一 thread 重复" }).id, "other");
+  assert.equal(classifyLine({ projectId: "other", title: "R62 归档重复与测试线" }).id, "other");
 });
 
 test("T3 Projects rows group by line name, and unknown titles fall back to 其他", () => {
@@ -278,7 +308,7 @@ test("a line token inside a prompt names the line and its project", () => {
       codex: {
         ok: true,
         conversations: [{
-          id: "codex:embedded", projectId: "fretsense", project: "FretSense",
+          id: "codex:embedded", projectId: "other", project: "Projects",
           title: "你在 T3 写线执行 L4f 的实现，先读现有工作树。", status: "running", updatedAt: now,
           preview: "## 进度\n**已确认**：先补归类。\n- 下一项",
         }],

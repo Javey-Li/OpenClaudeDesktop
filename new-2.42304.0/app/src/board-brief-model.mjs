@@ -5,6 +5,8 @@
 // thread exposes. This module groups those by project and answers four questions
 // without inventing a report: done, open, stuck, and what needs a decision.
 
+import { threadKey } from "./board-agent-model.mjs";
+
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const time = (value) => {
   const at = Date.parse(value ?? "");
@@ -21,6 +23,7 @@ function conversationItem(row) {
     who: row.source,
     at: row.updatedAt,
     status: row.status,
+    threadId: row.threadId,
     ...(row.stale ? { pastKind: "expired", pastLabel: "已过去", pastReason: row.stale.reason } : {}),
   };
 }
@@ -35,14 +38,15 @@ function columnItem(row) {
     who: text(row.who) || row.source,
     at: row.at,
     status: row.status,
+    threadId: row.threadId,
   };
 }
 
-function uniqueByTitle(rows) {
+function uniqueByThread(rows) {
   const seen = new Set();
   return rows
     .filter((row) => {
-      const key = `${row.source}:${row.title}`.replace(/\s+/g, " ").toLowerCase();
+      const key = threadKey(row, row.source);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -82,17 +86,17 @@ export function buildProjectBriefs({ projects = [], columns = {}, now = new Date
   const briefs = [...byId.values()].map((entry) => {
     const conversations = entry.conversations;
     const live = conversations.filter((row) => !row.stale);
-    const done = uniqueByTitle([
+    const done = uniqueByThread([
       ...live.filter((row) => row.status === "done").map(conversationItem),
       ...entry.columns.done.map(columnItem),
     ]);
-    const open = uniqueByTitle(live.filter((row) => row.status === "running" || row.status === "waiting").map(conversationItem));
-    const stuck = uniqueByTitle([
+    const open = uniqueByThread(live.filter((row) => row.status === "running" || row.status === "waiting").map(conversationItem));
+    const stuck = uniqueByThread([
       ...live.filter((row) => row.status === "stuck" || row.status === "suspected").map(conversationItem),
       ...entry.columns.stuck.map(columnItem),
     ]);
-    const decide = uniqueByTitle(entry.columns.decide.map(columnItem));
-    const past = uniqueByTitle([
+    const decide = uniqueByThread(entry.columns.decide.map(columnItem));
+    const past = uniqueByThread([
       ...entry.columns.stuckPast.map(columnItem),
       ...conversations.filter((row) => row.stale).map(conversationItem),
     ]);

@@ -151,8 +151,8 @@ export function buildLevelReport(projects = []) {
   const running = pick(["running"]);
   const done = pick(["done"]);
   const headline = decide.length ? `先看 ${decide.length} 件要你定的`
-    : stuck.length ? `有 ${stuck.length} 条线卡住了`
-      : running.length ? `${running.length} 条线在跑，没有要你定的`
+    : stuck.length ? `有 ${stuck.length} 条会话卡住了`
+      : running.length ? `${running.length} 条会话在跑，没有要你定的`
         : done.length ? "都收口了，没有要你定的" : "今天还没有动静";
   return {
     headline,

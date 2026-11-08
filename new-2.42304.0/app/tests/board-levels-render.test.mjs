@@ -1,5 +1,6 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 
 const app = path.resolve(import.meta.dirname, "..");
@@ -56,4 +57,11 @@ test("context map and fallback chain render real counts, not placeholders", () =
       to: "2026-11-07T01:00:00.000Z", ended: "open", current: true }] },
   }));
   assert.doesNotMatch(t3, /null 轮/);
+});
+
+test("the visible count copy says 会话数, not work items", () => {
+  const page = fs.readFileSync(path.join(app, "src/source-board-page.jsx"), "utf8");
+  assert.match(page, /会话数/);
+  assert.match(page, /统计口径：会话数/);
+  assert.doesNotMatch(page, /工作项数/);
 });

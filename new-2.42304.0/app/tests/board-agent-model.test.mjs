@@ -147,6 +147,64 @@ test("one stale thread in stuckPast and older appears once, and its project coun
   assert.equal(fretsense.counts.past, 1);
 });
 
+test("a thread cannot sit in a live bucket and past at once; the latest state picks one", () => {
+  const columns = {
+    decide: [], done: [], stuck: [],
+    stuckPast: [{ id: "codex-stuck:handoff", threadId: "handoff", projectId: "fretsense", project: "FretSense",
+      title: "同一条线", source: "codex", at: ago(96), pastReason: "4 天没有新事件" }],
+  };
+  const projects = [{ id: "fretsense", name: "FretSense", conversations: [{ id: "codex:handoff", threadId: "handoff",
+    projectId: "fretsense", project: "FretSense", title: "同一条线", source: "codex", status: "running", updatedAt: ago(0.2), preview: "…" }] }];
+  const inbox = buildAgentInbox({ columns, projects, now });
+  assert.equal(inbox.past.length, 0);
+  assert.equal(inbox.items.length, 1);
+  assert.equal(inbox.items[0].state, "running");
+});
+
+test("a newer past row removes the older live row for the same thread", () => {
+  const columns = {
+    decide: [], done: [], stuck: [],
+    stuckPast: [{ id: "codex-stuck:handoff", threadId: "handoff", projectId: "fretsense", project: "FretSense",
+      title: "同一条线", source: "codex", at: now, pastReason: "来源已恢复" }],
+  };
+  const projects = [{ id: "fretsense", name: "FretSense", conversations: [{ id: "codex:handoff", threadId: "handoff",
+    projectId: "fretsense", project: "FretSense", title: "同一条线", source: "codex", status: "running", updatedAt: ago(1), preview: "…" }] }];
+  const inbox = buildAgentInbox({ columns, projects, now });
+  assert.equal(inbox.items.length, 0);
+  assert.equal(inbox.past.length, 1);
+  assert.equal(inbox.past[0].pastReason, "来源已恢复");
+});
+
+test("a newer live row wins over an older stuck column for the same thread", () => {
+  const columns = {
+    decide: [], done: [],
+    stuck: [{ id: "codex-stuck:handoff", threadId: "handoff", projectId: "fretsense", project: "FretSense",
+      title: "同一条线", source: "codex", at: ago(2), detail: "Codex 回合中断" }],
+  };
+  const projects = [{ id: "fretsense", name: "FretSense", conversations: [{ id: "codex:handoff", threadId: "handoff",
+    projectId: "fretsense", project: "FretSense", title: "同一条线", source: "codex", status: "running", updatedAt: now, preview: "…" }] }];
+  const inbox = buildAgentInbox({ columns, projects, now });
+  assert.equal(inbox.items.length, 1);
+  assert.equal(inbox.items[0].state, "running");
+});
+
+test("a Codex control line and a T3 worker with the same title stay separate", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: { ok: true, total: 1, conversations: [{ id: "codex:control", threadId: "control", projectId: "fretsense",
+        project: "FretSense", title: "R60 同一件事", source: "codex", status: "running", updatedAt: now, preview: "…" }],
+        columns: empty },
+      t3: { ok: true, total: 1, conversations: [{ id: "t3:worker", threadId: "worker", projectId: "fretsense",
+        project: "FretSense", title: "R60 同一件事", source: "t3", status: "running", updatedAt: now, preview: "…" }],
+        columns: empty },
+    },
+  });
+  const inbox = buildAgentInbox({ columns: snapshot.columns, projects: snapshot.projects, older: snapshot.older.projects, now });
+  assert.equal(inbox.items.length, 2);
+  assert.deepEqual(inbox.items.map((item) => item.source).sort(), ["codex", "t3"]);
+});
+
 test("context meter tone follows the fill level", () => {
   assert.equal(contextTone(12), "ok");
   assert.equal(contextTone(70), "warning");

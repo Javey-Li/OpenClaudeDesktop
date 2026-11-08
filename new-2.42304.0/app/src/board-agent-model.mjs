@@ -118,7 +118,10 @@ export function buildAgentInbox({ columns = {}, projects = [], older = [], now =
   const add = (item) => {
     const existing = byKey.get(item.key);
     if (!existing) { byKey.set(item.key, item); return; }
-    const winner = RANK[item.state] < RANK[existing.state] ? item : existing;
+    const at = time(item.at);
+    const existingAt = time(existing.at);
+    const winner = at !== existingAt ? (at > existingAt ? item : existing)
+      : RANK[item.state] < RANK[existing.state] ? item : existing;
     byKey.set(item.key, merge(winner, winner === item ? existing : item));
   };
 
@@ -151,6 +154,28 @@ export function buildAgentInbox({ columns = {}, projects = [], older = [], now =
     });
   };
   for (const item of past) addPast(item);
+  // A thread may arrive from both a live column and a historical bucket. Keep
+  // one row per source + thread id and let the latest state choose the bucket;
+  // equal timestamps prefer the historical row so it cannot re-enter live.
+  for (const [key, pastItem] of [...pastByKey]) {
+    const liveItem = byKey.get(key);
+    if (!liveItem) continue;
+    const pastAt = time(pastItem.at);
+    const liveAt = time(liveItem.at);
+    if (pastAt >= liveAt) {
+      byKey.delete(key);
+      pastByKey.set(key, {
+        ...merge(pastItem, liveItem),
+        pastReason: pastItem.pastReason || liveItem.pastReason,
+        pastKind: pastItem.pastKind ?? liveItem.pastKind,
+        pastLabel: pastItem.pastLabel ?? liveItem.pastLabel,
+        at: pastAt >= liveAt ? pastItem.at : liveItem.at,
+      });
+    } else {
+      pastByKey.delete(key);
+      byKey.set(key, merge(liveItem, pastItem));
+    }
+  }
 
   const ordered = [...byKey.values()].map((item) => ({ ...item, step: stepFor(item) }))
     .sort((a, b) => RANK[a.state] - RANK[b.state] || time(b.at) - time(a.at));

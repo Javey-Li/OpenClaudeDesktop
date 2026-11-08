@@ -150,7 +150,7 @@ function ProjectCard({ project, now, onOpen }) {
     <span className="psl-card-last">{project.last?.text || "还没有动静。"}</span>
     <span className="psl-card-meta">
       {project.last && <span>{project.last.line}</span>}
-      <span>{counts.lines} 条线</span>
+      <span>会话数 {counts.lines}</span>
       {project.last && <span>{relativeLabel(project.last.at, now)}</span>}
     </span>
   </button>;
@@ -231,7 +231,7 @@ function ProjectLevel({ project, now, onGo }) {
       <div className="psl-head-main">
         <div>
           <h1>{project.name}</h1>
-          <p className="psl-head-sub">{[project.note, project.repo].filter(Boolean).join(" · ") || "没有登记仓库"}</p>
+          <p className="psl-head-sub">{[project.note, project.repo].filter(Boolean).join(" · ") || "没有登记仓库"} · 统计口径：会话数</p>
         </div>
         <span className="psl-stats psl-stats-head">
           <Stat value={counts.running} label="在跑" tone="running" />
@@ -244,7 +244,7 @@ function ProjectLevel({ project, now, onGo }) {
     <section className="psl-section" aria-labelledby="psl-lines-title">
       <header className="psl-section-head">
         <h2 id="psl-lines-title">每条线</h2>
-        <span>{lines.length} / {counts.lines} 条 · 最近 3 天</span>
+        <span>会话数 {lines.length} / {counts.lines} · 最近 3 天</span>
         <SegmentedControl label="按状态筛选" value={filter} onValueChange={setFilter}
           options={LINE_FILTERS.map((entry) => ({ value: entry.id, label: entry.label }))} />
       </header>
