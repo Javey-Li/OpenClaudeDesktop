@@ -1,18 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "./icons";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Link, MessageCircle } from "lucide-react";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
+import { Button } from "./arc/button/button";
+import SegmentedControl from "./arc/segmented-control/segmented-control";
+import { CAPTURE_PROJECTS, relativeLabel } from "./board-view-model.mjs";
+import { LINE_FILTERS, buildBoardLevels, filterLines, findLine } from "./board-levels-model.mjs";
+import { shortModel } from "./board-telemetry-model.mjs";
+import { plainText } from "./board-text-model.mjs";
 import {
-  BOARD_COLUMNS,
-  CAPTURE_PROJECTS,
-  boardTotals,
-  conversationSources,
-  groupConversations,
-  relativeLabel,
-} from "./board-view-model.mjs";
+  ContextMap, ContextWindow, FallbackChain, LineMonitor, SOURCE_LABELS, StateChip, StateGlyph, ToolCallGroup,
+} from "./agent-state-components.jsx";
 import "./source-board-page.css";
+import "./arc-tokens.css";
+import "./source-board-v2.css";
+import "./board-levels.css";
 
-const SOURCE_LABELS = { superagent: "Superagent", t3: "T3", codex: "Codex" };
-const STATUS_LABELS = { running: "在跑", waiting: "等你", done: "完成", stuck: "卡住", suspected: "可能卡住" };
 const CAPTURE_MODES = [
   { id: "note", label: "一句话" },
   { id: "link", label: "一个链接" },
@@ -32,45 +34,7 @@ function timeLabel(iso) {
   return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function SourceMark({ source }) {
-  return <span className="psb-source-mark" data-source={source}>{SOURCE_LABELS[source] ?? source}</span>;
-}
-
-function ReportBlock({ report }) {
-  if (!report) {
-    return <section className="psb-report psb-report-empty" aria-label="今日汇报">
-      <div className="psb-report-aside">
-        <span className="psb-eyebrow">今日简报</span>
-        <strong>还没生成</strong>
-        <p>简报由当前数据即时拼出。</p>
-      </div>
-      <div className="psb-report-body">
-        <p className="psb-report-lede">现在还没有能拼成简报的数据。来源照常读，连上的部分仍然可以先看。</p>
-        <p className="psb-report-quiet">这里不补假数据，也不把没连上的来源算进结论。</p>
-      </div>
-    </section>;
-  }
-  return <section className="psb-report" aria-labelledby="psb-report-title">
-    <div className="psb-report-aside">
-      <span className="psb-eyebrow">今日简报</span>
-      <strong id="psb-report-title">{report.title}</strong>
-      <p>{report.cadence}</p>
-      <span className="psb-report-stamp">{timeLabel(report.generatedAt)} 更新</span>
-    </div>
-    <div className="psb-report-body">
-      <span className="psb-report-lede-label">做完了什么</span>
-      <p className="psb-report-lede">{report.lines?.[0]?.text}</p>
-      <div className="psb-report-lines">
-        {(report.lines ?? []).slice(1).map((line) => <div className="psb-report-line" key={line.key}>
-          <span>{line.label}</span>
-          <p>{line.text}</p>
-        </div>)}
-      </div>
-    </div>
-  </section>;
-}
-
-function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
+function CaptureBar({ config, onCapture, onOpenLink }) {
   const [mode, setMode] = useState("note");
   const [projectId, setProjectId] = useState("");
   const [value, setValue] = useState("");
@@ -86,8 +50,7 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
     try {
       const result = await onCapture?.({ mode, projectId, text: value });
       if (!result?.ok) throw new Error(result?.error || "Issue 没写成。");
-      setNotice({ ok: true, text: `已开 Issue · ${result.repo}`, href: result.url, repo: result.repo });
-      onCaptured?.(result);
+      setNotice({ ok: true, text: `已开 Issue · ${result.repo}`, href: result.url });
       setValue("");
       inputRef.current?.focus();
     } catch (error) {
@@ -96,20 +59,16 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
       setBusy(false);
     }
   };
-  return <section className="psb-capture" aria-label="往看板丢一件事">
+  return <section className="psb-capture psl-capture" aria-label="往看板丢一件事">
     <div className="psb-capture-head">
-      <div>
-        <span className="psb-eyebrow">丢东西进来</span>
-        <p>{config?.hint || "一句话和链接都会写成所选项目的 GitHub Issue。"}</p>
-      </div>
-      <div className="psb-capture-modes" role="tablist" aria-label="丢进来的类型">
-        {CAPTURE_MODES.map((entry) => <button key={entry.id} type="button" role="tab" aria-selected={mode === entry.id}
-          className="psb-capture-mode" data-active={mode === entry.id || undefined}
-          onClick={() => { setMode(entry.id); setNotice(null); inputRef.current?.focus(); }}>{entry.label}</button>)}
+      <span className="psb-eyebrow">丢东西进来</span>
+      <div className="psb-capture-modes">
+        <SegmentedControl label="丢进来的类型" value={mode} options={CAPTURE_MODES.map((entry) => ({ value: entry.id, label: entry.label }))}
+          onValueChange={(next) => { setMode(next); setNotice(null); inputRef.current?.focus(); }} />
       </div>
     </div>
     <form className="psb-capture-form" onSubmit={submit}>
-      <Icon name={mode === "link" ? "Link" : "Chat"} size={18} className="psb-capture-icon" />
+      {mode === "link" ? <Link size={18} className="psb-capture-icon" /> : <MessageCircle size={18} className="psb-capture-icon" />}
       <select className="psb-capture-project" value={projectId} aria-label="选项目"
         onChange={(event) => { setProjectId(event.target.value); setNotice(null); }}>
         <option value="">先选项目</option>
@@ -119,12 +78,12 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
       </select>
       <input ref={inputRef} value={value} onChange={(event) => { setValue(event.target.value); setNotice(null); }}
         aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴一个链接…" : "比如：S05 第四小节先保留，别折回两拍"} />
-      <SourceSettingsButton variant="primary" size="sm" type="submit" busy={busy} disabled={!value.trim() || !projectId}>写 Issue</SourceSettingsButton>
+      <Button variant={value.trim() && projectId ? "primary" : "secondary"} size="sm" type="submit" loading={busy} disabled={!value.trim() || !projectId}>写 Issue</Button>
     </form>
     <div className="psb-capture-foot" aria-live="polite">
       <span>{config?.hint}</span>
       {notice && <span className="psb-capture-notice" data-ok={notice.ok || undefined}>
-        {notice.ok ? <Icon name="Check" size={14} /> : <Icon name="WarningCircle" size={14} />}
+        {notice.ok ? <Check size={14} /> : <CircleAlert size={14} />}
         {notice.text}
         {notice.href && <button type="button" className="psb-issue-link" onClick={() => onOpenLink?.(notice.href)}>打开 Issue</button>}
       </span>}
@@ -132,125 +91,250 @@ function CaptureBar({ config, onCapture, onOpenLink, onCaptured }) {
   </section>;
 }
 
-function BoardItem({ row, now, selected, onSelect }) {
-  return <button type="button" className="psb-column-row" data-selected={selected || undefined} aria-expanded={selected}
-    onClick={() => onSelect(row.id)}>
-    <span className="psb-row-meta">
-      <span>{row.project}</span>
-      <span>{row.kind}</span>
-      <span>{relativeLabel(row.at, now)}</span>
-    </span>
-    <span className="psb-row-title">{row.title}</span>
-    <span className="psb-row-detail">{row.detail}</span>
-    <span className="psb-row-foot">
-      <SourceMark source={row.source} />
-      <span>{row.who}</span>
-      <span className="psb-row-word">{selected ? "收起" : "展开"}</span>
-    </span>
-  </button>;
-}
+/* ---------- shared chrome ---------- */
 
-function BoardColumns({ columns, now, selected, onSelect }) {
-  return <section className="psb-columns" aria-label="总管的三个栏">
-    {BOARD_COLUMNS.map((column) => {
-      const rows = columns[column.key] ?? [];
-      return <section className="psb-column" key={column.key} data-column={column.key}>
-        <header className="psb-column-head">
-          <span className="psb-eyebrow">{column.eyebrow}</span>
-          <h2>{column.title}</h2>
-          <span className="psb-column-count">{rows.length}</span>
-        </header>
-        <div className="psb-column-scroll">
-          {rows.length === 0 ? <p className="psb-column-empty">{column.empty}</p> : rows.map((row) => <BoardItem key={row.id} row={row}
-            now={now} selected={selected === row.id} onSelect={(id) => onSelect(selected === id ? null : id)} />)}
-        </div>
-      </section>;
+function Crumbs({ trail, onGo }) {
+  return <nav className="psl-crumbs" aria-label="看板层级">
+    {trail.map((entry, index) => {
+      const last = index === trail.length - 1;
+      return <React.Fragment key={entry.id}>
+        {index > 0 && <ChevronRight size={10} className="psl-crumb-sep" />}
+        {last ? <span aria-current="page">{entry.label}</span>
+          : <button type="button" onClick={() => onGo(entry.view)}>{entry.label}</button>}
+      </React.Fragment>;
     })}
+  </nav>;
+}
+
+function Stat({ value, label, tone }) {
+  return <span className="psl-stat" data-tone={value ? tone : undefined} data-zero={value ? undefined : true}>
+    <b>{value}</b><em>{label}</em>
+  </span>;
+}
+
+/* ---------- level 1: 今天的局面 ---------- */
+
+function Report({ report, sources }) {
+  const down = sources.filter((source) => source.status !== "connected");
+  return <section className="psl-report" aria-label="今天的汇报">
+    <div className="psl-report-head">
+      <span className="psb-eyebrow">汇报</span>
+      <h2>{report.headline}</h2>
+    </div>
+    <dl className="psl-report-lines">
+      {report.lines.map((line) => <div key={line.key} data-key={line.key}>
+        <dt>{line.label}</dt><dd>{line.text}</dd>
+      </div>)}
+    </dl>
+    <p className="psl-report-sources" data-down={down.length || undefined}>
+      {down.length ? `${down.map((source) => source.label).join("、")} 没连上，其余按连上的算。` : `${sources.length} 个来源都连上了：${sources.map((source) => source.label).join(" · ")}`}
+    </p>
   </section>;
 }
 
-function ConversationRow({ row, now, selected, onSelect }) {
-  return <button type="button" className="psb-conv-row" data-selected={selected || undefined} aria-expanded={selected}
-    onClick={() => onSelect(row.id)}>
-    <span className="psb-conv-top">
-      <span className="psb-status-dot" data-status={row.status} aria-hidden="true" />
-      <span className="psb-conv-title">{row.title}</span>
-      {row.unread && <span className="psb-unread" aria-label="未读" />}
-      <span className="psb-conv-time">{relativeLabel(row.updatedAt, now)}</span>
+function ProjectCard({ project, now, onOpen }) {
+  const { counts } = project;
+  return <button type="button" className="psl-card psl-project-card" data-status={project.status} onClick={onOpen}
+    aria-label={`${project.name}：在跑 ${counts.running}，要你定 ${counts.decide}，卡住 ${counts.stuck}`}>
+    <span className="psl-card-top">
+      <StateGlyph state={project.status} />
+      <span className="psl-card-name">{project.name}</span>
+      {project.note && <span className="psl-card-note">{project.note}</span>}
+      <ArrowRight size={13} className="psl-card-go" />
     </span>
-    <span className="psb-conv-meta">
-      <SourceMark source={row.source} />
-      <span>{STATUS_LABELS[row.status]}</span>
-      <span>{row.preview}</span>
+    <span className="psl-stats">
+      <Stat value={counts.running} label="在跑" tone="running" />
+      <Stat value={counts.decide} label="要你定" tone="decide" />
+      <Stat value={counts.stuck} label="卡住" tone="stuck" />
     </span>
-    {selected && <span className="psb-conv-preview">{row.preview} <em>打开对话仍由真实会话接管。</em></span>}
+    <span className="psl-card-last">{project.last?.text || "还没有动静。"}</span>
+    <span className="psl-card-meta">
+      {project.last && <span>{project.last.line}</span>}
+      <span>会话数 {counts.lines}</span>
+      {project.last && <span>{relativeLabel(project.last.at, now)}</span>}
+    </span>
   </button>;
 }
 
-function ProjectGroups({ groups, now, selected, onSelect }) {
-  return groups.map((group) => <section className="psb-project" key={group.id}>
-    <header className="psb-project-head">
-      <div>
-        <h3>{group.name}</h3>
-        <span>{group.repo}</span>
+function TodayLevel({ snapshot, levels, capture, onOpenLink, onGo, refresh, refreshing }) {
+  return <>
+    <header className="psb-masthead psl-masthead">
+      <div className="psb-masthead-top">
+        <span className="psb-kicker">总管 <i /> Personal super agent</span>
+        <span className="psb-mode-pill">只读</span>
       </div>
-      <span>{group.note}</span>
-      <span className="psb-project-count">{group.conversations.length}</span>
+      <div className="psb-masthead-main">
+        <div>
+          <h1>今天的局面</h1>
+          <p className="psb-date">{dateLabel(snapshot.generatedAt)} · {timeLabel(snapshot.generatedAt)} 更新</p>
+        </div>
+        <div className="psb-masthead-actions">
+          <SourceSettingsButton variant="ghost" icon="ArrowClockwise" size="sm" busy={refreshing} onClick={refresh}>刷新</SourceSettingsButton>
+        </div>
+      </div>
     </header>
-    <div className="psb-project-grid">
-      {group.conversations.map((row) => <ConversationRow key={row.id} row={row} now={now} selected={selected === row.id}
-        onSelect={(id) => onSelect(selected === id ? null : id)} />)}
+    <div className="psl-today-top">
+      <Report report={levels.report} sources={snapshot.sources ?? []} />
+      <CaptureBar config={snapshot.capture} onCapture={capture} onOpenLink={onOpenLink} />
     </div>
-  </section>);
+    <section className="psl-section" aria-labelledby="psl-projects-title">
+      <header className="psl-section-head">
+        <h2 id="psl-projects-title">项目</h2>
+        <span>{levels.projects.length} 个 · 点开看每条线</span>
+      </header>
+      {levels.projects.length === 0 ? <p className="psl-empty">最近 3 天没有任何线。</p>
+        : <div className="psl-grid psl-grid-projects">
+          {levels.projects.map((project) => <ProjectCard key={project.id} project={project} now={levels.now}
+            onOpen={() => onGo({ level: "project", projectId: project.id })} />)}
+        </div>}
+    </section>
+  </>;
 }
 
-function ConversationList({ projects, older, now }) {
-  const [source, setSource] = useState("all");
-  const [selected, setSelected] = useState(null);
-  const [showOlder, setShowOlder] = useState(false);
-  const sources = useMemo(() => conversationSources(projects), [projects]);
-  const filter = (project) => ({
-    ...project,
-    conversations: source === "all" ? project.conversations : project.conversations.filter((row) => row.source === source),
-  });
-  const groups = useMemo(() => groupConversations(projects.map((project) => ({
-    ...filter(project),
-  }))), [projects, source]);
-  const olderGroups = useMemo(() => groupConversations((older?.projects ?? []).map(filter)), [older, source]);
-  const total = groups.reduce((count, group) => count + group.conversations.length, 0);
-  const olderTotal = olderGroups.reduce((count, group) => count + group.conversations.length, 0);
-  return <section className="psb-conversations" aria-labelledby="psb-conversations-title">
-    <header className="psb-section-head">
-      <div>
-        <span className="psb-eyebrow">按项目 · 最近 3 天</span>
-        <h2 id="psb-conversations-title">最近对话</h2>
-      </div>
-      <span className="psb-section-count">{total} 条</span>
-      <div className="psb-source-filter" role="group" aria-label="按来源筛选">
-        <button type="button" data-active={source === "all" || undefined} onClick={() => setSource("all")}>全部</button>
-        {sources.filter((entry) => entry.count > 0).map((entry) => <button type="button" key={entry.id} data-active={source === entry.id || undefined}
-          onClick={() => setSource(entry.id)}>{entry.label}<span>{entry.count}</span></button>)}
+/* ---------- level 2: 项目页 ---------- */
+
+function LineProgress({ progress }) {
+  if (!progress || progress.kind === "state") return null;
+  return <span className="psl-progress" data-kind={progress.kind}>
+    {progress.ratio != null && <span className="psl-progress-bar" aria-hidden="true"><i style={{ width: `${Math.round(progress.ratio * 100)}%` }} /></span>}
+    <em>{progress.label}</em>
+  </span>;
+}
+
+function LineCard({ line, now, onOpen }) {
+  const model = line.models?.segments?.find((segment) => segment.current)?.model;
+  return <button type="button" className="psl-card psl-line-card" data-state={line.state} data-past={line.past || undefined} onClick={onOpen}>
+    <span className="psl-card-top">
+      <StateGlyph state={line.state} />
+      <span className="psl-card-name">{line.name}</span>
+      <StateChip state={line.state} />
+    </span>
+    <LineProgress progress={line.progress} />
+    <span className="psl-card-last">{line.summary}</span>
+    <span className="psl-card-meta">
+      <span>{SOURCE_LABELS[line.source] ?? line.source}</span>
+      {model && <span>{shortModel(model)}</span>}
+      <span>{line.pastReason || relativeLabel(line.at, now)}</span>
+      {line.context && <span className="psl-card-ctx"><ContextWindow context={line.context} /></span>}
+    </span>
+  </button>;
+}
+
+function ProjectLevel({ project, now, onGo }) {
+  const [filter, setFilter] = useState("all");
+  const [pastOpen, setPastOpen] = useState(false);
+  const lines = useMemo(() => filterLines(project.lines, filter), [project.lines, filter]);
+  const { counts } = project;
+  return <>
+    <header className="psl-head">
+      <Crumbs trail={[{ id: "today", label: "今天的局面", view: { level: "today" } }, { id: project.id, label: project.name }]} onGo={onGo} />
+      <div className="psl-head-main">
+        <div>
+          <h1>{project.name}</h1>
+          <p className="psl-head-sub">{[project.note, project.repo].filter(Boolean).join(" · ") || "没有登记仓库"} · 统计口径：会话数</p>
+        </div>
+        <span className="psl-stats psl-stats-head">
+          <Stat value={counts.running} label="在跑" tone="running" />
+          <Stat value={counts.decide} label="要你定" tone="decide" />
+          <Stat value={counts.stuck} label="卡住" tone="stuck" />
+          <Stat value={counts.done} label="收口" tone="done" />
+        </span>
       </div>
     </header>
-    {groups.length === 0 ? <div className="psb-conversation-empty">
-      <p>这个来源最近 3 天没有对话。</p>
-      <button type="button" onClick={() => setSource("all")}>看全部</button>
-    </div> : <ProjectGroups groups={groups} now={now} selected={selected} onSelect={setSelected} />}
-    {olderTotal > 0 && <section className="psb-older" data-open={showOlder || undefined}>
-      <button type="button" className="psb-older-toggle" aria-expanded={showOlder} onClick={() => setShowOlder(!showOlder)}>
-        <span>旧对话与已归档</span>
-        <b>{olderTotal}</b>
-        <em>{older?.archived ? `含 ${older.archived} 条归档` : "默认折叠"}</em>
-        <i>{showOlder ? "收起" : "展开"}</i>
-      </button>
-      {showOlder && <ProjectGroups groups={olderGroups} now={now} selected={selected} onSelect={setSelected} />}
-    </section>}
-    <footer className="psb-conversations-foot">
-      <span>默认只显示最近 3 天；更旧和归档的对话折叠在下面。</span>
-      <span>点一条对话就能展开它最后说到哪；打开真实会话仍走左侧列表或 ⌘K。</span>
-    </footer>
-  </section>;
+    <section className="psl-section" aria-labelledby="psl-lines-title">
+      <header className="psl-section-head">
+        <h2 id="psl-lines-title">每条线</h2>
+        <span>会话数 {lines.length} / {counts.lines} · 最近 3 天</span>
+        <SegmentedControl label="按状态筛选" value={filter} onValueChange={setFilter}
+          options={LINE_FILTERS.map((entry) => ({ value: entry.id, label: entry.label }))} />
+      </header>
+      {lines.length === 0 ? <p className="psl-empty">{filter === "attention" ? "这个项目现在没有要你处理的。" : "这个筛选下没有线。"}</p>
+        : <div className="psl-grid psl-grid-lines">
+          {lines.map((line) => <LineCard key={line.key} line={line} now={now}
+            onOpen={() => onGo({ level: "line", projectId: project.id, lineKey: line.key })} />)}
+        </div>}
+      {project.past.length > 0 && <div className="psl-past">
+        <button type="button" className="psl-past-toggle" aria-expanded={pastOpen} onClick={() => setPastOpen(!pastOpen)}>
+          {pastOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          已过去 {project.past.length} 条<em>长时间没有新事件，或是测试、试点记录</em>
+        </button>
+        {pastOpen && <div className="psl-grid psl-grid-lines">
+          {project.past.map((line) => <LineCard key={line.key} line={line} now={now}
+            onOpen={() => onGo({ level: "line", projectId: project.id, lineKey: line.key })} />)}
+        </div>}
+      </div>}
+    </section>
+  </>;
 }
+
+/* ---------- level 3: 线详情 ---------- */
+
+function LineLevel({ project, line, now, onGo, onOpenLink }) {
+  const [copied, setCopied] = useState(false);
+  const report = useMemo(() => plainText(line.displayReport || line.report || line.detail).replace(/\n/g, " "),
+    [line.displayReport, line.report, line.detail]);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(line.threadId); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { /* clipboard blocked */ }
+  };
+  const bare = !line.tools?.length && !line.context && !line.models?.segments?.length;
+  return <>
+    <header className="psl-head psl-head-line">
+      <Crumbs trail={[
+        { id: "today", label: "今天的局面", view: { level: "today" } },
+        { id: project.id, label: project.name, view: { level: "project", projectId: project.id } },
+        { id: line.key, label: line.name },
+      ]} onGo={onGo} />
+      <div className="psl-head-main">
+        <div>
+          <h1>{line.name}</h1>
+          <p className="psl-head-sub">
+            <StateChip state={line.state} />
+            <span>{SOURCE_LABELS[line.source] ?? line.source}</span>
+            <span>{project.name}</span>
+            <span>{relativeLabel(line.at, now)}</span>
+            {line.pastReason && <span>{line.pastReason}</span>}
+          </p>
+        </div>
+        <span className="psl-head-actions">
+          {line.threadId && <button type="button" onClick={copy}><Copy size={12} />{copied ? "已复制" : "复制线程 ID"}</button>}
+          {line.href && <button type="button" onClick={() => onOpenLink?.(line.href)}><ArrowUpRight size={12} />打开原页面</button>}
+        </span>
+      </div>
+    </header>
+
+    <section className="psl-detail" aria-label="单线监视">
+      <LineMonitor line={line} now={now} />
+      {report && report !== line.summary && <p className="psl-detail-report"><span>最后一条汇报</span>{report}</p>}
+    </section>
+
+    {bare ? <section className="psl-detail">
+      <p className="psa-muted">{SOURCE_LABELS[line.source] ?? line.source} 这条线只留状态：没有工具调用、上下文和模型记录。</p>
+    </section> : <>
+      <section className="psl-detail" aria-label="工具调用">
+        <h2 className="psl-detail-title">工具调用</h2>
+        <ToolCallGroup tools={line.tools} source={line.source} />
+      </section>
+      <section className="psl-detail psl-detail-pair">
+        <div><h2 className="psl-detail-title">上下文地图</h2><ContextMap context={line.context} /></div>
+        <div><h2 className="psl-detail-title">模型回退链</h2><FallbackChain models={line.models} /></div>
+      </section>
+    </>}
+    <p className="psl-detail-foot">只读 · 批准、重试要回真实会话（左侧列表或 ⌘K）</p>
+  </>;
+}
+
+function Missing({ onGo, label }) {
+  return <div className="psb-state">
+    <span className="psb-eyebrow">不在了</span>
+    <h1>{label}</h1>
+    <p>最新一次读数里没有它了，可能已经归档。</p>
+    <div className="psb-state-actions">
+      <SourceSettingsButton variant="secondary" icon="ArrowLeft" onClick={() => onGo({ level: "today" })}>回到今天的局面</SourceSettingsButton>
+    </div>
+  </div>;
+}
+
+/* ---------- loading / error ---------- */
 
 function LoadingState() {
   return <div className="psb-state" aria-busy="true">
@@ -274,7 +358,8 @@ function ErrorState({ error, onRetry }) {
 
 export function SourceBoardPage({ load, capture, onOpenLink }) {
   const [state, setState] = useState({ status: "loading" });
-  const [selected, setSelected] = useState(null);
+  const [view, setView] = useState({ level: "today" });
+  const pageRef = useRef(null);
   const loadRef = useRef(load);
   loadRef.current = load;
 
@@ -289,6 +374,11 @@ export function SourceBoardPage({ load, capture, onOpenLink }) {
     }
   }, []);
 
+  const go = useCallback((next) => {
+    setView(next);
+    pageRef.current?.scrollTo({ top: 0 });
+  }, []);
+
   useEffect(() => {
     refresh();
     const timer = window.setInterval(refresh, 60_000);
@@ -301,55 +391,41 @@ export function SourceBoardPage({ load, capture, onOpenLink }) {
     return () => { document.title = previous; };
   }, []);
 
+  // Esc goes up one level.
+  useEffect(() => {
+    if (view.level === "today") return undefined;
+    const onKey = (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+      go(view.level === "line" ? { level: "project", projectId: view.projectId } : { level: "today" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [view, go]);
+
+  const levels = useMemo(() => (state.status === "ready" ? buildBoardLevels(state.snapshot) : null), [state.status, state.snapshot]);
+
   if (state.status === "loading") return <section className="psb-page psb-page-state" aria-label="总看板"><LoadingState /></section>;
   if (state.status === "error") return <section className="psb-page psb-page-state" aria-label="总看板">
     <ErrorState error={state.error} onRetry={() => refresh({ force: true })} />
   </section>;
 
   const { snapshot } = state;
-  const totals = snapshot.totals ?? boardTotals(snapshot);
-  const empty = totals.conversations === 0 && (snapshot.columns?.decide?.length ?? 0) + (snapshot.columns?.done?.length ?? 0) + (snapshot.columns?.stuck?.length ?? 0) === 0;
-  return <section className="psb-page" aria-label="总看板" data-empty={empty || undefined} data-refreshing={state.refreshing || undefined}>
-    <header className="psb-masthead">
-      <div className="psb-masthead-top">
-        <span className="psb-kicker">总管 <i /> Personal super agent</span>
-        <span className="psb-mode-pill">只读</span>
-      </div>
-      <div className="psb-masthead-main">
-        <div>
-          <h1>今天的局面</h1>
-          <p className="psb-date">{dateLabel(snapshot.generatedAt)} · {timeLabel(snapshot.generatedAt)} 更新</p>
-        </div>
-        <div className="psb-masthead-actions">
-          <span className="psb-source-health" title="聚合来源">
-            <span className="psb-live-dot" data-offline={(snapshot.sources ?? []).some((source) => source.status !== "connected") || undefined} />
-            {snapshot.sources?.filter((source) => source.status === "connected").length ?? 0}/{snapshot.sources?.length ?? 3} 个来源已读
-          </span>
-          <SourceSettingsButton variant="ghost" icon="ArrowClockwise" size="sm" busy={state.refreshing} onClick={() => refresh({ force: true })}>刷新</SourceSettingsButton>
-        </div>
-      </div>
-      <div className="psb-tally" aria-label="今天的数量">
-        <span><b>{totals.running ?? 0}</b> 个在跑</span>
-        <span><b>{totals.waiting ?? 0}</b> 个等你</span>
-        <span><b>{snapshot.columns?.decide?.length ?? 0}</b> 件要定</span>
-        <span><b>{totals.unread ?? 0}</b> 条未读</span>
-        <span className="psb-tally-note">规则简报 · 按当前数据即时拼出</span>
-      </div>
-      <div className="psb-source-strip" aria-label="数据来源">
-        {(snapshot.sources ?? []).map((source) => <span key={source.id} data-status={source.status} title={source.status === "connected" ? source.hint : source.error}>
-          <i />{source.label} · {source.status === "connected" ? source.detail : "没连上"}
-        </span>)}
-      </div>
-    </header>
-
-    <ReportBlock report={snapshot.report} />
-    <CaptureBar config={snapshot.capture} onCapture={capture} onOpenLink={onOpenLink} />
-    <BoardColumns columns={snapshot.columns ?? {}} now={snapshot.generatedAt} selected={selected} onSelect={setSelected} />
-    <ConversationList projects={snapshot.projects ?? []} older={snapshot.older} now={snapshot.generatedAt} />
-
-    <footer className="psb-origin">
+  let body;
+  if (view.level === "project" || view.level === "line") {
+    const { project, line } = findLine(levels, view.projectId, view.lineKey);
+    if (!project) body = <Missing onGo={go} label="这个项目最近 3 天没有线了" />;
+    else if (view.level === "project") body = <ProjectLevel key={project.id} project={project} now={levels.now} onGo={go} />;
+    else if (!line) body = <Missing onGo={go} label="这条线不在最新数据里了" />;
+    else body = <LineLevel key={line.key} project={project} line={line} now={levels.now} onGo={go} onOpenLink={onOpenLink} />;
+  } else {
+    body = <TodayLevel snapshot={snapshot} levels={levels} capture={capture} onOpenLink={onOpenLink} onGo={go}
+      refresh={() => refresh({ force: true })} refreshing={state.refreshing} />;
+  }
+  const levelKey = view.level === "today" ? "today" : view.level === "project" ? `p:${view.projectId}` : `l:${view.lineKey}`;
+  return <section ref={pageRef} className="psb-page psl-page" aria-label="总看板" data-level={view.level} data-refreshing={state.refreshing || undefined}>
+    <div className="psl-level" key={levelKey}>{body}</div>
+    <footer className="psb-origin psl-origin">
       <span>只读来源：Codex ~/.codex/sessions · superagent 127.0.0.1:3082 · T3 127.0.0.1:3773</span>
-      <span>{snapshot.sources?.map((source) => `${source.label} ${source.status === "connected" ? source.detail : `没连上（${source.error}）`}`).join(" · ")}</span>
     </footer>
   </section>;
 }
