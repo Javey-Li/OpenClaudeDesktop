@@ -6,7 +6,7 @@
 // source stays failed; nothing here fills a gap with fixture data.
 
 import { cleanBoardTitle, leadingRef, settledLabel, splitStuck, staleConversation } from "./board-stuck-model.mjs";
-import { firstSentence } from "./board-text-model.mjs";
+import { firstSentence, plainText } from "./board-text-model.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -90,11 +90,14 @@ const NAME_KEYWORDS = [
   ["mission", /\bmission\b/i],
   ["personal-super-agent", /super\s?agent|超级代理|总看板/i],
 ];
-const LINE_PREFIX = [
-  ["fretsense", /^L(?:8|15)[a-z]?(?=[\s·:：]|$)/],
-  ["personal-super-agent", /^(?:L(?:4|5|6|14)[a-z]?|W\d+[a-z]?|R-?\d+|T\d+)(?=[\s·:：]|$)/],
-  ["dawdex", /^V\d+[a-z]?(?=[\s·:：]|$)/],
-  ["obsidian", /^SB\d*[a-z]?(?=[\s·:：]|$)/],
+const LINE_TOKEN = String.raw`(?:L(?:4|5|6|7|8|14|15)[a-z]?|W\d+[a-z]?|V\d+[a-z]?|SB\d*[a-z]?|PSA\d*[a-z]?|R-?\d+)`;
+const LINE_AT_START = new RegExp(`^${LINE_TOKEN}(?=[\\s·:：\\-–—]|$)`);
+const LINE_IN_NAME = new RegExp(`(?:^|[\\s（(【\\[])(${LINE_TOKEN})(?=[\\s·:：\\-–—，,。]|$)`);
+const LINE_PROJECT = [
+  ["fretsense", /^L(?:8|15)/i],
+  ["personal-super-agent", /^(?:L(?:4|5|6|7|14)|W|PSA|R)/i],
+  ["dawdex", /^V/i],
+  ["obsidian", /^SB/i],
 ];
 const REPO_PROJECT = [
   ["fretsense", /Javey-Li\/FretSense\b/i],
@@ -110,8 +113,11 @@ export function classifyLine({ projectId = "", title = "", preview = "", repo = 
   const name = text(title);
   // An explicit line prefix is the strongest signal: a DAWdex video line can
   // mention FretSense in its body and still belong to DAWdex.
-  const prefix = LINE_PREFIX.find(([, pattern]) => pattern.test(name));
-  if (prefix) return byId(prefix[0]);
+  const atStart = LINE_AT_START.exec(name)?.[0];
+  const embedded = atStart ? null : LINE_IN_NAME.exec(name.slice(0, 48))?.[1];
+  const token = atStart ?? embedded;
+  const lineProject = token ? LINE_PROJECT.find(([, pattern]) => pattern.test(token)) : null;
+  if (lineProject) return byId(lineProject[0]);
   const repoHit = REPO_PROJECT.find(([, pattern]) => pattern.test(`${text(repo)} ${name} ${text(preview)}`));
   if (repoHit) return byId(repoHit[0]);
   const keyword = NAME_KEYWORDS.find(([, pattern]) => pattern.test(name));
@@ -133,11 +139,14 @@ const projectMeta = (row) => {
 function shortLineTitle(value) {
   const title = text(value).replace(/^你是\s*/, "").trim();
   const clause = title.split(/[，,。；;\n]/)[0].trim();
-  return clause.length > 52 ? `${clause.slice(0, 51).trimEnd()}…` : clause;
+  const token = LINE_AT_START.exec(clause)?.[0] ?? LINE_IN_NAME.exec(clause.slice(0, 48))?.[1];
+  const named = token ? clause.slice(clause.indexOf(token)) : clause;
+  if (token && named.slice(token.length).trim().length < 4) return token;
+  return named.length > 52 ? `${named.slice(0, 51).trimEnd()}…` : named;
 }
 
 const lineTitle = (row, fallback) => (isMainThread({ title: row.title }) ? MAIN_THREAD_NAME
-  : shortLineTitle(cleanBoardTitle(row.title)) || fallback);
+  : shortLineTitle(plainText(cleanBoardTitle(row.title))) || fallback);
 
 function normalizeConversation(row, source) {
   const project = projectMeta(row);

@@ -189,6 +189,9 @@ test("line names and Issue repos beat a stale workspace project", () => {
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L15e 0/120 docs 口径" }).id, "fretsense");
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "V4i 钢琴卷帘回最早版" }).id, "dawdex");
   assert.equal(classifyLine({ projectId: "fretsense", title: "SB3 Obsidian P1" }).id, "obsidian");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "PSA 测试 fixture 修复" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "你在 T3 写线执行 L4f 的实现" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "T3 写线执行 V4h 的实现" }).id, "dawdex");
   assert.equal(classifyLine({ projectId: "fretsense", title: "R-46 总看板三级页面" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "收口 PR 114",
     preview: "对应 Javey-Li/FretSense Issue #5" }).id, "fretsense");
@@ -244,4 +247,25 @@ test("a stored prompt becomes a short line name, not the whole instruction block
     },
   });
   assert.equal(snapshot.projects[0].conversations[0].title, "L4j 总看板三级页面写线");
+});
+
+test("a line token inside a prompt names the line and its project", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true,
+        conversations: [{
+          id: "codex:embedded", projectId: "fretsense", project: "FretSense",
+          title: "你在 T3 写线执行 L4f 的实现，先读现有工作树。", status: "running", updatedAt: now,
+          preview: "## 进度\n**已确认**：先补归类。\n- 下一项",
+        }],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  const row = snapshot.projects.flatMap((project) => project.conversations)[0];
+  assert.equal(row.projectId, "personal-super-agent");
+  assert.equal(row.title, "L4f");
+  assert.equal(row.summary, "先补归类。");
 });

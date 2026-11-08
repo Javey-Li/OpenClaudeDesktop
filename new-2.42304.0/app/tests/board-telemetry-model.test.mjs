@@ -90,6 +90,12 @@ test("each tool call says what it did in one sentence", () => {
   assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "cd /repo && npm run test" })), "跑测试");
   assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "rg -n 'Piano Roll' /repo" })), "搜「Piano Roll」");
   assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "node /repo/apps/server/dist/bin.mjs thread list" })), "跑脚本：bin.mjs");
+  assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "node '/Users/me/Projects/t3code/apps/server/dist/bin.mjs' thread list" })), "跑脚本：bin.mjs");
+  assert.equal(toolSentence("exec_command", JSON.stringify({ cmd: "test -x node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" })), "检查文件在不在");
+  assert.equal(toolSentence("wait_threads", JSON.stringify({ targets: [{ threadId: "a" }, { threadId: "b" }, { threadId: "c" }], timeout_ms: 120_000 })), "等 3 条线，2 分钟超时");
+  assert.equal(toolSentence("close_agent", JSON.stringify({ agentId: "01a1b44b-1234" })), "关掉子线 01a1b44b");
+  assert.equal(toolSentence("link_pull_request", JSON.stringify({ url: "https://github.com/Javey-Li/OpenClaudeDesktop/pull/6" })), "关联 PR #6");
+  assert.equal(toolSentence("update_goal", JSON.stringify({ objective: "补齐三级页面" })), "更新目标：补齐三级页面");
   assert.equal(toolSentence("apply_patch", "*** Begin Patch\n*** Update File: /repo/src/a.css\n@@\n-old\n+new\n*** End Patch"),
     "改 1 个文件：a.css");
   assert.equal(toolSentence("update_plan", JSON.stringify({ plan: [
@@ -97,6 +103,34 @@ test("each tool call says what it did in one sentence", () => {
   ] })), "更新计划：2 步，做完 1 步");
   assert.equal(toolKind("apply_patch"), "edit");
   assert.equal(toolKind("mcp__github__list_issues"), "tool");
+});
+
+test("wait and agent results read as outcomes, not JSON", () => {
+  const rows = [
+    row("response_item", { type: "function_call", name: "wait_threads", call_id: "w1",
+      arguments: JSON.stringify({ targets: [{ threadId: "a" }, { threadId: "b" }], timeout_ms: 120_000 }) }, at(1)),
+    row("response_item", { type: "function_call_output", call_id: "w1",
+      output: "Output:\n{\"timedOut\":true,\"polls\":[{\"threadId\":\"a\",\"changed\":false},{\"threadId\":\"b\",\"changed\":false}]}" }, at(3)),
+    row("response_item", { type: "function_call", name: "wait_threads", call_id: "w2",
+      arguments: JSON.stringify({ targets: [{ threadId: "a" }, { threadId: "b" }], timeout_ms: 60_000 }) }, at(4)),
+    row("response_item", { type: "function_call_output", call_id: "w2",
+      output: "Output:\n{\"timedOut\":false,\"polls\":[{\"threadId\":\"a\",\"changed\":true},{\"threadId\":\"b\",\"changed\":false}]}" }, at(5)),
+    row("response_item", { type: "function_call", name: "close_agent", call_id: "c1",
+      arguments: JSON.stringify({ agentId: "01a1b44b-1234" }) }, at(6)),
+    row("response_item", { type: "function_call_output", call_id: "c1",
+      output: "Output:\n{\"previous_status\":\"completed\",\"completed\":true}" }, at(6, 1)),
+    row("response_item", { type: "function_call", name: "link_pull_request", call_id: "p1",
+      arguments: JSON.stringify({ url: "https://github.com/Javey-Li/OpenClaudeDesktop/pull/6" }) }, at(7)),
+    row("response_item", { type: "function_call_output", call_id: "p1",
+      output: "Output:\n{\"host\":\"github.com\",\"repository\":\"Javey-Li/OpenClaudeDesktop\",\"number\":6}" }, at(7, 1)),
+  ];
+  const { tools } = extractCodexTelemetry(rows);
+  assert.equal(tools[0].resultLine, "2 分钟内没有变化。");
+  assert.equal(tools[1].resultLine, "等到 1 条线有更新。");
+  assert.equal(tools[2].summary, "关掉子线 01a1b44b");
+  assert.equal(tools[2].resultLine, "子线已关掉，之前是 completed。");
+  assert.equal(tools[3].summary, "关联 PR #6");
+  assert.equal(tools[3].resultLine, "已关联 PR #6。");
 });
 
 test("raw arguments stay complete and the line plan comes from its own calls", () => {

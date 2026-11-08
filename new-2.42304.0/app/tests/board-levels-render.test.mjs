@@ -27,7 +27,7 @@ test("a tool call opens with one plain sentence; raw JSON is folded away on firs
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /改 1 个文件：a\.css/);
   assert.doesNotMatch(html, /RAW_ONLY_MARKER/);
-  assert.doesNotMatch(html, /已更新/);
+  assert.match(html, /已更新/);
   assert.doesNotMatch(html, /看原始参数和结果/);
 });
 

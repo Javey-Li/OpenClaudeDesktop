@@ -194,7 +194,7 @@ function TodayLevel({ snapshot, levels, capture, onOpenLink, onGo, refresh, refr
 /* ---------- level 2: 项目页 ---------- */
 
 function LineProgress({ progress }) {
-  if (!progress) return null;
+  if (!progress || progress.kind === "state") return null;
   return <span className="psl-progress" data-kind={progress.kind}>
     {progress.ratio != null && <span className="psl-progress-bar" aria-hidden="true"><i style={{ width: `${Math.round(progress.ratio * 100)}%` }} /></span>}
     <em>{progress.label}</em>

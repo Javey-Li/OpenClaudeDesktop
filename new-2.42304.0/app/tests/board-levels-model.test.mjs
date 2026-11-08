@@ -121,3 +121,38 @@ test("T3 Projects failures keep the failure but show the line's project, not Pro
   assert.equal(other.lines.find((entry) => entry.name === "说明").summary, "T3 运行失败");
   assert.equal([...psa.lines, ...dawdex.lines, ...other.lines].some((line) => line.summary.includes("Projects")), false);
 });
+
+test("SB and PSA lines keep their own projects on the project page and inbox", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true, total: 2,
+        conversations: [
+          { id: "codex:sb", threadId: "sb", projectId: "obsidian", project: "Obsidian",
+            title: "SB3 Obsidian P1 机器记录与查询", source: "codex", status: "running", updatedAt: ago(2),
+            preview: "## 结论\n**已修好**：`/Users/javeyli/Projects/Obsidian/app.js` 已经能查了。" },
+          { id: "codex:psa", threadId: "psa", projectId: "fretsense", project: "FretSense",
+            title: "PSA 测试 fixture 修复", source: "codex", status: "done", updatedAt: ago(5),
+            preview: "[PR #43](https://github.com/Javey-Li/personal-super-agent/pull/43) 已开。" },
+        ],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  const levels = buildBoardLevels(snapshot);
+  const psa = levels.projects.find((project) => project.id === "personal-super-agent");
+  const obsidian = levels.projects.find((project) => project.id === "obsidian");
+  assert.ok(psa);
+  assert.ok(obsidian);
+  assert.deepEqual(psa.lines.map((line) => line.name), ["PSA 测试 fixture 修复"]);
+  assert.deepEqual(obsidian.lines.map((line) => line.name), ["SB3 Obsidian P1 机器记录与查询"]);
+
+  const sb = obsidian.lines[0];
+  assert.equal(sb.projectId, "obsidian");
+  assert.equal(sb.summary, "…/Obsidian/app.js 已经能查了。");
+  assert.doesNotMatch(sb.summary, /[*`]|\[|\]\(/);
+
+  const report = levels.report;
+  assert.match(report.lines.find((line) => line.key === "running").text, /SB3/);
+});

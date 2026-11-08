@@ -130,6 +130,7 @@ export function ToolCallRow({ tool }) {
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState(false);
   const time = tool.status === "ok" ? formatDuration(tool.durationMs) : "";
+  const exit = tool.name === "exec_command" || tool.name === "_codex_exec" ? tool.exit : null;
   const result = tool.status === "failed"
     ? `没成功${tool.exit != null ? `（退出码 ${tool.exit}）` : ""}${tool.resultLine ? `：${tool.resultLine}` : "。"}`
     : tool.resultLine || (tool.status === "running" ? "还在跑。" : tool.status === "unknown" ? "这次调用没留下结果。" : "完成，没有输出。");
@@ -137,7 +138,9 @@ export function ToolCallRow({ tool }) {
     <button type="button" className="psa-tool-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="psa-tool-icon" aria-hidden="true"><ToolKindIcon kind={tool.kind} /></span>
       <span className="psa-tool-say">{tool.summary || tool.verb}</span>
+      {tool.status !== "running" && tool.resultLine && <span className="psa-tool-result">{tool.resultLine}</span>}
       {tool.diff && <span className="psa-tool-diff"><i data-sign="add">+{tool.diff.add}</i><i data-sign="del">−{tool.diff.del}</i></span>}
+      {exit != null && <span className="psa-tool-exit" data-ok={exit === 0 || undefined}>{exit === 0 ? `退出 ${exit}` : `退出码 ${exit}`}</span>}
       <ToolStatus status={tool.status} />
       {time && <span className="psa-tool-time">{time}</span>}
       <ChevronDown size={11} className="psa-tool-caret" strokeWidth={1.8} />
@@ -199,20 +202,19 @@ export function LineMonitor({ line, now }) {
   const lastTool = line.tools?.length ? line.tools[line.tools.length - 1] : null;
   const step = running && lastTool ? lastTool.summary : line.progress?.current || "";
   const model = line.models?.segments?.find((segment) => segment.current)?.model;
+  const when = relativeLabel(line.at, now);
   return <section className="psa-monitor" data-state={line.state}>
-    <div className="psa-monitor-now">
+    <div className="psa-monitor-pill">
       <StateGlyph state={line.state} size={18} />
-      <div>
-        <span className="psa-monitor-label">{running ? "此刻" : LINE_STATE_LABEL[line.state]}</span>
-        <p className="psa-monitor-step" data-live={running || undefined}>{step || line.summary}</p>
-      </div>
-      <dl className="psa-monitor-facts">
-        <div><dt>最后动静</dt><dd>{relativeLabel(line.at, now) || "—"}</dd></div>
-        <div><dt>进度</dt><dd>{line.progress?.label || "—"}</dd></div>
-        {model && <div><dt>模型</dt><dd>{shortModel(model)}</dd></div>}
-        {line.context && <div><dt>上下文</dt><dd>{line.context.percent < 1 ? "<1" : Math.round(line.context.percent)}%</dd></div>}
-      </dl>
+      <span className="psa-monitor-label">{running ? "此刻" : LINE_STATE_LABEL[line.state]}</span>
+      <p className="psa-monitor-step" data-live={running || undefined}>{step || line.summary}</p>
+      {when && <span className="psa-monitor-time">{when}</span>}
     </div>
+    <dl className="psa-monitor-facts">
+      <div><dt>进度</dt><dd>{line.progress?.label || "—"}</dd></div>
+      {model && <div><dt>模型</dt><dd>{shortModel(model)}</dd></div>}
+      {line.context && <div><dt>上下文</dt><dd>{line.context.percent < 1 ? "<1" : Math.round(line.context.percent)}%</dd></div>}
+    </dl>
     {line.progress?.kind === "plan" && <div className="psa-monitor-bar" aria-hidden="true"><i style={{ width: `${Math.round(line.progress.ratio * 100)}%` }} /></div>}
     <PlanSteps plan={line.progress?.kind === "plan" ? line.plan : null} />
   </section>;

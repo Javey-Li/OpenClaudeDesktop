@@ -20,6 +20,7 @@ import { firstSentence } from "./board-text-model.mjs";
 
 const VERBS = Object.freeze({
   exec_command: "跑命令",
+  _codex_exec: "跑命令",
   write_stdin: "给命令输入",
   apply_patch: "改文件",
   view_image: "看图",
@@ -30,6 +31,11 @@ const VERBS = Object.freeze({
   tool_search: "找工具",
   js: "跑脚本",
   js_repl: "跑脚本",
+  wait_agent: "等子线",
+  close_agent: "关掉子线",
+  link_pull_request: "关联 PR",
+  update_goal: "更新目标",
+  _fetch: "取数据",
 });
 
 function parseJson(value) {
@@ -54,6 +60,14 @@ function commandObject(cmd) {
   const line = text(cmd).split(/\r?\n/).find(Boolean) ?? "";
   const trimmed = line.replace(/^cd\s+\S+\s*&&\s*/, "");
   return flat(trimmed, 96);
+}
+
+// Quotes are part of the shell text, not of the program name.
+function commandWords(cmd) {
+  const words = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  for (const match of commandObject(cmd).matchAll(pattern)) words.push(match[1] ?? match[2] ?? match[3]);
+  return words;
 }
 
 export function describeTool(name, rawArgs) {
@@ -85,17 +99,21 @@ const minutes = (ms) => {
 
 function commandSentence(cmd) {
   const line = commandObject(cmd);
-  const words = line.split(/\s+/);
+  const words = commandWords(cmd);
   const head = words[0] ?? "";
-  const lastFile = [...words].reverse().find((word) => /[\w-]+\.[\w]+$/.test(word) && !word.startsWith("-"));
+  const lastFile = [...words].reverse().find((word) => /[\w.-]+\.[\w]+$/.test(word) && !word.startsWith("-"));
   if (/^(?:sed|cat|head|tail|less|wc|nl)$/.test(head)) return lastFile ? `读 ${base(lastFile)}` : "读文件";
-  if (head === "node" && /\.(?:mjs|js|cjs|ts)$/.test(words[1] ?? "")) return `跑脚本：${base(words[1])}`;
+  if (head === "node") {
+    const script = words.slice(1).find((word) => /\.(?:mjs|js|cjs|ts)$/.test(word));
+    if (script) return `跑脚本：${base(script)}`;
+  }
   if (/^(?:rg|grep|ag)$/.test(head)) {
     const rest = line.replace(/^\S+\s+/, "");
     const pattern = /(['"])(.*?)\1/.exec(rest)?.[2] ?? words.slice(1).find((word) => !word.startsWith("-"));
     return pattern ? `搜「${flat(pattern.replace(/^["']|["']$/g, ""), 28)}」` : "搜内容";
   }
   if (/^(?:ls|find|tree)$/.test(head)) return "看目录";
+  if (head === "test" || head === "[") return "检查文件在不在";
   if (head === "git") return `git ${words.slice(1, 3).filter((word) => !word.startsWith("-")).join(" ")}`.trim();
   if (head === "gh") return `GitHub：${words.slice(1, 3).join(" ")}`;
   if (/(?:npm|pnpm|yarn) (?:run )?test|node --test|vitest|jest|pytest/.test(line)) return "跑测试";
@@ -108,6 +126,7 @@ export function toolSentence(name, rawArgs) {
   const toolName = text(name);
   const args = parseJson(rawArgs) ?? {};
   const count = (value) => (Array.isArray(value) ? value.length : 0);
+  const waitMinutes = minutes(args.timeout_ms ?? args.timeoutMs ?? (args.timeout_seconds ?? args.timeoutSeconds) * 1000);
   switch (toolName) {
     case "exec_command":
     case "_codex_exec":
@@ -127,9 +146,22 @@ export function toolSentence(name, rawArgs) {
       return text(args.chars) ? `给命令输入「${flat(args.chars, 24)}」` : `等命令输出${minutes(args.yield_time_ms) ? `，最多 ${minutes(args.yield_time_ms)}` : ""}`;
     case "wait_threads": {
       const n = count(args.targets) || count(args.threadIds) || count(args.ids);
-      const limit = minutes(args.timeout_ms ?? args.timeoutMs ?? (args.timeout_seconds ?? args.timeoutSeconds) * 1000);
-      return `等 ${n || "几"} 条线${limit ? `，${limit}超时` : ""}`;
+      return `等 ${n || "几"} 条线${waitMinutes ? `，${waitMinutes}超时` : ""}`;
     }
+    case "wait_agent": {
+      const n = count(args.targets) || count(args.agentIds) || count(args.ids) || (args.agentId ? 1 : 0);
+      return `等 ${n || "几"} 条子线${waitMinutes ? `，${waitMinutes}超时` : ""}`;
+    }
+    case "close_agent": {
+      const id = args.agentId ?? args.threadId ?? args.target ?? (Array.isArray(args.targets) ? args.targets[0] : "");
+      return id ? `关掉子线 ${shortId(id)}` : "关掉子线";
+    }
+    case "link_pull_request": {
+      const number = args.number ?? prNumber(args.url);
+      return number ? `关联 PR #${number}` : "关联 PR";
+    }
+    case "update_goal": return text(args.objective) ? `更新目标：${flat(args.objective, 40)}` : "更新目标";
+    case "_fetch": return "取一份数据";
     case "wait": return "等结果";
     case "list_threads": return `列出最近 ${args.limit ?? ""} 条线`.replace("最近  条", "最近的");
     case "read_thread": return `读线 ${shortId(args.threadId)} 的最近 ${args.turnLimit ?? 1} 轮`;
@@ -148,7 +180,8 @@ export function toolSentence(name, rawArgs) {
         const [server, tool] = toolName.replace(/^mcp__/, "").split("__");
         return `调用 ${server}${tool ? ` · ${tool}` : ""}`;
       }
-      return text(args.title) ? `${toolName}：${flat(args.title, 40)}` : toolName || "工具";
+      const label = toolName.replace(/_/g, " ").trim() || "工具";
+      return text(args.title) ? `${label}：${flat(args.title, 40)}` : label;
     }
   }
 }
@@ -210,6 +243,37 @@ function outputOutcome(raw) {
   const failed = (exit !== undefined && Number(exit) !== 0) || /^\s*(apply_patch verification failed|error:)/i.test(body);
   const trimmed = body.includes("\nOutput:\n") ? body.slice(body.indexOf("\nOutput:\n") + 9) : body.replace(/^Output:\s*\n/, "");
   return { failed, result: flat(trimmed, 220), raw: rawText(trimmed), line: structuredLine(trimmed) || firstSentence(trimmed, 80), exit: exit === undefined ? null : Number(exit) };
+}
+
+function parsedOutput(raw) {
+  const body = outputText(raw);
+  const marker = body.indexOf("\nOutput:\n");
+  const value = marker >= 0 ? body.slice(marker + 9) : body.replace(/^Output:\s*\n/, "");
+  return parseJson(value.trim());
+}
+
+// A result row should read as its outcome, not as a JSON field list (R-43).
+function resultSentence(name, raw, rawArgs, outcome) {
+  const args = parseJson(rawArgs) ?? {};
+  const result = parsedOutput(raw);
+  const limit = minutes(args.timeout_ms ?? args.timeoutMs ?? (args.timeout_seconds ?? args.timeoutSeconds) * 1000);
+  if (name === "wait_threads" || name === "wait_agent") {
+    const polls = Array.isArray(result?.polls) ? result.polls : Array.isArray(result?.threads) ? result.threads : [];
+    const changed = polls.filter((entry) => entry?.changed === true || entry?.status === "changed").length;
+    const timedOut = result?.timedOut === true || result?.timed_out === true;
+    if (changed) return `等到 ${changed} 条${name === "wait_agent" ? "子线" : "线"}有更新。`;
+    if (timedOut) return `${limit ? `${limit}内` : "超时前"}没有变化。`;
+  }
+  if (name === "close_agent") {
+    const status = text(result?.previous_status);
+    return status ? `子线已关掉，之前是 ${status}。` : "子线已关掉。";
+  }
+  if (name === "link_pull_request") {
+    const number = result?.number ?? args.number ?? prNumber(args.url);
+    return number ? `已关联 PR #${number}。` : "已关联 PR。";
+  }
+  if (name === "update_goal") return "目标已更新。";
+  return outcome?.line ?? "";
 }
 
 function dedupe(rows) {
@@ -342,7 +406,7 @@ function toolsFrom({ calls, outputs }, { openTurn, limit }) {
       summary: toolSentence(call.name, call.args),
       args: rawText(typeof call.args === "string" ? call.args : JSON.stringify(call.args ?? "")),
       result: outcome?.raw ?? "",
-      resultLine: outcome?.line ?? "",
+      resultLine: done ? resultSentence(call.name, done.output, call.args, outcome) : "",
       exit: outcome?.exit ?? null,
       status,
       at: call.at ? new Date(call.at).toISOString() : "",
