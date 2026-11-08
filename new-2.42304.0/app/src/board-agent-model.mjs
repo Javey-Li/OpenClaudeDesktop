@@ -28,8 +28,8 @@ export const INBOX_FILTERS = Object.freeze([
 
 const CONVERSATION_STATE = { running: "running", waiting: "waiting", stuck: "stuck", suspected: "stuck", done: "done" };
 
-function threadKey(row, source) {
-  const id = text(row.threadId) || text(row.id).replace(/^(?:codex|codex-done|codex-stuck|t3|t3-done|t3-stuck):/, "");
+export function threadKey(row, source) {
+  const id = text(row.threadId) || text(row.id).replace(/^(?:codex|codex-done|codex-stuck|t3|t3-done|t3-stuck|superagent|superagent-decide|superagent-done|superagent-stuck):/, "");
   return `${source}:${id}`;
 }
 
@@ -136,13 +136,28 @@ export function buildAgentInbox({ columns = {}, projects = [], older = [], now =
     if (row.status === "done" && row.source === "superagent" && !superagentDone) continue;
     add(fromConversation(row));
   }
+  const pastByKey = new Map();
+  const addPast = (item) => {
+    const existing = pastByKey.get(item.key);
+    if (!existing) { pastByKey.set(item.key, item); return; }
+    const base = existing.fromConversation ? existing : item.fromConversation ? item : existing;
+    const extra = base === existing ? item : existing;
+    pastByKey.set(item.key, {
+      ...merge(base, extra),
+      pastReason: base.pastReason || extra.pastReason,
+      pastKind: base.pastKind ?? extra.pastKind,
+      pastLabel: base.pastLabel ?? extra.pastLabel,
+      at: time(item.at) > time(existing.at) ? item.at : existing.at,
+    });
+  };
+  for (const item of past) addPast(item);
 
   const ordered = [...byKey.values()].map((item) => ({ ...item, step: stepFor(item) }))
     .sort((a, b) => RANK[a.state] - RANK[b.state] || time(b.at) - time(a.at));
   const live = ordered.filter((item) => item.state !== "done");
   const done = ordered.filter((item) => item.state === "done").slice(0, doneLimit);
   const counts = Object.fromEntries(INBOX_STATES.map((state) => [state, ordered.filter((item) => item.state === state).length]));
-  const pastItems = past.sort((a, b) => time(b.at) - time(a.at)).map((item) => ({ ...item, step: item.detail }));
+  const pastItems = [...pastByKey.values()].sort((a, b) => time(b.at) - time(a.at)).map((item) => ({ ...item, step: item.detail }));
   return { items: [...live, ...done], past: pastItems, counts };
 }
 

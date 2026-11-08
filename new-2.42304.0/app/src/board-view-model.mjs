@@ -6,6 +6,7 @@
 // source stays failed; nothing here fills a gap with fixture data.
 
 import { cleanBoardTitle, leadingRef, settledLabel, splitStuck, staleConversation } from "./board-stuck-model.mjs";
+import { threadKey } from "./board-agent-model.mjs";
 import { firstSentence, plainText } from "./board-text-model.mjs";
 
 const MINUTE = 60_000;
@@ -95,7 +96,7 @@ const LINE_AT_START = new RegExp(`^${LINE_TOKEN}(?=[\\s·:：\\-–—]|$)`);
 const LINE_IN_NAME = new RegExp(`(?:^|[\\s（(【\\[])(${LINE_TOKEN})(?=[\\s·:：\\-–—，,。]|$)`);
 const LINE_PROJECT = [
   ["fretsense", /^L(?:8|15)/i],
-  ["personal-super-agent", /^(?:L(?:4|5|6|7|14)|W|SB|PSA|R)/i],
+  ["personal-super-agent", /^(?:L(?:4|5|6|7|14)|W|SB|PSA)/i],
   ["dawdex", /^V/i],
 ];
 const REPO_PROJECT = [
@@ -119,7 +120,9 @@ export function classifyLine({ projectId = "", title = "", preview = "", repo = 
   if (lineProject) return byId(lineProject[0]);
   const repoHit = REPO_PROJECT.find(([, pattern]) => pattern.test(`${text(repo)} ${name} ${text(preview)}`));
   if (repoHit) return byId(repoHit[0]);
-  const keyword = NAME_KEYWORDS.find(([, pattern]) => pattern.test(name));
+  // A stored title can be a whole first prompt. Match project keywords on the
+  // opening line name, not on body mentions of other projects.
+  const keyword = NAME_KEYWORDS.find(([, pattern]) => pattern.test(shortLineTitle(name)));
   if (keyword) return byId(keyword[0]);
   if (projectId && projectId !== "other") return null;
   return byId("other");
@@ -190,6 +193,7 @@ function normalizeColumnItem(row, source) {
     recovered: row.recovered === true,
     at: row.at || row.updatedAt || new Date().toISOString(),
     href: text(row.href) || undefined,
+    threadId: text(row.threadId) || undefined,
     ref: Number.isFinite(Number(row.ref)) && row.ref !== null && row.ref !== "" ? Number(row.ref) : undefined,
   };
 }
@@ -331,14 +335,14 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
   const older = allConversations.filter((row) => row.archived || time(row.updatedAt) < cutoff);
   const projects = mergeProjects(recent);
   for (const key of Object.keys(columnRows)) {
-    const seenTitle = new Set();
+    const seenThread = new Set();
     columnRows[key] = columnRows[key]
       .filter((row, index, rows) => rows.findIndex((candidate) => candidate.id === row.id) === index)
       .sort((a, b) => time(b.at) - time(a.at))
       .filter((row) => {
-        const titleKey = row.title.replace(/\s+/g, " ").toLowerCase();
-        if (seenTitle.has(titleKey)) return false;
-        seenTitle.add(titleKey);
+        const key = threadKey(row, row.source);
+        if (seenThread.has(key)) return false;
+        seenThread.add(key);
         return true;
       })
       .slice(0, 12);

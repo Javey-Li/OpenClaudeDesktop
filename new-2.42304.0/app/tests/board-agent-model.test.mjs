@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildBoardSnapshot } from "../src/board-view-model.mjs";
 import { buildProjectBriefs, buildBriefSummary } from "../src/board-brief-model.mjs";
 import { buildAgentInbox, contextTone, filterInbox } from "../src/board-agent-model.mjs";
+import { buildBoardLevels } from "../src/board-levels-model.mjs";
 import { staleConversation } from "../src/board-stuck-model.mjs";
 
 const now = "2026-11-07T04:00:00.000Z";
@@ -121,6 +122,29 @@ test("stale rows and expired stuck rows land in the inbox's past list", () => {
   assert.equal(inbox.items.length, 0);
   assert.equal(inbox.past.length, 1);
   assert.match(inbox.past[0].pastReason, /20 小时没有新事件/);
+});
+
+test("one stale thread in stuckPast and older appears once, and its project count agrees", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true, total: 1,
+        conversations: [{ id: "codex:handoff", threadId: "handoff", projectId: "fretsense", project: "FretSense",
+          title: "Context handoff (full_thread_summary):", source: "codex", status: "stuck", updatedAt: ago(96), preview: "handoff" }],
+        columns: { decide: [], done: [], stuck: [{ id: "codex-stuck:handoff", projectId: "fretsense", project: "FretSense",
+          title: "Context handoff (full_thread_summary):", detail: "Codex 回合中断", kind: "会话", who: "Codex", at: ago(96) }] },
+      },
+    },
+  });
+  assert.equal(snapshot.columns.stuckPast.length, 1);
+  const inbox = buildAgentInbox({ columns: snapshot.columns, projects: snapshot.projects, older: snapshot.older.projects, now });
+  assert.equal(inbox.past.length, 1);
+  assert.equal(inbox.past[0].key, "codex:handoff");
+  const levels = buildBoardLevels(snapshot);
+  const fretsense = levels.projects.find((project) => project.id === "fretsense");
+  assert.equal(fretsense.past.length, 1);
+  assert.equal(fretsense.counts.past, 1);
 });
 
 test("context meter tone follows the fill level", () => {

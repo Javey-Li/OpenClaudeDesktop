@@ -192,12 +192,34 @@ test("line names and Issue repos beat a stale workspace project", () => {
   assert.equal(classifyLine({ projectId: "fretsense", title: "PSA 测试 fixture 修复" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "fretsense", title: "你在 T3 写线执行 L4f 的实现" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "T3 写线执行 V4h 的实现" }).id, "dawdex");
-  assert.equal(classifyLine({ projectId: "fretsense", title: "R-46 总看板三级页面" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "R-46 总看板三级页面" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "R-46 三级页面" }), null);
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "收口 PR 114",
     preview: "对应 Javey-Li/FretSense Issue #5" }).id, "fretsense");
   assert.equal(classifyLine({ projectId: "fretsense", title: "普通维护" }), null);
   assert.equal(classifyLine({ projectId: "other", title: "说明",
     preview: "Projects · failed" }).id, "other");
+});
+
+test("an R task number follows the real project instead of forcing personal-super-agent", () => {
+  assert.equal(classifyLine({ projectId: "fretsense", title: "R60 Me加载态与Scale重叠小修" }), null);
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      t3: {
+        ok: true, total: 1,
+        conversations: [{ id: "t3:r60", projectId: "fretsense", project: "FretSense", title: "R60 Me加载态与Scale重叠小修",
+          source: "t3", status: "running", updatedAt: now, preview: "FretSense · running" }],
+        columns: { decide: [], done: [], stuck: [] },
+      },
+    },
+  });
+  const row = snapshot.projects.flatMap((project) => project.conversations)[0];
+  assert.equal(row.projectId, "fretsense");
+  assert.equal(row.project, "FretSense");
+  assert.equal(classifyLine({ projectId: "personal-super-agent", title: "R59 总看板归类与历史去重小修" }).id, "personal-super-agent");
+  assert.equal(classifyLine({ projectId: "other",
+    title: "R59 原独立复审发现两项代码问题；FretSense 已过去同一 thread 重复" }).id, "other");
 });
 
 test("T3 Projects rows group by line name, and unknown titles fall back to 其他", () => {

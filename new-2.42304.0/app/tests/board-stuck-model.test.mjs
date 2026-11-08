@@ -77,6 +77,26 @@ test("the board snapshot keeps past stuck rows out of the live column", () => {
   assert.match(snapshot.report.lines[2].text, /权限没回/);
 });
 
+test("two independent lines with the same title are not collapsed", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true,
+        columns: {
+          decide: [],
+          done: [],
+          stuck: [
+            row({ id: "codex-stuck:a", title: "同一标题", at: "2026-11-05T04:00:00.000Z" }),
+            row({ id: "codex-stuck:b", title: "同一标题", at: "2026-11-05T04:00:00.000Z" }),
+          ],
+        },
+      },
+    },
+  });
+  assert.deepEqual(snapshot.columns.stuckPast.map((entry) => entry.id).sort(), ["codex-stuck:a", "codex-stuck:b"]);
+});
+
 test("a recovered source survives normalization and moves to past", () => {
   const snapshot = buildBoardSnapshot({
     now,
