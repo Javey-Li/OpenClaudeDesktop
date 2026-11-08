@@ -239,5 +239,6 @@ html[data-mode="dark"] .psl-page {
   .psl-card:hover { transform: none; }
 }
 html[data-reduce-motion="true"] .psl-level { animation: none; }
+html[data-reduce-motion="true"] .psl-card,
 html[data-reduce-motion="true"] .psl-card-go { transition: none; }
 html[data-reduce-motion="true"] .psl-card:hover { transform: none; }
