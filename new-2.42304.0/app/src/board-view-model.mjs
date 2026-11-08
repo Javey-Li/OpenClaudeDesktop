@@ -95,9 +95,8 @@ const LINE_AT_START = new RegExp(`^${LINE_TOKEN}(?=[\\s·:：\\-–—]|$)`);
 const LINE_IN_NAME = new RegExp(`(?:^|[\\s（(【\\[])(${LINE_TOKEN})(?=[\\s·:：\\-–—，,。]|$)`);
 const LINE_PROJECT = [
   ["fretsense", /^L(?:8|15)/i],
-  ["personal-super-agent", /^(?:L(?:4|5|6|7|14)|W|PSA|R)/i],
+  ["personal-super-agent", /^(?:L(?:4|5|6|7|14)|W|SB|PSA|R)/i],
   ["dawdex", /^V/i],
-  ["obsidian", /^SB/i],
 ];
 const REPO_PROJECT = [
   ["fretsense", /Javey-Li\/FretSense\b/i],

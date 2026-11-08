@@ -188,7 +188,7 @@ test("line names and Issue repos beat a stale workspace project", () => {
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L8c 接 L8b 收口" }).id, "fretsense");
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "L15e 0/120 docs 口径" }).id, "fretsense");
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "V4i 钢琴卷帘回最早版" }).id, "dawdex");
-  assert.equal(classifyLine({ projectId: "fretsense", title: "SB3 Obsidian P1" }).id, "obsidian");
+  assert.equal(classifyLine({ projectId: "fretsense", title: "SB3 Obsidian P1" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "fretsense", title: "PSA 测试 fixture 修复" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "fretsense", title: "你在 T3 写线执行 L4f 的实现" }).id, "personal-super-agent");
   assert.equal(classifyLine({ projectId: "personal-super-agent", title: "T3 写线执行 V4h 的实现" }).id, "dawdex");

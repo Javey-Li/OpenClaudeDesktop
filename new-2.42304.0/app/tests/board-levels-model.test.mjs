@@ -122,7 +122,7 @@ test("T3 Projects failures keep the failure but show the line's project, not Pro
   assert.equal([...psa.lines, ...dawdex.lines, ...other.lines].some((line) => line.summary.includes("Projects")), false);
 });
 
-test("SB and PSA lines keep their own projects on the project page and inbox", () => {
+test("SB and PSA lines land in personal-super-agent on both the project page and inbox", () => {
   const snapshot = buildBoardSnapshot({
     now,
     sources: {
@@ -142,14 +142,12 @@ test("SB and PSA lines keep their own projects on the project page and inbox", (
   });
   const levels = buildBoardLevels(snapshot);
   const psa = levels.projects.find((project) => project.id === "personal-super-agent");
-  const obsidian = levels.projects.find((project) => project.id === "obsidian");
   assert.ok(psa);
-  assert.ok(obsidian);
-  assert.deepEqual(psa.lines.map((line) => line.name), ["PSA 测试 fixture 修复"]);
-  assert.deepEqual(obsidian.lines.map((line) => line.name), ["SB3 Obsidian P1 机器记录与查询"]);
+  assert.equal(levels.projects.some((project) => project.id === "obsidian"), false);
+  assert.deepEqual(psa.lines.map((line) => line.name), ["SB3 Obsidian P1 机器记录与查询", "PSA 测试 fixture 修复"]);
 
-  const sb = obsidian.lines[0];
-  assert.equal(sb.projectId, "obsidian");
+  const sb = psa.lines.find((line) => line.name === "SB3 Obsidian P1 机器记录与查询");
+  assert.equal(sb.projectId, "personal-super-agent");
   assert.equal(sb.summary, "…/Obsidian/app.js 已经能查了。");
   assert.doesNotMatch(sb.summary, /[*`]|\[|\]\(/);
 

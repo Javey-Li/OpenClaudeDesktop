@@ -272,6 +272,7 @@ function resultSentence(name, raw, rawArgs, outcome) {
     const number = result?.number ?? args.number ?? prNumber(args.url);
     return number ? `已关联 PR #${number}。` : "已关联 PR。";
   }
+  if (name === "update_plan") return "计划已更新。";
   if (name === "update_goal") return "目标已更新。";
   return outcome?.line ?? "";
 }

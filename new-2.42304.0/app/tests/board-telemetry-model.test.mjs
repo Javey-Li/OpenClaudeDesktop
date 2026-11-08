@@ -144,6 +144,7 @@ test("raw arguments stay complete and the line plan comes from its own calls", (
     row("response_item", { type: "function_call", name: "exec_command", call_id: "a", arguments: args }, at(1)),
     row("response_item", { type: "function_call", name: "update_plan", call_id: "b", arguments: JSON.stringify({ plan }) }, at(2)),
     row("response_item", { type: "function_call_output", call_id: "a", output: "Chunk ID: 1\nProcess exited with code 0\nOutput:\nall pass" }, at(2, 4)),
+    row("response_item", { type: "function_call_output", call_id: "b", output: "Plan updated" }, at(2, 5)),
   ];
   const telemetry = extractCodexTelemetry(rows, { openTurn: false });
   assert.equal(telemetry.tools[0].summary, "跑测试");
@@ -153,6 +154,7 @@ test("raw arguments stay complete and the line plan comes from its own calls", (
   assert.deepEqual(telemetry.plan.steps.map((step) => step.status), ["completed", "in_progress", "pending"]);
   assert.equal(telemetry.plan.done, 1);
   assert.equal(telemetry.plan.current, "补测试");
+  assert.equal(telemetry.tools[1].resultLine, "计划已更新。");
 });
 
 test("structured tool output is summarised, not printed as raw JSON", () => {
