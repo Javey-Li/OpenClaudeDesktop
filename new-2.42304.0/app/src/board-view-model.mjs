@@ -8,6 +8,7 @@
 import { cleanBoardTitle, leadingRef, settledLabel, splitStuck, staleConversation } from "./board-stuck-model.mjs";
 import { threadKey } from "./board-agent-model.mjs";
 import { firstSentence, plainText } from "./board-text-model.mjs";
+import { assignWorkItemKeys } from "./board-work-item-model.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -167,6 +168,12 @@ function normalizeConversation(row, source) {
     archived: !!row.archived,
     unread: !!row.unread,
     threadId: text(row.threadId) || undefined,
+    ticketId: text(row.ticketId) || undefined,
+    ticketTitle: text(row.ticketTitle) || undefined,
+    workItemId: text(row.workItemId) || text(row.work_item_id) || undefined,
+    parentThreadId: text(row.parentThreadId) || text(row.parent_thread_id) || undefined,
+    workItemRole: ["control", "execution"].includes(text(row.workItemRole)) ? text(row.workItemRole) : undefined,
+    session: row.session === false ? false : true,
     href: text(row.href) || undefined,
     context: row.context ?? null,
     models: row.models ?? null,
@@ -193,8 +200,34 @@ function normalizeColumnItem(row, source) {
     at: row.at || row.updatedAt || new Date().toISOString(),
     href: text(row.href) || undefined,
     threadId: text(row.threadId) || undefined,
+    ticketId: text(row.ticketId) || undefined,
+    ticketTitle: text(row.ticketTitle) || undefined,
+    workItemId: text(row.workItemId) || text(row.work_item_id) || undefined,
+    parentThreadId: text(row.parentThreadId) || text(row.parent_thread_id) || undefined,
+    workItemRole: ["control", "execution"].includes(text(row.workItemRole)) ? text(row.workItemRole) : undefined,
+    session: row.session === false ? false : undefined,
     ref: Number.isFinite(Number(row.ref)) && row.ref !== null && row.ref !== "" ? Number(row.ref) : undefined,
   };
+}
+
+function shareWorkItemIdentity(conversations, columns) {
+  const byThread = new Map();
+  const byTicket = new Map();
+  for (const row of conversations) {
+    if (row.threadId) byThread.set(row.threadId, row);
+    if (row.ticketId) byTicket.set(row.ticketId, row);
+  }
+  for (const bucket of Object.values(columns)) {
+    for (const row of bucket) {
+      const source = (row.threadId && byThread.get(row.threadId)) || (row.ticketId && byTicket.get(row.ticketId));
+      if (!source) continue;
+      row.ticketId ??= source.ticketId;
+      row.ticketTitle ??= source.ticketTitle;
+      row.workItemId ??= source.workItemId;
+      row.parentThreadId ??= source.parentThreadId;
+      row.workItemRole ??= source.workItemRole;
+    }
+  }
 }
 
 function mergeProjects(conversations) {
@@ -344,9 +377,12 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
   }
   const settled = collectSettled(sources);
   settleColumns(columnRows, settled);
+  shareWorkItemIdentity(conversationRows, columnRows);
+  const keyedConversations = assignWorkItemKeys(conversationRows);
+  for (const key of Object.keys(columnRows)) columnRows[key] = assignWorkItemKeys(columnRows[key]);
   Object.assign(columnRows, dedupeColumnsByThread(columnRows));
   const seen = new Set();
-  const allConversations = conversationRows.filter((row) => {
+  const allConversations = keyedConversations.filter((row) => {
     if (seen.has(row.id)) return false;
     seen.add(row.id);
     return true;

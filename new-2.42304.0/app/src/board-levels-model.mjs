@@ -9,6 +9,7 @@
 
 import { buildAgentInbox } from "./board-agent-model.mjs";
 import { firstSentence } from "./board-text-model.mjs";
+import { assignWorkItemKeys, dedupeLineItems, groupLineItems } from "./board-work-item-model.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const text = (value) => (typeof value === "string" ? value.trim() : "");
@@ -78,11 +79,34 @@ function toLine(item, past = false) {
   };
 }
 
-function projectStatus(counts) {
+export function projectStatus(counts) {
   if (counts.decide) return "decide";
   if (counts.stuck) return "stuck";
   if (counts.running) return "running";
   return "done";
+}
+
+function lineCounts(lines) {
+  return {
+    running: lines.filter((line) => line.state === "running").length,
+    decide: lines.filter((line) => line.state === "decide" || line.state === "waiting").length,
+    stuck: lines.filter((line) => line.state === "stuck").length,
+    done: lines.filter((line) => line.state === "done").length,
+  };
+}
+
+function groupProjectLines(items, now) {
+  const grouped = groupLineItems(dedupeLineItems(items), { now });
+  const byProject = new Map();
+  for (const item of grouped) {
+    const line = toLine(item, !!item.past);
+    const id = line.projectId || "other";
+    if (!byProject.has(id)) byProject.set(id, { id, name: line.project || "其他", lines: [], past: [] });
+    const project = byProject.get(id);
+    if (line.past) project.past.push(line);
+    else project.lines.push(line);
+  }
+  return [...byProject.values()];
 }
 
 export function buildBoardLevels(snapshot = {}) {
@@ -96,25 +120,30 @@ export function buildBoardLevels(snapshot = {}) {
     doneLimit: Infinity,
     superagentDone: true,
   });
-  const byProject = new Map();
-  const ensure = (item) => {
-    const id = item.projectId || "other";
-    if (!byProject.has(id)) byProject.set(id, { id, name: item.project || "其他", lines: [], past: [] });
-    return byProject.get(id);
-  };
-  for (const item of inbox.items) ensure(item).lines.push(toLine(item));
-  for (const item of inbox.past) ensure(item).past.push(toLine(item, true));
+  const projectRows = groupProjectLines([
+    ...assignWorkItemKeys(inbox.items),
+    ...assignWorkItemKeys(inbox.past),
+  ], now);
 
   const meta = new Map((snapshot.projects ?? []).map((project) => [project.id, project]));
-  const projects = [...byProject.values()].map((project) => {
+  const projects = projectRows.map((project) => {
     const lines = project.lines.sort((a, b) => RANK[a.state] - RANK[b.state] || time(b.at) - time(a.at));
+    const byWorkItem = lineCounts(lines);
+    const allSessions = [...lines, ...project.past].flatMap((line) => line.sessions ?? []);
+    const sessionCounts = lineCounts(allSessions.map((session) => ({ state: session.state })));
     const counts = {
       lines: lines.length,
-      running: lines.filter((line) => line.state === "running").length,
-      decide: lines.filter((line) => line.state === "decide" || line.state === "waiting").length,
-      stuck: lines.filter((line) => line.state === "stuck").length,
-      done: lines.filter((line) => line.state === "done").length,
+      running: byWorkItem.running,
+      decide: byWorkItem.decide,
+      stuck: byWorkItem.stuck,
+      done: byWorkItem.done,
+      sessions: allSessions.length,
+      sessionRunning: sessionCounts.running,
+      sessionDecide: sessionCounts.decide,
+      sessionStuck: sessionCounts.stuck,
+      sessionDone: sessionCounts.done,
       past: project.past.length,
+      pastSessions: project.past.flatMap((line) => line.sessions ?? []).length,
     };
     const recent = [...lines, ...project.past].sort((a, b) => time(b.at) - time(a.at));
     const latest = recent.find((line) => line.spoke) ?? recent[0] ?? null;
@@ -125,6 +154,8 @@ export function buildBoardLevels(snapshot = {}) {
       note: meta.get(project.id)?.note ?? "",
       status: projectStatus(counts),
       counts,
+      sessionCounts,
+      sessions: allSessions,
       last: latest ? { line: latest.name, text: latest.summary, at: latest.at, source: latest.source } : null,
       updatedAt: recent[0]?.at ?? "",
       lines,
