@@ -25,18 +25,18 @@ const CODEX_CONTROL = "01a1a0ab-0efe-7b42-8193-24b2d48391df";
 
 const empty = { decide: [], done: [], stuck: [] };
 
-function superagentControl() {
+function superagentControl(fields = {}) {
   return {
     ok: true, total: 2,
     conversations: [
       { id: "superagent:github:122", threadId: "github:122", ticketId: TICKET_122_123,
         ticketTitle: "在 docs/README.md 治理来源列表补充 AGENTS.md 与 AGENT_STARTUP.md 两项",
         workItemRole: "control", projectId: "fretsense", project: "FretSense",
-        title: "#122 docs: 治理来源", source: "superagent", status: "done", updatedAt: ago(20), preview: "已合并" },
+        title: "#122 docs: 治理来源", source: "superagent", status: "done", updatedAt: ago(20), preview: "已合并", ...fields },
       { id: "superagent:github:123", threadId: "github:123", ticketId: TICKET_122_123,
         ticketTitle: "在 docs/README.md 治理来源列表补充 AGENTS.md 与 AGENT_STARTUP.md 两项",
         workItemRole: "control", projectId: "fretsense", project: "FretSense",
-        title: "#123 docs: 治理来源", source: "superagent", status: "done", updatedAt: ago(19), preview: "已合并" },
+        title: "#123 docs: 治理来源", source: "superagent", status: "done", updatedAt: ago(19), preview: "已合并", ...fields },
     ],
     columns: empty,
   };
@@ -208,16 +208,40 @@ test("the same Ticket in two projects stays two work items", () => {
   assert.notEqual(fretsense.lines[0].workItemKey, psa.lines[0].workItemKey);
 });
 
-test("a stuck execution session makes its work item count as stuck", () => {
+test("a newer done control session does not hide an older running execution", () => {
   const snapshot = buildBoardSnapshot({
     now,
     sources: {
-      superagent: superagentControl(),
+      superagent: superagentControl({ updatedAt: ago(1) }),
+      codex: {
+        ok: true, total: 1,
+        conversations: [{ id: "codex:running", threadId: "running", ticketId: TICKET_122_123, workItemRole: "execution",
+          projectId: "fretsense", project: "FretSense", title: "执行会话", source: "codex",
+          status: "running", updatedAt: ago(2), preview: "还在跑" }],
+        columns: empty,
+      },
+    },
+  });
+  const fretsense = buildBoardLevels(snapshot).projects.find((project) => project.id === "fretsense");
+  assert.equal(fretsense.counts.lines, 1);
+  assert.equal(fretsense.counts.running, 1);
+  assert.equal(fretsense.counts.done, 0);
+  assert.equal(fretsense.lines[0].state, "running");
+  assert.equal(fretsense.sessionCounts.running, 1);
+  assert.equal(fretsense.sessionCounts.done, 2);
+  assert.equal(fretsense.lines[0].sessionLabel, "3 个会话 · 控制 2 · 执行 1");
+});
+
+test("a newer done control session does not hide an older stuck execution", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      superagent: superagentControl({ updatedAt: ago(1) }),
       codex: {
         ok: true, total: 1,
         conversations: [{ id: "codex:stuck", threadId: "stuck", ticketId: TICKET_122_123, workItemRole: "execution",
           projectId: "fretsense", project: "FretSense", title: "执行会话", source: "codex",
-          status: "stuck", updatedAt: ago(1), preview: "卡住了" }],
+          status: "stuck", updatedAt: ago(2), preview: "卡住了" }],
         columns: empty,
       },
     },
@@ -227,6 +251,18 @@ test("a stuck execution session makes its work item count as stuck", () => {
   assert.equal(fretsense.counts.stuck, 1);
   assert.equal(fretsense.counts.done, 0);
   assert.equal(fretsense.lines[0].state, "stuck");
+});
+
+test("a work item with only done members stays done", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: { superagent: superagentControl() },
+  });
+  const fretsense = buildBoardLevels(snapshot).projects.find((project) => project.id === "fretsense");
+  assert.equal(fretsense.counts.lines, 1);
+  assert.equal(fretsense.counts.running, 0);
+  assert.equal(fretsense.counts.done, 1);
+  assert.equal(fretsense.lines[0].state, "done");
 });
 
 test("the T3 ledger binds a real Ticket id to its thread", () => {

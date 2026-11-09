@@ -196,8 +196,11 @@ function isStale(item, now = new Date().toISOString()) {
 
 function effectiveState(chosen, members, now) {
   if (!chosen || chosen.past) return chosen?.state;
-  const liveStuck = members.some((member) => !member.past && !isStale(member, now) && (member.state === "stuck" || member.state === "suspected"));
-  return liveStuck && chosen.state !== "stuck" ? "stuck" : chosen.state;
+  const live = members.filter((member) => !member.past && !isStale(member, now));
+  if (!live.length) return chosen.state;
+  return live.reduce((best, member) => (
+    (STATE_RANK[member.state] ?? 9) < (STATE_RANK[best] ?? 9) ? member.state : best
+  ), chosen.state);
 }
 
 /**
