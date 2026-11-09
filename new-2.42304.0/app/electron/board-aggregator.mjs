@@ -9,6 +9,7 @@
 // A source that cannot be read is returned as ok:false. It is never replaced
 // with fixture rows. Capture remains UI-only until its writer lands.
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -103,6 +104,11 @@ function executorTitle(prompt) {
   try { return JSON.parse(`"${match[1]}"`); } catch { return ""; }
 }
 
+export function executorTicketId(prompt) {
+  if (!/^You are the write executor for a dsh-superagent Ticket/im.test(text(prompt))) return "";
+  return /"ticket_id"\s*:\s*"([0-9a-f]{32})"/i.exec(text(prompt))?.[1] ?? "";
+}
+
 function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
   const headRows = jsonLines(head);
   const tailRows = jsonLines(tail);
@@ -111,6 +117,7 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
   if (meta.parent_thread_id) return null;
   let prompt = "";
   let rawPrompt = "";
+  let executorPrompt = "";
   let lastAgent = "";
   for (const row of headRows) {
     if (row?.type === "event_msg" && row.payload?.type === "item_completed") {
@@ -118,12 +125,14 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
       if (item?.type === "UserMessage") {
         const value = messageText(item);
         if (!rawPrompt && text(value)) rawPrompt = value;
+        if (!executorPrompt && /^You are the write executor for a dsh-superagent Ticket/m.test(value)) executorPrompt = value;
         if (!prompt) prompt = userCandidate(value);
       }
     }
     if (row?.type === "response_item" && row.payload?.type === "message" && row.payload?.role === "user") {
       const value = messageText(row.payload);
       if (!rawPrompt && text(value)) rawPrompt = value;
+      if (!executorPrompt && /^You are the write executor for a dsh-superagent Ticket/m.test(value)) executorPrompt = value;
       if (!prompt) prompt = userCandidate(value);
     }
   }
@@ -151,6 +160,7 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
   const project = projectFor({ path: cwd });
   const indexed = catalog.index.get(text(meta.id));
   const stored = catalog.rows.get(text(meta.id));
+  const ticketId = executorTicketId(executorPrompt) || ticketFromDirectory(cwd);
   const title = [indexed, text(stored?.name), text(stored?.title), firstLine(executorTitle(rawPrompt || stored?.title)), firstLine(prompt)]
     .map(text)
     .find((value) => value && !badTitle(value)) || `${project.name} · Codex`;
@@ -176,6 +186,9 @@ function parseCodexFile(head, tail, mtimeMs, now, catalog, size = 0) {
     archived,
     updatedAt: new Date(mtimeMs).toISOString(),
     threadId: text(meta.id) || undefined,
+    parentThreadId: text(meta.parent_thread_id) || undefined,
+    ticketId: ticketId || undefined,
+    workItemRole: ticketId ? "execution" : text(meta.parent_thread_id) ? "execution" : undefined,
     lastEvent,
     lastEventAt: lastEventAt ? new Date(lastEventAt).toISOString() : "",
     cwd,
@@ -275,6 +288,7 @@ async function readCodexSource({ home, now }) {
       kind: "会话",
       who: "Codex",
       at: row.updatedAt,
+      ticketId: row.ticketId,
     }));
   const stuck = rows.filter((row) => !row.archived && !noiseTitle(row.title) && ["stuck", "suspected"].includes(row.status) && now - Date.parse(row.updatedAt) <= 7 * DAY)
     .slice(0, 8)
@@ -288,6 +302,7 @@ async function readCodexSource({ home, now }) {
       who: "Codex",
       category: "turn",
       at: row.updatedAt,
+      ticketId: row.ticketId,
     }));
   return {
     ok: true,
@@ -333,6 +348,7 @@ async function readSuperagentSource({ env, now }) {
   const conversations = threadRows.map((row) => {
     const stage = text(row.stage);
     const tickets = Array.isArray(row.tickets) ? row.tickets : [];
+    const ticket = tickets.length === 1 ? tickets[0] : null;
     const allEnded = tickets.length > 0 && tickets.every((ticket) => text(ticket.state) === "ended") && !(Number(row.pending) > 0);
     const outcomes = tickets.map((ticket) => text(endedById.get(text(ticket.id))?.ended?.outcome)).filter(Boolean);
     const outcome = outcomes.includes("merged") ? "merged" : outcomes[0] || "";
@@ -353,6 +369,9 @@ async function readSuperagentSource({ env, now }) {
       status,
       updatedAt: iso(row.lastAt || row.createdAt) || nowIso(now),
       threadId: text(row.key) || undefined,
+      ticketId: ticket ? text(ticket.id) || undefined : undefined,
+      ticketTitle: ticket ? text(ticket.title) || undefined : undefined,
+      workItemRole: ticket ? "control" : undefined,
       href: text(row.url) || undefined,
       outcome: allEnded ? outcome || "ended" : undefined,
     };
@@ -367,6 +386,9 @@ async function readSuperagentSource({ env, now }) {
     kind: "工单",
     who: "Superagent",
     at: iso(row.updatedAt || row.createdAt) || nowIso(now),
+    ticketId: text(row.id) || undefined,
+    ticketTitle: text(row.title) || undefined,
+    workItemRole: "execution",
   }));
   const problems = Array.isArray(overview?.problems) ? overview.problems : [];
   const stuck = problems.map((row, index) => {
@@ -398,6 +420,9 @@ async function readSuperagentSource({ env, now }) {
     kind: "工单",
     who: "Superagent",
     at: iso(row.updatedAt || row.ended?.at || row.createdAt) || nowIso(now),
+    ticketId: text(row.id) || undefined,
+    ticketTitle: text(row.title) || undefined,
+    workItemRole: "execution",
   }));
   const sourceCount = Array.isArray(sources) ? sources.length : 0;
   return {
@@ -419,6 +444,28 @@ function doneDetail(row) {
 
 function nowIso(now) {
   return new Date(now).toISOString();
+}
+
+export function readT3TicketBindings(file) {
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    const threads = parsed?.threads && typeof parsed.threads === "object" ? parsed.threads : {};
+    const byThread = new Map();
+    for (const [ticketId, binding] of Object.entries(threads)) {
+      const threadId = text(binding?.threadId);
+      if (ticketId && threadId) byThread.set(threadId, { ticketId });
+    }
+    return byThread;
+  } catch {
+    return new Map();
+  }
+}
+
+export function ticketFromDirectory(value) {
+  const basename = path.basename(text(value));
+  const full = /-([0-9a-f]{32})$/.exec(basename)?.[1];
+  if (full) return full;
+  return "";
 }
 
 async function readT3Projects(dbPath) {
@@ -499,9 +546,11 @@ async function readT3Source({ env, home, now }) {
       conversations: [], columns: { decide: [], done: [], stuck: [] }, total: 0 };
   }
   const rows = groups.flatMap((group) => group.rows.map((row) => ({ ...row, project: group.project })));
+  const bindings = readT3TicketBindings(path.join(home, ".dsh", "state", "superagent-fretsense", "t3-threads.json"));
   const conversations = rows.filter((row) => !noiseTitle(row.title)).map((row) => {
     const project = projectFor({ path: text(row.project.workspace_root), title: text(row.project.title) });
     const status = text(row.status);
+    const binding = bindings.get(text(row.threadId));
     return {
       id: `t3:${row.threadId}`,
       projectId: project.id,
@@ -516,6 +565,9 @@ async function readT3Source({ env, home, now }) {
       archived: archived.has(text(row.threadId)),
       updatedAt: iso(row.updatedAt || row.createdAt) || nowIso(now),
       threadId: text(row.threadId),
+      ticketId: binding?.ticketId,
+      parentThreadId: text(row.parentThreadId) || undefined,
+      workItemRole: binding ? "execution" : text(row.relationshipToParent) === "subagent" ? "execution" : undefined,
       models: t3Models(row),
     };
   });
@@ -533,6 +585,7 @@ async function readT3Source({ env, home, now }) {
         kind: "线程",
         who: "T3",
         at: iso(row.updatedAt) || nowIso(now),
+        ticketId: bindings.get(text(row.threadId))?.ticketId,
       };
     });
   const stuck = rows.filter((row) => !archived.has(text(row.threadId)) && !noiseTitle(row.title) && ["failed", "error"].includes(text(row.status)))
@@ -549,6 +602,7 @@ async function readT3Source({ env, home, now }) {
         who: "T3",
         category: "thread",
         at: iso(row.updatedAt) || nowIso(now),
+        ticketId: bindings.get(text(row.threadId))?.ticketId,
       };
     });
   return {

@@ -61,6 +61,12 @@ function fromConversation(row) {
     fromConversation: true,
     href: row.href,
     threadId: row.threadId,
+    ticketId: row.ticketId,
+    ticketTitle: row.ticketTitle,
+    workItemId: row.workItemId,
+    parentThreadId: row.parentThreadId,
+    workItemRole: row.workItemRole,
+    session: row.session !== false,
     context: row.context ?? null,
     models: row.models ?? null,
     tools: row.tools ?? [],
@@ -85,7 +91,13 @@ function fromColumn(row, state) {
     detail: plain(row.detail),
     kind: text(row.kind) || "事项",
     href: row.href,
-    threadId: undefined,
+    threadId: row.threadId,
+    ticketId: row.ticketId,
+    ticketTitle: row.ticketTitle,
+    workItemId: row.workItemId,
+    parentThreadId: row.parentThreadId,
+    workItemRole: row.workItemRole,
+    session: row.session !== false,
     context: null,
     models: null,
     tools: [],
@@ -109,6 +121,12 @@ function merge(into, extra) {
     plan: into.plan ?? extra.plan,
     report: into.state === "done" && report ? report.report : into.report || extra.report,
     main: into.main ?? extra.main,
+    ticketId: into.ticketId ?? extra.ticketId,
+    ticketTitle: into.ticketTitle ?? extra.ticketTitle,
+    workItemId: into.workItemId ?? extra.workItemId,
+    parentThreadId: into.parentThreadId ?? extra.parentThreadId,
+    workItemRole: into.workItemRole ?? extra.workItemRole,
+    session: into.session === false || extra.session === false ? false : into.session ?? extra.session,
   };
 }
 
@@ -129,12 +147,12 @@ export function buildAgentInbox({ columns = {}, projects = [], older = [], now =
   for (const row of columns.stuck ?? []) add(fromColumn(row, "stuck"));
   for (const row of columns.done ?? []) add(fromColumn(row, "done"));
   const past = [];
-  for (const row of columns.stuckPast ?? []) past.push({ ...fromColumn(row, "stuck"), pastReason: row.pastReason || "已过去" });
+  for (const row of columns.stuckPast ?? []) past.push({ ...fromColumn(row, "stuck"), past: true, pastReason: row.pastReason || "已过去" });
   for (const row of older.flatMap((project) => project.conversations ?? [])) {
-    if (row.stale && !row.archived) past.push(fromConversation(row));
+    if (row.stale && !row.archived) past.push({ ...fromConversation(row), past: true });
   }
   for (const row of conversations) {
-    if (row.stale) { past.push(fromConversation(row)); continue; }
+    if (row.stale) { past.push({ ...fromConversation(row), past: true }); continue; }
     if (row.status === "done" && time(now) - time(row.updatedAt) > doneWithinMs) continue;
     if (row.status === "done" && row.source === "superagent" && !superagentDone) continue;
     add(fromConversation(row));
