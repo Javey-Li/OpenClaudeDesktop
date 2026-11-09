@@ -41,6 +41,7 @@ import {isModelWorkflow,modelWorkflowRuns,withModelWorkflowRows,workflowTask,wor
 import {SourceBackgroundTasks,taskRowsStore} from "./source-background-tasks.jsx";
 import {backgroundTasks,taskSections} from "./background-tasks-model.mjs";
 import { SourceTasksPane } from "./source-agent.jsx";
+import { SourceBoardPage } from "./source-board-page.jsx";
 import { agentView, subAgentMessageError } from "./agent-model.mjs";
 import { ADD_TO_PROMPT_EVENT, promptAdditions, serializeLineComment } from "./inline-comments.mjs";
 import { paneComposers, relayPanePrompt } from "./popout-r4f-relay.mjs";
@@ -6647,6 +6648,10 @@ function App({ side = 0, initialSession = null }) {
             assistantName={coreName(boot?.core)} searchFiles={searchSideMentionFiles} mentionActions={mentionActions}
             onClose={() => dockPaneWindow({ close: true })}
             windowControls={{ onDock: () => dockPaneWindow(), alwaysOnTop: popoutPinned, onTogglePin: togglePaneWindowPin }} />
+        ) : section === "board" && !PANE_WINDOW ? (
+          <SourceBoardPage load={api ? (options) => call("board", options) : null}
+            capture={api ? (payload) => call("board-capture", payload) : null}
+            onOpenLink={(url) => call("external", { url }).catch(() => {})} />
         ) : (
         <SourceTileLayout layout={displayLayout} onLayoutChange={PANE_WINDOW ? () => {} : changeTileLayout} tiles={tileDefs} hasPane={hasPane} onTileTearOff={PANE_WINDOW ? () => false : tearOffTile} restoreKey={tileOwner} onRestoreLayout={restoreTileLayout} tileHosts={tileStore}
           renderTile={(tileId, tileApi) => tileId === "session" ? (
