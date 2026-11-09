@@ -158,7 +158,7 @@ test('eO scroller inset: 4px start/top inset with matching negative margins and 
 test('New leading slot holds the df-new-circle Add glyph; no other nav row has it', () => {
   const html = render({ current: null, section: 'new' });
   const rows = [...html.matchAll(/<button[^>]*class="source-sidebar-nav-row group"[^>]*>(?:(?!<\/button>).)*<\/button>/gs)].map((match) => match[0]);
-  assert.deepEqual(rows.map((row) => row.match(/<span>([^<]+)<\/span>/)[1]), ['New', 'Projects', 'Artifacts', 'Routines', 'Customize']);
+  assert.deepEqual(rows.map((row) => row.match(/<span>([^<]+)<\/span>/)[1]), ['New', '总看板', 'Projects', 'Artifacts', 'Routines', 'Customize']);
   assert.match(rows[0], /<span class="source-leading-slot df-leading-slot"><span class="df-new-circle flex shrink-0 items-center justify-center rounded-full"><span aria-hidden="true" data-cds="Icon" class="text-secondary group-hover:text-primary group-data-\[selected=focused\]:text-primary" style="font-size:16px;font-weight:533.3">[^<]+<\/span><\/span><\/span><span class="flex min-w-0 flex-1 items-center"><span>New<\/span>/);
   for (const row of rows.slice(1)) {
     assert.doesNotMatch(row, /df-new-circle/);
