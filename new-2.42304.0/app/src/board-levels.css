@@ -170,6 +170,8 @@ html[data-mode="dark"] .psl-page {
 .psl-card-meta > .psl-card-ctx::before { content: none; }
 .psl-line-card .psl-card-meta { flex-wrap: wrap; row-gap: 4px; margin-top: auto; }
 .psl-line-card .psl-card-meta > span { flex: 0 0 auto; overflow: visible; text-overflow: clip; }
+.psl-line-card .psl-card-meta > span + span::before,
+.psl-project-card .psl-card-meta > span + span::before { content: none; }
 .psl-project-card .psl-card-meta { flex-wrap: wrap; row-gap: 4px; margin-top: auto; }
 .psl-project-card .psl-card-meta > span { flex: 0 0 auto; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 
