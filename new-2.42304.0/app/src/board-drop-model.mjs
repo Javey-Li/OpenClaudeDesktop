@@ -7,7 +7,9 @@ export function localInspirationEndpoint(base) {
   try { url = new URL(base); } catch { throw new Error("灵感池地址读不出来。"); }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("灵感池地址必须是 http 或 https。");
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!["127.0.0.1", "localhost", "::1"].includes(host)) throw new Error("灵感池只许发到本机：127.0.0.1、localhost 或 ::1。");
+  if (host === "::1") throw new Error("灵感池目前不支持 ::1，请改用 127.0.0.1。");
+  if (host === "localhost") url.hostname = "127.0.0.1";
+  if (url.hostname !== "127.0.0.1") throw new Error("灵感池只许发到 127.0.0.1；localhost 会自动改成它。");
   if (url.username || url.password) throw new Error("灵感池地址不能带用户名或密码。");
   if (!url.pathname.replace(/\/$/, "").endsWith("/drop")) url.pathname = `${url.pathname.replace(/\/$/, "")}/drop`;
   return url.toString();

@@ -87,10 +87,11 @@ export function parseMorningBrief(markdown, { expectedDate = "" } = {}) {
 export function buildMorningBriefReport(brief, fallback) {
   const date = briefDateLabel(brief?.date);
   if (brief?.status !== "ready") {
-    const notice = brief?.status === "stale" ? `早报是 ${date} 的，不是今天`
+    if (brief?.status === "unconfigured") return { ...fallback, briefDateLabel: "", briefNotice: "", briefTone: "" };
+    const notice = brief?.status === "stale" ? `${date}的早报，不是今天`
       : brief?.status === "error" ? `早报没读好：${text(brief.error) || "格式不认识"}`
-        : `早报是 ${date} 的 · 没有文件`;
-    return { ...fallback, briefDateLabel: "", briefNotice: notice };
+        : "今天还没有早报";
+    return { ...fallback, briefDateLabel: "", briefNotice: notice, briefTone: brief?.status === "missing" ? "quiet" : "alert" };
   }
   const sections = [...brief.sections].sort((left, right) => Number(right.key === "decide") - Number(left.key === "decide"));
   const decide = sections.find((section) => section.key === "decide")?.lines.length ?? 0;
@@ -105,7 +106,8 @@ export function buildMorningBriefReport(brief, fallback) {
     headline,
     sections,
     lines: [],
-    briefDateLabel: `早报是 ${date} 的`,
+    briefDateLabel: `${date}的早报`,
     briefNotice: "",
+    briefTone: "",
   };
 }

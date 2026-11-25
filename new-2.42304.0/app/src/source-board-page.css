@@ -731,6 +731,13 @@ html[data-mode="dark"] .psb-page {
   .psb-columns { gap: 24px; }
   .psb-column-scroll { max-height: 340px; }
 }
+@media (max-width: 1100px) {
+  .psl-capture .psb-capture-form > .psb-capture-icon { display: none; }
+  .psl-capture .psb-capture-form > input:not([type="file"]),
+  .psl-capture .psb-capture-form > .psb-capture-dropzone { order: 1; flex: 1 1 100%; }
+  .psl-capture .psb-capture-form > .psb-capture-destination { order: 2; }
+  .psl-capture .psb-capture-form > button[type="submit"] { order: 3; margin-left: auto; }
+}
 @media (max-width: 880px) {
   .psb-masthead-main { align-items: flex-start; flex-direction: column; gap: 20px; }
   .psb-masthead-actions { padding-bottom: 0; }
@@ -755,7 +762,7 @@ html[data-mode="dark"] .psb-page {
   .psb-report-line { grid-template-columns: 1fr; gap: 4px; }
   .psb-capture-head { flex-direction: column; gap: 14px; }
   .psb-capture-form { flex-wrap: wrap; }
-  .psb-capture-form input { width: calc(100% - 34px); flex-basis: calc(100% - 34px); }
+  .psb-capture-form input:not([type="file"]) { width: 100%; flex-basis: 100%; }
   .psb-capture-form .source-settings-button { margin-left: 30px; }
   .psb-project-head { grid-template-columns: 1fr auto; }
   .psb-project-head > span:first-of-type { display: none; }

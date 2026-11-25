@@ -132,7 +132,7 @@ function CaptureBar({ config, onCapture, onOpenLink }) {
         <span>{image ? image.name : "拖一张图到这里，或点一下选图"}</span>
         <input type="file" accept="image/*" onChange={(event) => { void chooseImage(event.target.files?.[0]); event.target.value = ""; }} />
       </label> : <input ref={inputRef} value={value} onChange={(event) => { setValue(event.target.value); setNotice(null); }}
-        aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴一个链接…" : "比如：S05 第四小节先保留，别折回两拍"} />}
+        aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴链接…" : "写一句想法…"} />}
       {image && <button type="button" className="psb-capture-remove" aria-label="去掉图片" onClick={() => { setImage(null); setNotice(null); }}><X size={13} /></button>}
       <Button variant={canSubmit ? "primary" : "secondary"} size="sm" type="submit" loading={busy} disabled={!canSubmit || busy}>
         {destination === "issue" ? "写 Issue" : "放进灵感池"}
@@ -180,7 +180,7 @@ function Report({ report, sources }) {
       <h2>{report.headline}</h2>
     </div>
     {report.briefDateLabel && <p className="psl-report-stamp">{report.briefDateLabel}</p>}
-    {report.briefNotice && <p className="psl-report-notice">{report.briefNotice}</p>}
+    {report.briefNotice && <p className="psl-report-notice" data-tone={report.briefTone}>{report.briefNotice}</p>}
     {report.sections?.length ? <div className="psl-brief-sections">
       {report.sections.map((section) => <section key={section.key} className="psl-brief-section" data-section={section.key}>
         <h3>{section.title}<span>{section.lines.length}</span></h3>

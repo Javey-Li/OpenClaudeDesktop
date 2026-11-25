@@ -7,6 +7,7 @@ import { buildMorningBriefReport, parseMorningBrief, tokyoDate } from "../src/bo
 import { readBoardBrief } from "../electron/board-brief.mjs";
 import { buildBoardSnapshot } from "../src/board-view-model.mjs";
 import { buildBoardLevels } from "../src/board-levels-model.mjs";
+import { boardCacheCurrent } from "../electron/board-aggregator.mjs";
 
 const date = "2026-11-26";
 const markdown = `# ${date} 早报
@@ -45,7 +46,7 @@ test("decisions render first and the report states the brief date", () => {
   const report = buildMorningBriefReport(parseMorningBrief(markdown, { expectedDate: date }), { headline: "fallback", lines: [] });
   assert.equal(report.sections[0].key, "decide");
   assert.equal(report.headline, "先看 1 件要你定的");
-  assert.equal(report.briefDateLabel, "早报是 11月26日 的");
+  assert.equal(report.briefDateLabel, "11月26日的早报");
 });
 
 test("today's page uses the morning brief report instead of the live rule report", () => {
@@ -57,8 +58,14 @@ test("today's page uses the morning brief report instead of the live rule report
 
 test("missing, stale and malformed briefs keep the fallback report", () => {
   const fallback = { headline: "现在的样子", lines: [{ key: "done" }] };
-  assert.match(buildMorningBriefReport({ status: "missing", date }, fallback).briefNotice, /没有文件/);
-  assert.match(buildMorningBriefReport({ status: "stale", date: "2026-11-25" }, fallback).briefNotice, /不是今天/);
+  const missing = buildMorningBriefReport({ status: "missing", date }, fallback);
+  assert.equal(missing.briefNotice, "今天还没有早报");
+  assert.equal(missing.briefTone, "quiet");
+  const unconfigured = buildMorningBriefReport({ status: "unconfigured", date }, fallback);
+  assert.equal(unconfigured.briefNotice, "");
+  const stale = buildMorningBriefReport({ status: "stale", date: "2026-11-25" }, fallback);
+  assert.match(stale.briefNotice, /不是今天/);
+  assert.equal(stale.briefTone, "alert");
   const malformed = buildMorningBriefReport(parseMorningBrief("# 不是早报", { expectedDate: date }), fallback);
   assert.equal(malformed.headline, "现在的样子");
   assert.match(malformed.briefNotice, /没读好/);
@@ -74,9 +81,17 @@ test("reader uses only BOARD_BRIEF_DIR and today's Tokyo filename", async () => 
     assert.equal(brief.status, "ready");
     let reads = 0;
     const missing = await readBoardBrief({ env: {}, now, readFile: async () => { reads += 1; return markdown; } });
-    assert.equal(missing.status, "missing");
+    assert.equal(missing.status, "unconfigured");
     assert.equal(reads, 0);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test("board cache is invalidated when the Tokyo date changes", () => {
+  const beforeMidnight = Date.parse("2026-11-25T14:59:59.000Z");
+  const afterMidnight = Date.parse("2026-11-25T15:00:01.000Z");
+  const cached = { at: beforeMidnight, date: "2026-11-25", snapshot: { generatedAt: "2026-11-25T23:59:59+09:00" } };
+  assert.equal(boardCacheCurrent(cached, beforeMidnight + 500), true);
+  assert.equal(boardCacheCurrent(cached, afterMidnight), false);
 });

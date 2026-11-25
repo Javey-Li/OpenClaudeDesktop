@@ -70,6 +70,7 @@ test("line card meta shows source, session roles and time without duplicate coun
   assert.doesNotMatch(page, /统计口径：会话数/);
   const css = fs.readFileSync(path.join(app, "src/board-levels.css"), "utf8");
   assert.match(css, /\.psl-line-card \.psl-card-meta > span \{[^}]*overflow: visible/s);
+  assert.match(css, /\.psl-project-card \.psl-card-meta > span \{[^}]*overflow: visible/s);
   assert.match(css, /\.psl-line-card \.psl-card-meta \{[^}]*margin-top: auto/s);
   assert.match(page, /<p className="psl-detail-foot"><span>/);
   assert.match(css, /\.psl-detail-foot > span \{[^}]*margin-inline: auto/s);
@@ -77,4 +78,6 @@ test("line card meta shows source, session roles and time without duplicate coun
   assert.match(page, /放进灵感池/);
   assert.match(page, /report\.sections\?\.length/);
   assert.match(page, /onDrop=/);
+  assert.match(page, /写一句想法…/);
+  assert.match(css, /\.psl-page \.psl-origin \{[^}]*padding-inline: 0/s);
 });

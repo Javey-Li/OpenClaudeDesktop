@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { buildInspirationDraft, localInspirationEndpoint } from "../src/board-drop-model.mjs";
 import { dropToInspiration } from "../electron/board-capture.mjs";
 
-test("inspiration endpoint only allows loopback and appends /drop", () => {
+test("inspiration endpoint normalizes localhost and rejects IPv6", () => {
   assert.equal(localInspirationEndpoint("http://127.0.0.1:8788"), "http://127.0.0.1:8788/drop");
-  assert.equal(localInspirationEndpoint("http://localhost:8788/"), "http://localhost:8788/drop");
-  assert.equal(localInspirationEndpoint("http://[::1]:8788/drop"), "http://[::1]:8788/drop");
-  assert.throws(() => localInspirationEndpoint("https://example.com"), /只许发到本机/);
+  assert.equal(localInspirationEndpoint("http://localhost:8788/"), "http://127.0.0.1:8788/drop");
+  assert.throws(() => localInspirationEndpoint("http://[::1]:8788/drop"), /不支持 ::1/);
+  assert.throws(() => localInspirationEndpoint("https://example.com"), /只许发到 127\.0\.0\.1/);
   assert.throws(() => localInspirationEndpoint(""), /还没配/);
 });
 
-test("notes, links and one image become Cabinet drop payloads", () => {
+test("notes, links and one image become inspiration pool drop payloads", () => {
   assert.deepEqual(buildInspirationDraft({ mode: "note", text: "合成想法" }).payload, { kind: "note", value: "合成想法" });
   assert.deepEqual(buildInspirationDraft({ mode: "link", text: "https://example.com/a" }).payload, { kind: "url", value: "https://example.com/a" });
   const image = buildInspirationDraft({ mode: "image", image: { name: "synthetic.png", type: "image/png", data: "YWJj" } });

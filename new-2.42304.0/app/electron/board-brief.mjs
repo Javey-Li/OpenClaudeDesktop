@@ -7,7 +7,7 @@ const text = (value) => (typeof value === "string" ? value.trim() : "");
 export async function readBoardBrief({ env = process.env, now = new Date(), readFile = (file) => fs.readFile(file, "utf8") } = {}) {
   const date = tokyoDate(now);
   const dir = text(env.BOARD_BRIEF_DIR);
-  if (!dir) return { status: "missing", date, sections: [], error: "" };
+  if (!dir) return { status: "unconfigured", date, sections: [], error: "" };
   try {
     const markdown = await readFile(path.join(dir, `${date}.md`));
     return parseMorningBrief(markdown, { expectedDate: date });
