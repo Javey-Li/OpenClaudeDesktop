@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
 import { buildBoardSnapshot } from "../src/board-view-model.mjs";
 import { buildBoardLevels } from "../src/board-levels-model.mjs";
 import { readT3TicketBindings } from "../electron/board-aggregator.mjs";
@@ -274,6 +275,23 @@ test("the T3 ledger binds a Ticket id to its thread", () => {
   const bindings = readT3TicketBindings(file);
   assert.equal(bindings.get(T3_WORKER)?.ticketId, TICKET_ID);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("a missing PSA_T3_BINDINGS_FILE returns empty without reading a file", () => {
+  const originalReadFileSync = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (...args) => {
+    reads += 1;
+    return originalReadFileSync(...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(readT3TicketBindings().size, 0);
+    assert.equal(reads, 0);
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+    syncBuiltinESMExports();
+  }
 });
 
 test("a Ticket row without a thread is a work item, not a session", () => {

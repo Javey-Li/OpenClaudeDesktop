@@ -447,6 +447,7 @@ function nowIso(now) {
 }
 
 export function readT3TicketBindings(file) {
+  if (!text(file)) return new Map();
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8"));
     const threads = parsed?.threads && typeof parsed.threads === "object" ? parsed.threads : {};
@@ -546,7 +547,7 @@ async function readT3Source({ env, home, now }) {
       conversations: [], columns: { decide: [], done: [], stuck: [] }, total: 0 };
   }
   const rows = groups.flatMap((group) => group.rows.map((row) => ({ ...row, project: group.project })));
-  const bindings = readT3TicketBindings(path.join(home, ".dsh", "state", "superagent-fretsense", "t3-threads.json"));
+  const bindings = readT3TicketBindings(env.PSA_T3_BINDINGS_FILE);
   const conversations = rows.filter((row) => !noiseTitle(row.title)).map((row) => {
     const project = projectFor({ path: text(row.project.workspace_root), title: text(row.project.title) });
     const status = text(row.status);
