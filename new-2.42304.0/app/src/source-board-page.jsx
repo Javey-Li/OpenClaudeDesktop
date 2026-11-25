@@ -5,10 +5,10 @@ import { Button } from "./arc/button/button";
 import SegmentedControl from "./arc/segmented-control/segmented-control";
 import { CAPTURE_PROJECTS, relativeLabel } from "./board-view-model.mjs";
 import { LINE_FILTERS, buildBoardLevels, filterLines, findLine } from "./board-levels-model.mjs";
-import { shortModel } from "./board-telemetry-model.mjs";
+import { sessionRoleLabel } from "./board-work-item-model.mjs";
 import { plainText } from "./board-text-model.mjs";
 import {
-  ContextMap, ContextWindow, FallbackChain, LineMonitor, SOURCE_LABELS, StateChip, StateGlyph, ToolCallGroup,
+  ContextMap, FallbackChain, LineMonitor, SOURCE_LABELS, StateChip, StateGlyph, ToolCallGroup,
 } from "./agent-state-components.jsx";
 import "./source-board-page.css";
 import "./arc-tokens.css";
@@ -135,7 +135,7 @@ function Report({ report, sources }) {
 function ProjectCard({ project, now, onOpen }) {
   const { counts } = project;
   return <button type="button" className="psl-card psl-project-card" data-status={project.status} onClick={onOpen}
-    aria-label={`${project.name}：在跑 ${counts.running}，要你定 ${counts.decide}，卡住 ${counts.stuck}`}>
+    aria-label={`${project.name}：工作项在跑 ${counts.running}，要你定 ${counts.decide}，卡住 ${counts.stuck}；会话 ${counts.sessions}`}>
     <span className="psl-card-top">
       <StateGlyph state={project.status} />
       <span className="psl-card-name">{project.name}</span>
@@ -150,7 +150,7 @@ function ProjectCard({ project, now, onOpen }) {
     <span className="psl-card-last">{project.last?.text || "还没有动静。"}</span>
     <span className="psl-card-meta">
       {project.last && <span>{project.last.line}</span>}
-      <span>会话数 {counts.lines}</span>
+      <span>工作项 {counts.lines} · 会话 {counts.sessions}</span>
       {project.last && <span>{relativeLabel(project.last.at, now)}</span>}
     </span>
   </button>;
@@ -202,7 +202,7 @@ function LineProgress({ progress }) {
 }
 
 function LineCard({ line, now, onOpen }) {
-  const model = line.models?.segments?.find((segment) => segment.current)?.model;
+  const sessionRoles = line.sessionCount > 1 ? sessionRoleLabel(line.sessions) : "";
   return <button type="button" className="psl-card psl-line-card" data-state={line.state} data-past={line.past || undefined} onClick={onOpen}>
     <span className="psl-card-top">
       <StateGlyph state={line.state} />
@@ -213,9 +213,8 @@ function LineCard({ line, now, onOpen }) {
     <span className="psl-card-last">{line.summary}</span>
     <span className="psl-card-meta">
       <span>{SOURCE_LABELS[line.source] ?? line.source}</span>
-      {model && <span>{shortModel(model)}</span>}
-      <span>{line.pastReason || relativeLabel(line.at, now)}</span>
-      {line.context && <span className="psl-card-ctx"><ContextWindow context={line.context} /></span>}
+      {sessionRoles && <span>{sessionRoles}</span>}
+      <span>{relativeLabel(line.at, now)}</span>
     </span>
   </button>;
 }
@@ -231,7 +230,7 @@ function ProjectLevel({ project, now, onGo }) {
       <div className="psl-head-main">
         <div>
           <h1>{project.name}</h1>
-          <p className="psl-head-sub">{[project.note, project.repo].filter(Boolean).join(" · ") || "没有登记仓库"} · 统计口径：会话数</p>
+          <p className="psl-head-sub">{[project.note, project.repo].filter(Boolean).join(" · ") || "没有登记仓库"} · 统计口径：工作项为主 · 会话 {counts.sessions}</p>
         </div>
         <span className="psl-stats psl-stats-head">
           <Stat value={counts.running} label="在跑" tone="running" />
@@ -244,7 +243,7 @@ function ProjectLevel({ project, now, onGo }) {
     <section className="psl-section" aria-labelledby="psl-lines-title">
       <header className="psl-section-head">
         <h2 id="psl-lines-title">每条线</h2>
-        <span>会话数 {lines.length} / {counts.lines} · 最近 3 天</span>
+        <span>工作项 {lines.length} / {counts.lines} · 会话 {counts.sessions} · 最近 3 天</span>
         <SegmentedControl label="按状态筛选" value={filter} onValueChange={setFilter}
           options={LINE_FILTERS.map((entry) => ({ value: entry.id, label: entry.label }))} />
       </header>

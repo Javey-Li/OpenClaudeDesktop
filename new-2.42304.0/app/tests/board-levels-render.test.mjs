@@ -59,9 +59,15 @@ test("context map and fallback chain render real counts, not placeholders", () =
   assert.doesNotMatch(t3, /null 轮/);
 });
 
-test("the visible count copy says 会话数, not work items", () => {
+test("line card meta shows source, session roles and time without duplicate counts", () => {
   const page = fs.readFileSync(path.join(app, "src/source-board-page.jsx"), "utf8");
-  assert.match(page, /会话数/);
-  assert.match(page, /统计口径：会话数/);
-  assert.doesNotMatch(page, /工作项数/);
+  assert.match(page, /工作项 \{counts\.lines\} · 会话 \{counts\.sessions\}/);
+  assert.match(page, /统计口径：工作项为主 · 会话 \{counts\.sessions\}/);
+  assert.match(page, /line\.sessionCount > 1 \? sessionRoleLabel\(line\.sessions\) : ""/);
+  assert.match(page, /\{sessionRoles && <span>\{sessionRoles\}<\/span>\}/);
+  assert.doesNotMatch(page, /会话 \{line\.sessionCount\}/);
+  assert.doesNotMatch(page, /shortModel\(model\)/);
+  assert.doesNotMatch(page, /统计口径：会话数/);
+  const css = fs.readFileSync(path.join(app, "src/board-levels.css"), "utf8");
+  assert.match(css, /\.psl-line-card \.psl-card-meta > span \{[^}]*overflow: visible/s);
 });
