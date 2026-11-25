@@ -162,6 +162,12 @@ function sessionView(item) {
 export function sessionLabel(sessions = []) {
   if (!sessions.length) return "";
   if (sessions.length === 1) return sessions[0].roleLabel || "1 个会话";
+  const roles = sessionRoleLabel(sessions);
+  return `${sessions.length} 个会话${roles ? ` · ${roles}` : ""}`;
+}
+
+export function sessionRoleLabel(sessions = []) {
+  if (sessions.length <= 1) return "";
   const control = sessions.filter((session) => session.role === "control").length;
   const execution = sessions.filter((session) => session.role === "execution").length;
   const unknown = sessions.length - control - execution;
@@ -169,7 +175,7 @@ export function sessionLabel(sessions = []) {
   if (control) parts.push(`控制 ${control}`);
   if (execution) parts.push(`执行 ${execution}`);
   if (unknown) parts.push(`会话 ${unknown}`);
-  return `${sessions.length} 个会话${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
+  return parts.join(" · ");
 }
 
 function withoutGroupFields(item) {

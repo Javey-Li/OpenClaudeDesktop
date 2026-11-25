@@ -7,6 +7,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { buildBoardSnapshot } from "../src/board-view-model.mjs";
 import { buildBoardLevels } from "../src/board-levels-model.mjs";
 import { readT3TicketBindings } from "../electron/board-aggregator.mjs";
+import { sessionRoleLabel } from "../src/board-work-item-model.mjs";
 
 const now = "2026-11-09T04:00:00.000Z";
 const ago = (hours) => new Date(Date.parse(now) - hours * 3_600_000).toISOString();
@@ -116,6 +117,11 @@ test("one Ticket's control and execution sessions count as one work item", () =>
   assert.equal(line.sessionCount, 4);
   assert.equal(line.sessionLabel, "4 个会话 · 控制 2 · 执行 2");
   assert.deepEqual(line.sessions.map((session) => session.role).sort(), ["control", "control", "execution", "execution"]);
+});
+
+test("session role labels omit the total and hide single sessions", () => {
+  assert.equal(sessionRoleLabel([{ role: "execution" }]), "");
+  assert.equal(sessionRoleLabel([{ role: "control" }, { role: "execution" }]), "控制 1 · 执行 1");
 });
 
 test("sessions without a Ticket or registered work-item id stay separate", () => {

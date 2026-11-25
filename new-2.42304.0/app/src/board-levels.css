@@ -121,6 +121,7 @@ html[data-mode="dark"] .psl-page {
 .psl-card-go { margin-left: auto; color: var(--psb-faint); opacity: 0; transform: translateX(-3px); transition: opacity .18s ease, transform .2s cubic-bezier(.22, 1, .36, 1); }
 .psl-card:hover .psl-card-go, .psl-card:focus-visible .psl-card-go { opacity: 1; transform: none; }
 .psl-line-card .psl-card-top .psa-chip { margin-left: auto; }
+.psl-line-card .psl-card-name { overflow: visible; text-overflow: clip; white-space: normal; }
 
 .psl-card-last {
   display: -webkit-box;
@@ -146,6 +147,8 @@ html[data-mode="dark"] .psl-page {
 .psl-card-meta > span + span::before { content: "·"; margin: 0 7px; color: var(--psb-rule); }
 .psl-card-meta > .psl-card-ctx { margin-left: auto; overflow: visible; }
 .psl-card-meta > .psl-card-ctx::before { content: none; }
+.psl-line-card .psl-card-meta { flex-wrap: wrap; row-gap: 4px; }
+.psl-line-card .psl-card-meta > span { flex: 0 0 auto; overflow: visible; text-overflow: clip; }
 
 .psl-line-card[data-past] { opacity: .78; }
 

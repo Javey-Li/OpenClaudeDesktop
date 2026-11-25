@@ -5,10 +5,10 @@ import { Button } from "./arc/button/button";
 import SegmentedControl from "./arc/segmented-control/segmented-control";
 import { CAPTURE_PROJECTS, relativeLabel } from "./board-view-model.mjs";
 import { LINE_FILTERS, buildBoardLevels, filterLines, findLine } from "./board-levels-model.mjs";
-import { shortModel } from "./board-telemetry-model.mjs";
+import { sessionRoleLabel } from "./board-work-item-model.mjs";
 import { plainText } from "./board-text-model.mjs";
 import {
-  ContextMap, ContextWindow, FallbackChain, LineMonitor, SOURCE_LABELS, StateChip, StateGlyph, ToolCallGroup,
+  ContextMap, FallbackChain, LineMonitor, SOURCE_LABELS, StateChip, StateGlyph, ToolCallGroup,
 } from "./agent-state-components.jsx";
 import "./source-board-page.css";
 import "./arc-tokens.css";
@@ -202,7 +202,7 @@ function LineProgress({ progress }) {
 }
 
 function LineCard({ line, now, onOpen }) {
-  const model = line.models?.segments?.find((segment) => segment.current)?.model;
+  const sessionRoles = line.sessionCount > 1 ? sessionRoleLabel(line.sessions) : "";
   return <button type="button" className="psl-card psl-line-card" data-state={line.state} data-past={line.past || undefined} onClick={onOpen}>
     <span className="psl-card-top">
       <StateGlyph state={line.state} />
@@ -213,10 +213,8 @@ function LineCard({ line, now, onOpen }) {
     <span className="psl-card-last">{line.summary}</span>
     <span className="psl-card-meta">
       <span>{SOURCE_LABELS[line.source] ?? line.source}</span>
-      {line.sessionCount > 0 && <span>会话 {line.sessionCount} · {line.sessionLabel}</span>}
-      {model && <span>{shortModel(model)}</span>}
-      <span>{line.pastReason || relativeLabel(line.at, now)}</span>
-      {line.context && <span className="psl-card-ctx"><ContextWindow context={line.context} /></span>}
+      {sessionRoles && <span>{sessionRoles}</span>}
+      <span>{relativeLabel(line.at, now)}</span>
     </span>
   </button>;
 }
