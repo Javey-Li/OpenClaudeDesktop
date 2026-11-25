@@ -100,6 +100,10 @@ function groupProjectLines(items, now) {
   const byProject = new Map();
   for (const item of grouped) {
     const line = toLine(item, !!item.past);
+    line.sessions = item.sessions ?? [];
+    line.sessionCount = item.sessionCount ?? 0;
+    line.sessionLabel = item.sessionLabel ?? "";
+    line.workItemKey = item.workItemKey ?? null;
     const id = line.projectId || "other";
     if (!byProject.has(id)) byProject.set(id, { id, name: line.project || "其他", lines: [], past: [] });
     const project = byProject.get(id);

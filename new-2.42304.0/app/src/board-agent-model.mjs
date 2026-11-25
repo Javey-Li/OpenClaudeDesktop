@@ -97,7 +97,7 @@ function fromColumn(row, state) {
     workItemId: row.workItemId,
     parentThreadId: row.parentThreadId,
     workItemRole: row.workItemRole,
-    session: row.session !== false,
+    session: row.session === false ? false : undefined,
     context: null,
     models: null,
     tools: [],

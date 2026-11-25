@@ -10,18 +10,12 @@ import { readT3TicketBindings } from "../electron/board-aggregator.mjs";
 const now = "2026-11-09T04:00:00.000Z";
 const ago = (hours) => new Date(Date.parse(now) - hours * 3_600_000).toISOString();
 
-// Real fixture values, copied from this machine on 2026-11-09:
-// - superagent ticket bc6ac72e... had control threads github:122 and github:123;
-// - ~/.dsh/state/superagent-fretsense/t3-threads.json bound the same ticket to
-//   mcp:launch:6a52d624...;
-// - that T3 thread left a Codex provider session 01a1b613-a508-7... in
-//   ~/.codex/sessions/2026/11/07.
-// Only the titles are shortened; ids and relations are unchanged.
-const TICKET_122_123 = "bc6ac72e0835fbb985fb46f98e83c0d8";
-const T3_WORKER = "mcp:launch:6a52d62498f80c1bb1ec2bc2f09d8ac72d86a34e831938eb815dfbbe0e6586e3";
-const CODEX_EXECUTOR = "01a1b613-a508-7183-a5c3-890ad5827a87";
-const CODEX_CHILD = "01a1a4a7-be18-7f33-bf80-eeba0be86091";
-const CODEX_CONTROL = "01a1a0ab-0efe-7b42-8193-24b2d48391df";
+// Synthetic fixture values. Only the relations matter to these tests.
+const TICKET_ID = "11111111111111111111111111111111";
+const T3_WORKER = "mcp:launch:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const CODEX_EXECUTOR = "11111111-1111-4111-8111-111111111111";
+const CODEX_CHILD = "22222222-2222-4222-8222-222222222222";
+const CODEX_CONTROL = "33333333-3333-4333-8333-333333333333";
 
 const empty = { decide: [], done: [], stuck: [] };
 
@@ -29,14 +23,14 @@ function superagentControl(fields = {}) {
   return {
     ok: true, total: 2,
     conversations: [
-      { id: "superagent:github:122", threadId: "github:122", ticketId: TICKET_122_123,
-        ticketTitle: "在 docs/README.md 治理来源列表补充 AGENTS.md 与 AGENT_STARTUP.md 两项",
+      { id: "superagent:github:101", threadId: "github:101", ticketId: TICKET_ID,
+        ticketTitle: "Synthetic governance Ticket",
         workItemRole: "control", projectId: "fretsense", project: "FretSense",
-        title: "#122 docs: 治理来源", source: "superagent", status: "done", updatedAt: ago(20), preview: "已合并", ...fields },
-      { id: "superagent:github:123", threadId: "github:123", ticketId: TICKET_122_123,
-        ticketTitle: "在 docs/README.md 治理来源列表补充 AGENTS.md 与 AGENT_STARTUP.md 两项",
+        title: "#101 docs: synthetic", source: "superagent", status: "done", updatedAt: ago(20), preview: "已合并", ...fields },
+      { id: "superagent:github:102", threadId: "github:102", ticketId: TICKET_ID,
+        ticketTitle: "Synthetic governance Ticket",
         workItemRole: "control", projectId: "fretsense", project: "FretSense",
-        title: "#123 docs: 治理来源", source: "superagent", status: "done", updatedAt: ago(19), preview: "已合并", ...fields },
+        title: "#102 docs: synthetic", source: "superagent", status: "done", updatedAt: ago(19), preview: "已合并", ...fields },
     ],
     columns: empty,
   };
@@ -46,8 +40,8 @@ function t3Worker(fields = {}) {
   return {
     ok: true, total: 1,
     conversations: [{
-      id: `t3:${T3_WORKER}`, threadId: T3_WORKER, ticketId: TICKET_122_123, workItemRole: "execution",
-      projectId: "fretsense", project: "FretSense", title: "docs: 治理来源",
+      id: `t3:${T3_WORKER}`, threadId: T3_WORKER, ticketId: TICKET_ID, workItemRole: "execution",
+      projectId: "fretsense", project: "FretSense", title: "docs: synthetic",
       source: "t3", status: "running", updatedAt: ago(1), preview: "FretSense · running", ...fields,
     }],
     columns: empty,
@@ -58,10 +52,10 @@ function codexExecutor() {
   return {
     ok: true, total: 1,
     conversations: [{
-      id: `codex:${CODEX_EXECUTOR}`, threadId: CODEX_EXECUTOR, ticketId: TICKET_122_123,
+      id: `codex:${CODEX_EXECUTOR}`, threadId: CODEX_EXECUTOR, ticketId: TICKET_ID,
       workItemRole: "execution", projectId: "fretsense", project: "FretSense",
       title: "Context handoff (full_thread_summary):", source: "codex", status: "done",
-      updatedAt: ago(2), preview: "PR #123 的合并与落地内容已核验。",
+      updatedAt: ago(2), preview: "Synthetic PR merged.",
     }],
     columns: empty,
   };
@@ -79,7 +73,7 @@ test("one Ticket's control and execution sessions count as one work item", () =>
   assert.equal(fretsense.sessionCounts.running, 1);
   assert.equal(fretsense.sessionCounts.done, 3);
   const line = fretsense.lines[0];
-  assert.equal(line.workItemKey, `fretsense:ticket:${TICKET_122_123}`);
+  assert.equal(line.workItemKey, `fretsense:ticket:${TICKET_ID}`);
   assert.equal(line.sessionCount, 4);
   assert.equal(line.sessionLabel, "4 个会话 · 控制 2 · 执行 2");
   assert.deepEqual(line.sessions.map((session) => session.role).sort(), ["control", "control", "execution", "execution"]);
@@ -114,7 +108,7 @@ test("sessions without a Ticket or registered work-item id stay separate", () =>
   assert.equal(fretsense.lines.every((line) => line.sessionCount === 1), true);
 });
 
-test("a real Codex parent/child lineage is one work item with control and execution", () => {
+test("a Codex parent/child lineage is one work item with control and execution", () => {
   const snapshot = buildBoardSnapshot({
     now,
     sources: {
@@ -191,9 +185,9 @@ test("the same Ticket in two projects stays two work items", () => {
       codex: {
         ok: true, total: 2,
         conversations: [
-          { id: "codex:a", threadId: "a", ticketId: TICKET_122_123, projectId: "fretsense", project: "FretSense",
+          { id: "codex:a", threadId: "a", ticketId: TICKET_ID, projectId: "fretsense", project: "FretSense",
             title: "同一工单 · FretSense", source: "codex", status: "running", updatedAt: ago(1), preview: "…" },
-          { id: "codex:b", threadId: "b", ticketId: TICKET_122_123, projectId: "personal-super-agent", project: "personal-super-agent",
+          { id: "codex:b", threadId: "b", ticketId: TICKET_ID, projectId: "personal-super-agent", project: "personal-super-agent",
             title: "同一工单 · PSA", source: "codex", status: "running", updatedAt: ago(1), preview: "…" },
         ],
         columns: empty,
@@ -215,7 +209,7 @@ test("a newer done control session does not hide an older running execution", ()
       superagent: superagentControl({ updatedAt: ago(1) }),
       codex: {
         ok: true, total: 1,
-        conversations: [{ id: "codex:running", threadId: "running", ticketId: TICKET_122_123, workItemRole: "execution",
+        conversations: [{ id: "codex:running", threadId: "running", ticketId: TICKET_ID, workItemRole: "execution",
           projectId: "fretsense", project: "FretSense", title: "执行会话", source: "codex",
           status: "running", updatedAt: ago(2), preview: "还在跑" }],
         columns: empty,
@@ -239,7 +233,7 @@ test("a newer done control session does not hide an older stuck execution", () =
       superagent: superagentControl({ updatedAt: ago(1) }),
       codex: {
         ok: true, total: 1,
-        conversations: [{ id: "codex:stuck", threadId: "stuck", ticketId: TICKET_122_123, workItemRole: "execution",
+        conversations: [{ id: "codex:stuck", threadId: "stuck", ticketId: TICKET_ID, workItemRole: "execution",
           projectId: "fretsense", project: "FretSense", title: "执行会话", source: "codex",
           status: "stuck", updatedAt: ago(2), preview: "卡住了" }],
         columns: empty,
@@ -265,19 +259,42 @@ test("a work item with only done members stays done", () => {
   assert.equal(fretsense.lines[0].state, "done");
 });
 
-test("the T3 ledger binds a real Ticket id to its thread", () => {
+test("the T3 ledger binds a Ticket id to its thread", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "psa-r67-"));
   const file = path.join(dir, "t3-threads.json");
   fs.writeFileSync(file, JSON.stringify({
     version: 1,
     threads: {
-      [TICKET_122_123]: {
+      [TICKET_ID]: {
         threadId: T3_WORKER,
-        project: "/Users/javeyli/Projects/FretSense",
+        project: "/tmp/projects/fretsense",
       },
     },
   }));
   const bindings = readT3TicketBindings(file);
-  assert.equal(bindings.get(T3_WORKER)?.ticketId, TICKET_122_123);
+  assert.equal(bindings.get(T3_WORKER)?.ticketId, TICKET_ID);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("a Ticket row without a thread is a work item, not a session", () => {
+  const snapshot = buildBoardSnapshot({
+    now,
+    sources: {
+      superagent: {
+        ok: true, total: 0,
+        conversations: [],
+        columns: {
+          decide: [{ id: "superagent-decide:open", ticketId: TICKET_ID, projectId: "fretsense",
+            project: "FretSense", title: "Open Ticket", kind: "工单", at: ago(1) }],
+          done: [{ id: "superagent-done:done", ticketId: "22222222222222222222222222222222", projectId: "fretsense",
+            project: "FretSense", title: "Done Ticket", kind: "工单", at: ago(2) }],
+          stuck: [],
+        },
+      },
+    },
+  });
+  const fretsense = buildBoardLevels(snapshot).projects.find((project) => project.id === "fretsense");
+  assert.equal(fretsense.counts.lines, 2);
+  assert.equal(fretsense.counts.sessions, 0);
+  assert.equal(fretsense.lines.every((line) => line.sessionCount === 0), true);
 });
