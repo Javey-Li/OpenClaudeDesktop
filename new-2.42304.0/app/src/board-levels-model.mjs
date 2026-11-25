@@ -124,10 +124,7 @@ export function buildBoardLevels(snapshot = {}) {
     doneLimit: Infinity,
     superagentDone: true,
   });
-  const projectRows = groupProjectLines([
-    ...assignWorkItemKeys(inbox.items),
-    ...assignWorkItemKeys(inbox.past),
-  ], now);
+  const projectRows = groupProjectLines(assignWorkItemKeys([...inbox.items, ...inbox.past]), now);
 
   const meta = new Map((snapshot.projects ?? []).map((project) => [project.id, project]));
   const projects = projectRows.map((project) => {

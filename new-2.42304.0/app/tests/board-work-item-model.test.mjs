@@ -62,6 +62,44 @@ function codexExecutor() {
   };
 }
 
+function lineageAcrossBuckets({ parentPast, withTicket }) {
+  const parent = {
+    threadId: "parent",
+    ticketId: withTicket ? TICKET_ID : undefined,
+    title: "Synthetic parent session",
+    workItemRole: "control",
+  };
+  const child = {
+    threadId: "child",
+    parentThreadId: "parent",
+    title: "Synthetic child session",
+    workItemRole: "execution",
+  };
+  const live = parentPast ? child : parent;
+  const past = parentPast ? parent : child;
+  return buildBoardSnapshot({
+    now,
+    sources: {
+      codex: {
+        ok: true, total: 2,
+        conversations: [{
+          id: `codex:${live.threadId}`, ...live,
+          projectId: "fretsense", project: "FretSense", source: "codex",
+          status: "running", updatedAt: ago(1), preview: "Synthetic live session",
+        }],
+        columns: {
+          decide: [], done: [],
+          stuck: [{
+            id: `codex-stuck:${past.threadId}`, ...past,
+            projectId: "fretsense", project: "FretSense", title: past.title,
+            detail: "Synthetic interrupted session", kind: "会话", who: "Codex", at: ago(96),
+          }],
+        },
+      },
+    },
+  });
+}
+
 test("one Ticket's control and execution sessions count as one work item", () => {
   const snapshot = buildBoardSnapshot({
     now,
@@ -316,3 +354,20 @@ test("a Ticket row without a thread is a work item, not a session", () => {
   assert.equal(fretsense.counts.sessions, 0);
   assert.equal(fretsense.lines.every((line) => line.sessionCount === 0), true);
 });
+
+for (const [name, parentPast, withTicket] of [
+  ["parent in items and child in past share a Ticket", false, true],
+  ["parent in items and child in past group by lineage", false, false],
+  ["parent in past and child in items share a Ticket", true, true],
+  ["parent in past and child in items group by lineage", true, false],
+]) {
+  test(name, () => {
+    const snapshot = lineageAcrossBuckets({ parentPast, withTicket });
+    const fretsense = buildBoardLevels(snapshot).projects.find((project) => project.id === "fretsense");
+    const lines = [...fretsense.lines, ...fretsense.past];
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].sessionCount, 2);
+    assert.deepEqual(lines[0].sessions.map((session) => session.role).sort(), ["control", "execution"]);
+    assert.equal(lines[0].workItemKey, withTicket ? `fretsense:ticket:${TICKET_ID}` : "fretsense:lineage:parent");
+  });
+}
