@@ -9,6 +9,7 @@ import { cleanBoardTitle, leadingRef, settledLabel, splitStuck, staleConversatio
 import { threadKey } from "./board-agent-model.mjs";
 import { firstSentence, plainText } from "./board-text-model.mjs";
 import { assignWorkItemKeys } from "./board-work-item-model.mjs";
+import { buildMorningBriefReport, tokyoDate } from "./board-morning-brief.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -345,7 +346,7 @@ export function buildRuleReport(snapshot) {
   const sourceText = disconnected.length
     ? `${disconnected.map((source) => source.label).join("、")} 没连上；其余按连上的数据算。`
     : `${connected} 个来源都连上了。`;
-  return {
+  const fallback = {
     generatedAt: snapshot.generatedAt,
     cadence: "按当前数据即时拼出",
     source: "规则简报",
@@ -359,9 +360,10 @@ export function buildRuleReport(snapshot) {
       { key: "sources", label: "数据来源", text: sourceText },
     ],
   };
+  return buildMorningBriefReport(snapshot.brief, fallback);
 }
 
-export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString() } = {}) {
+export function buildBoardSnapshot({ sources = {}, brief, capture, now = new Date().toISOString() } = {}) {
   const conversationRows = [];
   const columnRows = { decide: [], done: [], stuck: [] };
   for (const source of BOARD_SOURCES.map((entry) => entry.id)) {
@@ -414,16 +416,18 @@ export function buildBoardSnapshot({ sources = {}, now = new Date().toISOString(
     projects,
     older: { count: older.length, archived: older.filter((row) => row.archived).length, projects: mergeProjects(older) },
     sources: sourceRows(sources),
-    capture: captureConfig(),
+    brief: brief ?? { status: "missing", date: tokyoDate(new Date(now)), sections: [], error: "" },
+    capture: captureConfig(capture),
     totals: boardTotals({ projects }),
   };
   snapshot.report = buildRuleReport(snapshot);
   return snapshot;
 }
 
-export function captureConfig() {
+export function captureConfig({ inspirationConfigured = false } = {}) {
   return {
-    hint: "一句话和链接都会写成所选项目的 GitHub Issue。",
+    hint: "灵感池收一句话、链接和一张图；也可以改投 GitHub Issue。",
+    inspirationConfigured,
   };
 }
 

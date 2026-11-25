@@ -167,7 +167,13 @@ export function buildBoardLevels(snapshot = {}) {
     return PROJECT_RANK[a.status] - PROJECT_RANK[b.status] || time(b.updatedAt) - time(a.updatedAt) || a.name.localeCompare(b.name);
   });
 
-  return { projects, report: buildLevelReport(projects), now };
+  const fallback = buildLevelReport(projects);
+  const report = snapshot.report?.sections?.length ? snapshot.report : {
+    ...fallback,
+    briefDateLabel: snapshot.report?.briefDateLabel || "",
+    briefNotice: snapshot.report?.briefNotice || "",
+  };
+  return { projects, report, now };
 }
 
 const clip = (value, limit = 24) => (value.length > limit ? `${value.slice(0, limit - 1)}…` : value);

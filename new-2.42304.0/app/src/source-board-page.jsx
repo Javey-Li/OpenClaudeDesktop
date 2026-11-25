@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Link, MessageCircle } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Image as ImageIcon, Link, MessageCircle, X } from "lucide-react";
 import { SourceSettingsButton } from "./source-settings-button.jsx";
 import { Button } from "./arc/button/button";
 import SegmentedControl from "./arc/segmented-control/segmented-control";
@@ -18,6 +18,7 @@ import "./board-levels.css";
 const CAPTURE_MODES = [
   { id: "note", label: "一句话" },
   { id: "link", label: "一个链接" },
+  { id: "image", label: "一张图" },
 ];
 
 const defaultLoad = async () => ({ ok: false, error: "看板只在 Electron 桌面版里读真数据。" });
@@ -34,55 +35,112 @@ function timeLabel(iso) {
   return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(new Error("图片没读好，请重新选。"));
+    reader.readAsDataURL(file);
+  });
+}
+
 function CaptureBar({ config, onCapture, onOpenLink }) {
   const [mode, setMode] = useState("note");
+  const [destination, setDestination] = useState("inspiration");
   const [projectId, setProjectId] = useState("");
   const [value, setValue] = useState("");
+  const [image, setImage] = useState(null);
+  const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
+  const chooseImage = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setNotice({ ok: false, status: "error", text: "一次只收一张图片。" }); return; }
+    if (file.size > 16 * 1024 * 1024) { setNotice({ ok: false, status: "error", text: "图片不能超过 16 MB。" }); return; }
+    try {
+      const data = await readImageFile(file);
+      setImage({ name: file.name, type: file.type, data });
+      setMode("image");
+      setDestination("inspiration");
+      setNotice(null);
+    } catch (error) {
+      setNotice({ ok: false, status: "error", text: error.message });
+    }
+  };
   const submit = async (event) => {
     event.preventDefault();
-    if (!projectId) { setNotice({ ok: false, text: "先选项目。" }); return; }
-    if (!value.trim()) { setNotice({ ok: false, text: "先写点什么。" }); return; }
+    if (destination === "issue" && !projectId) { setNotice({ ok: false, status: "error", text: "先选项目。" }); return; }
+    if (destination === "issue" && mode === "image") { setNotice({ ok: false, status: "error", text: "Issue 去处只收一句话或链接。" }); return; }
+    if (mode === "image" && !image) { setNotice({ ok: false, status: "error", text: "先拖一张图片进来。" }); return; }
+    if (mode !== "image" && !value.trim()) { setNotice({ ok: false, status: "error", text: "先写点什么。" }); return; }
     setBusy(true);
     setNotice(null);
     try {
-      const result = await onCapture?.({ mode, projectId, text: value });
-      if (!result?.ok) throw new Error(result?.error || "Issue 没写成。");
-      setNotice({ ok: true, text: `已开 Issue · ${result.repo}`, href: result.url });
+      const result = await onCapture?.({ destination, mode, projectId, text: value, image });
+      if (!result?.ok) throw new Error(result?.error || "投放入口没接上。");
+      setNotice({ ok: true, status: result.status || "created", text: result.message || `已开 Issue · ${result.repo}`, href: result.url });
       setValue("");
+      setImage(null);
       inputRef.current?.focus();
     } catch (error) {
-      setNotice({ ok: false, text: error?.message || "Issue 没写成。" });
+      setNotice({ ok: false, status: "offline", text: error?.message || "投放没成功，内容还在。" });
     } finally {
       setBusy(false);
     }
   };
-  return <section className="psb-capture psl-capture" aria-label="往看板丢一件事">
+  const modes = destination === "issue" ? CAPTURE_MODES.filter((entry) => entry.id !== "image") : CAPTURE_MODES;
+  const canSubmit = mode === "image" ? !!image : !!value.trim() && (destination === "inspiration" || !!projectId);
+  return <section className="psb-capture psl-capture" aria-label="往看板丢一件事" data-dragging={dragging || undefined}
+    onDragOver={(event) => { if ([...event.dataTransfer.types].includes("Files")) { event.preventDefault(); setDragging(true); } }}
+    onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+    onDrop={(event) => {
+      event.preventDefault();
+      setDragging(false);
+      const files = [...event.dataTransfer.files];
+      if (files.length > 1) { setNotice({ ok: false, status: "error", text: "一次只收一张图片。" }); return; }
+      void chooseImage(files[0]);
+    }}>
     <div className="psb-capture-head">
       <span className="psb-eyebrow">丢东西进来</span>
       <div className="psb-capture-modes">
-        <SegmentedControl label="丢进来的类型" value={mode} options={CAPTURE_MODES.map((entry) => ({ value: entry.id, label: entry.label }))}
-          onValueChange={(next) => { setMode(next); setNotice(null); inputRef.current?.focus(); }} />
+        <SegmentedControl label="丢进来的类型" value={mode} options={modes.map((entry) => ({ value: entry.id, label: entry.label }))}
+          onValueChange={(next) => { setMode(next); if (next !== "image") setImage(null); setNotice(null); inputRef.current?.focus(); }} />
       </div>
     </div>
     <form className="psb-capture-form" onSubmit={submit}>
-      {mode === "link" ? <Link size={18} className="psb-capture-icon" /> : <MessageCircle size={18} className="psb-capture-icon" />}
-      <select className="psb-capture-project" value={projectId} aria-label="选项目"
+      {mode === "image" ? <ImageIcon size={18} className="psb-capture-icon" /> : mode === "link" ? <Link size={18} className="psb-capture-icon" /> : <MessageCircle size={18} className="psb-capture-icon" />}
+      <select className="psb-capture-destination" value={destination} aria-label="去处"
+        onChange={(event) => {
+          const next = event.target.value;
+          setDestination(next);
+          if (next === "issue" && mode === "image") { setMode("note"); setImage(null); }
+          setNotice(null);
+        }}>
+        <option value="inspiration">灵感池</option>
+        <option value="issue">GitHub Issue</option>
+      </select>
+      {destination === "issue" && <select className="psb-capture-project" value={projectId} aria-label="选项目"
         onChange={(event) => { setProjectId(event.target.value); setNotice(null); }}>
         <option value="">先选项目</option>
         {CAPTURE_PROJECTS.map((project) => <option key={project.id} value={project.id} disabled={!project.repo}>
           {project.name}{project.repo ? "" : "（没有仓库）"}
         </option>)}
-      </select>
-      <input ref={inputRef} value={value} onChange={(event) => { setValue(event.target.value); setNotice(null); }}
-        aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴一个链接…" : "比如：S05 第四小节先保留，别折回两拍"} />
-      <Button variant={value.trim() && projectId ? "primary" : "secondary"} size="sm" type="submit" loading={busy} disabled={!value.trim() || !projectId}>写 Issue</Button>
+      </select>}
+      {mode === "image" ? <label className="psb-capture-dropzone">
+        <ImageIcon size={16} />
+        <span>{image ? image.name : "拖一张图到这里，或点一下选图"}</span>
+        <input type="file" accept="image/*" onChange={(event) => { void chooseImage(event.target.files?.[0]); event.target.value = ""; }} />
+      </label> : <input ref={inputRef} value={value} onChange={(event) => { setValue(event.target.value); setNotice(null); }}
+        aria-label={mode === "link" ? "链接" : "一句话"} placeholder={mode === "link" ? "粘贴链接…" : "写一句想法…"} />}
+      {image && <button type="button" className="psb-capture-remove" aria-label="去掉图片" onClick={() => { setImage(null); setNotice(null); }}><X size={13} /></button>}
+      <Button variant={canSubmit ? "primary" : "secondary"} size="sm" type="submit" loading={busy} disabled={!canSubmit || busy}>
+        {destination === "issue" ? "写 Issue" : "放进灵感池"}
+      </Button>
     </form>
     <div className="psb-capture-foot" aria-live="polite">
       <span>{config?.hint}</span>
-      {notice && <span className="psb-capture-notice" data-ok={notice.ok || undefined}>
+      {notice && <span className="psb-capture-notice" data-ok={notice.ok || undefined} data-status={notice.status}>
         {notice.ok ? <Check size={14} /> : <CircleAlert size={14} />}
         {notice.text}
         {notice.href && <button type="button" className="psb-issue-link" onClick={() => onOpenLink?.(notice.href)}>打开 Issue</button>}
@@ -121,11 +179,20 @@ function Report({ report, sources }) {
       <span className="psb-eyebrow">汇报</span>
       <h2>{report.headline}</h2>
     </div>
-    <dl className="psl-report-lines">
+    {report.briefDateLabel && <p className="psl-report-stamp">{report.briefDateLabel}</p>}
+    {report.briefNotice && <p className="psl-report-notice" data-tone={report.briefTone}>{report.briefNotice}</p>}
+    {report.sections?.length ? <div className="psl-brief-sections">
+      {report.sections.map((section) => <section key={section.key} className="psl-brief-section" data-section={section.key}>
+        <h3>{section.title}<span>{section.lines.length}</span></h3>
+        {section.lines.length ? <ul>{section.lines.map((line, index) => <li key={`${line.text}:${index}`}>
+          <StateGlyph state={line.state} size={13} /><span>{line.text}</span>
+        </li>)}</ul> : <p>没有</p>}
+      </section>)}
+    </div> : <dl className="psl-report-lines">
       {report.lines.map((line) => <div key={line.key} data-key={line.key}>
         <dt>{line.label}</dt><dd>{line.text}</dd>
       </div>)}
-    </dl>
+    </dl>}
     <p className="psl-report-sources" data-down={down.length || undefined}>
       {down.length ? `${down.map((source) => source.label).join("、")} 没连上，其余按连上的算。` : `${sources.length} 个来源都连上了：${sources.map((source) => source.label).join(" · ")}`}
     </p>
@@ -318,7 +385,7 @@ function LineLevel({ project, line, now, onGo, onOpenLink }) {
         <div><h2 className="psl-detail-title">模型回退链</h2><FallbackChain models={line.models} /></div>
       </section>
     </>}
-    <p className="psl-detail-foot">只读 · 批准、重试要回真实会话（左侧列表或 ⌘K）</p>
+    <p className="psl-detail-foot"><span>只读 · 批准、重试要回真实会话（左侧列表或 ⌘K）</span></p>
   </>;
 }
 
