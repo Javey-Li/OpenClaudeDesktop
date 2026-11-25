@@ -318,7 +318,7 @@ function LineLevel({ project, line, now, onGo, onOpenLink }) {
         <div><h2 className="psl-detail-title">模型回退链</h2><FallbackChain models={line.models} /></div>
       </section>
     </>}
-    <p className="psl-detail-foot">只读 · 批准、重试要回真实会话（左侧列表或 ⌘K）</p>
+    <p className="psl-detail-foot"><span>只读 · 批准、重试要回真实会话（左侧列表或 ⌘K）</span></p>
   </>;
 }
 
