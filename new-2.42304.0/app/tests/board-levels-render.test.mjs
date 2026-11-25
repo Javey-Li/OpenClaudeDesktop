@@ -73,4 +73,8 @@ test("line card meta shows source, session roles and time without duplicate coun
   assert.match(css, /\.psl-line-card \.psl-card-meta \{[^}]*margin-top: auto/s);
   assert.match(page, /<p className="psl-detail-foot"><span>/);
   assert.match(css, /\.psl-detail-foot > span \{[^}]*margin-inline: auto/s);
+  assert.match(page, /useState\("inspiration"\)/);
+  assert.match(page, /放进灵感池/);
+  assert.match(page, /report\.sections\?\.length/);
+  assert.match(page, /onDrop=/);
 });

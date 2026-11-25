@@ -308,6 +308,45 @@ html[data-mode="dark"] .psb-page {
   font-size: 11px;
   line-height: 1.5;
 }
+.psb-capture-destination {
+  flex: 0 0 auto;
+  max-width: 110px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--psb-ink);
+  font-family: var(--psb-sans);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.psb-capture-dropzone {
+  display: inline-flex;
+  flex: 1 1 220px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--psb-rule);
+  border-radius: 8px;
+  color: var(--psb-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.psb-capture-dropzone span { min-width: 0; overflow-wrap: anywhere; }
+.psb-capture-dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.psb-capture[data-dragging] .psb-capture-dropzone { border-color: var(--psb-ochre); background: color-mix(in srgb, var(--psb-ochre) 8%, transparent); }
+.psb-capture-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px !important;
+  color: var(--psb-faint) !important;
+}
+.psb-capture-remove:hover { background: var(--psa-chip-bg); color: var(--psb-ink) !important; }
 .psb-capture-form input {
   flex: 1 1 auto;
   min-width: 0;
@@ -338,6 +377,8 @@ html[data-mode="dark"] .psb-page {
   color: var(--psb-rust);
 }
 .psb-capture-notice[data-ok] { color: var(--psb-sage); }
+.psb-capture-notice[data-status="duplicate"] { color: var(--psb-ochre); }
+.psb-capture-notice[data-status="offline"] { color: var(--psb-rust); }
 .psb-issue-link {
   margin-left: 4px !important;
   color: var(--psb-sage) !important;

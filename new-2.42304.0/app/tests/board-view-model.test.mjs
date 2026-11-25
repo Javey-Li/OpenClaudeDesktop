@@ -4,6 +4,7 @@ import {
   boardTotals,
   buildBoardSnapshot,
   buildIssueDraft,
+  captureConfig,
   buildRuleReport,
   classifyLine,
   conversationSources,
@@ -91,6 +92,13 @@ test("no connected source stays empty and says which sources are down", () => {
   assert.equal(snapshot.projects.length, 0);
   assert.equal(snapshot.sources.every((source) => source.status === "disconnected"), true);
   assert.match(snapshot.report.lines[4].text, /Codex、Superagent、T3 没连上/);
+});
+
+test("capture defaults to the inspiration pool and keeps Issue available", () => {
+  const config = captureConfig({ inspirationConfigured: true });
+  assert.equal(config.inspirationConfigured, true);
+  assert.match(config.hint, /灵感池/);
+  assert.match(config.hint, /GitHub Issue/);
 });
 
 test("conversations stay grouped per project, newest first", () => {

@@ -17,6 +17,7 @@ import { promisify } from "node:util";
 import { buildBoardSnapshot, projectFor } from "../src/board-view-model.mjs";
 import { settledLabel } from "../src/board-stuck-model.mjs";
 import { extractCodexTelemetry } from "../src/board-telemetry-model.mjs";
+import { readBoardBrief } from "./board-brief.mjs";
 
 const execFileAsync = promisify(execFile);
 const DAY = 24 * 60 * 60 * 1000;
@@ -642,10 +643,11 @@ export async function readBoardSnapshot({ env = process.env, force = false } = {
     return { ok: true, snapshot: cache.snapshot, cached: true };
   }
   const home = os.homedir();
-  const [codex, superagent, t3] = await Promise.allSettled([
+  const [codex, superagent, t3, brief] = await Promise.allSettled([
     readCodexSource({ home, now }),
     readSuperagentSource({ env, now }),
     readT3Source({ env, home, now }),
+    readBoardBrief({ env, now: new Date(now) }),
   ]);
   const settled = (result, label) => result.status === "fulfilled" ? result.value
     : { ok: false, error: `${label} 没回话：${result.reason?.message || result.reason}`, conversations: [], columns: { decide: [], done: [], stuck: [] }, total: 0 };
@@ -656,6 +658,8 @@ export async function readBoardSnapshot({ env = process.env, force = false } = {
       superagent: settled(superagent, "Superagent"),
       t3: settled(t3, "T3"),
     },
+    brief: settled(brief, "早报"),
+    capture: { inspirationConfigured: !!env.INSPIRATION_POOL_URL },
   });
   cache = { at: now, snapshot };
   return { ok: true, snapshot };

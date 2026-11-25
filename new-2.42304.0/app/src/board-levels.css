@@ -63,10 +63,30 @@ html[data-mode="dark"] .psl-page {
 .psl-report-lines div[data-key="decide"] dd { color: var(--psb-ink); }
 .psl-report-sources { margin-top: 14px !important; color: var(--psb-faint); font-size: 11px; }
 .psl-report-sources[data-down] { color: var(--psb-rust); }
+.psl-report-stamp { margin: 10px 0 0 !important; color: var(--psb-faint); font-size: 11px; }
+.psl-report-notice { margin: 10px 0 0 !important; color: var(--psb-rust); font-size: 12px; line-height: 1.6; }
+.psl-brief-sections { display: grid; gap: 18px; margin-top: 18px; }
+.psl-brief-section { min-width: 0; }
+.psl-brief-section h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px !important;
+  color: var(--psb-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.psl-brief-section h3 span { color: var(--psb-faint); font-size: 10.5px; font-weight: 400; }
+.psl-brief-section ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.psl-brief-section li { display: grid; grid-template-columns: 13px minmax(0, 1fr); gap: 8px; align-items: start; color: var(--psb-muted); font-size: 12.5px; line-height: 1.65; }
+.psl-brief-section li .psa-glyph { margin-top: 4px; }
+.psl-brief-section li span { min-width: 0; overflow-wrap: anywhere; }
+.psl-brief-section > p { margin: 0 !important; color: var(--psb-faint); font-size: 12px; }
 
 .psl-capture { padding: 0 !important; border: 0 !important; }
 .psl-capture .psb-capture-head { align-items: center; }
-.psl-capture .psb-capture-form { margin-top: 14px; }
+.psl-capture .psb-capture-form { flex-wrap: wrap; margin-top: 14px; }
 
 /* ---------- sections ---------- */
 
