@@ -9,6 +9,8 @@
   --psl-card-ring: 0 0 0 1px color-mix(in srgb, var(--psb-ink) 8%, transparent);
   --psl-card-rest: 0 1px 2px rgba(36, 35, 31, .04), 0 2px 6px -4px rgba(36, 35, 31, .06);
   --psl-card-lift: 0 1px 2px rgba(36, 35, 31, .05), 0 12px 28px -14px rgba(36, 35, 31, .22);
+  container-type: inline-size;
+  container-name: psa-board;
 }
 html[data-mode="dark"] .psl-page {
   --psl-card-ring: 0 0 0 1px color-mix(in srgb, var(--psb-ink) 10%, transparent);
@@ -268,7 +270,7 @@ html[data-mode="dark"] .psl-page {
 }
 .psl-origin { margin-top: 30px !important; }
 
-@media (max-width: 960px) {
+@container psa-board (max-width: 900px) {
   .psl-today-top { grid-template-columns: 1fr; }
   .psl-detail-pair { grid-template-columns: 1fr; }
   .psl-head-main { flex-direction: column; align-items: flex-start; gap: 18px; }

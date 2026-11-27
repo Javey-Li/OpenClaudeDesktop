@@ -69,6 +69,8 @@ test("line card meta shows source, session roles and time without duplicate coun
   assert.doesNotMatch(page, /shortModel\(model\)/);
   assert.doesNotMatch(page, /统计口径：会话数/);
   const css = fs.readFileSync(path.join(app, "src/board-levels.css"), "utf8");
+  assert.match(css, /\.psl-page \{[^}]*container-type: inline-size;[^}]*container-name: psa-board;/s);
+  assert.match(css, /@container psa-board \(max-width: 900px\)/);
   assert.match(css, /\.psl-line-card \.psl-card-meta > span \{[^}]*overflow: visible/s);
   assert.match(css, /\.psl-project-card \.psl-card-meta > span \{[^}]*overflow: visible/s);
   assert.match(css, /\.psl-project-card \.psl-card-meta > span \+ span::before \{ content: none/s);
